@@ -33,7 +33,7 @@ Clarity should get out of the way: being exact must not make common experiments 
 ## How to work
 - State your assumptions in each step report. Ask before decisions that are hard to undo.
 - A step is done when its tests pass. Write tests with the change, and run ruff, ty and pytest before every commit.
-- Keep `docs/design.md` and the README current when a choice, tradeoff or scope decision changes. Say each thing once, briefly.
+- Keep the docs current as you go: update `docs/design.md` and the README in the same commit as a change to a choice, tradeoff, scope or usage. Write for human readers, in Google developer-docs style: lead with the point, use short sentences and plain words, and use lists only for parallel items. Say each thing once. Keep caveats and sources; cut padding.
 - Use the same names everywhere: profile, conversation, turn, call, mark and note mean the same thing in code, profiles, logs and commands.
 - Never open files in `logs/` or `runs/` unless I ask; they hold private conversations. Tests use made-up text.
 

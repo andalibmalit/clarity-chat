@@ -165,7 +165,12 @@ class ChatLoop:
         elif command == "settings":
             self.write(format_settings(session) + "\n")
         elif command == "new":
-            new = session.new_conversation(conversation.profile.name)
+            try:
+                # The profile's own file, so a profile given as a path is found again.
+                new = session.new_conversation(str(conversation.profile.path))
+            except (ConfigError, BackendError) as e:
+                self.write(f"! {e}\n")
+                return True
             self.write(f"New conversation {new.conversation_id}.\n")
         else:
             self.write(f"Unknown command /{command}. /help lists them.\n")
@@ -174,7 +179,7 @@ class ChatLoop:
     def send(self, text: str) -> bool:
         try:
             outcome = self.session.say(text, on_text=self.write)
-        except ContextError as e:
+        except (ContextError, ConfigError) as e:
             self.write(f"! {e}\n")
             return True
         except BackendError as e:

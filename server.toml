@@ -27,3 +27,8 @@ cache-reuse = 0
 threads = 8
 threads-batch = 8
 log-verbosity = 4             # the GPU placement check reads lines logged at level 4
+# Clarity renders every prompt itself and sends token IDs to /completion, which never uses
+# the server's chat template. These two keep the server from parsing the model's template at
+# startup, which can fail (OLMo 3's fails in llama.cpp's Jinja engine) and changes nothing.
+no-jinja = true
+chat-template = "chatml"

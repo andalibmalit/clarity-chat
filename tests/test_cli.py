@@ -79,3 +79,29 @@ def test_unknown_command(loop):
 def test_visible_lines():
     assert visible_lines("a \n\tb\n") == ["'a \\n'", "'\\tb\\n'"]
     assert visible_lines("x") == ["'x'"]
+
+
+def test_new_reloads_a_profile_given_as_a_path(fetched_root, tiny_tokenizer, tmp_path):
+    outside = tmp_path / "elsewhere" / "exp.toml"
+    outside.parent.mkdir()
+    outside.write_text(
+        (fetched_root / "profiles" / "text.toml").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    backend = FakeBackend([" Hi"], tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    output: list[str] = []
+    chat = ChatLoop(session, str(outside), read=lambda: "", write=output.append)
+    chat.start()
+    assert chat.handle("/new")
+    assert session.conversation is not None
+    assert session.conversation.profile.path == outside
+    assert "New conversation" in "".join(output)
+
+
+def test_a_failing_new_keeps_the_chat_running(loop):
+    chat, output, _ = loop
+    first = chat.session.conversation
+    (first.profile.path).write_text("not = [valid", encoding="utf-8")
+    assert chat.handle("/new")
+    assert "! " in "".join(output)
+    assert chat.session.conversation is first

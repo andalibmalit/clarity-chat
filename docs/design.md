@@ -18,6 +18,8 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 
 **Chat templates come from a pinned repo and are logged by hash.** `template_repo` and `template_revision` (default: the model's tokenizer) supply only the template; the model's own tokenizer always does the tokenizing. Every call logs the template's repo, commit, kwargs and sha256, plus the `transformers`, `tokenizers` and `jinja2` versions, because rendering depends on them. The order is fixed: system (if set), priming, then the conversation.
 
+**Text that looks like a control token is a control token.** If your message or a prompt file contains, say, `<|im_end|>`, the tokenizer reads it as that control token, as Hugging Face does everywhere. Clarity keeps this standard behaviour, so both backends get the same IDs. It flags such calls (`special_tokens_in_content`, with where the text was found) and warns when your new message contains one.
+
 **Line endings are part of the prompt.** Prompt files are read byte for byte, so `.gitattributes` stops git from converting line endings in `prompts/`, `profiles/` and the test fixtures. A Windows checkout therefore sends the same bytes.
 
 **Every sampling value is sent, every time.** Settings come from the profile, then `defaults.toml` (neutral values). Every other field llama-server reports in `generation_settings` gets a fixed neutral value. After each call the client checks that the server echoes what was sent (floats at float32 precision) and that no unknown field appeared.
@@ -31,11 +33,14 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 
 **Clarity starts its own llama-server.** Every output-affecting flag is set in `server.toml`, nothing is left on `auto`, and environment variables and config files that llama.cpp would read are removed or refused. After startup and after every call, the client checks `/props` (model path, context size, process alive).
 - Cost: one model at a time. Switching to a profile with another model restarts the server.
+- The server never parses the model's chat template (`no-jinja`, with `chat-template = "chatml"`): Clarity doesn't use it, and OLMo 3's fails to parse in llama.cpp's template engine, which would stop the server from starting.
 - Startup output is read at `log-verbosity` 4, because that is the level at which llama.cpp logs where the weights went. With GPU layers requested, a model that lands on the CPU is an error. The token-embedding table stays on the CPU by design.
 
 **No prompt cache, no context shift.** `cache_prompt` is off and checked (`cache_n == 0`), so every call processes its whole prompt. That is slower for long conversations, but a cached prefix can change results. Context shift is off, so tokens are never dropped silently.
 
 **The context guard allows a call only if prompt + `max_tokens` < context.** llama-server returns at most context − prompt tokens. At exactly prompt + `max_tokens` = context, it returns every token but marks the reply truncated. The guard therefore refuses that case, so an allowed call is never marked truncated (checked live). A warning appears above 80% of the context.
+
+**A model's end token comes from its own files, not from assumptions.** OLMo 3's template closes the last assistant message with `<|endoftext|>`, not `<|im_end|>`, and the model does the same. Both are end tokens in its `generation_config.json`, and llama.cpp stops on either.
 
 **Seeds are always concrete.** `seed = "random"` makes the client draw one and log it, because llama-server doesn't report a seed it picks itself.
 
