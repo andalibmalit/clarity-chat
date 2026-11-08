@@ -218,6 +218,8 @@ If same-seed replay on the same server isn't identical, stop and report before g
 4. **Ask the user before fetching OLMo** (about 58 GB), and agree how to run `pytest -m olmo` on the GPU.
 5. Code review at medium effort, fix, commit, report.
 
+**Docs (user request, 2026-11-07):** README and CLAUDE.md state the problem Clarity solves; `docs/design.md` holds choices, tradeoffs, usage patterns and scope, briefly. Keep both current each step. Still owed in the README at the end: how a profile becomes token IDs, what is logged and why, how to add a backend.
+
 **Environment and sandbox (the user's machine):**
 - An M2 Max with 32 GB; 149 GiB free disk; Python 3.13.12 (miniforge), which uv picked for `.venv`.
 - llama.cpp is shallow-cloned at `vendor/llama.cpp`, commit `f477f795cb07…`, pinned in `server.toml`, with `llama-server` built. `build_info` is `b1-f477f79`.
