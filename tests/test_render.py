@@ -57,7 +57,7 @@ def test_bos_prepended_when_the_tokenizer_config_says_so(text_profile, bos_token
     assert prompt.bos["reason"] == "tokenizer_config.json add_bos_token"
     assert prompt.ids[0] == bos_tokenizer.bos[1]
     assert prompt.ids[1:] == bos_tokenizer.encode(prompt.text)
-    assert prompt.expected_server_text == "<s>" + prompt.text
+    assert bos_tokenizer.decode(prompt.ids) == "<s>" + prompt.text  # what the server should echo
 
 
 def test_bos_not_doubled_when_the_text_starts_with_it(bos_tokenizer):

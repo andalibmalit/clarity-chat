@@ -522,7 +522,13 @@ class LlamaCppBackend:
                         partial("none", []),
                     )
                 for line in response.iter_lines():
-                    chunk = parse_sse_line(line)
+                    try:
+                        chunk = parse_sse_line(line)
+                    except ValueError as e:
+                        raise BackendError(
+                            f"llama-server sent a malformed stream chunk: {line[:200]!r}",
+                            partial("none", []),
+                        ) from e
                     if chunk is None:
                         continue
                     if "error" in chunk:
@@ -560,7 +566,13 @@ class LlamaCppBackend:
             "ok": timings.get("cache_n") == 0,
             "cache_n": timings.get("cache_n"),
         }
-        props_problems = self.server.check_props(self.server.get_props())
+        # The reply is complete; a failure here is a failed check, never a lost reply.
+        try:
+            props_problems = self.server.check_props(self.server.get_props())
+        except (httpx.HTTPError, ValueError) as e:
+            props_problems = [f"/props failed after the reply: {type(e).__name__}: {e}"]
+        except KeyboardInterrupt:
+            props_problems = ["/props check interrupted (Ctrl-C) after the reply"]
         checks["server_props"] = {"ok": not props_problems, "problems": props_problems}
 
         flags = []

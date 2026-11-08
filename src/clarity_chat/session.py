@@ -93,9 +93,15 @@ class Conversation:
         return path[::-1]
 
     def add_turn(
-        self, role: str, origin: str, text: str, parent_id: str | None, **extra: Any
+        self,
+        role: str,
+        origin: str,
+        text: str,
+        parent_id: str | None,
+        turn_id: str | None = None,
+        **extra: Any,
     ) -> Turn:
-        turn = Turn(new_id("turn"), parent_id, role, origin, text, **extra)
+        turn = Turn(turn_id or new_id("turn"), parent_id, role, origin, text, **extra)
         self.turns[turn.turn_id] = turn
         self.log.append(
             {
@@ -179,13 +185,18 @@ class Session:
                 profile.raw_settings, self.defaults, str(profile.path), recommended["values"]
             )
         weights = check_weights_quick(self.root, entry)
+        # Everything that can fail on the profile alone is checked before the server or the
+        # session changes, so a bad /new leaves the current conversation usable.
+        tokenizer, template_tokenizer = self.tokenizers_for(profile, model)
+        template = (
+            chat_template_source(template_tokenizer, profile) if profile.mode == "chat" else None
+        )
         self.backend.start(model, weights)
         self.model, self.model_lock = model, entry
-        self.tokenizer, self.template_tokenizer = self.tokenizers_for(profile, model)
-        self.template = (
-            chat_template_source(self.template_tokenizer, profile)
-            if profile.mode == "chat"
-            else None
+        self.tokenizer, self.template_tokenizer, self.template = (
+            tokenizer,
+            template_tokenizer,
+            template,
         )
         conversation_id = new_id("conversation")
         log = LogFile((log_dir or self.logs_dir) / f"{conversation_id}.jsonl")
@@ -300,7 +311,14 @@ class Session:
                 prompt_text=prompt.text,
                 prompt_ids=prompt.ids,
                 n_prompt_client=len(prompt.ids),
+                special_tokens_in_content=prompt.special_in_content,
             )
+            new_message = self.tokenizer.special_tokens_in(user_turn.text)
+            if new_message:
+                warnings.append(
+                    f"Your message contains {new_message}: the tokenizer reads these as control "
+                    "tokens, not text. /prompt shows the IDs."
+                )
             n_ctx, max_tokens = self.backend.n_ctx, values["max_tokens"]
             if not fits_context(len(prompt.ids), max_tokens, n_ctx):
                 raise ContextError(
@@ -326,24 +344,22 @@ class Session:
             raise
         fields, server_prompt = result_fields(result)
         record.update(fields)
+        if prompt.special_in_content:
+            record["flags"].append("special_tokens_in_content")
         self._check_output(prompt, result, server_prompt, record)
         record["warnings"] = warnings
-        reply = Turn(new_id("turn"), user_turn.turn_id, "assistant", "model", result.text, call_id)
-        record["turn_id"] = reply.turn_id
+        # The call record names the reply's turn, and is written before the turn record.
+        reply_id = new_id("turn")
+        record["turn_id"] = reply_id
         conversation.log.append(record)
-        conversation.turns[reply.turn_id] = reply
-        reply.seed = values["seed"]
-        conversation.log.append(
-            {
-                "type": "turn",
-                "conversation_id": conversation.conversation_id,
-                "turn_id": reply.turn_id,
-                "parent_id": user_turn.turn_id,
-                "role": "assistant",
-                "origin": "model",
-                "text": result.text,
-                "call_id": call_id,
-            }
+        reply = conversation.add_turn(
+            "assistant",
+            "model",
+            result.text,
+            user_turn.turn_id,
+            turn_id=reply_id,
+            call_id=call_id,
+            seed=values["seed"],
         )
         conversation.head = reply.turn_id
         conversation.last_call = record

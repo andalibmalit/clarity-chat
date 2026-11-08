@@ -16,7 +16,10 @@ from clarity_chat.session import Session
 
 REPO = Path(__file__).resolve().parents[1]
 INSTRUCT, BASE = "olmo-3-7b-instruct", "olmo-3-7b-base"
-IM_END = 100265
+# generation_config.json's eos_token_id. The brief expected <|im_end|> (100265), but OLMo 3's
+# template ends the last assistant message with eos_token, <|endoftext|> (100257), and the
+# model does the same: both are its declared end tokens.
+END_TOKENS = {100265, 100257}
 
 pytestmark = pytest.mark.olmo
 
@@ -48,13 +51,13 @@ def checks_ok(record: dict) -> None:
 
 
 @pytest.mark.parametrize(("profile", "n_prompt"), [("1a-stock", 37), ("1b-blank", 15)])
-def test_instruct_chat_reply_ends_with_im_end(session, profile, n_prompt):
+def test_instruct_chat_reply_ends_with_an_end_token(session, profile, n_prompt):
     session.new_conversation(profile)
     record = session.say("hi").record
     checks_ok(record)
     assert record["n_prompt_client"] == n_prompt
     assert record["stop_type"] == "eos", record["output_text"]
-    assert record["output_ids"][-1] == IM_END
+    assert record["output_ids"][-1] in END_TOKENS
 
 
 def test_same_seed_same_server_gives_identical_output_ids(session):

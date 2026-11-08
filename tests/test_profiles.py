@@ -171,6 +171,9 @@ def test_server_config_rejects_flags(root, line, message):
         ("parallel = 1", "parallel = 2", "parallel must be"),
         ("ctx-size = 8192\n", "", "must set"),
         ("log-verbosity = 4 ", "log-verbosity = 3 ", "at least 4"),
+        ("cache-ram = 0", "cache-ram = false", "need a value"),  # False == 0 in Python
+        ("threads = 8\n", "threads = false\n", "need a value"),
+        ('n-gpu-layers = "all"', "n-gpu-layers = -1", "explicit"),
     ],
 )
 def test_server_config_requires_explicit_values(root, old, new, message):
@@ -178,3 +181,18 @@ def test_server_config_requires_explicit_values(root, old, new, message):
     path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
     with pytest.raises(ConfigError, match=message):
         load_server_config(root)
+
+
+@pytest.mark.parametrize("line", ["temperature = nan", "presence_penalty = inf", "top_p = -inf"])
+def test_non_finite_numbers_are_rejected(root, line):
+    write_profile(root, "p", BASE + f"[settings]\n{line}\n")
+    with pytest.raises(ConfigError):
+        load_profile(root, "p", load_defaults(root))
+
+
+@pytest.mark.parametrize("key", ["tokenize", "add_generation_prompt", "chat_template"])
+def test_template_kwargs_cannot_override_what_clarity_sets(root, key):
+    chat = 'backend = "llama.cpp"\nmodel = "tiny"\nmode = "chat"\n'
+    write_profile(root, "p", chat + f'[template_kwargs]\n{key} = "x"\n')
+    with pytest.raises(ConfigError, match="can't set"):
+        load_profile(root, "p", load_defaults(root))

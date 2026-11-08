@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from functools import cache, cached_property
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,7 @@ TOKENIZER_FILES = [
 ]
 
 
+@cache
 def library_versions() -> dict[str, str]:
     """Rendering and tokenization depend on these, so every call logs them."""
     return {name: version(name) for name in ("transformers", "tokenizers", "jinja2")}
@@ -80,6 +82,16 @@ class Tokenizer:
     @property
     def bos(self) -> tuple[str | None, int | None]:
         return self.tok.bos_token, self.tok.bos_token_id
+
+    @cached_property
+    def special_token_texts(self) -> list[str]:
+        """Texts the tokenizer turns into control tokens wherever they appear."""
+        texts = {t.content for t in self.tok.added_tokens_decoder.values() if t.special}
+        texts.update(self.tok.all_special_tokens)
+        return sorted(t for t in texts if t)
+
+    def special_tokens_in(self, text: str) -> list[str]:
+        return [t for t in self.special_token_texts if t in text]
 
     def probe_adds_bos(self) -> bool:
         """Does the tokenizer itself put BOS first when asked to add special tokens?"""
@@ -135,13 +147,9 @@ class Prompt:
     ids: list[int]
     bos: dict[str, Any]  # the BOS decision, plus whether BOS was prepended
     template: dict[str, Any] | None  # chat mode: repo, revision, kwargs
-
-    @property
-    def expected_server_text(self) -> str:
-        """What a server decoding `ids` should print: BOS (if prepended) plus the text."""
-        if self.bos.get("prepended"):
-            return (self.bos["bos_token"] or "") + self.text
-        return self.text
+    # Control-token texts found in content (system, priming, header, turns), as
+    # {"in": where, "tokens": [...]}: the tokenizer reads them as control tokens, not text.
+    special_in_content: list[dict[str, Any]]
 
 
 def tokenize(tokenizer: Tokenizer, text: str, mode: str) -> tuple[list[int], dict[str, Any]]:
@@ -195,15 +203,39 @@ def chat_messages(profile: Profile, turns: list[tuple[str, str]]) -> list[dict[s
 
 def render_chat(template: Tokenizer, profile: Profile, turns: list[tuple[str, str]]) -> str:
     """The chat template's output for this conversation, ending with the generation prompt."""
-    text = template.tok.apply_chat_template(
-        chat_messages(profile, turns),
-        tokenize=False,
-        add_generation_prompt=True,
-        **profile.template_kwargs,
-    )
+    try:
+        text = template.tok.apply_chat_template(
+            chat_messages(profile, turns),
+            tokenize=False,
+            add_generation_prompt=True,
+            **profile.template_kwargs,
+        )
+    except Exception as e:  # Jinja errors, raise_exception() in the template, bad kwargs
+        raise ConfigError(
+            f"Profile {profile.name}: the chat template failed: {type(e).__name__}: {e}"
+        ) from e
     if not isinstance(text, str):
         raise ConfigError(f"Profile {profile.name}: the chat template did not return text.")
     return text
+
+
+def special_in_content(
+    tokenizer: Tokenizer, profile: Profile, turns: list[tuple[str, str]]
+) -> list[dict[str, Any]]:
+    if profile.mode == "chat":
+        pieces = [("system", profile.system or "")]
+        pieces += [
+            (f"priming {i + 1}", m["content"]) for i, m in enumerate(profile.priming_messages)
+        ]
+    else:
+        pieces = [("header", profile.header), ("priming", profile.priming_text)]
+    pieces += [(f"turn {i + 1} ({role})", text) for i, (role, text) in enumerate(turns)]
+    found = []
+    for where, text in pieces:
+        tokens = tokenizer.special_tokens_in(text)
+        if tokens:
+            found.append({"in": where, "tokens": tokens})
+    return found
 
 
 def build_prompt(
@@ -217,9 +249,11 @@ def build_prompt(
     if profile.mode == "text":
         text = render_text(profile, turns)
         ids, bos = tokenize(tokenizer, text, "text")
-        return Prompt(text=text, ids=ids, bos=bos, template=None)
+        found = special_in_content(tokenizer, profile, turns)
+        return Prompt(text=text, ids=ids, bos=bos, template=None, special_in_content=found)
     source = template or tokenizer
     template_info = chat_template_source(source, profile)  # checks there is a template first
     text = render_chat(source, profile, turns)
     ids, bos = tokenize(tokenizer, text, "chat")
-    return Prompt(text=text, ids=ids, bos=bos, template=template_info)
+    found = special_in_content(tokenizer, profile, turns)
+    return Prompt(text=text, ids=ids, bos=bos, template=template_info, special_in_content=found)

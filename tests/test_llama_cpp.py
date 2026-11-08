@@ -176,3 +176,70 @@ def test_model_quietly_on_cpu_is_an_error_when_gpu_layers_are_asked_for():
     problem = placement_problem({"n-gpu-layers": "all"}, placement)
     assert problem is not None and "put the model on the CPU" in problem
     assert placement_problem({"n-gpu-layers": 0}, placement) is None
+
+
+class FakeStream:
+    def __init__(self, lines):
+        self.status_code = 200
+        self.lines = lines
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def iter_lines(self):
+        yield from self.lines
+
+
+class PropsFail:
+    url = "http://127.0.0.1:1"
+
+    def get_props(self):
+        import httpx
+
+        raise httpx.ConnectError("server gone")
+
+    def check_props(self, props):
+        return []
+
+
+def fake_backend(monkeypatch, root, lines):
+    import json
+
+    from clarity_chat.backends import llama_cpp
+    from clarity_chat.profiles import load_server_config
+
+    backend = llama_cpp.LlamaCppBackend(load_server_config(root), root / "logs")
+    monkeypatch.setattr(backend, "server", PropsFail())  # only what complete() uses
+    encoded = [line if isinstance(line, str) else "data: " + json.dumps(line) for line in lines]
+    monkeypatch.setattr(llama_cpp.httpx, "stream", lambda *a, **k: FakeStream(encoded))
+    return backend
+
+
+FINAL = {
+    "content": "",
+    "tokens": [],
+    "stop": True,
+    "stop_type": "eos",
+    "tokens_evaluated": 2,
+    "tokens_predicted": 1,
+    "timings": {"cache_n": 0},
+    "generation_settings": {},
+}
+
+
+def test_a_props_failure_after_the_reply_is_a_failed_check_not_a_lost_reply(monkeypatch, root):
+    backend = fake_backend(monkeypatch, root, [{"content": "Hi", "tokens": [5]}, FINAL])
+    result = backend.complete([1, 2], SETTINGS, [])
+    assert result.text == "Hi"
+    assert result.checks["server_props"]["ok"] is False
+    assert "check_failed:server_props" in result.flags
+
+
+def test_a_malformed_stream_chunk_is_a_backend_error_with_the_partial_reply(monkeypatch, root):
+    backend = fake_backend(monkeypatch, root, [{"content": "Hi", "tokens": [5]}, "data: {oops"])
+    with pytest.raises(BackendError, match="malformed") as caught:
+        backend.complete([1, 2], SETTINGS, [])
+    assert caught.value.partial is not None and caught.value.partial.text == "Hi"

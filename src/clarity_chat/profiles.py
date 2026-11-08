@@ -6,6 +6,7 @@ instead of silently changing what the model gets. The tool never writes these fi
 
 from __future__ import annotations
 
+import math
 import re
 import tomllib
 from dataclasses import dataclass, field
@@ -60,6 +61,17 @@ SEED_MAX = 2**32 - 2  # llama.cpp reads 0xFFFFFFFF (2**32 - 1) as "pick a random
 ORIGINS = ("profile", "model", "default", "backend", "regen")  # "model": its recommended value
 
 PROFILE_KEYS_COMMON = {"backend", "model", "mode", "settings", "use_recommended"}
+# apply_chat_template arguments that Clarity sets, or that would change what it renders or
+# returns behind the logged template (chat_template replaces the template's text).
+RESERVED_TEMPLATE_KWARGS = {
+    "conversation",
+    "tokenize",
+    "add_generation_prompt",
+    "continue_final_message",
+    "return_dict",
+    "return_tensors",
+    "chat_template",
+}
 PROFILE_KEYS_CHAT = {"template_repo", "template_revision", "template_kwargs", "system", "priming"}
 PROFILE_KEYS_TEXT = {"header", "user_name", "assistant_name", "priming"}
 MODES = ("chat", "text")
@@ -102,6 +114,8 @@ def _number(value: object) -> float | None:
     """The value as a float if it's an int or float (TOML has no other numbers), else None."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
+    if not math.isfinite(value):
+        return None  # nan passes every range check, and inf has no JSON form
     return float(value)
 
 
@@ -351,6 +365,12 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
         kwargs = data.get("template_kwargs", {})
         if not isinstance(kwargs, dict):
             raise ConfigError(f"{where}: template_kwargs must be a table.")
+        reserved = sorted(set(kwargs) & RESERVED_TEMPLATE_KWARGS)
+        if reserved:
+            raise ConfigError(
+                f"{where}: template_kwargs can't set {reserved}: Clarity sets these itself, and "
+                "chat_template would replace the logged template."
+            )
         profile.template_kwargs = kwargs
     else:
         for key in ("user_name", "assistant_name"):
@@ -441,6 +461,9 @@ REQUIRED_FLAGS = (
     "threads-batch",
     "log-verbosity",
 )
+# Required flags that are on/off switches (true passes the bare flag, false leaves it out);
+# every other required flag needs a value.
+SWITCH_FLAGS = {"no-context-shift", "swa-full", "no-cache-idle-slots"}
 # llama.cpp logs device and model-buffer lines at its trace level (4). The GPU placement check
 # reads them from the startup output, so a lower verbosity would hide them.
 MIN_LOG_VERBOSITY = 4
@@ -519,13 +542,21 @@ def load_server_config(root: Path) -> ServerConfig:
             raise ConfigError(f"{where}: flag {name!r} is not allowed here.")
         if not isinstance(value, (bool, int, str)):
             raise ConfigError(f"{where}: flag {name!r} must be true/false, a number or a string.")
-        if value == "auto" or value == "-1":
+        if value == "auto" or (not isinstance(value, bool) and value in ("-1", -1)):
             raise ConfigError(f"{where}: flag {name!r} must be explicit, not {value!r}.")
     missing = [name for name in REQUIRED_FLAGS if name not in flags]
     if missing:
         raise ConfigError(f"{where}: [flags] must set {missing} explicitly.")
+    valued = [name for name in REQUIRED_FLAGS if name not in SWITCH_FLAGS]
+    switches_with_values = [name for name in valued if isinstance(flags[name], bool)]
+    if switches_with_values:
+        raise ConfigError(
+            f"{where}: {switches_with_values} need a value, not true or false "
+            "(false would leave the flag out, so llama-server's default would apply)."
+        )
     for name, required in REQUIRED_VALUES.items():
-        if flags[name] != required:
+        # type() too: in Python False == 0, and false would leave the flag out.
+        if type(flags[name]) is not type(required) or flags[name] != required:
             raise ConfigError(f"{where}: {name} must be {required!r}, got {flags[name]!r}.")
     if not ("kv-unified" in flags) ^ ("no-kv-unified" in flags):
         raise ConfigError(f"{where}: set exactly one of kv-unified or no-kv-unified.")

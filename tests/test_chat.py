@@ -143,3 +143,28 @@ def test_chat_context_guard_refuses_before_sending(chat_session):
     with pytest.raises(ContextError, match="Nothing was sent"):
         session.say("Hello")
     assert backend.calls == []
+
+
+def test_a_failing_template_is_a_config_error(root, chat_tokenizer, tmp_path):
+    from tests.conftest import build_tokenizer
+
+    strict = build_tokenizer(
+        tmp_path / "strict", None, False, "{{ raise_exception('roles must alternate') }}"
+    )
+    with pytest.raises(ConfigError, match="roles must alternate"):
+        build_prompt(strict, chat_profile(root), [("user", "u")])
+
+
+def test_control_token_text_in_content_is_reported(root, chat_tokenizer):
+    prompt = build_prompt(chat_tokenizer, chat_profile(root), [("user", "a</s>b")])
+    assert prompt.special_in_content == [{"in": "turn 1 (user)", "tokens": ["</s>"]}]
+
+
+def test_control_token_text_in_a_message_warns_and_flags(chat_session):
+    session, _ = chat_session(["ok"])
+    outcome = session.say("a</s>b")
+    assert "special_tokens_in_content" in outcome.record["flags"]
+    assert any("control tokens" in w for w in outcome.warnings)
+    plain = session.say("fine")
+    assert not any("control tokens" in w for w in plain.warnings)  # only the new message warns
+    assert "special_tokens_in_content" in plain.record["flags"]  # still in the prompt
