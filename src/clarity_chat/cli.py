@@ -71,11 +71,12 @@ def format_settings(session: Session) -> str:
     last = conversation.last_call or {}
     backend_settings = last.get("backend_settings")
     if backend_settings is None:
-        from clarity_chat.backends.llama_cpp import NEUTRAL_REQUEST
+        if session.backend.name == "transformers":
+            from clarity_chat.backends.transformers_hf import NEUTRAL_CONFIG as neutral
+        else:
+            from clarity_chat.backends.llama_cpp import NEUTRAL_REQUEST as neutral
 
-        backend_settings = {
-            k: {"value": v, "origin": "backend"} for k, v in NEUTRAL_REQUEST.items()
-        }
+        backend_settings = {k: {"value": v, "origin": "backend"} for k, v in neutral.items()}
     lines.append(f"backend {session.backend.name}: fixed values for its other sampling fields")
     for name, entry in backend_settings.items():
         lines.append(f"  {name} = {entry['value']!r}")
@@ -375,9 +376,6 @@ def cmd_run(root: Path, openings: Path, profiles: list[str], seeds: int) -> int:
 
 def cmd_replay(root: Path, log_path: Path, call_id: str, logged_flags: bool) -> int:
     """Exit status 0 if the output is identical, 1 if it differs (or on an error)."""
-    import dataclasses
-
-    from clarity_chat.backends.llama_cpp import LlamaCppBackend
     from clarity_chat.replay import find_call
 
     session = Session(root, logs_dir=log_path.parent)  # the server's output log goes alongside
@@ -388,8 +386,7 @@ def cmd_replay(root: Path, log_path: Path, call_id: str, logged_flags: bool) -> 
         server = found[1]
         if server is None:
             raise ConfigError(f"{log_path} has no server record for {call_id}'s server.")
-        config = dataclasses.replace(session.server_config, flags=server["flags"])
-        session.backend = LlamaCppBackend(config, session.logs_dir)
+        session.use_server_flags(server["flags"])
         flags_from = f"logged ({server['server_id']})"
     try:
         record = session.replay(log_path, call_id, flags_from=flags_from, found=found)

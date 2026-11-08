@@ -161,13 +161,18 @@ def run_batch(
     }
     log = LogFile(run_dir / "calls.jsonl")
     log.append({"type": "run", **facts, "client": client_git(), "machine": machine()})
-    # Group the calls by model, so each model loads once.
-    models = list(dict.fromkeys(p.model.name for p in prepared.values()))
-    order = sorted(profile_names, key=lambda name: models.index(prepared[name].model.name))
+
+    # Group the calls by backend and model, so each model loads once.
+    def loaded(name: str) -> tuple[str, str | None, str]:
+        profile = prepared[name].profile
+        return profile.backend, profile.device, prepared[name].model.name
+
+    groups = list(dict.fromkeys(loaded(name) for name in profile_names))
+    order = sorted(profile_names, key=lambda name: groups.index(loaded(name)))
     total = len(openings) * len(profile_names) * n_seeds
     replies: dict[tuple[int, str, int], Reply] = {}
     shown: set[str] = set()
-    started: set[str] = set()  # models whose server this run started
+    started: set[tuple[str, str | None, str]] = set()  # what this run has loaded
 
     def warn(message: str) -> None:
         if message not in shown:  # each warning once; they never contain reply text
@@ -176,7 +181,7 @@ def run_batch(
 
     write(f"Run {run_id}: {total} calls.\n")
     for name in order:
-        model = prepared[name].model.name
+        model = loaded(name)
         for i, opening in enumerate(openings, 1):
             for seed in seeds:
                 where = f"opening {i}, profile {name}, seed {seed}"
@@ -187,7 +192,7 @@ def run_batch(
                     if conversation.started_server is not None:
                         if model in started:
                             raise RunError(
-                                f"llama-server for {model} restarted during the run (before "
+                                f"{model[2]} ({model[0]}) restarted during the run (before "
                                 f"{where}), so its calls didn't all use one server."
                             )
                         started.add(model)

@@ -236,13 +236,20 @@ If same-seed replay on the same server isn't identical, stop and report before g
 - **Downloaded GGUFs stay in the Hugging Face cache** (`models.lock` records `~/.cache/...`), rather than being copied into `models/`. Recommended settings come from the tokenizer repo's `generation_config.json`.
 - **The GGUF route's live test uses a third-party file** (`bartowski/SmolLM2-135M-Instruct-GGUF`, Q8_0, pinned by commit and sha256), because no official SmolLM2 GGUF exists. It lives only in the test's temporary project, not in `models.toml`. The test downloads 145 MB once.
 - **`/prompt` and `/settings` follow the head** after `/undo`, `/edit` or `/regen` (review finding): they show the call of the reply you are on, not the last call made.
+- **Transformers `device` is a profile key** (`"mps"` default, `"cpu"`, `"cuda"`), allowed only with `backend = "transformers"`. An unavailable device is an error, never a fallback.
+- **`PYTORCH_ENABLE_MPS_FALLBACK` set to anything but 0 is refused on MPS** (it silently runs missing operations on the CPU). Other `PYTORCH_*`/`TORCH_*` variables are logged and warned about.
+- **The Transformers backend's context size is `ctx-size` from `server.toml`,** so the context guard is the same on both backends; a model with fewer positions is an error.
+- **The Transformers backend logs `server_start` records** (with a `backend-…` ID) like llama-server's, so replay and batch treat both backends alike.
+- **min_p 0 maps to no min-p processor** on Transformers; greedy (temperature 0) sets the warpers to their off values, since Transformers ignores them when not sampling.
+- **PyTorch deterministic mode:** never turned on; its state is logged at backend start, with a warning if on (checker's recommendation in the primer).
+- **Live result:** greedy SmolLM2 output matched across llama.cpp and Transformers for one prompt (information only; not asserted).
 - **`Session.prepare`** now holds the profile checks that `new_conversation` used to do inline, so batch runs and `/new` share them.
 - **PyTorch deterministic mode (your question tonight):** still not planned for step 5. An agent is writing `docs/research/determinism-primer.md` (foundations, what the mode does on CUDA, CPU and MPS, and an audit of the complexity the nondeterminism work added); a second agent will check it before you read it.
 
 **Next actions, in order:**
 1. Step 3 is done: batch mode, reviewed (medium), nine of ten findings fixed. The tenth (a run's single server record carries the first conversation's ID) is documented: replay finds servers by `server_id`.
 2. Step 4 is done and reviewed (medium, because it came to about 540 source lines; all ten findings fixed): branches (`/regen`, `/edit`, `/undo`), `/profile`, `/mark`, `/note`, replay (`clarity replay`, `/replay`, with `unexplained_difference`) and the GGUF-download route, all tested live.
-3. Step 5: no `use_deterministic_algorithms` (it does nothing on MPS); gate the MPS backend on the same live replay tests; log torch and macOS versions.
+3. Step 5 is done: the Transformers backend. MPS passed the repeat and reload tests on SmolLM2 and OLMo 3 Instruct, so no MPS warning. Next: the final review (high effort, Opus reviewers, whole codebase).
 
 **Docs (user request, 2026-11-07):** README and CLAUDE.md state the problem Clarity solves; `docs/design.md` holds choices, tradeoffs, usage patterns and scope, briefly. Keep both current each step. Still owed in the README at the end: how a profile becomes token IDs, what is logged and why, how to add a backend.
 

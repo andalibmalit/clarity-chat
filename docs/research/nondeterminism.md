@@ -51,7 +51,7 @@ Every call fills cells from 0 upward. OLMo 3's sliding-window cache is a ring of
 
 ## 3. Transformers on MPS (step 5)
 
-- `torch.use_deterministic_algorithms(True)` makes no MPS operation deterministic. On MPS it only makes some operations raise errors: `scatter_reduce`, `index_put(accumulate=True)`, `index_reduce` (prod/mean), `kthvalue`, and several backward passes. "This setting alone is not always enough to make an application reproducible." **[web]** [PyTorch 2.15 docs](https://docs.pytorch.org/docs/2.15/generated/torch.use_deterministic_algorithms.html)
+- `torch.use_deterministic_algorithms(True)` makes no MPS operation deterministic in PyTorch 2.15 (unreleased `main` lists five, none used in inference). On MPS it only makes some operations raise errors: `scatter_reduce`, `index_put(accumulate=True)`, `index_reduce` (prod/mean), `kthvalue`, and several backward passes. "This setting alone is not always enough to make an application reproducible." **[web]** [PyTorch 2.15 docs](https://docs.pytorch.org/docs/2.15/generated/torch.use_deterministic_algorithms.html)
 - In the SDPA backends, MATH is deterministic in both directions. Flash, efficient and cuDNN are deterministic in the forward pass and nondeterministic only in the backward pass. MPS isn't mentioned. **[web]** [PyTorch randomness notes](https://docs.pytorch.org/docs/2.15/notes/randomness.html)
 - Transformers' `enable_full_determinism` sets CUDA, Ascend and flash-attention variables, the cuDNN flags and `use_deterministic_algorithms`. It has no MPS branch. **[web]** [trainer_utils.py](https://raw.githubusercontent.com/huggingface/transformers/main/src/transformers/trainer_utils.py)
 - MPS forward kernels are Apple's MPS/MPSGraph code. Which kernel runs is opaque and may change with macOS and torch versions. Expect run-to-run determinism at batch size 1 on one setup, but check it with the same live test as llama.cpp. Don't expect the two backends to match bit for bit (the brief already treats that comparison as informational). **[inf]**
@@ -75,7 +75,7 @@ Every call fills cells from 0 upward. OLMo 3's sliding-window cache is a ring of
 | llama.cpp commit | **Controlled and logged** (pin plus a `build_info` check). CMake options are **not logged** |
 | GPU family | **Logged** (device description from the startup output). Not controllable |
 | macOS / Metal compiler | **Logged** via `platform.platform()` and `os_version` (`logs.py:103-108`). Not controllable |
-| `GGML_*`/`LLAMA_*` environment | **Partly logged:** names only |
+| `GGML_*`/`LLAMA_*` environment | **Logged:** names and values (since `68c5bdb`; secret-looking names by name only) |
 | Weights | **Controlled and logged** (sha256) |
 | MPS kernels (step 5) | **Neither.** Log the torch and macOS versions and test live |
 
@@ -120,7 +120,7 @@ Every call fills cells from 0 upward. OLMo 3's sliding-window cache is a ring of
 2. **Live test: replay after a different, longer call.** Make call A, then call B with a longer prompt, then repeat A and expect identical output IDs. For OLMo, make B's prompt longer than 4608 tokens so the sliding-window ring wraps during prefill, which is fast.
 3. **Log the values of the kept `GGML_*`/`LLAMA_*` environment variables, not just their names.**
 4. **In the replay report**, when the output differs and the only differing fact is the client commit (or none), mark it as the unexplained case.
-5. **Step 5 (MPS):** gate on the same back-to-back and restart live tests, and log the torch and macOS versions. Don't rely on `use_deterministic_algorithms(True)`: it makes no MPS operation deterministic.
+5. **Step 5 (MPS):** gate on the same back-to-back and restart live tests, and log the torch and macOS versions. Don't rely on `use_deterministic_algorithms(True)`: in 2.15 it makes no MPS operation deterministic, and nothing in inference. See `determinism-primer.md`.
 
 ## Not verified
 

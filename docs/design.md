@@ -54,6 +54,14 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 
 **Logs are append-only JSONL, one file per conversation** (a batch run puts all its conversations in one `calls.jsonl`), with a `schema_version`. Every call writes a record, including failures and Ctrl-C (`stop_type` `cancelled`). Readers ignore unknown keys, so later additions (token probabilities, reasoning text) need no format change. `logs/` and `runs/` are private and gitignored.
 
+**The Transformers backend runs the same weights in-process** (`backend = "transformers"`, `uv sync --extra hf`). It loads the official weights the GGUF was converted from, in bf16, on MPS by default (`device = "cpu"` or `"cuda"` to change it), and gets the same token IDs as llama-server.
+- Every output-affecting `GenerationConfig` field is set on every call. Transformers would otherwise fill unset fields from the model's `generation_config.json` and then its own defaults (`top_k` 50, for one), so the model's config is replaced with an empty one at load and the effective config is checked after each call. Only `eos_token_id` comes from the model's file, and it is logged.
+- Transformers applies its samplers in a fixed order (repetition penalty, temperature, top_k, top_p, min_p). A profile with another order runs in this one, and the record lists `samplers` as not applied, with the order used. `presence_penalty`, `frequency_penalty` and `repeat_last_n` have no equivalent and are always listed as not applied.
+- Stop strings end generation like llama-server's: the output IDs include the stop string's tokens, the text leaves it out.
+- `PYTORCH_ENABLE_MPS_FALLBACK` is refused on MPS, because it would run unsupported operations on the CPU without notice. Inherited `PYTORCH_*`/`TORCH_*` variables are logged with values and are a start warning.
+- PyTorch's deterministic mode is never turned on: in inference it makes nothing deterministic on MPS or CPU and can only raise errors. Its state is logged, with a warning if something else turned it on. See `docs/research/determinism-primer.md`.
+- Only one model is ever in memory: switching to a profile on the other backend stops the current one first.
+
 **Branches never overwrite.** `/regen` adds another reply to the same message, `/edit` adds a new version of your last message, and `/undo` moves back one exchange so the next message starts a branch. Every turn stays in the log with its parent and origin (`regen_of` and `edit_of` say what it is an alternative to).
 - `/regen` uses the first reply's seed plus k for the k-th regeneration, logged with origin `regen`. With the same seed it would only repeat the reply; checking that is `/replay`'s job.
 - An edited message is a new message, so it uses the profile's seed.
@@ -75,7 +83,7 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 
 ## Determinism and replay
 
-**The same call on the same machine and build gives the same output.** This holds at any temperature, because the seed is always fixed. Live tests check it back to back, after a longer call in between, and after a server restart, for SmolLM2 and OLMo 3. It holds because Clarity removes what usually varies: one request at a time (one slot), no prompt cache, and fixed batch sizes, so every GPU kernel sees the same shapes every time.
+**The same call on the same machine and build gives the same output.** This holds at any temperature, because the seed is always fixed. Live tests check it back to back, after a longer call in between, and after a server restart, for SmolLM2 and OLMo 3. The Transformers backend passes the same checks (back to back and after a reload) on MPS for SmolLM2 and OLMo 3 Instruct, and on the CPU for SmolLM2. It holds because Clarity removes what usually varies: one request at a time (one slot), no prompt cache, and fixed batch sizes, so every GPU kernel sees the same shapes every time.
 
 **Some changes can change the output, and that's expected.** Floating-point sums depend on their order, and when the top tokens are nearly tied, one flipped token changes the rest of the reply. These change the order:
 - the llama.cpp build, batch or micro-batch size, flash attention or KV cache type
@@ -90,7 +98,7 @@ Clarity logs all of these, and replay lists the ones that differ.
 
 There is no general "results may vary" notice. The avoidable causes are already removed, and the rest is logged. Replay flags the one case that needs attention: output that differs although nothing that could explain it changed (`unexplained_difference`).
 
-**Not attempted:** identical output across machines, builds or backends, which no inference stack offers; llama.cpp's experimental batch-invariant kernels, which fix a variation Clarity's single-slot setup doesn't have; and a determinism guarantee for the Transformers backend on Apple GPUs, which PyTorch doesn't provide (step 5 runs the same live tests instead). Research and sources: `docs/research/nondeterminism.md`.
+**Not attempted:** identical output across machines, builds or backends, which no inference stack offers; llama.cpp's experimental batch-invariant kernels, which fix a variation Clarity's single-slot setup doesn't have; and a determinism guarantee for the Transformers backend on Apple GPUs, which PyTorch doesn't provide (the live tests above check it instead; a failure would become a start-up warning). Research and sources: `docs/research/nondeterminism.md`.
 
 ## Usage patterns
 
