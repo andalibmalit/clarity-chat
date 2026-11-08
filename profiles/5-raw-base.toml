@@ -1,0 +1,19 @@
+# Check 0, setup 5: the base model continuing the same plain document as setup 4.
+backend = "llama.cpp"
+model = "olmo-3-7b-base"
+mode = "text"
+header = { file = "../prompts/header.txt" }
+user_name = "User"
+assistant_name = "Assistant"
+
+# Check 0 settings, shared by every Check 0 profile (OLMo 3's generation_config.json values
+# for temperature and top_p; everything else off). The context size (8192) is in server.toml.
+[settings]
+temperature = 0.6
+top_p = 0.95
+top_k = 0
+min_p = 0.0
+repeat_penalty = 1.0
+max_tokens = 1024
+seed = 42
+samplers = ["top_k", "top_p", "min_p", "temperature"]

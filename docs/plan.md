@@ -209,14 +209,14 @@ If same-seed replay on the same server isn't identical, stop and report before g
 
 ## Status and decisions since approval (updated 2026-11-07, after step 1)
 
-**Where we are:** step 1 is done: SmolLM2 fetched (converting twice gave a byte-identical GGUF), and 7 live tests pass on the GPU (`MTL0`, Apple M2 Max) alongside 92 offline tests, ruff and ty. Step 2 is next.
+**Where we are:** step 1 is done (`a39ef1f`). Step 2 is built but not finished:
+- Done: chat rendering, with the model's tokenizer always tokenizing and `template_repo` supplying only the template, whose sha256 is logged. The OLMo fixtures pass the 37/15 and exact-prompt tests offline. The Check 0 profiles, `smol-chat` and the placeholder `prompts/` exist. `.gitattributes` keeps line endings in prompts, profiles and fixtures. 8 live tests (chat mode on SmolLM2 included) and 118 offline tests pass.
+- Waiting on the user: approval to fetch OLMo (about 58 GB; 147 GiB free) and a decision on the "gets out of the way" tensions listed in the step 1 and 2 report.
 
-**Next actions, in order (step 2):**
-1. Chat rendering (`apply_chat_template`) and the context guard for chat mode.
-2. Commit the OLMo tokenizer fixtures under `tests/fixtures/` (pinned commit, Apache 2.0) with the 37/15 and exact-prompt tests.
-3. Write the Check 0 profiles and the placeholder `prompts/` files.
-4. **Ask the user before fetching OLMo** (about 58 GB), and agree how to run `pytest -m olmo` on the GPU.
-5. Code review at medium effort, fix, commit, report.
+**Next actions, in order:**
+1. After approval: `uv run clarity fetch olmo-3-7b-instruct`, then `olmo-3-7b-base`. Then `uv run pytest -m olmo -v`, run on its own (no pipe) so it runs outside the sandbox on the GPU. `tests/test_olmo.py` is already written.
+2. Code review at medium effort (template rendering and tokenization), fix, commit, report.
+3. Step 3: batch mode.
 
 **Docs (user request, 2026-11-07):** README and CLAUDE.md state the problem Clarity solves; `docs/design.md` holds choices, tradeoffs, usage patterns and scope, briefly. Keep both current each step. Still owed in the README at the end: how a profile becomes token IDs, what is logged and why, how to add a backend.
 

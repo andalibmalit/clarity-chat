@@ -25,7 +25,7 @@ Clarity removes that hidden layer, without making experiments harder to run:
 
 ## Status
 
-Built so far: fetching and converting a model, the managed llama-server, text mode and the chat loop (`/prompt`, `/settings`, `/new`, `/quit`). Coming next, in order: chat templates, batch mode for blind comparisons, branches and replay, and a Transformers backend.
+Built so far: fetching and converting a model, the managed llama-server, chat mode (the model's chat template) and text mode (a plain document), and the chat loop (`/prompt`, `/settings`, `/new`, `/quit`). Coming next, in order: batch mode for blind comparisons, branches and replay, and a Transformers backend.
 
 ## Quick start
 

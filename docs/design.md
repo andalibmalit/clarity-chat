@@ -16,6 +16,10 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 
 **BOS is decided per mode and logged.** Text mode follows `add_bos_token` in `tokenizer_config.json`, cross-checked by probing the tokenizer; if they disagree, the profile won't load. Chat mode never prepends BOS: the chat template decides.
 
+**Chat templates come from a pinned repo and are logged by hash.** `template_repo` and `template_revision` (default: the model's tokenizer) supply only the template; the model's own tokenizer always does the tokenizing. Every call logs the template's repo, commit, kwargs and sha256, plus the `transformers`, `tokenizers` and `jinja2` versions, because rendering depends on them. The order is fixed: system (if set), priming, then the conversation.
+
+**Line endings are part of the prompt.** Prompt files are read byte for byte, so `.gitattributes` stops git from converting line endings in `prompts/`, `profiles/` and the test fixtures. A Windows checkout therefore sends the same bytes.
+
 **Every sampling value is sent, every time.** Settings come from the profile, then `defaults.toml` (neutral values). Every other field llama-server reports in `generation_settings` gets a fixed neutral value. After each call the client checks that the server echoes what was sent (floats at float32 precision) and that no unknown field appeared.
 - Why: llama-server's defaults are not neutral, and since the converter copies `generation_config.json` into the GGUF, the server's defaults can differ per model.
 - Cost: the neutral table is tied to the pinned llama.cpp commit. An upgrade that adds a sampler fails the "unaccounted settings" check until the table is updated.
@@ -52,6 +56,7 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 - **Compare two setups:** make two profiles that differ in one key. Everything else, including settings you didn't set, is the same, because it comes from `defaults.toml`.
 - **Try a model's own settings:** add `use_recommended = true`; `/settings` shows which values came from the model.
 - **Check reproducibility:** a fixed seed on the same server gives identical output token IDs (tested live).
+- **Same model, chat versus plain document:** `4-raw-instruct` sends the instruct model a plain document with no template; compare it with a chat profile to see what the template contributes.
 
 ## Not in scope
 

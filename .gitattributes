@@ -1,0 +1,5 @@
+# Fixtures are copied byte for byte from their source; never convert line endings.
+tests/fixtures/** -text
+# Prompt files and profiles go into prompts byte for byte: keep their line endings as written.
+prompts/** -text
+profiles/** -text
