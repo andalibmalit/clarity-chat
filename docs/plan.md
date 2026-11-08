@@ -213,6 +213,15 @@ If same-seed replay on the same server isn't identical, stop and report before g
 - Step 2 (`d6a3efc`): chat mode; OLMo 3 Instruct and Base fetched; 7 OLMo GPU tests pass. The medium code review's ten findings are fixed. `server.toml` sets `no-jinja` and `chat-template = "chatml"`, because OLMo 3's template stopped llama-server from starting. OLMo 3 ends replies with `<|endoftext|>` (its template does too); the brief expected `<|im_end|>`.
 - Nondeterminism (user request): researched and checked by a second agent (`docs/research/nondeterminism.md`). Done: start-up warnings you can act on (build mismatch, uncommitted llama.cpp changes, inherited `GGML_*`/`LLAMA_*` variables with values logged), server warnings after `/new`, macOS build and chip in the machine record, and live replay tests after a longer call and after a restart (identical on both models). `docs/design.md` has a "Determinism and replay" section; the README a short note.
 
+**Overnight run (authorized by the user on 2026-11-07, before sleeping):** finish steps 3 to 5 autonomously, without pushing. Record every decision made without the user under "Decisions to review in the morning" below, and keep each easy to reverse. An hourly session check-in (CronCreate) resumes the work if a usage limit pauses it.
+
+**User decisions for steps 3 to 5 (2026-11-07):**
+- `run --seeds N`: several seeds per opening and profile, each reply still shuffled and blind. The user wrote "default 333"; I read it as a typo for 3 and use 3 until they confirm.
+- Transformers backend: MPS by default, with a `device = "cpu"` option. If MPS fails the run-to-run replay test, log and document it, and warn once at backend start (actionable: switch to CPU). The user wants to discuss later whether to move experiments to Linux, and whether Macs need a further warning.
+
+**Decisions to review in the morning:** (append as they're made)
+- `--seeds` default 3 (see above).
+
 **Next actions, in order:**
 1. Step 3: batch mode, then a medium code review. The user may want several seeds or openings per setup for Check 0 (research: seed-to-seed variance dominates at temperature 0.6); raise it when designing `run`.
 2. Step 4, replay: flag the case where output differs and nothing that could change it differs (only the client commit, or nothing). No category list.
