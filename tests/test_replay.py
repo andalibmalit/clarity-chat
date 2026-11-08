@@ -159,3 +159,39 @@ def test_replay_command_exit_status(make_session, fetched_root, monkeypatch, cap
     assert "Identical" in capsys.readouterr().out
     assert cli.main(argv) == 1
     assert "Different" in capsys.readouterr().out
+
+
+# --- review fixes -------------------------------------------------------------------------
+
+
+def test_a_cancelled_replay_logs_nothing(make_session):
+    session, backend = make_session([" Hello!", " Hello!"])
+    session.new_conversation("text")
+    session.say("Hi")
+    backend.cancel_after = 2
+    with pytest.raises(ConfigError, match="cancelled"):
+        session.replay_current()
+    kinds = [r["type"] for r in read_records(session.conversation.log.path)]
+    assert "replay" not in kinds
+
+
+def test_the_replay_record_has_the_request_it_sent(make_session):
+    session, _ = make_session([" Hello!", " Hello!"])
+    session.new_conversation("text")
+    outcome = session.say("Hi")
+    record = session.replay_current()
+    assert record["request"] == outcome.record["request"]
+    assert "tokens_evaluated" in record and "backend_settings" in record
+
+
+def test_text_comparison_reports_a_character_position():
+    logged = call([1], text="abcd", flags=["incomplete_output_ids"])
+    result = compare_output(logged, call([1], text="abXd"))
+    assert result["first_different_char"] == 2 and "first_different_token" not in result
+
+
+def test_a_missing_log_file_is_a_clear_error(tmp_path):
+    from clarity_chat.replay import find_call
+
+    with pytest.raises(ConfigError, match="not found"):
+        find_call(tmp_path / "nope.jsonl", "call-x")

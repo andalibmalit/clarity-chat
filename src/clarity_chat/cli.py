@@ -120,8 +120,13 @@ def format_replay(record: dict[str, Any]) -> str:
         lines = [f"Identical: same {record['compared']}. ({record['replay_id']})"]
     else:
         stop, n = record["stop_types"], record["n_output_ids"]
+        where = (
+            f"output token {record['first_different_token']}"
+            if "first_different_token" in record
+            else f"character {record['first_different_char']} of the text"
+        )
         lines = [
-            f"Different {record['compared']}: from output token {record['first_different_token']};"
+            f"Different {record['compared']}: from {where};"
             f" stop {stop['logged']} -> {stop['now']}; {n['logged']} -> {n['now']} tokens."
             f" ({record['replay_id']})",
             f"  logged: {short(record['logged_output_text'], 200)}",
@@ -251,7 +256,8 @@ class ChatLoop:
             except ConfigError as e:
                 self.write(f"! {e}\n")
                 return True
-            self.write(f"{command.capitalize()}ed {record['call_id']}.\n")
+            done = "Marked" if command == "mark" else "Noted"
+            self.write(f"{done} {record['call_id']}.\n")
         elif command == "replay":
             self.replay()
         else:
@@ -377,15 +383,16 @@ def cmd_replay(root: Path, log_path: Path, call_id: str, logged_flags: bool) -> 
     session = Session(root, logs_dir=log_path.parent)  # the server's output log goes alongside
     atexit.register(session.close)
     flags_from = ""
+    found = find_call(log_path, call_id)
     if logged_flags:
-        _, server = find_call(log_path, call_id)
+        server = found[1]
         if server is None:
             raise ConfigError(f"{log_path} has no server record for {call_id}'s server.")
         config = dataclasses.replace(session.server_config, flags=server["flags"])
         session.backend = LlamaCppBackend(config, session.logs_dir)
         flags_from = f"logged ({server['server_id']})"
     try:
-        record = session.replay(log_path, call_id, flags_from=flags_from)
+        record = session.replay(log_path, call_id, flags_from=flags_from, found=found)
     finally:
         session.close()
     print(format_replay(record))

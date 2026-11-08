@@ -299,7 +299,8 @@ class LlamaServer:
 
     def __init__(self, config: ServerConfig, gguf: Path, logs_dir: Path) -> None:
         self.config = config
-        self.gguf = gguf.resolve()
+        # Not resolved: a Hugging Face cache symlink keeps the GGUF's file name for the server.
+        self.gguf = gguf.absolute()
         self.server_id = new_id("server")
         self.log_path = logs_dir / f"{self.server_id}.log"  # the server's own output
         self.proc: subprocess.Popen[bytes] | None = None
@@ -451,7 +452,7 @@ class LlamaServer:
         if self.proc is None or self.proc.poll() is not None:
             problems.append("the llama-server process the client started is not running")
         model_path = props.get("model_path")
-        if model_path is None or Path(model_path).resolve() != self.gguf:
+        if model_path is None or Path(model_path).resolve() != self.gguf.resolve():
             problems.append(f"/props model_path is {model_path!r}, expected {str(self.gguf)!r}")
         n_ctx = props.get("default_generation_settings", {}).get("n_ctx")
         if n_ctx != self.config.ctx_size:
@@ -489,7 +490,7 @@ class LlamaCppBackend:
     def start(self, model: ModelEntry, weights: Path) -> dict[str, Any] | None:
         """Start llama-server with `weights`. The old server stops first, so two models never
         share memory. Returns the new server_start record, or None if nothing changed."""
-        if self.server and self.server.gguf == weights.resolve() and self.server.proc:
+        if self.server and self.server.gguf == weights.absolute() and self.server.proc:
             if self.server.proc.poll() is None:
                 return None
         self.close()

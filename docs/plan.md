@@ -235,12 +235,13 @@ If same-seed replay on the same server isn't identical, stop and report before g
 - **`/undo` writes no log record:** the next turn's `parent_id` shows the branch, which is what the brief asks the log to record.
 - **Downloaded GGUFs stay in the Hugging Face cache** (`models.lock` records `~/.cache/...`), rather than being copied into `models/`. Recommended settings come from the tokenizer repo's `generation_config.json`.
 - **The GGUF route's live test uses a third-party file** (`bartowski/SmolLM2-135M-Instruct-GGUF`, Q8_0, pinned by commit and sha256), because no official SmolLM2 GGUF exists. It lives only in the test's temporary project, not in `models.toml`. The test downloads 145 MB once.
+- **`/prompt` and `/settings` follow the head** after `/undo`, `/edit` or `/regen` (review finding): they show the call of the reply you are on, not the last call made.
 - **`Session.prepare`** now holds the profile checks that `new_conversation` used to do inline, so batch runs and `/new` share them.
 - **PyTorch deterministic mode (your question tonight):** still not planned for step 5. An agent is writing `docs/research/determinism-primer.md` (foundations, what the mode does on CUDA, CPU and MPS, and an audit of the complexity the nondeterminism work added); a second agent will check it before you read it.
 
 **Next actions, in order:**
 1. Step 3 is done: batch mode, reviewed (medium), nine of ten findings fixed. The tenth (a run's single server record carries the first conversation's ID) is documented: replay finds servers by `server_id`.
-2. Step 4 is done: branches (`/regen`, `/edit`, `/undo`), `/profile`, `/mark`, `/note`, replay (`clarity replay`, `/replay`, with `unexplained_difference`) and the GGUF-download route, all tested live.
+2. Step 4 is done and reviewed (medium, because it came to about 540 source lines; all ten findings fixed): branches (`/regen`, `/edit`, `/undo`), `/profile`, `/mark`, `/note`, replay (`clarity replay`, `/replay`, with `unexplained_difference`) and the GGUF-download route, all tested live.
 3. Step 5: no `use_deterministic_algorithms` (it does nothing on MPS); gate the MPS backend on the same live replay tests; log torch and macOS versions.
 
 **Docs (user request, 2026-11-07):** README and CLAUDE.md state the problem Clarity solves; `docs/design.md` holds choices, tradeoffs, usage patterns and scope, briefly. Keep both current each step. Still owed in the README at the end: how a profile becomes token IDs, what is logged and why, how to add a backend.

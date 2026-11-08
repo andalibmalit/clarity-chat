@@ -224,3 +224,34 @@ def test_profile_command_switches_profile(chat, fetched_root):
     assert "with profile other" in "".join(output)
     loop.handle("/profile")
     assert "Usage: /profile NAME" in "".join(output)
+
+
+# --- review fixes -------------------------------------------------------------------------
+
+
+def test_a_failed_edit_stays_on_the_reply(make_session):
+    session, backend = make_session([" one", " two"])
+    session.say("a")
+    second = session.say("b")
+    backend.fail_with = "server gone"
+    with pytest.raises(Exception, match="server gone"):
+        session.edit("b2")
+    assert session.conversation.head == second.turn.turn_id
+    assert session.conversation.last_call["call_id"] == second.record["call_id"]
+
+
+def test_prompt_follows_the_head_after_undo(make_session):
+    session, _ = make_session([" one", " two"])
+    first = session.say("a")
+    session.say("b")
+    session.undo()
+    assert session.conversation.last_call["call_id"] == first.record["call_id"]
+    session.undo()
+    assert session.conversation.last_call is None
+
+
+def test_note_command_says_noted(chat):
+    loop, output, _, _, _ = chat
+    loop.handle("Hi")
+    loop.handle("/note made-up note")
+    assert "Noted call-" in "".join(output)

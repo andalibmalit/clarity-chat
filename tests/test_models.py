@@ -86,3 +86,26 @@ def test_the_lock_must_match_the_gguf_in_models_toml(gguf_root):
 def test_weights_paths_expand_the_home_folder(tmp_path):
     assert weights_path(tmp_path, {"gguf": {"path": "~/x.gguf"}}) == Path.home() / "x.gguf"
     assert weights_path(tmp_path, {"gguf": {"path": "models/x.gguf"}}) == tmp_path / "models/x.gguf"
+
+
+def test_a_route_change_is_reported_as_a_route_change(gguf_root):
+    root, write = gguf_root
+    models.fetch(root, write(), load_server_config(root))
+    (root / "models.toml").write_text(
+        GGUF_MODEL.format(sha256=WEIGHTS_SHA256)
+        .replace('route = "gguf"', 'route = "convert"')
+        .replace('file = "ready-Q8_0.gguf"\n', "")
+        .replace(f'sha256 = "{WEIGHTS_SHA256}"\n', ""),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="route"):
+        lock_entry(root, load_models(root)["ready"])
+
+
+def test_portable_path_can_keep_a_symlinks_name(tmp_path):
+    root = tmp_path / "repo"
+    (root / "blobs").mkdir(parents=True)
+    (root / "blobs" / "abc123").write_bytes(b"x")
+    (root / "model.gguf").symlink_to(root / "blobs" / "abc123")
+    assert portable_path(str(root / "model.gguf"), root, resolve=False) == "model.gguf"
+    assert portable_path(str(root / "model.gguf"), root) == "blobs/abc123"

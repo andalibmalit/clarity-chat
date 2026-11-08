@@ -35,16 +35,19 @@ SOURCE_PATTERNS = ["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model"]
 CONVERTER_PYTHON = "3.13"
 
 
-def portable_path(text: str, root: Path) -> str:
+def portable_path(text: str, root: Path, resolve: bool = True) -> str:
     """A path as written to models.lock, which is committed: relative to the repo when inside
     it, `~/...` when under the home folder, so the lock carries no user name. Other text is
     returned unchanged."""
     path = Path(text)
     if not path.is_absolute():
         return text
-    for base, prefix in ((root.resolve(), ""), (Path.home().resolve(), "~/")):
-        if path.resolve().is_relative_to(base):
-            return prefix + path.resolve().relative_to(base).as_posix()
+    path = path.resolve() if resolve else path
+    for base in (root, Path.home()):
+        for candidate in {base, base.resolve()}:
+            if path.is_relative_to(candidate):
+                prefix = "" if base == root else "~/"
+                return prefix + path.relative_to(candidate).as_posix()
     return path.as_posix()
 
 
@@ -104,17 +107,17 @@ def lock_entry(root: Path, model: ModelEntry) -> dict[str, Any]:
     keys = ["route", "repo", "revision", "tokenizer_repo", "tokenizer_revision"]
     if model.route == "gguf":
         keys.append("file")
-        if entry.get("gguf", {}).get("sha256") != model.sha256:
-            raise ConfigError(
-                f"models.lock has {model.name!r} with a different sha256 than models.toml. "
-                f"Run `clarity fetch {model.name}` again."
-            )
     for key in keys:
         if entry.get(key) != getattr(model, key):
             raise ConfigError(
                 f"models.lock has {model.name!r} with {key} = {entry.get(key)!r}, but models.toml "
                 f"says {getattr(model, key)!r}. Run `clarity fetch {model.name}` again."
             )
+    if model.route == "gguf" and entry.get("gguf", {}).get("sha256") != model.sha256:
+        raise ConfigError(
+            f"models.lock has {model.name!r} with a different sha256 than models.toml. "
+            f"Run `clarity fetch {model.name}` again."
+        )
     return entry
 
 
@@ -202,7 +205,8 @@ def fetch_gguf(root: Path, model: ModelEntry) -> dict[str, Any]:
         "tokenizer_revision": model.tokenizer_revision,
         "tokenizer_dir": portable_path(str(tokenizer), root),
         "gguf": {
-            "path": portable_path(str(path), root),
+            # The snapshot path, not the blob it links to: llama.cpp sees the file's name.
+            "path": portable_path(str(path), root, resolve=False),
             "size": stat.st_size,
             "mtime_ns": stat.st_mtime_ns,
             "sha256": digest,
