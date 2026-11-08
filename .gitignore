@@ -1,0 +1,21 @@
+# Private: conversations and held-out test material
+logs/
+runs/
+# Model weights (sources live in the Hugging Face cache)
+models/
+# llama.cpp checkout and build (path and commit in server.toml)
+vendor/
+
+# Python
+__pycache__/
+*.py[codz]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+build/
+dist/
+*.egg-info/
+
+# OS
+.DS_Store

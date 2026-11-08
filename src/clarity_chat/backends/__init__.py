@@ -1,0 +1,68 @@
+"""Backends turn token IDs plus settings into a reply.
+
+A backend implements `start`, `complete`, `close` and `describe`. To add one, write a
+module with a class like `LlamaCppBackend`: map the client's setting names to the
+backend's own, report any setting it can't apply in `not_applied`, and return a `Result`.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Protocol
+
+from clarity_chat.profiles import ModelEntry
+
+
+class BackendError(Exception):
+    """The backend failed. `partial` holds whatever reply arrived before the failure."""
+
+    def __init__(self, message: str, partial: Result | None = None) -> None:
+        super().__init__(message)
+        self.partial = partial
+
+
+@dataclass
+class Result:
+    text: str  # the output exactly as the backend returned it
+    token_ids: list[int]  # output token IDs (include stop-string and end-of-sequence tokens)
+    stop_type: str  # eos | word | limit | cancelled | none
+    stopping_word: str = ""
+    n_prompt: int | None = None  # the backend's own prompt token count
+    n_predicted: int | None = None  # the backend's own count of generated tokens
+    timings: dict[str, Any] = field(default_factory=dict)
+    request: dict[str, Any] = field(default_factory=dict)  # what was sent (prompt IDs left out)
+    response: dict[str, Any] = field(default_factory=dict)  # the backend's final response
+    backend_settings: dict[str, dict[str, Any]] = field(default_factory=dict)  # origin backend
+    not_applied: list[dict[str, Any]] = field(default_factory=list)
+    flags: list[str] = field(default_factory=list)
+    checks: dict[str, dict[str, Any]] = field(default_factory=dict)  # name -> {ok, ...}
+
+
+class Backend(Protocol):
+    name: str
+
+    def start(self, model: ModelEntry, weights: Path) -> dict[str, Any] | None:
+        """Load `model` (restarting if another is loaded). Returns a server_start record, if any."""
+        ...
+
+    @property
+    def n_ctx(self) -> int: ...
+
+    @property
+    def server_record(self) -> dict[str, Any] | None: ...
+
+    def complete(
+        self,
+        token_ids: list[int],
+        settings: dict[str, Any],
+        stop: list[str],
+        on_text: Callable[[str], None] | None = None,
+    ) -> Result: ...
+
+    def describe(self) -> dict[str, Any]:
+        """Backend name and versions, for every call record."""
+        ...
+
+    def close(self) -> None: ...

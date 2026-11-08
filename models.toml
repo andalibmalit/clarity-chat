@@ -1,0 +1,31 @@
+# Models, listed by hand. `clarity fetch NAME` resolves one entry and writes what it
+# resolved to models.lock; it never edits this file.
+#
+# route = "convert": download `repo` at `revision` and convert it to a bf16 GGUF with
+#                    the llama.cpp checkout's convert_hf_to_gguf.py.
+# route = "gguf":    download `file` from `repo` at `revision` and check its `sha256`.
+# tokenizer_repo / tokenizer_revision: the Hugging Face tokenizer the client renders and
+# tokenizes with (for a converted model, its source repo and commit).
+# Revisions are full commit hashes, so a name always means the same files.
+
+[smollm2-135m-instruct]
+# Tiny model for development tests (Apache 2.0).
+route = "convert"
+repo = "HuggingFaceTB/SmolLM2-135M-Instruct"
+revision = "12fd25f77366fa6b3b4b768ec3050bf629380bac"
+tokenizer_repo = "HuggingFaceTB/SmolLM2-135M-Instruct"
+tokenizer_revision = "12fd25f77366fa6b3b4b768ec3050bf629380bac"
+
+[olmo-3-7b-instruct]
+route = "convert"
+repo = "allenai/Olmo-3-7B-Instruct"
+revision = "6e5971d9eba42665f5bd5a0fcf047f299ce1dccc"
+tokenizer_repo = "allenai/Olmo-3-7B-Instruct"
+tokenizer_revision = "6e5971d9eba42665f5bd5a0fcf047f299ce1dccc"
+
+[olmo-3-7b-base]
+route = "convert"
+repo = "allenai/Olmo-3-1025-7B"
+revision = "a81bae42db3975be1671e27b9c9a56da1a9f980f"
+tokenizer_repo = "allenai/Olmo-3-1025-7B"
+tokenizer_revision = "a81bae42db3975be1671e27b9c9a56da1a9f980f"

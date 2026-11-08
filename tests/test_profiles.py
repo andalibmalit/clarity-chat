@@ -1,0 +1,179 @@
+from __future__ import annotations
+
+import pytest
+
+from clarity_chat.profiles import (
+    ConfigError,
+    load_defaults,
+    load_models,
+    load_profile,
+    load_server_config,
+    resolve_settings,
+)
+
+
+def write_profile(root, name, text):
+    (root / "profiles" / f"{name}.toml").write_text(text, encoding="utf-8")
+
+
+BASE = (
+    'backend = "llama.cpp"\nmodel = "tiny"\nmode = "text"\nuser_name = "U"\nassistant_name = "A"\n'
+)
+
+
+def test_defaults_cover_every_setting_with_neutral_values(root):
+    defaults = load_defaults(root)
+    assert defaults["temperature"] == 1.0
+    assert defaults["top_k"] == 0
+    assert defaults["top_p"] == 1.0
+    assert defaults["seed"] == "random"
+
+
+def test_settings_come_from_profile_then_defaults_with_origins(root):
+    profile = load_profile(root, "text", load_defaults(root))
+    assert profile.settings["temperature"].value == 0.6
+    assert profile.settings["temperature"].origin == "profile"
+    assert profile.settings["repeat_penalty"].value == 1.0
+    assert profile.settings["repeat_penalty"].origin == "default"
+    assert profile.settings["min_p"].origin == "default"
+
+
+def test_unknown_setting_name_is_rejected(root):
+    write_profile(root, "typo", BASE + "[settings]\ntemprature = 0.5\n")
+    with pytest.raises(ConfigError, match="unknown setting 'temprature'"):
+        load_profile(root, "typo", load_defaults(root))
+
+
+def test_unknown_profile_key_is_rejected(root):
+    write_profile(root, "typo", BASE + 'system = "hi"\n')  # system is a chat-mode key
+    with pytest.raises(ConfigError, match="unknown keys"):
+        load_profile(root, "typo", load_defaults(root))
+
+
+def test_non_neutral_setting_needs_its_sampler(root):
+    write_profile(root, "p", BASE + '[settings]\ntop_k = 40\nsamplers = ["top_p", "temperature"]\n')
+    with pytest.raises(ConfigError, match="top_k = 40 .* 'top_k' is not in samplers"):
+        load_profile(root, "p", load_defaults(root))
+
+
+def test_penalties_sampler_covers_repeat_presence_frequency(root):
+    write_profile(
+        root, "p", BASE + '[settings]\npresence_penalty = 0.5\nsamplers = ["temperature"]\n'
+    )
+    with pytest.raises(ConfigError, match="'penalties' is not in samplers"):
+        load_profile(root, "p", load_defaults(root))
+
+
+def test_neutral_settings_are_fine_without_their_sampler(root):
+    defaults = load_defaults(root)
+    settings = resolve_settings({"samplers": ["temperature"]}, defaults, "test")
+    assert settings["top_k"].value == 0
+
+
+def test_a_default_that_is_not_neutral_also_needs_its_sampler(root):
+    defaults = {**load_defaults(root), "top_k": 40}
+    with pytest.raises(ConfigError, match="from default"):
+        resolve_settings({"samplers": ["temperature"]}, defaults, "test")
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("top_p", 1.5),
+        ("min_p", -0.1),
+        ("temperature", -1),
+        ("top_k", 1.5),
+        ("top_k", True),
+        ("max_tokens", 0),
+        ("seed", -1),
+        ("seed", 2**32 - 1),  # llama.cpp reads this as "random"
+        ("seed", "lucky"),
+        ("repeat_penalty", 0),
+        ("samplers", ["top_k", "typo"]),
+        ("samplers", ["top_k", "top_k"]),
+    ],
+)
+def test_bad_values_are_rejected(root, setting, value):
+    import json
+
+    write_profile(root, "p", BASE + f"[settings]\n{setting} = {json.dumps(value)}\n")
+    with pytest.raises(ConfigError):
+        load_profile(root, "p", load_defaults(root))
+
+
+def test_files_are_read_byte_for_byte_relative_to_the_profile(root):
+    (root / "prompts").mkdir()
+    (root / "prompts" / "header.txt").write_bytes(b"Line one\r\nline two\n\n")
+    write_profile(root, "p", BASE + 'header = { file = "../prompts/header.txt" }\n')
+    profile = load_profile(root, "p", load_defaults(root))
+    assert profile.header == "Line one\r\nline two\n\n"
+    assert profile.to_json()["files"] == {"../prompts/header.txt": "Line one\r\nline two\n\n"}
+
+
+def test_missing_file_is_an_error(root):
+    write_profile(root, "p", BASE + 'header = { file = "nope.txt" }\n')
+    with pytest.raises(ConfigError, match="not found"):
+        load_profile(root, "p", load_defaults(root))
+
+
+def test_text_mode_stop_is_newline_user_name(root):
+    profile = load_profile(root, "text", load_defaults(root))
+    assert profile.stop == ["\nUser:"]
+
+
+def test_profile_records_its_toml_text(root):
+    profile = load_profile(root, "text", load_defaults(root))
+    assert profile.to_json()["toml"] == (root / "profiles" / "text.toml").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_models_need_full_commit_hashes(root):
+    (root / "models.toml").write_text(
+        '[m]\nroute = "convert"\nrepo = "a/b"\nrevision = "main"\n'
+        'tokenizer_repo = "a/b"\ntokenizer_revision = "main"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="40-character commit"):
+        load_models(root)
+
+
+def test_server_config_builds_flags(root):
+    config = load_server_config(root)
+    argv = config.flag_argv()
+    assert argv[argv.index("--ctx-size") + 1] == "8192"
+    assert "--no-context-shift" in argv
+    assert "--swa-full" not in argv  # false: left out
+    assert config.ctx_size == 8192
+
+
+@pytest.mark.parametrize(
+    ("line", "message"),
+    [
+        ('model = "x.gguf"', "not allowed"),
+        ('hf-repo = "a/b"', "not allowed"),
+        ("context-shift = true", "not allowed"),
+        ("-c = 4096", "long name"),
+    ],
+)
+def test_server_config_rejects_flags(root, line, message):
+    path = root / "server.toml"
+    path.write_text(path.read_text(encoding="utf-8") + line + "\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match=message):
+        load_server_config(root)
+
+
+@pytest.mark.parametrize(
+    ("old", "new", "message"),
+    [
+        ('flash-attn = "on"', 'flash-attn = "auto"', "explicit"),
+        ('fit = "off"', 'fit = "on"', "fit must be"),
+        ("parallel = 1", "parallel = 2", "parallel must be"),
+        ("ctx-size = 8192\n", "", "must set"),
+    ],
+)
+def test_server_config_requires_explicit_values(root, old, new, message):
+    path = root / "server.toml"
+    path.write_text(path.read_text(encoding="utf-8").replace(old, new), encoding="utf-8")
+    with pytest.raises(ConfigError, match=message):
+        load_server_config(root)

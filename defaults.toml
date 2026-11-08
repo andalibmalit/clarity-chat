@@ -1,0 +1,18 @@
+# Neutral ("off") value for every profile setting. Every request is filled from the
+# profile, then from this file, so llama-server's and Transformers' own defaults never
+# apply (llama-server: temperature 0.8, top_k 40, top_p 0.95, min_p 0.05; Transformers:
+# greedy decoding and top_k 50). Each value in a log record says where it came from.
+
+temperature = 1.0         # 1.0 leaves the model's probabilities unchanged
+top_k = 0                 # 0 = off
+top_p = 1.0               # 1.0 = off
+min_p = 0.0               # 0.0 = off
+repeat_penalty = 1.0      # 1.0 = off
+repeat_last_n = 64        # window for the penalties; irrelevant while they are off
+presence_penalty = 0.0    # 0.0 = off
+frequency_penalty = 0.0   # 0.0 = off
+seed = "random"           # the client draws a concrete seed per call and logs it
+max_tokens = 1024         # not neutral (nothing is): a cap, so prompt + reply fit the context
+
+# Order and membership of the sampler chain. A sampler not listed doesn't run.
+samplers = ["penalties", "top_k", "top_p", "min_p", "temperature"]

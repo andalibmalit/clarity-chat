@@ -1,0 +1,148 @@
+"""The llama.cpp backend without a server: request building, checks, stream parsing, env."""
+
+from __future__ import annotations
+
+import pytest
+
+from clarity_chat.backends import BackendError
+from clarity_chat.backends.llama_cpp import (
+    NEUTRAL_REQUEST,
+    build_request,
+    check_generation_settings,
+    llama_config_files,
+    parse_sse_line,
+    server_env,
+)
+
+SETTINGS = {
+    "temperature": 0.6,
+    "top_k": 0,
+    "top_p": 0.95,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0,
+    "seed": 42,
+    "max_tokens": 1024,
+    "samplers": ["top_k", "top_p", "min_p", "temperature"],
+}
+
+
+def echoed(request):
+    """What llama-server would report back: floats at float32, plus its own keys."""
+    import struct
+
+    gs = {}
+    for key, value in request.items():
+        if key in (
+            "prompt",
+            "return_tokens",
+            "cache_prompt",
+            "return_progress",
+            "sse_ping_interval",
+            "n_cache_reuse",
+            "n_cmpl",
+            "n_indent",
+            "t_max_predict_ms",
+            "reasoning_budget_tokens",
+            "reasoning_control",
+        ):
+            continue
+        if isinstance(value, float):
+            value = struct.unpack("f", struct.pack("f", value))[0]
+        gs[key] = value
+    gs.update(
+        max_tokens=request["n_predict"],
+        generation_prompt="",
+        grammar_triggers=[],
+        preserved_tokens=[],
+        chat_format="Content-only",
+        reasoning_format="none",
+        reasoning_in_content=False,
+        **{"speculative.types": "none"},
+    )
+    return gs
+
+
+def test_request_sends_ids_every_setting_and_neutral_extras():
+    request = build_request([1, 2, 3], SETTINGS, ["\nUser:"])
+    assert request["prompt"] == [1, 2, 3]
+    assert request["n_predict"] == 1024
+    assert request["samplers"] == ["top_k", "top_p", "min_p", "temperature"]
+    assert request["stop"] == ["\nUser:"]
+    assert request["cache_prompt"] is False
+    assert request["return_tokens"] is True
+    assert request["stream"] is True
+    for key, value in NEUTRAL_REQUEST.items():
+        assert request[key] == value
+    assert request["mirostat"] == 0
+    assert request["logit_bias"] == []
+
+
+def test_request_needs_a_concrete_seed():
+    with pytest.raises(BackendError):
+        build_request([1], {**SETTINGS, "seed": "random"}, [])
+
+
+def test_echo_check_passes_at_float32_precision():
+    request = build_request([1], SETTINGS, [])
+    checks = check_generation_settings(request, echoed(request))
+    assert checks["settings_echo"]["ok"], checks
+    assert checks["unaccounted_settings"]["ok"], checks
+
+
+def test_echo_check_flags_a_changed_value():
+    request = build_request([1], SETTINGS, [])
+    gs = echoed(request)
+    gs["top_p"] = 1.0  # e.g. clamped by the server
+    gs["samplers"] = ["top_k", "temperature"]  # e.g. an unknown name skipped
+    checks = check_generation_settings(request, gs)
+    assert not checks["settings_echo"]["ok"]
+    assert set(checks["settings_echo"]["mismatched"]) == {"top_p", "samplers"}
+
+
+def test_echo_check_flags_a_new_unknown_sampling_key():
+    request = build_request([1], SETTINGS, [])
+    gs = {**echoed(request), "brand_new_sampler": 0.3}
+    checks = check_generation_settings(request, gs)
+    assert checks["unaccounted_settings"] == {"ok": False, "keys": ["brand_new_sampler"]}
+
+
+def test_echo_check_flags_speculative_decoding_or_logit_bias():
+    request = build_request([1], SETTINGS, [])
+    gs = {**echoed(request), "speculative.types": "ngram", "logit_bias": [{"token": 5, "bias": -1}]}
+    mismatched = check_generation_settings(request, gs)["settings_echo"]["mismatched"]
+    assert set(mismatched) == {"speculative.types", "logit_bias"}
+
+
+def test_sse_lines():
+    assert parse_sse_line('data: {"content": "hi", "tokens": [5]}') == {
+        "content": "hi",
+        "tokens": [5],
+    }
+    assert parse_sse_line(": ping") is None
+    assert parse_sse_line("") is None
+    assert parse_sse_line("data: [DONE]") is None
+
+
+def test_server_env_removes_flag_variables(monkeypatch):
+    monkeypatch.setenv("LLAMA_ARG_CTX_SIZE", "4096")
+    monkeypatch.setenv("LLAMA_ARG_N_GPU_LAYERS", "0")
+    monkeypatch.setenv("LLAMA_API_KEY", "x")
+    monkeypatch.setenv("GGML_METAL_SOMETHING", "1")
+    env, removed, kept = server_env()
+    assert "LLAMA_ARG_CTX_SIZE" not in env
+    assert {"LLAMA_ARG_CTX_SIZE", "LLAMA_ARG_N_GPU_LAYERS", "LLAMA_API_KEY"} <= set(removed)
+    assert "GGML_METAL_SOMETHING" in kept
+
+
+def test_config_files_are_found(monkeypatch, tmp_path):
+    if __import__("os").name == "nt":
+        monkeypatch.setenv("APPDATA", str(tmp_path))
+    else:
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    assert not [p for p in llama_config_files() if tmp_path in p.parents]
+    (tmp_path / "llama.cpp").mkdir()
+    (tmp_path / "llama.cpp" / "config.ini").write_text("[*]\n", encoding="utf-8")
+    assert tmp_path / "llama.cpp" / "config.ini" in llama_config_files()

@@ -1,0 +1,67 @@
+[project]
+name = "clarity-chat"
+version = "0.1.0"
+description = "Clarity: a simple chat client for transparent, reproducible experiments with local LLMs."
+readme = "README.md"
+authors = [{ name = "Andalib Samandari", email = "andalibmalit@gmail.com" }]
+requires-python = ">=3.13"
+dependencies = [
+    "httpx>=0.28.1",
+    "huggingface-hub>=2.4.0",
+    "jinja2>=3.1.6",
+    "prompt-toolkit>=3.0.53",
+    "tokenizers>=0.23.3",
+    "transformers>=5.22.2",
+]
+
+[project.scripts]
+clarity = "clarity_chat.cli:main"
+
+[project.optional-dependencies]
+hf = [
+    "torch>=2.15.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "clarity_chat"
+
+[dependency-groups]
+dev = [
+    "hypothesis>=6.170.15",
+    "pytest>=9.2.0",
+    "ruff>=0.17.4",
+    "ty==0.0.99",  # pinned: ty is pre-1.0 and its checks change between releases
+]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["vendor", "models", "logs", "runs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ANN", "PLW1514"]
+# ANN: every function in src/ has type hints (ty checks them). Any is allowed for JSON data.
+ignore = ["ANN401"]
+# PLW1514 (open() without an explicit encoding) is a preview rule: enable just that one.
+preview = true
+explicit-preview-rules = true
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["ANN"]
+
+[tool.ty.src]
+include = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Offline by default. Opt in with `pytest -m live` (SmolLM2 via llama-server),
+# `pytest -m olmo` (OLMo 3, needs it fetched) or `pytest -m hf` (Transformers backend).
+addopts = "-m 'not live and not olmo and not hf'"
+markers = [
+    "live: needs the built llama-server and the fetched SmolLM2 model",
+    "olmo: needs the fetched OLMo 3 models",
+    "hf: needs the hf extra (torch) and a fetched model",
+]
