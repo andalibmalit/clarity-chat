@@ -206,3 +206,52 @@ If same-seed replay on the same server isn't identical, stop and report before g
 - `uv run ruff check && uv run ruff format --check && uv run ty check && uv run pytest` (offline; CI sets `HF_HUB_OFFLINE=1`).
 - `uv run pytest -m live` (SmolLM2 via llama-server); `-m olmo` after step 2; `-m hf` after step 5.
 - Manual check: `uv run clarity chat --profile smol-chat`, then `/prompt repr`, `/settings`, and Ctrl-C mid-reply; then read the JSONL record.
+
+## Status and decisions since approval (updated 2026-11-07)
+
+**Where we are:** step 1 is code-complete and committed (`c25a0e1`, `8a6a38b`); 90 offline tests, ruff and ty pass. Not done yet: fetching SmolLM2, running `pytest -m live`, and the step 1 report. Step 2 has not started.
+
+**Next actions, in order:**
+1. `uv run clarity fetch smollm2-135m-instruct` (sandboxed; needs `enableWeakerNetworkIsolation`, now set).
+2. `uv run pytest -m live`, run as a standalone command so the `excludedCommands` entry matches, and the tests run outside the sandbox with the GPU. First confirm the exclusion works: the server record's `placement` must name `MTL0 (Apple M2 Max)`. If it doesn't, stop and tell the user.
+3. Fix the live-test expectations that were guesses: `one_more.n_predicted == max_tokens - 1` in the context-boundary test, and `stop_type == "word"` in the text-mode test.
+4. Write the step 1 report (two or three sentences, with assumptions), commit, then start step 2.
+
+**Environment and sandbox (the user's machine):**
+- An M2 Max with 32 GB; 149 GiB free disk; Python 3.13.12 (miniforge), which uv picked for `.venv`.
+- llama.cpp is shallow-cloned at `vendor/llama.cpp`, commit `f477f795cb07…`, pinned in `server.toml`, with `llama-server` built. `build_info` is `b1-f477f79`.
+- **Git clones and pulls into `vendor/` fail inside the sandbox** (writes to `.git/hooks` are blocked, even with `git clone *` excluded). The user runs them with `!`.
+- **Python HTTPS inside the sandbox** needs `sandbox.enableWeakerNetworkIsolation: true`, which lets commands reach `com.apple.trustd.agent`; it is now set. The error without it was `OSStatus -26276`.
+- **The sandbox hides Metal.** llama-server sees an unnamed device with 0 MiB. The user chose GPU live tests, so `excludedCommands` now has `uv run pytest -m live*`, `uv run pytest -m olmo*` and `uv run pytest -m hf*`. Whether exclusions work at all is still unverified (see step 2 above).
+- `curl` piped to Python was denied by the permission system. Pinned commits were looked up with WebFetch.
+- When giving the user a settings command, check against the Claude Code docs that it does what it claims first; the user asked for this.
+
+**Pinned models (models.toml):** SmolLM2-135M-Instruct `12fd25f7…`, OLMo-3-7B-Instruct `6e5971d9…`, OLMo-3-1025-7B (base) `a81bae42…`. The commits were read through WebFetch's summarizer; `fetch` will catch it if one is wrong.
+
+**Facts checked against llama.cpp `f477f79` (see `backends/llama_cpp.py`):**
+- A token-ID prompt gets no BOS from the server.
+- The response `prompt` is the server's detokenization of the IDs, special tokens included.
+- Stop-string tokens and EOS are streamed with their IDs, and the text leaves out the stop string. Only a token that ends mid-character gets no chunk.
+- If a reply hits `max_tokens` while text is held back as a possible stop string, that text is never streamed. The client then sets the flag `text_differs_from_ids` and logs `decoded_output_text`.
+- With context shift off, the server stops a reply when `prompt + generated + 1 >= n_ctx`. The client's guard allows a call only if `n_prompt + max_tokens < n_ctx`; a live test checks this.
+- `/props.default_generation_settings.n_ctx` holds the context size, and `generation_settings` has no `n_ctx`. The client re-reads `/props` after every call.
+- Config files: `/etc/llama.cpp/config.ini` and `${XDG_CONFIG_HOME:-~/.config}/llama.cpp/config.ini`, logged as `using config file:`. The client checks for both before launch and in the startup output.
+- Environment variables read as flags: `LLAMA_ARG_*`, `LLAMA_API_KEY`, `HF_TOKEN` and `MTMD_BACKEND_DEVICE`, all removed.
+- Flags with no "off" form: `--swa-full` and `--backend-sampling`; both default to off.
+- `--spec-type` appends to a list, so it's never passed; each call checks that `speculative.types == "none"`.
+- `--cache-idle-slots` defaults to on, so `no-cache-idle-slots = true`.
+- Request parsing clamps some values silently (for example `top_p` above 1). The client validates ranges itself, and the echo check catches anything else.
+- An empty `stop` list falls back to the command-line stop strings, which are empty.
+- `dry_sequence_breakers` must not be empty.
+- `sse_ping_interval: 1` keeps reads short, so Ctrl-C is handled promptly.
+- llama.cpp's converter copies `generation_config.json` into GGUF `general.sampling.*`, and llama-server uses those as its defaults. The client overrides them by sending every value.
+
+**Decisions made with the user since approval:**
+- **Model-recommended settings (opt-in):** `use_recommended = true` in a profile fills unset settings from the model's pinned `generation_config.json`, which `fetch` records in `models.lock` under `recommended`. They are logged with origin `model`.
+  - Resolution order: profile, then model, then `defaults.toml`.
+  - Mapping: `repetition_penalty` becomes `repeat_penalty`; `do_sample: false` becomes temperature 0. Every other key is listed as `not_applied`, and `max_new_tokens` never becomes `max_tokens`.
+  - The Check 0 profiles keep the explicit numbers from the brief.
+  - The user's intent: clarity should get out of the way, not be a rigidity that obstructs experimentation.
+- **GPU check:** with GPU layers requested, a server start fails if the weights land on the CPU. The device and buffers are parsed from the startup output and logged as `placement`.
+- **Local requests** use `trust_env=False`, so the sandbox's proxy variables never apply to `127.0.0.1`.
+- **Placeholders** (`prompts/system.txt`, `priming.toml`, `header.txt`) and the Check 0 profiles are still to be written in step 2.
