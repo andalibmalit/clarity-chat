@@ -227,16 +227,27 @@ ENV_PREFIX_REMOVED = "LLAMA_ARG_"
 ENV_REMOVED = {"LLAMA_API_KEY", "HF_TOKEN", "MTMD_BACKEND_DEVICE"}
 
 
+# Names that look like they hold a secret (for example LLAMA_CLOUD_API_KEY, from other
+# tools): their values are never logged.
+SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASS|AUTH|CREDENTIAL", re.IGNORECASE)
+REDACTED = "(value not logged: the name looks like a secret)"
+
+
 def server_env() -> tuple[dict[str, str], list[str], dict[str, str]]:
     """The environment for llama-server, the names removed, and the LLAMA_*/GGML_* variables
-    kept (with values: some, such as GGML_METAL_BF16_DISABLE, change how it computes)."""
+    kept (with values: some, such as GGML_METAL_BF16_DISABLE, change how it computes; values
+    of names that look like secrets are replaced by REDACTED)."""
     env, removed = {}, []
     for key, value in os.environ.items():
         if key.startswith(ENV_PREFIX_REMOVED) or key in ENV_REMOVED:
             removed.append(key)
         else:
             env[key] = value
-    kept = {k: env[k] for k in sorted(env) if k.startswith(("LLAMA_", "GGML_"))}
+    kept = {
+        k: REDACTED if SECRET_NAME.search(k) else env[k]
+        for k in sorted(env)
+        if k.startswith(("LLAMA_", "GGML_"))
+    }
     return env, sorted(removed), kept
 
 

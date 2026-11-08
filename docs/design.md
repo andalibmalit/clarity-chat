@@ -57,7 +57,7 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 - Before any model loads, every profile is prepared and every opening is rendered against it: unequal `max_tokens` (reply length would give the setup away), a profile listed twice, or an opening that doesn't fit the context stops the run.
 - Seeds come from the run, not the profile: 333, then 334 and so on with `--seeds N`, logged with origin `run`. A fixed start makes two runs comparable; several seeds show a setup's spread rather than one sample.
 - Openings are split on lines that are exactly `---` and stripped. CRLF becomes LF first, so an editor's line endings never change the token IDs. Replies are stripped in `blind.md` only; the log keeps them as generated.
-- Calls are grouped by model, so each model loads once. The terminal shows progress and warnings only, never replies.
+- Calls are grouped by model, so each model loads once, and every call uses the profile as checked, even if its file changes during the run. A server that restarts mid-run stops the run, so no run mixes server processes. The terminal shows progress and warnings only, never replies.
 - Nothing goes to `logs/`, not even the server's output, so held-out openings never end up in a transcript export.
 
 **Failure policy.** Configuration problems are errors before anything is sent. A failed after-call check is a flag on the record and a warning in the terminal; in batch mode it stops the run.
@@ -75,7 +75,7 @@ Clarity logs all of these, and replay (step 4) will list the ones that differ.
 
 **Warnings are for things you can act on.**
 - Per call: a failed check, a nearly full context, or control-token text in your message.
-- Per server start: a build that doesn't match the pinned commit, uncommitted changes in the llama.cpp checkout, or inherited `GGML_*`/`LLAMA_*` variables (their values are logged).
+- Per server start: a build that doesn't match the pinned commit, uncommitted changes in the llama.cpp checkout, or inherited `GGML_*`/`LLAMA_*` variables (their values are logged, except for names that look like secrets, such as `LLAMA_CLOUD_API_KEY`).
 
 There is no general "results may vary" notice. The avoidable causes are already removed, and the rest is logged. Replay will flag the one case that needs attention: output that differs although nothing that could explain it changed.
 

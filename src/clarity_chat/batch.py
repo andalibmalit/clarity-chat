@@ -9,7 +9,9 @@ later transcript export can't pick up held-out openings:
   by empty `Rating:` and `Note:` lines. Nothing else.
 
 Every profile and opening is checked before a model loads. Any error, a failed after-call
-check or Ctrl-C stops the run before `key.json` and `blind.md` are written.
+check, a server restart or Ctrl-C stops the run before `key.json` and `blind.md` are
+written. `calls.jsonl` has each server's start record once, before its first call (tagged
+with that call's conversation); find it by the `server_id` in each call's `backend`.
 """
 
 from __future__ import annotations
@@ -32,8 +34,9 @@ from clarity_chat.session import ContextError, Prepared, Session, fits_context
 
 FIRST_SEED = 333  # the user's choice: a run's seeds are 333, 334, …
 SPLIT_RULE = (
-    'Openings are separated by lines that are exactly "---". CRLF line endings become LF '
-    "first, so the editor's line endings never change the token IDs."
+    'Openings are separated by lines that are exactly "---". A leading UTF-8 byte-order mark '
+    "is dropped and CRLF line endings become LF first, so the editor's file format never "
+    "changes the token IDs."
 )
 TRIM_RULE = (
     "Each opening is str.strip()ped before it is sent. Replies are str.strip()ped in "
@@ -52,7 +55,7 @@ class RunError(Exception):
 def split_openings(text: str) -> list[str]:
     """Openings from a file's text, per SPLIT_RULE and TRIM_RULE. An empty one is an error."""
     sections: list[list[str]] = [[]]
-    for line in text.replace("\r\n", "\n").split("\n"):
+    for line in text.removeprefix("\ufeff").replace("\r\n", "\n").split("\n"):
         if line == "---":
             sections.append([])
         else:
@@ -65,6 +68,15 @@ def split_openings(text: str) -> list[str]:
             "openings, so the file can't start or end with one, or have two in a row."
         )
     return openings
+
+
+def read_openings(path: Path) -> tuple[str, list[str]]:
+    """The openings file's text and its openings."""
+    try:
+        text = read_text(path)
+    except (OSError, UnicodeDecodeError) as e:
+        raise ConfigError(f"Can't read the openings file {path} as UTF-8 text: {e}") from e
+    return text, split_openings(text)
 
 
 def label(index: int) -> str:
@@ -89,28 +101,32 @@ class Reply:
 def check_run(
     session: Session, profile_names: list[str], openings: list[str], n_seeds: int
 ) -> list[Prepared]:
-    """Everything that can be checked before a model loads: the profiles load, they share
-    max_tokens, and every opening fits every profile's context."""
+    """Everything that can be checked before a model loads: the profiles load, are distinct
+    and share max_tokens, and every opening fits every profile's context."""
     if n_seeds < 1 or FIRST_SEED + n_seeds - 1 > SEED_MAX:
         raise ConfigError(f"--seeds must be from 1 to {SEED_MAX - FIRST_SEED + 1}.")
-    if len(set(profile_names)) != len(profile_names):
-        raise ConfigError(f"A profile is listed twice: {profile_names}.")
     prepared = [session.prepare(name) for name in profile_names]
-    max_tokens = {p.profile.name: p.profile.settings["max_tokens"].value for p in prepared}
+    files = [p.profile.path.resolve() for p in prepared]
+    if len(set(files)) != len(files):
+        raise ConfigError(f"A profile is listed twice: {profile_names} name {files}.")
+    max_tokens = {
+        name: p.profile.settings["max_tokens"].value
+        for name, p in zip(profile_names, prepared, strict=True)
+    }
     if len(set(max_tokens.values())) > 1:
         raise ConfigError(
             f"The profiles' max_tokens differ ({max_tokens}); reply length would give the "
             "setup away. Give them the same max_tokens."
         )
     n_ctx = session.backend.n_ctx
-    for p in prepared:
+    for name, p in zip(profile_names, prepared, strict=True):
         limit = p.profile.settings["max_tokens"].value
         for i, opening in enumerate(openings, 1):
             prompt = build_prompt(p.tokenizer, p.profile, [("user", opening)], p.template_tokenizer)
             if not fits_context(len(prompt.ids), limit, n_ctx):
                 raise ConfigError(
-                    f"Opening {i} with profile {p.profile.name} is {len(prompt.ids)} tokens; "
-                    f"with max_tokens {limit} it doesn't fit the context of {n_ctx} tokens."
+                    f"Opening {i} with profile {name} is {len(prompt.ids)} tokens; with "
+                    f"max_tokens {limit} it doesn't fit the context of {n_ctx} tokens."
                 )
     return prepared
 
@@ -125,35 +141,33 @@ def run_batch(
     write: Callable[[str], None] = print,
 ) -> Path:
     """Run every (opening, profile, seed) call, then write key.json and blind.md.
-    Returns the path of blind.md. The terminal shows progress and warnings, never replies."""
-    text = read_text(openings_path)
-    openings = split_openings(text)
-    prepared = check_run(session, profile_names, openings, n_seeds)
+    Returns the path of blind.md. The terminal shows progress and warnings, never replies.
+
+    Each call uses the profile exactly as checked before the run, even if its file changes
+    meanwhile. A server that restarts mid-run (say, after a crash) stops the run."""
+    text, openings = read_openings(openings_path)
+    checked = check_run(session, profile_names, openings, n_seeds)
+    prepared = dict(zip(profile_names, checked, strict=True))
     seeds = [FIRST_SEED + k for k in range(n_seeds)]
+    facts = {
+        "run_id": run_id,
+        "openings_file": portable_path(str(openings_path.resolve()), session.root),
+        "openings_sha256": sha256_text(text),
+        "n_openings": len(openings),
+        "profiles": profile_names,
+        "seeds": seeds,
+        "split_rule": SPLIT_RULE,
+        "trim_rule": TRIM_RULE,
+    }
     log = LogFile(run_dir / "calls.jsonl")
-    log.append(
-        {
-            "type": "run",
-            "run_id": run_id,
-            "openings_file": portable_path(str(openings_path.resolve()), session.root),
-            "openings_sha256": sha256_text(text),
-            "n_openings": len(openings),
-            "profiles": profile_names,
-            "seeds": seeds,
-            "split_rule": SPLIT_RULE,
-            "trim_rule": TRIM_RULE,
-            "client": client_git(),
-            "machine": machine(),
-        }
-    )
+    log.append({"type": "run", **facts, "client": client_git(), "machine": machine()})
     # Group the calls by model, so each model loads once.
-    model_of = {name: p.model.name for name, p in zip(profile_names, prepared, strict=True)}
-    models = list(dict.fromkeys(model_of.values()))
-    order = sorted(profile_names, key=lambda name: models.index(model_of[name]))  # stable
+    models = list(dict.fromkeys(p.model.name for p in prepared.values()))
+    order = sorted(profile_names, key=lambda name: models.index(prepared[name].model.name))
     total = len(openings) * len(profile_names) * n_seeds
     replies: dict[tuple[int, str, int], Reply] = {}
     shown: set[str] = set()
-    server_id = None
+    started: set[str] = set()  # models whose server this run started
 
     def warn(message: str) -> None:
         if message not in shown:  # each warning once; they never contain reply text
@@ -162,25 +176,32 @@ def run_batch(
 
     write(f"Run {run_id}: {total} calls.\n")
     for name in order:
+        model = prepared[name].model.name
         for i, opening in enumerate(openings, 1):
             for seed in seeds:
                 where = f"opening {i}, profile {name}, seed {seed}"
                 try:
                     conversation = session.new_conversation(
-                        name, log=log, run={"run_id": run_id, "opening": i}
+                        prepared[name], log=log, run={"run_id": run_id, "opening": i}
                     )
-                    record = session.backend.server_record or {}
-                    if record.get("server_id") != server_id:
-                        server_id = record.get("server_id")
-                        for warning in record.get("warnings", []):
+                    if conversation.started_server is not None:
+                        if model in started:
+                            raise RunError(
+                                f"llama-server for {model} restarted during the run (before "
+                                f"{where}), so its calls didn't all use one server."
+                            )
+                        started.add(model)
+                        for warning in conversation.started_server.get("warnings", []):
                             warn(warning)
                     outcome = session.say(opening, seed=Setting(seed, "run"))
                 except (ContextError, BackendError, ConfigError) as e:
                     raise RunError(f"{where.capitalize()}: {e}") from e
+                except KeyboardInterrupt as e:
+                    raise RunError(f"Interrupted (Ctrl-C) during {where}.") from e
                 call = outcome.record
                 failed = [f for f in call["flags"] if f.startswith("check_failed:")]
                 if call["stop_type"] == "cancelled":
-                    raise RunError(f"Cancelled during {where}.")
+                    raise RunError(f"Cancelled (Ctrl-C) during {where}.")
                 if failed:
                     raise RunError(f"Call {call['call_id']} ({where}) failed {failed}.")
                 for warning in outcome.warnings:
@@ -217,13 +238,7 @@ def run_batch(
         for tag, r in labels.items():
             blind.append(f"## {tag}\n\n{r.text.strip()}\n\nRating:\nNote:\n")
     key = {
-        "run_id": run_id,
-        "openings_file": portable_path(str(openings_path.resolve()), session.root),
-        "openings_sha256": sha256_text(text),
-        "profiles": profile_names,
-        "seeds": seeds,
-        "split_rule": SPLIT_RULE,
-        "trim_rule": TRIM_RULE,
+        **facts,
         "shuffle_seed": shuffle_seed,
         "shuffle_rule": SHUFFLE_RULE,
         "calls": "calls.jsonl",
