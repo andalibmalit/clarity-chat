@@ -251,15 +251,12 @@ def test_replay_on_the_running_server_is_identical_and_nothing_differs(session):
 
 
 def test_replay_from_the_log_on_a_new_server_with_logged_flags(session, tmp_path):
-    import dataclasses
-
     outcome = session.say("Name a river.")
     path = session.conversation.log.path
     other = Session(REPO, logs_dir=tmp_path)
     _, server = find_call(path, outcome.record["call_id"])
     assert server is not None
-    config = dataclasses.replace(other.server_config, flags=server["flags"])
-    other.backend = LlamaCppBackend(config, tmp_path)
+    other.use_server_flags(server["flags"])
     try:
         record = other.replay(path, outcome.record["call_id"], flags_from="logged")
     finally:

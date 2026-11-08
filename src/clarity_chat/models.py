@@ -128,6 +128,20 @@ def weights_path(root: Path, entry: dict[str, Any]) -> Path:
     return path if path.is_absolute() else root / path
 
 
+def source_weights(root: Path, entry: dict[str, Any]) -> Path:
+    """The official weights a converted GGUF came from, for the Transformers backend."""
+    if entry.get("route") != "convert" or "source_dir" not in entry:
+        raise ConfigError(
+            f"{entry['name']} was fetched as a ready-made GGUF; the Transformers backend needs "
+            'the official weights (route = "convert").'
+        )
+    path = Path(entry["source_dir"]).expanduser()
+    path = path if path.is_absolute() else root / path
+    if not (path / "config.json").is_file():
+        raise ConfigError(f"{path} has no config.json. Run `clarity fetch {entry['name']}`.")
+    return path
+
+
 def check_weights_quick(root: Path, entry: dict[str, Any]) -> Path:
     """Size and modified time against models.lock (a full re-hash is `clarity verify`)."""
     path = weights_path(root, entry)

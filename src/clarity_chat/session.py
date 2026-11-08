@@ -17,7 +17,7 @@ from typing import Any
 
 from clarity_chat.backends import Backend, BackendError, Result
 from clarity_chat.logs import LogFile, client_git, machine, new_id
-from clarity_chat.models import check_weights_quick, lock_entry
+from clarity_chat.models import check_weights_quick, lock_entry, source_weights
 from clarity_chat.profiles import (
     SEED_MAX,
     ConfigError,
@@ -172,11 +172,11 @@ class Session:
         self.server_config: ServerConfig = load_server_config(root)
         self.logs_dir = logs_dir or root / "logs"
         self.tokenizer_loader = tokenizer_loader
-        if backend is None:
-            from clarity_chat.backends.llama_cpp import LlamaCppBackend
-
-            backend = LlamaCppBackend(self.server_config, self.logs_dir)
-        self.backend = backend
+        # An injected backend (tests) serves every profile; otherwise one per backend name
+        # and device, made when a profile first needs it. Only one is ever loaded.
+        self.fixed_backend = backend
+        self.backends: dict[tuple[str, str | None], Backend] = {}
+        self.backend = backend or self.backend_for("llama.cpp", None)
         self.conversation: Conversation | None = None
         self.model: ModelEntry | None = None
         self.model_lock: dict[str, Any] = {}
@@ -189,6 +189,41 @@ class Session:
 
     def load_profile(self, name: str) -> Profile:
         return load_profile(self.root, name, self.defaults)
+
+    def backend_for(self, name: str, device: str | None) -> Backend:
+        if self.fixed_backend is not None:
+            return self.fixed_backend
+        if (name, device) not in self.backends:
+            if name == "transformers":
+                from clarity_chat.backends.transformers_hf import TransformersBackend
+
+                assert device is not None
+                backend: Backend = TransformersBackend(device, self.server_config.ctx_size)
+            else:
+                from clarity_chat.backends.llama_cpp import LlamaCppBackend
+
+                backend = LlamaCppBackend(self.server_config, self.logs_dir)
+            self.backends[name, device] = backend
+        return self.backends[name, device]
+
+    def use_server_flags(self, flags: dict[str, Any]) -> None:
+        """Start llama-server with these flags instead of server.toml's (replay --logged-flags)."""
+        import dataclasses
+
+        from clarity_chat.backends.llama_cpp import LlamaCppBackend
+
+        self.close()
+        self.server_config = dataclasses.replace(self.server_config, flags=flags)
+        backend = LlamaCppBackend(self.server_config, self.logs_dir)
+        self.backends["llama.cpp", None] = self.backend = backend
+
+    def use_backend(self, name: str, device: str | None) -> Backend:
+        """Make a backend the active one, closing the other first (one model in memory)."""
+        backend = self.backend_for(name, device)
+        if backend is not self.backend:
+            self.backend.close()
+            self.backend = backend
+        return backend
 
     def _load_tokenizer(self, repo: str, revision: str) -> Tokenizer:
         if (repo, revision) not in self._tokenizers:
@@ -223,7 +258,10 @@ class Session:
             profile.settings = resolve_settings(
                 profile.raw_settings, self.defaults, str(profile.path), recommended["values"]
             )
-        weights = check_weights_quick(self.root, entry)
+        if profile.backend == "transformers":
+            weights = source_weights(self.root, entry)
+        else:
+            weights = check_weights_quick(self.root, entry)
         tokenizer, template_tokenizer = self.tokenizers_for(profile, model)
         template = (
             chat_template_source(template_tokenizer, profile) if profile.mode == "chat" else None
@@ -246,7 +284,8 @@ class Session:
         # session changes, so a bad /new leaves the current conversation usable.
         prepared = profile if isinstance(profile, Prepared) else self.prepare(profile)
         model = prepared.model
-        started = self.backend.start(model, prepared.weights)
+        backend = self.use_backend(prepared.profile.backend, prepared.profile.device)
+        started = backend.start(model, prepared.weights)
         self.model, self.model_lock = model, prepared.lock
         self.tokenizer = prepared.tokenizer
         self.template_tokenizer = prepared.template_tokenizer
@@ -284,6 +323,8 @@ class Session:
 
     def close(self) -> None:
         self.backend.close()
+        for backend in self.backends.values():
+            backend.close()
 
     # --- calls ----------------------------------------------------------------------------
 
@@ -560,7 +601,15 @@ class Session:
                 f"Call {call_id} used {name}, but this conversation uses {self.model.name}. "
                 f"Replay it with `clarity replay {log_path} {call_id}`."
             )
-        self.backend.start(model, check_weights_quick(self.root, entry))
+        described = call.get("backend") or {}
+        name = described.get("backend", "llama.cpp")
+        if name == "transformers":
+            backend = self.use_backend(name, described.get("device"))
+            weights = source_weights(self.root, entry)
+        else:
+            backend = self.use_backend("llama.cpp", None)
+            weights = check_weights_quick(self.root, entry)
+        backend.start(model, weights)
         self.model, self.model_lock = model, entry
         tokenizer = self._load_tokenizer(
             call["model"]["tokenizer_repo"], call["model"]["tokenizer_revision"]

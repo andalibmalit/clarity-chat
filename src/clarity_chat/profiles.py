@@ -61,7 +61,7 @@ SEED_MAX = 2**32 - 2  # llama.cpp reads 0xFFFFFFFF (2**32 - 1) as "pick a random
 # "model": its recommended value; "run": a batch run's seed
 ORIGINS = ("profile", "model", "default", "backend", "regen", "run")
 
-PROFILE_KEYS_COMMON = {"backend", "model", "mode", "settings", "use_recommended"}
+PROFILE_KEYS_COMMON = {"backend", "model", "mode", "settings", "use_recommended", "device"}
 # apply_chat_template arguments that Clarity sets, or that would change what it renders or
 # returns behind the logged template (chat_template replaces the template's text).
 RESERVED_TEMPLATE_KWARGS = {
@@ -76,7 +76,8 @@ RESERVED_TEMPLATE_KWARGS = {
 PROFILE_KEYS_CHAT = {"template_repo", "template_revision", "template_kwargs", "system", "priming"}
 PROFILE_KEYS_TEXT = {"header", "user_name", "assistant_name", "priming"}
 MODES = ("chat", "text")
-BACKENDS = ("llama.cpp",)
+BACKENDS = ("llama.cpp", "transformers")
+DEVICES = ("mps", "cpu", "cuda")  # the Transformers backend's `device`; default "mps"
 
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -224,6 +225,7 @@ class Profile:
     settings: dict[str, Setting]
     raw_settings: dict[str, Any] = field(default_factory=dict)  # the [settings] table, checked
     use_recommended: bool = False  # fill unset settings from the model's generation_config.json
+    device: str | None = None  # Transformers backend only: mps (default), cpu or cuda
     # chat mode
     system: str | None = None
     priming_messages: list[dict[str, str]] = field(default_factory=list)
@@ -316,6 +318,13 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
             raise ConfigError(f"{where}: {key} is required (a string).")
     if data["backend"] not in BACKENDS:
         raise ConfigError(f"{where}: backend must be one of {list(BACKENDS)}.")
+    device = data.get("device")
+    if data["backend"] == "transformers":
+        device = "mps" if device is None else device
+        if device not in DEVICES:
+            raise ConfigError(f"{where}: device must be one of {list(DEVICES)}, got {device!r}.")
+    elif device is not None:
+        raise ConfigError(f'{where}: device applies only to backend = "transformers".')
 
     raw_settings = check_settings_table(data.get("settings", {}), where)
     use_recommended = data.get("use_recommended", False)
@@ -336,6 +345,7 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
         settings=settings,
         raw_settings=raw_settings,
         use_recommended=use_recommended,
+        device=device,
     )
 
     if mode == "chat":
