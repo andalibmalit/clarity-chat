@@ -268,3 +268,50 @@ def test_replay_from_the_log_on_a_new_server_with_logged_flags(session, tmp_path
     assert record["server_id"] != server["server_id"]
     # A new server process: only facts that can't change output may differ.
     assert set(record["differences"]) <= {"client", "libraries"}, record["differences"]
+
+
+GGUF_ENTRY = """\
+[smol-q8]
+# A third-party quantization, used only to test the GGUF-download route.
+route = "gguf"
+repo = "bartowski/SmolLM2-135M-Instruct-GGUF"
+revision = "09816acd5d99df7be770d85ea30822623dab342c"
+file = "SmolLM2-135M-Instruct-Q8_0.gguf"
+sha256 = "5a1395716f7913741cc51d98581b9b1228d80987a9f7d3664106742eb06bba83"
+tokenizer_repo = "HuggingFaceTB/SmolLM2-135M-Instruct"
+tokenizer_revision = "12fd25f77366fa6b3b4b768ec3050bf629380bac"
+"""
+
+
+def test_the_gguf_download_route_end_to_end(tmp_path, monkeypatch):
+    """Downloads 145 MB once (then the Hugging Face cache has it)."""
+    import shutil
+
+    import huggingface_hub.constants
+
+    from clarity_chat.models import fetch
+
+    monkeypatch.setattr(huggingface_hub.constants, "HF_HUB_OFFLINE", False)  # conftest sets it
+
+    root = tmp_path / "project"
+    (root / "profiles").mkdir(parents=True)
+    shutil.copy(REPO / "defaults.toml", root)
+    server = (REPO / "server.toml").read_text(encoding="utf-8")
+    llama_dir = (REPO / "vendor" / "llama.cpp").as_posix()
+    server = server.replace('llama_cpp_dir = "vendor/llama.cpp"', f'llama_cpp_dir = "{llama_dir}"')
+    (root / "server.toml").write_text(server, encoding="utf-8")
+    (root / "models.toml").write_text(GGUF_ENTRY, encoding="utf-8")
+    profile = (REPO / "profiles" / "smol-text.toml").read_text(encoding="utf-8")
+    profile = profile.replace('model = "smollm2-135m-instruct"', 'model = "smol-q8"')
+    (root / "profiles" / "q8.toml").write_text(profile, encoding="utf-8")
+
+    entry = fetch(root, load_models(root)["smol-q8"], load_server_config(root))
+    assert entry["gguf"]["path"].startswith("~/"), entry["gguf"]["path"]  # the HF cache
+    session = Session(root, logs_dir=tmp_path / "logs")
+    try:
+        session.new_conversation("q8")
+        outcome = session.say("Name a colour.")
+    finally:
+        session.close()
+    all_checks_ok(outcome.record)  # includes the echo check: tokenizer and GGUF agree
+    assert outcome.record["model"]["gguf_sha256"] == entry["gguf"]["sha256"]

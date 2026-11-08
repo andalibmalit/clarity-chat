@@ -48,6 +48,7 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 - `models.lock` is committed, so its paths are relative to the repo or written as `~/...`.
 - The full sha256 is computed at fetch; server start checks only size and modified time; `clarity verify` re-hashes on demand.
 - Converting SmolLM2 twice gave a byte-identical GGUF.
+- A ready-made GGUF (`route = "gguf"`, with `file` and `sha256`) is downloaded at its commit, checked against the sha256 in `models.toml`, and left in the Hugging Face cache. Its tokenizer, chat template and recommended settings come from `tokenizer_repo` (the source model) at its commit; the echo check on every call shows whether that tokenizer matches the GGUF.
 
 **Hand-written and generated files stay apart.** The tool never edits `models.toml`, profiles, `defaults.toml` or `server.toml`.
 

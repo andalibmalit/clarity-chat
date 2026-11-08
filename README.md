@@ -29,7 +29,7 @@ The same call on the same machine and llama.cpp build gives the same output; liv
 
 ## Status
 
-Built so far: fetching and converting a model, the managed llama-server, chat mode (the model's chat template) and text mode (a plain document), the chat loop with branches (`/regen`, `/edit`, `/undo`), marks and notes, replay, and batch runs for blind comparisons. Coming next: downloading a ready-made GGUF, and a Transformers backend.
+Built so far: fetching and converting a model, the managed llama-server, chat mode (the model's chat template) and text mode (a plain document), the chat loop with branches (`/regen`, `/edit`, `/undo`), marks and notes, replay, batch runs for blind comparisons, and downloading a ready-made GGUF as an alternative to converting. Coming next: a Transformers backend.
 
 ## Quick start
 
@@ -50,7 +50,7 @@ uv run clarity replay logs/CONVERSATION.jsonl CALL_ID              # re-send a c
 
 ## Configuration
 
-- `models.toml`: models, each at a pinned commit.
+- `models.toml`: models, each at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - `server.toml`: every llama-server flag.
 - `defaults.toml`: the neutral value of every setting.
 - `profiles/*.toml`: one experimental setup each (model, mode, prompt pieces and settings).
