@@ -226,11 +226,13 @@ If same-seed replay on the same server isn't identical, stop and report before g
 - **Pre-flight before any model loads:** each profile is prepared (model, lock, weights, tokenizer, template) and every opening is rendered and checked against the context. A profile listed twice is refused.
 - **What stops a run:** any error, a `check_failed:*` flag, or Ctrl-C. Other flags (`length`, `empty_reply`, `special_tokens_in_content`) don't; they're in the log, and warnings print once.
 - **`blind.md` layout:** `# Opening N`, the opening, then `## A` and so on, each reply followed by `Rating:` and `Note:`. Labels continue `AA`, `AB` after `Z`. One shuffle seed per run (`random.Random`), recorded in `key.json` with the rule.
+- **Secret-looking variable values are never logged** (review finding): a kept `LLAMA_*`/`GGML_*` variable whose name contains KEY, TOKEN, SECRET, PASS, AUTH or CREDENTIAL is logged by name only. The server still receives it.
+- **A server restart mid-run stops a batch run,** so a run never mixes server processes.
 - **`Session.prepare`** now holds the profile checks that `new_conversation` used to do inline, so batch runs and `/new` share them.
 - **PyTorch deterministic mode (your question tonight):** still not planned for step 5. An agent is writing `docs/research/determinism-primer.md` (foundations, what the mode does on CUDA, CPU and MPS, and an audit of the complexity the nondeterminism work added); a second agent will check it before you read it.
 
 **Next actions, in order:**
-1. Step 3: batch mode is built and tested (offline and live); next, the medium code review.
+1. Step 3 is done: batch mode, reviewed (medium), nine of ten findings fixed. The tenth (a run's single server record carries the first conversation's ID) is documented: replay finds servers by `server_id`.
 2. Step 4, replay: flag the case where output differs and nothing that could change it differs (only the client commit, or nothing). No category list.
 3. Step 5: no `use_deterministic_algorithms` (it does nothing on MPS); gate the MPS backend on the same live replay tests; log torch and macOS versions.
 

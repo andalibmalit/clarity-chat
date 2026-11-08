@@ -11,7 +11,7 @@ from typing import Any
 
 from clarity_chat.backends import BackendError
 from clarity_chat.profiles import ConfigError, find_root, load_models, load_server_config
-from clarity_chat.session import ContextError, Session
+from clarity_chat.session import ContextError, Conversation, Session
 
 HELP = """\
 Enter sends; Alt+Enter (or Esc then Enter) starts a new line. Pasted text keeps its newlines.
@@ -118,10 +118,8 @@ class ChatLoop:
 
     def start(self) -> None:
         self.write(f"Starting profile {self.profile_name} …\n")
-        self.session.new_conversation(self.profile_name)
-        self.show_server_warnings(None)
-        conversation = self.session.conversation
-        assert conversation is not None
+        conversation = self.session.new_conversation(self.profile_name)
+        self.show_server_warnings(conversation)
         self.write(
             f"Ready: {conversation.profile.model} ({conversation.profile.mode} mode), "
             f"conversation {conversation.conversation_id}. /help for commands.\n"
@@ -163,7 +161,6 @@ class ChatLoop:
         elif command == "settings":
             self.write(format_settings(session) + "\n")
         elif command == "new":
-            before = (session.backend.server_record or {}).get("server_id")
             try:
                 # The profile's own file, so a profile given as a path is found again.
                 new = session.new_conversation(str(conversation.profile.path))
@@ -171,17 +168,14 @@ class ChatLoop:
                 self.write(f"! {e}\n")
                 return True
             self.write(f"New conversation {new.conversation_id}.\n")
-            self.show_server_warnings(before)
+            self.show_server_warnings(new)
         else:
             self.write(f"Unknown command /{command}. /help lists them.\n")
         return True
 
-    def show_server_warnings(self, previous_server_id: str | None) -> None:
-        """A newly started server's warnings (once per server, not per conversation)."""
-        record = self.session.backend.server_record or {}
-        if record.get("server_id") == previous_server_id:
-            return
-        for warning in record.get("warnings", []):
+    def show_server_warnings(self, conversation: Conversation) -> None:
+        """The warnings of a server this conversation started (once per server)."""
+        for warning in (conversation.started_server or {}).get("warnings", []):
             self.write(f"! {warning}\n")
 
     def send(self, text: str) -> bool:

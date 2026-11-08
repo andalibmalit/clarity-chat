@@ -242,3 +242,82 @@ def test_run_command_explains_a_stopped_run(fetched_root, tiny_tokenizer, monkey
     assert cli.main([*argv, "--profiles", "text"]) == 1
     err = capsys.readouterr().err
     assert "server gone" in err and "No blind.md" in err
+
+
+# --- review fixes -------------------------------------------------------------------------
+
+
+def test_a_missing_openings_file_is_a_clear_error(fetched_root, tiny_tokenizer):
+    from clarity_chat.batch import read_openings
+
+    with pytest.raises(ConfigError, match="Can't read the openings file"):
+        read_openings(fetched_root / "nope.txt")
+    (fetched_root / "latin1.txt").write_bytes("caf\xe9".encode("latin-1"))
+    with pytest.raises(ConfigError, match="UTF-8"):
+        read_openings(fetched_root / "latin1.txt")
+
+
+def test_a_byte_order_mark_is_not_sent():
+    assert split_openings("﻿one\r\n---\r\ntwo") == ["one", "two"]
+
+
+def test_the_same_profile_by_name_and_by_path_is_refused(batch, fetched_root):
+    with pytest.raises(ConfigError, match="twice"):
+        batch(profile_names=("text", str(fetched_root / "profiles" / "text.toml")))
+
+
+def test_profiles_with_one_name_but_different_max_tokens_are_refused(batch, fetched_root):
+    for folder, limit in (("a", 16), ("b", 32)):
+        (fetched_root / folder).mkdir()
+        (fetched_root / folder / "x.toml").write_text(
+            TEXT_PROFILE.replace("max_tokens = 16", f"max_tokens = {limit}"), encoding="utf-8"
+        )
+    with pytest.raises(ConfigError, match="max_tokens differ"):
+        batch(profile_names=[str(fetched_root / f / "x.toml") for f in ("a", "b")])
+
+
+def test_calls_use_the_profile_as_checked_even_if_its_file_changes(batch, fetched_root):
+    def setup(backend):
+        complete = backend.complete
+
+        def edit_then_complete(*args, **kwargs):
+            (fetched_root / "profiles" / "text.toml").write_text(
+                TEXT_PROFILE.replace("max_tokens = 16", "max_tokens = 99"), encoding="utf-8"
+            )
+            return complete(*args, **kwargs)
+
+        backend.complete = edit_then_complete
+
+    _, _, backend, _ = batch(setup=setup)
+    assert {c["settings"]["max_tokens"] for c in backend.calls} == {16}
+
+
+def test_a_server_restart_mid_run_stops_it(batch, fetched_root):
+    def setup(backend):
+        start = backend.start
+
+        def restart_after_first_call(model, weights):
+            if backend.calls:
+                backend.started.clear()  # as if the server had died
+            return start(model, weights)
+
+        backend.start = restart_after_first_call
+
+    with pytest.raises(RunError, match="restarted during the run"):
+        batch(setup=setup)
+    assert not (fetched_root / "runs" / "run-test" / "blind.md").exists()
+
+
+def test_ctrl_c_between_calls_says_where_the_run_stopped(batch):
+    def setup(backend):
+        start = backend.start
+
+        def interrupt_after_first_call(model, weights):
+            if backend.calls:
+                raise KeyboardInterrupt
+            return start(model, weights)
+
+        backend.start = interrupt_after_first_call
+
+    with pytest.raises(RunError, match="Interrupted .* opening 2, profile text"):
+        batch(setup=setup)

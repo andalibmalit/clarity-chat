@@ -94,6 +94,7 @@ class Conversation:
     turns: dict[str, Turn] = field(default_factory=dict)
     head: str | None = None
     run: dict[str, Any] | None = None  # set for a batch run's conversations
+    started_server: dict[str, Any] | None = None  # the server_start, if this one started it
     last_call: dict[str, Any] | None = None
 
     def path_to(self, turn_id: str | None) -> list[Turn]:
@@ -206,32 +207,38 @@ class Session:
         return Prepared(profile, model, entry, weights, tokenizer, template_tokenizer, template)
 
     def new_conversation(
-        self, profile_name: str, log: LogFile | None = None, run: dict[str, Any] | None = None
+        self,
+        profile: str | Prepared,
+        log: LogFile | None = None,
+        run: dict[str, Any] | None = None,
     ) -> Conversation:
-        """Start a conversation with a profile, starting or switching the model as needed.
+        """Start a conversation with a profile (a name, a path, or one already prepared),
+        starting or switching the model as needed.
 
         `log`: a log file to share (a batch run writes all its conversations to one file);
         by default each conversation gets its own file in `logs_dir`. `run` is copied into
         the conversation's records and calls."""
         # Everything that can fail on the profile alone is checked before the server or the
         # session changes, so a bad /new leaves the current conversation usable.
-        prepared = self.prepare(profile_name)
-        profile, model = prepared.profile, prepared.model
-        self.backend.start(model, prepared.weights)
+        prepared = profile if isinstance(profile, Prepared) else self.prepare(profile)
+        model = prepared.model
+        started = self.backend.start(model, prepared.weights)
         self.model, self.model_lock = model, prepared.lock
         self.tokenizer = prepared.tokenizer
         self.template_tokenizer = prepared.template_tokenizer
         self.template = prepared.template
         conversation_id = new_id("conversation")
         log = log or LogFile(self.logs_dir / f"{conversation_id}.jsonl")
-        conversation = Conversation(conversation_id, profile, log, run=run)
+        conversation = Conversation(
+            conversation_id, prepared.profile, log, run=run, started_server=started
+        )
         log.append(
             {
                 "type": "conversation",
                 "conversation_id": conversation_id,
                 **({"run": run} if run else {}),
-                "profile": profile.to_json(),
-                "settings": {k: s.to_json() for k, s in profile.settings.items()},
+                "profile": prepared.profile.to_json(),
+                "settings": {k: s.to_json() for k, s in prepared.profile.settings.items()},
                 "model": model.to_json(),
                 "client": client_git(),
                 "machine": machine(),

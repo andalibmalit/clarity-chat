@@ -140,6 +140,15 @@ def test_server_env_removes_flag_variables(monkeypatch):
     assert kept["GGML_METAL_SOMETHING"] == "1"  # values are logged, not just names
 
 
+def test_values_of_secret_looking_variables_are_never_logged(monkeypatch):
+    monkeypatch.setenv("LLAMA_CLOUD_API_KEY", "made-up-key-123")
+    monkeypatch.setenv("GGML_SOME_TOKEN", "made-up-token")
+    env, _, kept = server_env()
+    assert env["LLAMA_CLOUD_API_KEY"] == "made-up-key-123"  # the server still gets it
+    assert "made-up" not in str(kept)
+    assert set(kept) >= {"LLAMA_CLOUD_API_KEY", "GGML_SOME_TOKEN"}  # the names are logged
+
+
 COMMIT = "f477f795cb071baf5b8af6488378366a72034ac4"
 
 
