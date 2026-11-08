@@ -29,7 +29,7 @@ The same call on the same machine and llama.cpp build gives the same output; liv
 
 ## Status
 
-Built so far: fetching and converting a model, the managed llama-server, chat mode (the model's chat template) and text mode (a plain document), and the chat loop (`/prompt`, `/settings`, `/new`, `/quit`). Coming next, in order: batch mode for blind comparisons, branches and replay, and a Transformers backend.
+Built so far: fetching and converting a model, the managed llama-server, chat mode (the model's chat template) and text mode (a plain document), the chat loop (`/prompt`, `/settings`, `/new`, `/quit`), and batch runs for blind comparisons. Coming next, in order: branches and replay, and a Transformers backend.
 
 ## Quick start
 
@@ -44,6 +44,7 @@ cmake --build vendor/llama.cpp/build --config Release -j 8 --target llama-server
 
 uv run clarity fetch smollm2-135m-instruct   # download at the pinned commit, convert to GGUF
 uv run clarity chat --profile smol-text      # chat; /help lists the commands
+uv run clarity run --openings FILE --profiles smol-chat smol-text   # blind test
 ```
 
 ## Configuration
@@ -56,6 +57,8 @@ uv run clarity chat --profile smol-text      # chat; /help lists the commands
 Add `use_recommended = true` to a profile to use the model's own recommended sampling settings for anything the profile doesn't set.
 
 The tool never edits these files; what it resolves goes to `models.lock`.
+
+A batch run (`clarity run`) reads openings from a text file, separated by lines that are exactly `---`. It writes `blind.md` for raters, `key.json` (which reply came from which profile) and the call log to a new `runs/<run-id>/` folder.
 
 ## More
 

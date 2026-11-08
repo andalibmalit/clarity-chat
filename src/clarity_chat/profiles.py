@@ -58,7 +58,8 @@ NEUTRAL = {
 }
 
 SEED_MAX = 2**32 - 2  # llama.cpp reads 0xFFFFFFFF (2**32 - 1) as "pick a random seed"
-ORIGINS = ("profile", "model", "default", "backend", "regen")  # "model": its recommended value
+# "model": its recommended value; "run": a batch run's seed
+ORIGINS = ("profile", "model", "default", "backend", "regen", "run")
 
 PROFILE_KEYS_COMMON = {"backend", "model", "mode", "settings", "use_recommended"}
 # apply_chat_template arguments that Clarity sets, or that would change what it renders or
@@ -83,7 +84,7 @@ COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 @dataclass(frozen=True)
 class Setting:
     value: Any
-    origin: str  # profile | default | backend | regen
+    origin: str  # one of ORIGINS
 
     def to_json(self) -> dict:
         return {"value": self.value, "origin": self.origin}

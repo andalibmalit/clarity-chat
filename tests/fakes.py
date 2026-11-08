@@ -25,6 +25,7 @@ class FakeBackend:
         self.fail_with: str | None = None
         self.cancel_after: int | None = None  # characters streamed before a simulated Ctrl-C
         self.start_warnings: list[str] = []
+        self.result_flags: list[str] = []  # e.g. "check_failed:echo", added to every reply
 
     @property
     def n_ctx(self) -> int:
@@ -88,4 +89,5 @@ class FakeBackend:
             stopping_word=stopping_word,
             n_prompt=len(token_ids),
             n_predicted=len(reply),
+            flags=list(self.result_flags),
         )

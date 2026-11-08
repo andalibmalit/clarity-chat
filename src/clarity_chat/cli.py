@@ -1,4 +1,4 @@
-"""The `clarity` command: chat, fetch, verify."""
+"""The `clarity` command: chat, run, fetch, verify."""
 
 from __future__ import annotations
 
@@ -236,6 +236,26 @@ def cmd_chat(root: Path, profile: str) -> int:
     return 0
 
 
+def cmd_run(root: Path, openings: Path, profiles: list[str], seeds: int) -> int:
+    from clarity_chat.batch import RunError, run_batch
+    from clarity_chat.logs import new_id
+
+    run_id = new_id("run")
+    run_dir = root / "runs" / run_id
+    session = Session(root, logs_dir=run_dir)  # the server's output log stays with the run
+    atexit.register(session.close)
+    try:
+        blind = run_batch(session, run_id, run_dir, openings, profiles, seeds, write_stdout)
+    except RunError as e:
+        print(f"\nclarity: run stopped. {e}", file=sys.stderr)
+        print(f"No blind.md was written. The calls so far are in {run_dir}.", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+    print(f"Done. Share {blind}.\nKeep {run_dir / 'key.json'} closed until rating is done.")
+    return 0
+
+
 def cmd_fetch(root: Path, name: str) -> int:
     from clarity_chat.models import fetch
 
@@ -269,6 +289,17 @@ def main(argv: list[str] | None = None) -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     chat = commands.add_parser("chat", help="chat with a profile")
     chat.add_argument("--profile", required=True, help="a profile name from profiles/")
+    run = commands.add_parser(
+        "run", help="collect replies for a blind test (writes runs/<run-id>/blind.md)"
+    )
+    run.add_argument("--openings", type=Path, required=True, help="openings separated by ---")
+    run.add_argument("--profiles", nargs="+", required=True, help="profile names or paths")
+    run.add_argument(
+        "--seeds",
+        type=int,
+        default=1,
+        help="replies per opening and profile; their seeds are 333, 334, … (default 1)",
+    )
     fetch = commands.add_parser("fetch", help="download (and convert) a model from models.toml")
     fetch.add_argument("name")
     verify = commands.add_parser("verify", help="re-hash fetched models against models.lock")
@@ -278,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
         root = args.root.resolve() if args.root else find_root()
         if args.command == "chat":
             return cmd_chat(root, args.profile)
+        if args.command == "run":
+            return cmd_run(root, args.openings, args.profiles, args.seeds)
         if args.command == "fetch":
             return cmd_fetch(root, args.name)
         if args.command == "verify":
