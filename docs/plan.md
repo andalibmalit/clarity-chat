@@ -216,11 +216,10 @@ If same-seed replay on the same server isn't identical, stop and report before g
 **Overnight run (authorized by the user on 2026-11-07, before sleeping):** finish steps 3 to 5 autonomously, without pushing. Record every decision made without the user under "Decisions to review in the morning" below, and keep each easy to reverse. An hourly session check-in (CronCreate) resumes the work if a usage limit pauses it.
 
 **User decisions for steps 3 to 5 (2026-11-07):**
-- `run --seeds N`: several seeds per opening and profile, each reply still shuffled and blind. The user wrote "default 333"; I read it as a typo for 3 and use 3 until they confirm.
+- `run --seeds N` (default 1): N replies per opening and profile, each still shuffled and blind. The seeds start at 333 (333, 334, …), confirmed by the user: "333" is the seed value, not the count. In batch runs these replace the profile's seed and are logged with their own origin.
 - Transformers backend: MPS by default, with a `device = "cpu"` option. If MPS fails the run-to-run replay test, log and document it, and warn once at backend start (actionable: switch to CPU). The user wants to discuss later whether to move experiments to Linux, and whether Macs need a further warning.
 
 **Decisions to review in the morning:** (append as they're made)
-- `--seeds` default 3 (see above).
 
 **Next actions, in order:**
 1. Step 3: batch mode, then a medium code review. The user may want several seeds or openings per setup for Check 0 (research: seed-to-seed variance dominates at temperature 0.6); raise it when designing `run`.
