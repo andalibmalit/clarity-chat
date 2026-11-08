@@ -101,7 +101,15 @@ def lock_entry(root: Path, model: ModelEntry) -> dict[str, Any]:
     entry = read_lock(root)["models"].get(model.name)
     if entry is None:
         raise ConfigError(f"Model {model.name!r} is not fetched. Run `clarity fetch {model.name}`.")
-    for key in ("route", "repo", "revision", "tokenizer_repo", "tokenizer_revision"):
+    keys = ["route", "repo", "revision", "tokenizer_repo", "tokenizer_revision"]
+    if model.route == "gguf":
+        keys.append("file")
+        if entry.get("gguf", {}).get("sha256") != model.sha256:
+            raise ConfigError(
+                f"models.lock has {model.name!r} with a different sha256 than models.toml. "
+                f"Run `clarity fetch {model.name}` again."
+            )
+    for key in keys:
         if entry.get(key) != getattr(model, key):
             raise ConfigError(
                 f"models.lock has {model.name!r} with {key} = {entry.get(key)!r}, but models.toml "
@@ -111,7 +119,10 @@ def lock_entry(root: Path, model: ModelEntry) -> dict[str, Any]:
 
 
 def weights_path(root: Path, entry: dict[str, Any]) -> Path:
-    return root / entry["gguf"]["path"]
+    """The GGUF: under the repo (converted), or in the Hugging Face cache (downloaded),
+    which models.lock writes as `~/...` or as an absolute path outside the home folder."""
+    path = Path(entry["gguf"]["path"]).expanduser()
+    return path if path.is_absolute() else root / path
 
 
 def check_weights_quick(root: Path, entry: dict[str, Any]) -> Path:
@@ -150,7 +161,59 @@ def _download(repo: str, revision: str, patterns: list[str]) -> Path:
 def fetch(root: Path, model: ModelEntry, server: ServerConfig) -> dict[str, Any]:
     if model.route == "convert":
         return fetch_convert(root, model, server)
-    raise ConfigError(f"{model.name}: the {model.route!r} route is not built yet (step 4).")
+    return fetch_gguf(root, model)
+
+
+def _download_file(repo: str, revision: str, filename: str) -> Path:
+    from huggingface_hub import hf_hub_download
+
+    return Path(hf_hub_download(repo, filename, revision=revision))
+
+
+def fetch_gguf(root: Path, model: ModelEntry) -> dict[str, Any]:
+    """Download a ready-made GGUF at its pinned commit and check its sha256 against
+    models.toml. It stays in the Hugging Face cache. The tokenizer, chat template and
+    recommended settings come from `tokenizer_repo` at its commit (the source model); the
+    echo check on the first call shows whether that tokenizer matches the GGUF."""
+    assert model.file is not None and model.sha256 is not None
+    print(f"Downloading {model.repo}@{model.revision[:12]} {model.file} …", flush=True)
+    path = _download_file(model.repo, model.revision, model.file)
+    print(f"Hashing {path.name} …", flush=True)
+    digest = sha256_file(path)
+    if digest != model.sha256:
+        raise ConfigError(
+            f"{model.repo}/{model.file} at {model.revision[:12]} has sha256 {digest}, but "
+            f"models.toml says {model.sha256}. Not recorded in models.lock."
+        )
+    print(f"Downloading tokenizer {model.tokenizer_repo}@{model.tokenizer_revision[:12]} …")
+    tokenizer = _download(
+        model.tokenizer_repo,
+        model.tokenizer_revision,
+        [*TOKENIZER_FILES, "generation_config.json"],
+    )
+    stat = path.stat()
+    entry = {
+        "name": model.name,
+        "route": model.route,
+        "repo": model.repo,
+        "revision": model.revision,
+        "file": model.file,
+        "tokenizer_repo": model.tokenizer_repo,
+        "tokenizer_revision": model.tokenizer_revision,
+        "tokenizer_dir": portable_path(str(tokenizer), root),
+        "gguf": {
+            "path": portable_path(str(path), root),
+            "size": stat.st_size,
+            "mtime_ns": stat.st_mtime_ns,
+            "sha256": digest,
+        },
+        "recommended": recommended_settings(
+            tokenizer, model.tokenizer_repo, model.tokenizer_revision
+        ),
+        "fetched_at": now_utc(),
+    }
+    write_lock_entry(root, model.name, entry)
+    return entry
 
 
 def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[str, Any]:
