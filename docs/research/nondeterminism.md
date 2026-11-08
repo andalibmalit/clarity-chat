@@ -124,6 +124,8 @@ Every call fills cells from 0 upward. OLMo 3's sliding-window cache is a ring of
 
 ## Not verified
 
+Since verified live (2026-11-07, M2 Max, macOS 26.7.2): replay after a server restart, and after a longer call in between (5000 tokens for OLMo 3, wrapping the sliding-window ring), gives identical output IDs for SmolLM2 and OLMo 3 Instruct. The first item below is therefore settled for this machine and build.
+
 - Run-to-run determinism after a restart, and after a long intervening call, on this machine (recommendations 1 and 2).
 - Whether libc++ and libstdc++ `uniform_real_distribution<double>` give different draws for `mt19937`.
 - That `simd_sum` has a fixed reduction order in hardware. Apple doesn't document it; the live test supports it.

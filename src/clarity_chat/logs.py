@@ -100,6 +100,7 @@ def client_git() -> dict[str, Any]:
     return git_state(Path(__file__).resolve().parent)
 
 
+@cache
 def machine() -> dict[str, Any]:
     return {
         "os": platform.system(),
@@ -110,8 +111,29 @@ def machine() -> dict[str, Any]:
         "processor": platform.processor(),
         "cpu_count": os.cpu_count(),
         "python": platform.python_version(),
+        "macos": _macos(),
         "hostname_hash": _hostname_hash(),
     }
+
+
+def _macos() -> dict[str, str | None] | None:
+    """macOS version, build and chip. Metal compiles llama.cpp's GPU kernels when the server
+    starts, so a macOS update can change output; the chip picks kernel variants too."""
+    if platform.system() != "Darwin":
+        return None
+    return {
+        "version": platform.mac_ver()[0],
+        "build": _command_output(["sw_vers", "-buildVersion"]),
+        "chip": _command_output(["sysctl", "-n", "machdep.cpu.brand_string"]),  # None if blocked
+    }
+
+
+def _command_output(argv: list[str]) -> str | None:
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=5, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return result.stdout.strip() or None
 
 
 def _hostname_hash() -> str:

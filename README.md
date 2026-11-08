@@ -23,6 +23,10 @@ Clarity removes that hidden layer, without making experiments harder to run:
 - it logs everything that affects the output
 - it can replay any call
 
+## Reproducibility
+
+The same call on the same machine and llama.cpp build gives the same output; live tests check this. A different build, GPU, macOS version or batch setting can change it, because GPU arithmetic depends on the order of operations. Clarity logs all of these, so replay (coming soon) can show what differed. See [`docs/design.md`](docs/design.md#determinism-and-replay).
+
 ## Status
 
 Built so far: fetching and converting a model, the managed llama-server, chat mode (the model's chat template) and text mode (a plain document), and the chat loop (`/prompt`, `/settings`, `/new`, `/quit`). Coming next, in order: batch mode for blind comparisons, branches and replay, and a Transformers backend.

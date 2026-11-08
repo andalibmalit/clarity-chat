@@ -119,9 +119,7 @@ class ChatLoop:
     def start(self) -> None:
         self.write(f"Starting profile {self.profile_name} …\n")
         self.session.new_conversation(self.profile_name)
-        record = self.session.backend.server_record or {}
-        for warning in record.get("warnings", []):
-            self.write(f"! {warning}\n")
+        self.show_server_warnings(None)
         conversation = self.session.conversation
         assert conversation is not None
         self.write(
@@ -165,6 +163,7 @@ class ChatLoop:
         elif command == "settings":
             self.write(format_settings(session) + "\n")
         elif command == "new":
+            before = (session.backend.server_record or {}).get("server_id")
             try:
                 # The profile's own file, so a profile given as a path is found again.
                 new = session.new_conversation(str(conversation.profile.path))
@@ -172,9 +171,18 @@ class ChatLoop:
                 self.write(f"! {e}\n")
                 return True
             self.write(f"New conversation {new.conversation_id}.\n")
+            self.show_server_warnings(before)
         else:
             self.write(f"Unknown command /{command}. /help lists them.\n")
         return True
+
+    def show_server_warnings(self, previous_server_id: str | None) -> None:
+        """A newly started server's warnings (once per server, not per conversation)."""
+        record = self.session.backend.server_record or {}
+        if record.get("server_id") == previous_server_id:
+            return
+        for warning in record.get("warnings", []):
+            self.write(f"! {warning}\n")
 
     def send(self, text: str) -> bool:
         try:

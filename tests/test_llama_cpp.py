@@ -14,6 +14,7 @@ from clarity_chat.backends.llama_cpp import (
     parse_sse_line,
     placement_problem,
     server_env,
+    start_warnings,
 )
 
 SETTINGS = {
@@ -136,7 +137,22 @@ def test_server_env_removes_flag_variables(monkeypatch):
     env, removed, kept = server_env()
     assert "LLAMA_ARG_CTX_SIZE" not in env
     assert {"LLAMA_ARG_CTX_SIZE", "LLAMA_ARG_N_GPU_LAYERS", "LLAMA_API_KEY"} <= set(removed)
-    assert "GGML_METAL_SOMETHING" in kept
+    assert kept["GGML_METAL_SOMETHING"] == "1"  # values are logged, not just names
+
+
+COMMIT = "f477f795cb071baf5b8af6488378366a72034ac4"
+
+
+def test_a_clean_matching_server_has_no_start_warnings():
+    assert start_warnings("b1-f477f79", COMMIT, {"dirty": False}, {}) == []
+
+
+def test_start_warnings_name_what_you_can_act_on():
+    warnings = start_warnings("b1-0000000", COMMIT, {"dirty": True}, {"GGML_X": "1"})
+    text = " ".join(warnings)
+    assert "rebuild llama-server" in text
+    assert "uncommitted changes" in text
+    assert "GGML_X" in text
 
 
 def test_config_files_are_found(monkeypatch, tmp_path):

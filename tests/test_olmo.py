@@ -70,6 +70,24 @@ def test_same_seed_same_server_gives_identical_output_ids(session):
     assert first["stop_type"] == second["stop_type"]
 
 
+def test_replay_after_a_long_call_and_after_a_restart(session):
+    """The long call wraps OLMo's sliding-window KV ring (4608 cells) during prefill."""
+    session.new_conversation("1b-blank")
+    first = session.say("Name three rivers.").record
+    ids, stop = first["prompt_ids"], first["stop"]
+    settings = {name: s["value"] for name, s in first["settings"].items()}
+    assert session.tokenizer is not None
+    long_ids = session.tokenizer.encode(" word" * 6000)[:5000]
+    assert len(long_ids) == 5000
+    backend = session.backend
+    backend.complete(long_ids, {**settings, "max_tokens": 1}, [])
+    assert backend.complete(ids, settings, stop).token_ids == first["output_ids"]
+    assert session.model is not None
+    backend.close()
+    backend.start(session.model, check_weights_quick(REPO, session.model_lock))
+    assert backend.complete(ids, settings, stop).token_ids == first["output_ids"]
+
+
 @pytest.mark.parametrize("profile", ["4-raw-instruct", "5-raw-base"])
 def test_raw_text_mode_on_both_models(session, profile):
     session.new_conversation(profile)
