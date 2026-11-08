@@ -53,6 +53,16 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 
 **Logs are append-only JSONL, one file per conversation** (a batch run puts all its conversations in one `calls.jsonl`), with a `schema_version`. Every call writes a record, including failures and Ctrl-C (`stop_type` `cancelled`). Readers ignore unknown keys, so later additions (token probabilities, reasoning text) need no format change. `logs/` and `runs/` are private and gitignored.
 
+**Branches never overwrite.** `/regen` adds another reply to the same message, `/edit` adds a new version of your last message, and `/undo` moves back one exchange so the next message starts a branch. Every turn stays in the log with its parent and origin (`regen_of` and `edit_of` say what it is an alternative to).
+- `/regen` uses the first reply's seed plus k for the k-th regeneration, logged with origin `regen`. With the same seed it would only repeat the reply; checking that is `/replay`'s job.
+- An edited message is a new message, so it uses the profile's seed.
+
+**Replay re-sends the logged request, not a rebuilt one.** `clarity replay LOG CALL_ID` (or `/replay` for the current reply) sends the call's token IDs and its logged request body, so a later change to Clarity's request-building can't change the replay. It reports identical (same output token IDs and stop type, or the same text if the logged IDs were incomplete) or where the output first differs. It also lists every recorded fact that differs from now: llama.cpp build and checkout, server flags, `/props`, `GGML_*`/`LLAMA_*` variables, machine, model file hash, client commit and rendering libraries. It appends a `replay` record to the same log.
+- It uses `server.toml`'s flags; `--logged-flags` starts the server with the call's logged flags instead.
+- `/props` field `media_marker` is left out: it is random at every server start and only marks images.
+- Failed and cancelled calls can't be replayed: there is no complete reply to compare.
+- The command exits with 1 when the output differs, like `diff`.
+
 **Batch runs are blind, checked first and kept apart.** `clarity run` sends every opening to every profile, each call in a new conversation, and writes `blind.md` (openings and shuffled, labelled replies, nothing else), `key.json` (which label is which) and `calls.jsonl` to `runs/<run-id>/`.
 - Before any model loads, every profile is prepared and every opening is rendered against it: unequal `max_tokens` (reply length would give the setup away), a profile listed twice, or an opening that doesn't fit the context stops the run.
 - Seeds come from the run, not the profile: 333, then 334 and so on with `--seeds N`, logged with origin `run`. A fixed start makes two runs comparable; several seeds show a setup's spread rather than one sample.
@@ -71,13 +81,13 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 - the GPU family, or the macOS version (Metal compiles llama.cpp's GPU kernels when the server starts)
 - some `GGML_*` environment variables, and the GGUF itself
 
-Clarity logs all of these, and replay (step 4) will list the ones that differ.
+Clarity logs all of these, and replay lists the ones that differ.
 
 **Warnings are for things you can act on.**
 - Per call: a failed check, a nearly full context, or control-token text in your message.
 - Per server start: a build that doesn't match the pinned commit, uncommitted changes in the llama.cpp checkout, or inherited `GGML_*`/`LLAMA_*` variables (their values are logged, except for names that look like secrets, such as `LLAMA_CLOUD_API_KEY`).
 
-There is no general "results may vary" notice. The avoidable causes are already removed, and the rest is logged. Replay will flag the one case that needs attention: output that differs although nothing that could explain it changed.
+There is no general "results may vary" notice. The avoidable causes are already removed, and the rest is logged. Replay flags the one case that needs attention: output that differs although nothing that could explain it changed (`unexplained_difference`).
 
 **Not attempted:** identical output across machines, builds or backends, which no inference stack offers; llama.cpp's experimental batch-invariant kernels, which fix a variation Clarity's single-slot setup doesn't have; and a determinism guarantee for the Transformers backend on Apple GPUs, which PyTorch doesn't provide (step 5 runs the same live tests instead). Research and sources: `docs/research/nondeterminism.md`.
 
@@ -87,6 +97,8 @@ There is no general "results may vary" notice. The avoidable causes are already 
 - **Compare two setups:** make two profiles that differ in one key. Everything else, including settings you didn't set, is the same, because it comes from `defaults.toml`.
 - **Try a model's own settings:** add `use_recommended = true`; `/settings` shows which values came from the model.
 - **Check reproducibility:** the same call gives identical output token IDs on the same machine and build (tested live).
+- **Check a surprising reply:** `/replay` re-sends it; if the output differs and nothing recorded differs, keep the log, as that is real nondeterminism.
+- **Explore alternatives:** `/regen` for another sample, `/edit` to reword, `/undo` to step back; `/mark` and `/note` label replies for later.
 - **Compare setups fairly:** a fixed seed makes a reply replayable, not representative. At temperature 0.6 another seed gives a different reply, so compare setups over several openings or seeds.
 - **Blind test:** `clarity run --openings FILE --profiles A B C` (add `--seeds 3` for three replies each). Give raters `blind.md`; open `key.json` only after rating.
 - **Same model, chat versus plain document:** `4-raw-instruct` sends the instruct model a plain document with no template; compare it with a chat profile to see what the template contributes.

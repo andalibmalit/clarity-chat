@@ -512,10 +512,16 @@ class LlamaCppBackend:
         settings: dict[str, Any],
         stop: list[str],
         on_text: Callable[[str], None] | None = None,
+        request: dict[str, Any] | None = None,
     ) -> Result:
+        """`request`: a logged request body (prompt left out) to send exactly as it was,
+        for replay; otherwise it is built from `settings` and `stop`."""
         if self.server is None:
             raise BackendError("No model loaded.")
-        request = build_request(token_ids, settings, stop)
+        if request is None:
+            request = build_request(token_ids, settings, stop)
+        else:
+            request = {**request, "prompt": list(token_ids)}
         logged_request = {k: v for k, v in request.items() if k != "prompt"}
         backend_settings = {
             k: {"value": v, "origin": "backend"} for k, v in NEUTRAL_REQUEST.items()

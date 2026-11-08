@@ -228,12 +228,17 @@ If same-seed replay on the same server isn't identical, stop and report before g
 - **`blind.md` layout:** `# Opening N`, the opening, then `## A` and so on, each reply followed by `Rating:` and `Note:`. Labels continue `AA`, `AB` after `Z`. One shuffle seed per run (`random.Random`), recorded in `key.json` with the rule.
 - **Secret-looking variable values are never logged** (review finding): a kept `LLAMA_*`/`GGML_*` variable whose name contains KEY, TOKEN, SECRET, PASS, AUTH or CREDENTIAL is logged by name only. The server still receives it.
 - **A server restart mid-run stops a batch run,** so a run never mixes server processes.
+- **Replay sends the logged request body** (plus the logged IDs), not one rebuilt from the settings, so a later change to the client can't alter it. Failed and cancelled calls can't be replayed. `clarity replay` exits 1 when the output differs.
+- **"Can't change a replay's output":** only the client commit and the rendering libraries (the IDs are sent as logged). Any other difference (build, flags, `/props`, env, machine, GGUF hash) counts as a possible explanation, so `unexplained_difference` stays off.
+- **`/props` `media_marker` is ignored in replay diffs:** it is random at every server start (seen live) and only marks images.
+- **`/edit` with no text** prefills the input with your last message; `/edit TEXT` replaces it directly. An edited message uses the profile's seed (it is a new message); only `/regen` adds k.
+- **`/undo` writes no log record:** the next turn's `parent_id` shows the branch, which is what the brief asks the log to record.
 - **`Session.prepare`** now holds the profile checks that `new_conversation` used to do inline, so batch runs and `/new` share them.
 - **PyTorch deterministic mode (your question tonight):** still not planned for step 5. An agent is writing `docs/research/determinism-primer.md` (foundations, what the mode does on CUDA, CPU and MPS, and an audit of the complexity the nondeterminism work added); a second agent will check it before you read it.
 
 **Next actions, in order:**
 1. Step 3 is done: batch mode, reviewed (medium), nine of ten findings fixed. The tenth (a run's single server record carries the first conversation's ID) is documented: replay finds servers by `server_id`.
-2. Step 4, replay: flag the case where output differs and nothing that could change it differs (only the client commit, or nothing). No category list.
+2. Step 4: branches (`/regen`, `/edit`, `/undo`), `/profile`, `/mark`, `/note` and replay (`clarity replay`, `/replay`, with `unexplained_difference`) are done and tested live. Still to do: the GGUF-download route.
 3. Step 5: no `use_deterministic_algorithms` (it does nothing on MPS); gate the MPS backend on the same live replay tests; log torch and macOS versions.
 
 **Docs (user request, 2026-11-07):** README and CLAUDE.md state the problem Clarity solves; `docs/design.md` holds choices, tradeoffs, usage patterns and scope, briefly. Keep both current each step. Still owed in the README at the end: how a profile becomes token IDs, what is logged and why, how to add a backend.

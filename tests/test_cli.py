@@ -12,7 +12,7 @@ def loop(fetched_root, tiny_tokenizer):
     backend = FakeBackend([" Hello!", " Again."], tokenizer=tiny_tokenizer)
     session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
     output: list[str] = []
-    chat = ChatLoop(session, "text", read=lambda: "", write=output.append)
+    chat = ChatLoop(session, "text", read=lambda default: "", write=output.append)
     chat.start()
     output.clear()
     return chat, output, backend
@@ -90,7 +90,7 @@ def test_new_reloads_a_profile_given_as_a_path(fetched_root, tiny_tokenizer, tmp
     backend = FakeBackend([" Hi"], tokenizer=tiny_tokenizer)
     session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
     output: list[str] = []
-    chat = ChatLoop(session, str(outside), read=lambda: "", write=output.append)
+    chat = ChatLoop(session, str(outside), read=lambda default: "", write=output.append)
     chat.start()
     assert chat.handle("/new")
     assert session.conversation is not None
@@ -112,7 +112,7 @@ def test_server_warnings_show_once_per_server(fetched_root, tiny_tokenizer):
     backend.start_warnings = ["llama-server inherits ['GGML_X']"]
     session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
     output: list[str] = []
-    chat = ChatLoop(session, "text", read=lambda: "", write=output.append)
+    chat = ChatLoop(session, "text", read=lambda default: "", write=output.append)
     chat.start()
     assert "! llama-server inherits" in "".join(output)
     output.clear()

@@ -16,6 +16,7 @@ from clarity_chat.logs import read_records
 from clarity_chat.models import check_weights_quick, lock_entry
 from clarity_chat.profiles import ConfigError, load_models, load_server_config
 from clarity_chat.render import Tokenizer
+from clarity_chat.replay import find_call
 from clarity_chat.session import ContextError, Session
 
 pytestmark = pytest.mark.live
@@ -239,3 +240,31 @@ def test_a_batch_run_with_both_modes(tmp_path):
         assert call["settings"]["seed"]["origin"] == "run"
     assert sum(r["type"] == "server_start" for r in rows) == 1  # one model, one server
     assert blind.read_text(encoding="utf-8").count("Rating:") == 8
+
+
+def test_replay_on_the_running_server_is_identical_and_nothing_differs(session):
+    session.say("Name a fruit.")
+    record = session.replay_current()
+    assert record["identical"], record
+    assert record["differences"] == {}, record["differences"]
+    all_checks_ok(record)
+
+
+def test_replay_from_the_log_on_a_new_server_with_logged_flags(session, tmp_path):
+    import dataclasses
+
+    outcome = session.say("Name a river.")
+    path = session.conversation.log.path
+    other = Session(REPO, logs_dir=tmp_path)
+    _, server = find_call(path, outcome.record["call_id"])
+    assert server is not None
+    config = dataclasses.replace(other.server_config, flags=server["flags"])
+    other.backend = LlamaCppBackend(config, tmp_path)
+    try:
+        record = other.replay(path, outcome.record["call_id"], flags_from="logged")
+    finally:
+        other.close()
+    assert record["identical"], record
+    assert record["server_id"] != server["server_id"]
+    # A new server process: only facts that can't change output may differ.
+    assert set(record["differences"]) <= {"client", "libraries"}, record["differences"]
