@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import socket
 import struct
 import subprocess
@@ -176,6 +177,35 @@ def parse_sse_line(line: str) -> dict[str, Any] | None:
 # --- the managed server ----------------------------------------------------------------
 
 
+DEVICE_RE = re.compile(r"using device (\S+) \((.*?)\) \(.*?\) - (\d+) MiB free")
+BUFFER_RE = re.compile(r"(\S+) model buffer size = +([\d.]+) MiB")
+
+
+def device_placement(startup_output: str) -> dict[str, Any]:
+    """Which devices llama-server used and where the model's weights went (its startup log)."""
+    devices = [
+        {"name": m[1], "description": m[2], "free_mib": int(m[3])}
+        for m in DEVICE_RE.finditer(startup_output)
+    ]
+    buffers = [{"buffer": m[1], "mib": float(m[2])} for m in BUFFER_RE.finditer(startup_output)]
+    return {"devices": devices, "model_buffers": buffers}
+
+
+def placement_problem(flags: dict[str, Any], placement: dict[str, Any]) -> str | None:
+    """With GPU layers requested, the weights must be on a named GPU, not quietly on the CPU."""
+    if flags.get("n-gpu-layers") in (0, "0") or flags.get("device") == "none":
+        return None
+    gpu_devices = [d for d in placement["devices"] if d["name"] and d["description"]]
+    gpu_buffers = [b for b in placement["model_buffers"] if not b["buffer"].startswith("CPU")]
+    if not gpu_devices or not gpu_buffers:
+        return (
+            f"n-gpu-layers = {flags.get('n-gpu-layers')!r}, but llama-server put the model on "
+            f"the CPU (devices {placement['devices']}, buffers {placement['model_buffers']}). "
+            "Is the GPU visible to this process (a sandbox can hide it)?"
+        )
+    return None
+
+
 def llama_config_files() -> list[Path]:
     """Config files llama.cpp would read before any flag (common/arg.cpp)."""
     if os.name == "nt":
@@ -301,6 +331,11 @@ class LlamaServer:
         if "using config file:" in startup:
             self.stop()
             raise ConfigError("llama-server loaded a config file (see its startup output).")
+        placement = device_placement(startup)
+        problem = placement_problem(self.config.flags, placement)
+        if problem:
+            self.stop()
+            raise ConfigError(problem)
         props = self.get_props()
         warnings = []
         problems = self.check_props(props)
@@ -326,6 +361,7 @@ class LlamaServer:
             "env_llama_ggml_kept": kept,
             "llama_cpp": {"dir": self.config.llama_cpp_dir.as_posix(), **checkout},
             "build_info": build_info,
+            "placement": placement,
             "props": props,
             "startup_output": startup,
             "warnings": warnings,

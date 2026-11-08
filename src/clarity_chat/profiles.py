@@ -57,9 +57,9 @@ NEUTRAL = {
 }
 
 SEED_MAX = 2**32 - 2  # llama.cpp reads 0xFFFFFFFF (2**32 - 1) as "pick a random seed"
-ORIGINS = ("profile", "default", "backend", "regen")
+ORIGINS = ("profile", "model", "default", "backend", "regen")  # "model": its recommended value
 
-PROFILE_KEYS_COMMON = {"backend", "model", "mode", "settings"}
+PROFILE_KEYS_COMMON = {"backend", "model", "mode", "settings", "use_recommended"}
 PROFILE_KEYS_CHAT = {"template_repo", "template_revision", "template_kwargs", "system", "priming"}
 PROFILE_KEYS_TEXT = {"header", "user_name", "assistant_name", "priming"}
 MODES = ("chat", "text")
@@ -170,15 +170,18 @@ def load_defaults(root: Path) -> dict[str, Any]:
 
 
 def resolve_settings(
-    profile_settings: dict[str, Any], defaults: dict[str, Any], where: str
+    profile_settings: dict[str, Any],
+    defaults: dict[str, Any],
+    where: str,
+    recommended: dict[str, Any] | None = None,
 ) -> dict[str, Setting]:
-    """Profile values, then defaults. Rejects a non-neutral setting whose sampler is off."""
-    resolved = {
-        name: Setting(profile_settings[name], "profile")
-        if name in profile_settings
-        else Setting(defaults[name], "default")
-        for name in SETTING_NAMES
-    }
+    """Profile values, then the model's recommended values (if the profile opts in), then
+    defaults. Rejects a non-neutral setting whose sampler is off."""
+    layers = [("profile", profile_settings), ("model", recommended or {}), ("default", defaults)]
+    resolved = {}
+    for name in SETTING_NAMES:
+        origin, values = next((o, v) for o, v in layers if name in v)
+        resolved[name] = Setting(values[name], origin)
     samplers = resolved["samplers"].value
     for name, sampler in SAMPLER_OF.items():
         setting = resolved[name]
@@ -204,6 +207,8 @@ class Profile:
     model: str
     mode: str
     settings: dict[str, Setting]
+    raw_settings: dict[str, Any] = field(default_factory=dict)  # the [settings] table, checked
+    use_recommended: bool = False  # fill unset settings from the model's generation_config.json
     # chat mode
     system: str | None = None
     priming_messages: list[dict[str, str]] = field(default_factory=list)
@@ -297,9 +302,12 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
     if data["backend"] not in BACKENDS:
         raise ConfigError(f"{where}: backend must be one of {list(BACKENDS)}.")
 
-    settings = resolve_settings(
-        check_settings_table(data.get("settings", {}), where), defaults, where
-    )
+    raw_settings = check_settings_table(data.get("settings", {}), where)
+    use_recommended = data.get("use_recommended", False)
+    if not isinstance(use_recommended, bool):
+        raise ConfigError(f"{where}: use_recommended must be true or false.")
+    # With use_recommended, the session resolves again once it knows the model's values.
+    settings = resolve_settings(raw_settings, defaults, where)
     files: dict[str, str] = {}
     base = path.parent
     profile = Profile(
@@ -311,6 +319,8 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
         model=data["model"],
         mode=mode,
         settings=settings,
+        raw_settings=raw_settings,
+        use_recommended=use_recommended,
     )
 
     if mode == "chat":

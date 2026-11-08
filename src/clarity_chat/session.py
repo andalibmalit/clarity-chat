@@ -29,6 +29,7 @@ from clarity_chat.profiles import (
     load_models,
     load_profile,
     load_server_config,
+    resolve_settings,
 )
 from clarity_chat.render import Prompt, Tokenizer, build_prompt, library_versions
 
@@ -157,6 +158,16 @@ class Session:
             )
         model = self.models[profile.model]
         entry = lock_entry(self.root, model)
+        if profile.use_recommended:
+            recommended = entry.get("recommended")
+            if recommended is None:
+                raise ConfigError(
+                    f"models.lock has no recommended settings for {model.name}. "
+                    f"Run `clarity fetch {model.name}` again."
+                )
+            profile.settings = resolve_settings(
+                profile.raw_settings, self.defaults, str(profile.path), recommended["values"]
+            )
         weights = check_weights_quick(self.root, entry)
         self.backend.start(model, weights)
         self.model, self.model_lock = model, entry
@@ -259,6 +270,7 @@ class Session:
                     },
                 },
             },
+            "recommended": self.model_lock.get("recommended") if profile.use_recommended else None,
             "template": self.template,
             "libraries": library_versions(),
             "client": client_git(),
