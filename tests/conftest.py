@@ -118,6 +118,16 @@ def fake_fetch(root: Path, name: str = "tiny") -> Path:
                 "mtime_ns": stat.st_mtime_ns,
                 "sha256": "0" * 64,
             },
+            "recommended": {
+                "source": {
+                    "file": "generation_config.json",
+                    "repo": model.repo,
+                    "revision": model.revision,
+                },
+                "values": {"temperature": 0.7, "top_p": 0.8},
+                "not_applied": {"max_new_tokens": 2048},
+                "notes": [],
+            },
             "llama_cpp": {"commit": "f" * 40},
             "converter": {"torch": "0", "transformers": "0", "packages": {}},
         },

@@ -72,6 +72,16 @@ def format_settings(session: Session) -> str:
     lines.append(f"backend {session.backend.name}: fixed values for its other sampling fields")
     for name, entry in backend_settings.items():
         lines.append(f"  {name} = {entry['value']!r}")
+    recommended = session.model_lock.get("recommended")
+    if recommended:
+        source = recommended["source"]
+        used = "used" if profile.use_recommended else "not used: set use_recommended = true"
+        values = ", ".join(f"{k} {v!r}" for k, v in recommended["values"].items()) or "none"
+        lines.append(
+            f"model recommends ({source['file']}@{source['revision'][:7]}; {used}): {values}"
+        )
+        if recommended["not_applied"]:
+            lines.append(f"  not applied: {recommended['not_applied']}")
     not_applied = last.get("not_applied") or []
     lines.append("not applied: " + (", ".join(n["name"] for n in not_applied) or "none"))
     lines.append(f"context {session.backend.n_ctx} tokens; stop {profile.stop!r}")

@@ -16,14 +16,57 @@ from typing import Any
 
 from clarity_chat.files import read_text, sha256_file, write_text_atomic
 from clarity_chat.logs import git_state, now_utc
-from clarity_chat.profiles import ConfigError, ModelEntry, ServerConfig
+from clarity_chat.profiles import ConfigError, ModelEntry, ServerConfig, check_setting
 from clarity_chat.render import TOKENIZER_FILES
 
+# generation_config.json key -> Clarity setting. Everything else in the file is listed as
+# not applied, so nothing is dropped silently.
+GENERATION_CONFIG_SETTINGS = {
+    "temperature": "temperature",
+    "top_k": "top_k",
+    "top_p": "top_p",
+    "min_p": "min_p",
+    "repetition_penalty": "repeat_penalty",
+}
 LOCK_FILE = "models.lock"
 LOCK_SCHEMA_VERSION = 1
 # What a conversion needs from the source repo: config, tokenizer and weights.
 SOURCE_PATTERNS = ["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model"]
 CONVERTER_PYTHON = "3.13"
+
+
+def recommended_settings(source_dir: Path, repo: str, revision: str) -> dict[str, Any]:
+    """The model's own recommended sampling settings, from its generation_config.json."""
+    path = source_dir / "generation_config.json"
+    source = {"file": "generation_config.json", "repo": repo, "revision": revision}
+    if not path.is_file():
+        return {"source": source, "values": {}, "not_applied": {}, "notes": ["no such file"]}
+    return map_generation_config(json.loads(read_text(path)), source)
+
+
+def map_generation_config(config: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    not_applied: dict[str, Any] = {}
+    notes: list[str] = []
+    for key, value in config.items():
+        name = GENERATION_CONFIG_SETTINGS.get(key)
+        if name is None:
+            if key != "do_sample" and not key.startswith("_") and key != "transformers_version":
+                not_applied[key] = value
+            continue
+        try:
+            values[name] = check_setting(name, value, "generation_config.json")
+        except ConfigError as e:
+            not_applied[key] = value
+            notes.append(str(e))
+    if config.get("do_sample") is False:
+        values["temperature"] = 0.0
+        notes.append("do_sample is false: greedy decoding, so temperature 0")
+    elif "do_sample" not in config and values:
+        notes.append(
+            "do_sample is not set (Transformers would decode greedily); sampling as listed"
+        )
+    return {"source": source, "values": values, "not_applied": not_applied, "notes": notes}
 
 
 def read_lock(root: Path) -> dict[str, Any]:
@@ -169,6 +212,7 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
             "sha256": sha256_file(out),
             "outtype": "bf16",
         },
+        "recommended": recommended_settings(source, model.repo, model.revision),
         "llama_cpp": {"commit": checkout["commit"], "dirty": checkout.get("dirty")},
         "converter": {
             "command": command,

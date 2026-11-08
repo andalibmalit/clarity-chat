@@ -9,8 +9,10 @@ from clarity_chat.backends.llama_cpp import (
     NEUTRAL_REQUEST,
     build_request,
     check_generation_settings,
+    device_placement,
     llama_config_files,
     parse_sse_line,
+    placement_problem,
     server_env,
 )
 
@@ -146,3 +148,31 @@ def test_config_files_are_found(monkeypatch, tmp_path):
     (tmp_path / "llama.cpp").mkdir()
     (tmp_path / "llama.cpp" / "config.ini").write_text("[*]\n", encoding="utf-8")
     assert tmp_path / "llama.cpp" / "config.ini" in llama_config_files()
+
+
+STARTUP_GPU = """\
+llama_model_load_from_file_impl: using device MTL0 (Apple M2 Max) (unknown id) - 25558 MiB free
+load_tensors: offloaded 31/31 layers to GPU
+load_tensors:   CPU_Mapped model buffer size =    56.25 MiB
+load_tensors:  MTL0_Mapped model buffer size =   256.50 MiB
+"""
+STARTUP_HIDDEN_GPU = """\
+load_tensors: offloaded 31/31 layers to GPU
+load_tensors:   CPU_Mapped model buffer size =   312.75 MiB
+"""
+
+
+def test_gpu_placement_is_read_from_startup_output():
+    placement = device_placement(STARTUP_GPU)
+    assert placement["devices"] == [
+        {"name": "MTL0", "description": "Apple M2 Max", "free_mib": 25558}
+    ]
+    assert {"buffer": "MTL0_Mapped", "mib": 256.5} in placement["model_buffers"]
+    assert placement_problem({"n-gpu-layers": "all"}, placement) is None
+
+
+def test_model_quietly_on_cpu_is_an_error_when_gpu_layers_are_asked_for():
+    placement = device_placement(STARTUP_HIDDEN_GPU)
+    problem = placement_problem({"n-gpu-layers": "all"}, placement)
+    assert problem is not None and "put the model on the CPU" in problem
+    assert placement_problem({"n-gpu-layers": 0}, placement) is None
