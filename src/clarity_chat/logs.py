@@ -1,0 +1,121 @@
+"""Log records: one append-only JSONL file per conversation.
+
+Every record has `schema_version`, `type`, `time` and `conversation_id`. Record types:
+`conversation`, `server_start`, `turn`, `call`, `mark`, `note`, `replay`. Readers ignore
+keys they don't know, so new fields (token probabilities, reasoning splits, exports) need
+no format change. A line is never rewritten; a correction is a new record pointing at the
+old one.
+
+Output token IDs in a `call` record are exactly what the backend generated: they include
+the tokens of a stop string and an end-of-sequence token, while `output_text` (the
+backend's text, as returned) leaves out the stop string and special tokens.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import platform
+import secrets
+import subprocess
+import threading
+from collections.abc import Iterator
+from datetime import UTC, datetime
+from functools import cache
+from pathlib import Path
+from typing import Any
+
+SCHEMA_VERSION = 1
+_append_lock = threading.Lock()
+
+
+def now_utc() -> str:
+    return datetime.now(UTC).isoformat(timespec="milliseconds")
+
+
+def new_id(kind: str) -> str:
+    """`call-3f9a…`; conversations and runs also start with the local time, so they sort."""
+    if kind in ("conversation", "run"):
+        return f"{datetime.now().strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(3)}"
+    return f"{kind}-{secrets.token_hex(6)}"
+
+
+class LogFile:
+    """Append-only JSONL. Each record is one line, flushed and synced when written."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+
+    def append(self, record: dict[str, Any]) -> dict[str, Any]:
+        full = {"schema_version": SCHEMA_VERSION, "time": now_utc(), **record}
+        line = json.dumps(full, ensure_ascii=False)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with _append_lock, self.path.open("a", encoding="utf-8", newline="\n") as f:
+            f.write(line + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        return full
+
+
+def read_records(path: Path) -> Iterator[dict[str, Any]]:
+    """Records in file order. Splits only on "\\n" (never on U+2028 and friends)."""
+    with path.open(encoding="utf-8", newline="\n") as f:
+        for line in f:
+            if line.strip():
+                yield json.loads(line)
+
+
+# --- environment facts -----------------------------------------------------------------
+
+
+def _git(folder: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(folder), *args],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+
+
+def git_state(folder: Path) -> dict[str, Any]:
+    """Commit and dirty flag of a git checkout. `dirty` is None if git couldn't tell."""
+    head = _git(folder, "rev-parse", "HEAD")
+    if head.returncode != 0:
+        return {"commit": None, "dirty": None, "error": head.stderr.strip()}
+    status = _git(folder, "status", "--porcelain", "--untracked-files=no")
+    state: dict[str, Any] = {"commit": head.stdout.strip()}
+    if status.returncode == 0:
+        state["dirty"] = bool(status.stdout.strip())
+    else:
+        state["dirty"] = None
+        state["error"] = status.stderr.strip()
+    return state
+
+
+@cache
+def client_git() -> dict[str, Any]:
+    """The client's own commit and dirty flag, read once: running code can't change mid-process."""
+    return git_state(Path(__file__).resolve().parent)
+
+
+def machine() -> dict[str, Any]:
+    return {
+        "os": platform.system(),
+        "os_release": platform.release(),
+        "os_version": platform.version(),
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+        "cpu_count": os.cpu_count(),
+        "python": platform.python_version(),
+        "hostname_hash": _hostname_hash(),
+    }
+
+
+def _hostname_hash() -> str:
+    """Tells machines apart in replay diffs without writing the hostname into logs."""
+    import hashlib
+
+    return hashlib.sha256(platform.node().encode("utf-8")).hexdigest()[:12]

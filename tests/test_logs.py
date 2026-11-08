@@ -1,0 +1,63 @@
+from __future__ import annotations
+
+import json
+
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
+from clarity_chat.logs import SCHEMA_VERSION, LogFile, new_id, read_records
+
+json_values = st.recursive(
+    st.none()
+    | st.booleans()
+    | st.integers(min_value=-(2**53), max_value=2**53)
+    | st.floats(allow_nan=False, allow_infinity=False)
+    | st.text(),
+    lambda children: (
+        st.lists(children, max_size=4) | st.dictionaries(st.text(max_size=8), children, max_size=4)
+    ),
+    max_leaves=12,
+)
+
+# Characters that str.splitlines() treats as line breaks, but JSONL must not.
+TRICKY = "".join(map(chr, [0x2028, 0x2029, 0x85, 0x1C, 0x1D, 0x1E, 0x0D, 0x0A, 0x0B, 0x0C]))
+
+
+@settings(max_examples=60, deadline=None)
+@given(payload=st.dictionaries(st.text(max_size=10), json_values, max_size=5), text=st.text())
+def test_record_round_trip(tmp_path_factory, payload, text):
+    path = tmp_path_factory.mktemp("logs") / "c.jsonl"
+    log = LogFile(path)
+    written = log.append({"type": "note", "payload": payload, "text": text + TRICKY})
+    written2 = log.append({"type": "note", "text": TRICKY})
+    assert list(read_records(path)) == [written, written2]
+
+
+def test_records_carry_schema_version_and_time(tmp_path):
+    record = LogFile(tmp_path / "c.jsonl").append({"type": "note"})
+    assert record["schema_version"] == SCHEMA_VERSION
+    assert "time" in record
+
+
+def test_appending_never_rewrites_earlier_lines(tmp_path):
+    path = tmp_path / "c.jsonl"
+    log = LogFile(path)
+    log.append({"type": "note", "text": "first"})
+    before = path.read_bytes()
+    log.append({"type": "note", "text": "second"})
+    assert path.read_bytes().startswith(before)
+
+
+def test_one_record_per_line_even_with_unicode_line_separators(tmp_path):
+    path = tmp_path / "c.jsonl"
+    LogFile(path).append({"type": "note", "text": "a b"})
+    raw = path.read_bytes()
+    assert raw.count(b"\n") == 1
+    assert json.loads(raw)["text"] == "a b"
+
+
+def test_ids():
+    assert new_id("call").startswith("call-")
+    assert new_id("call") != new_id("call")
+    conversation = new_id("conversation")
+    assert conversation[:8].isdigit()

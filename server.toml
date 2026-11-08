@@ -1,0 +1,28 @@
+# How Clarity starts llama-server. Every flag that affects output is set here, so
+# nothing depends on llama.cpp's defaults. The client adds --model, --host 127.0.0.1
+# and --port itself. Flags use their long names; `true` passes a bare flag and `false`
+# leaves it out (for flags with no "off" form, whose default is off).
+
+llama_cpp_dir = "vendor/llama.cpp"                            # relative to this file
+llama_cpp_commit = "f477f795cb071baf5b8af6488378366a72034ac4"  # the checkout must be here
+startup_timeout_s = 300
+
+[flags]
+ctx-size = 8192
+n-gpu-layers = "all"          # every layer on the GPU (Metal on a Mac)
+flash-attn = "on"
+cache-type-k = "f16"
+cache-type-v = "f16"
+batch-size = 2048
+ubatch-size = 512
+fit = "off"                   # don't adjust unset arguments to fit memory
+parallel = 1                  # one slot: no batching across requests
+no-kv-unified = true          # one slot, so a unified KV buffer has no use
+no-context-shift = true       # never drop tokens silently; a full context stops the reply
+swa-full = false              # sliding-window KV cache at its normal size (OLMo 3 uses SWA)
+ctx-checkpoints = 0
+cache-ram = 0                 # no host-memory prompt cache
+no-cache-idle-slots = true
+cache-reuse = 0
+threads = 8
+threads-batch = 8
