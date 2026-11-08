@@ -82,8 +82,22 @@ def environment_diff(logged: dict[str, Any], now: dict[str, Any]) -> dict[str, l
 
 
 def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict[str, Any]:
-    """The facts a replay compares, as the log recorded them."""
+    """The facts a replay compares, as the log recorded them. Each backend has its own:
+    llama-server's build, flags and /props, or PyTorch's and Transformers' versions."""
     server = server or {}
+    if server.get("backend") == "transformers":
+        return {
+            "torch": server.get("torch"),
+            "transformers": server.get("transformers"),
+            "device": server.get("device"),
+            "dtype": server.get("dtype"),
+            "env": server.get("env_torch_kept"),
+            "deterministic_algorithms": server.get("deterministic_algorithms"),
+            "weights": {k: call["model"].get(k) for k in ("repo", "revision")},
+            "machine": server.get("machine"),
+            "client": call.get("client"),
+            "libraries": call.get("libraries"),
+        }
     return {
         "build_info": server.get("build_info"),
         "llama_cpp": {k: v for k, v in (server.get("llama_cpp") or {}).items() if k != "dir"},

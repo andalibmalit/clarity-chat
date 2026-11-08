@@ -243,13 +243,18 @@ If same-seed replay on the same server isn't identical, stop and report before g
 - **min_p 0 maps to no min-p processor** on Transformers; greedy (temperature 0) sets the warpers to their off values, since Transformers ignores them when not sampling.
 - **PyTorch deterministic mode:** never turned on; its state is logged at backend start, with a warning if on (checker's recommendation in the primer).
 - **Live result:** greedy SmolLM2 output matched across llama.cpp and Transformers for one prompt (information only; not asserted).
+- **Final review, not escalated to max effort:** its findings were moderate bugs in tonight's new code (replay facts for Transformers calls, a failed switch stopping the old model, unapplied settings not warned about), each fixed and tested; nothing threatened earlier results. The reviewer ran its checks itself on Opus, without separate verifier agents; ask if you want a max-effort pass.
+- **Unapplied settings that can change the reply are a flag and a warning, not an error,** because the brief says to record them; the Check 0 profiles' sampler order (temperature last) triggers it on the Transformers backend.
+- **A failed `/new` or `/profile` restarts the previous model;** if that fails too, the chat stays open with no conversation until `/profile NAME`.
+- **`/edit TEXT` sends the text exactly as typed** (one separating space dropped); other commands' arguments are stripped.
+- **`clarity verify` updates size and modified time in `models.lock`** when the sha256 still matches.
 - **`Session.prepare`** now holds the profile checks that `new_conversation` used to do inline, so batch runs and `/new` share them.
 - **PyTorch deterministic mode (your question tonight):** still not planned for step 5. An agent is writing `docs/research/determinism-primer.md` (foundations, what the mode does on CUDA, CPU and MPS, and an audit of the complexity the nondeterminism work added); a second agent will check it before you read it.
 
 **Next actions, in order:**
 1. Step 3 is done: batch mode, reviewed (medium), nine of ten findings fixed. The tenth (a run's single server record carries the first conversation's ID) is documented: replay finds servers by `server_id`.
 2. Step 4 is done and reviewed (medium, because it came to about 540 source lines; all ten findings fixed): branches (`/regen`, `/edit`, `/undo`), `/profile`, `/mark`, `/note`, replay (`clarity replay`, `/replay`, with `unexplained_difference`) and the GGUF-download route, all tested live.
-3. Step 5 is done: the Transformers backend. MPS passed the repeat and reload tests on SmolLM2 and OLMo 3 Instruct, so no MPS warning. Next: the final review (high effort, Opus reviewers, whole codebase).
+3. Step 5 is done: the Transformers backend. MPS passed the repeat and reload tests on SmolLM2 and OLMo 3 Instruct, so no MPS warning. The final review (high effort, Opus, whole codebase) found ten issues; nine are fixed and the tenth (re-decoding while streaming in the Transformers backend) is left, as it only affects chat streaming. All four suites pass. The build is complete.
 
 **Docs (user request, 2026-11-07):** README and CLAUDE.md state the problem Clarity solves; `docs/design.md` holds choices, tradeoffs, usage patterns and scope, briefly. Keep both current each step. Still owed in the README at the end: how a profile becomes token IDs, what is logged and why, how to add a backend.
 

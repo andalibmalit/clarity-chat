@@ -19,6 +19,7 @@ frequency_penalty and repeat_last_n have no Transformers equivalent: not applied
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -137,26 +138,51 @@ def generation_values(
     }
 
 
+def active_samplers(settings: dict[str, Any]) -> list[str]:
+    """The listed samplers that change anything at these values."""
+    if settings["temperature"] <= 0:
+        return []  # greedy: no warper runs
+    off = {
+        "penalties": settings["repeat_penalty"] == 1.0,
+        "temperature": settings["temperature"] == 1.0,
+        "top_k": settings["top_k"] == 0,
+        "top_p": settings["top_p"] >= 1.0,
+        "min_p": settings["min_p"] <= 0,
+    }
+    return [s for s in settings["samplers"] if s in off and not off[s]]
+
+
 def not_applied(settings: dict[str, Any]) -> list[dict[str, Any]]:
-    """Settings Transformers can't apply as written, with the reason."""
+    """Settings Transformers can't apply as written, with the reason. `affects_output`
+    says whether, at these values, the difference can change the reply."""
     out = []
     order = [s for s in settings["samplers"] if s in FIXED_ORDER]
     used = [s for s in FIXED_ORDER if s in order]
     if order != used:
+        active = active_samplers(settings)
         out.append(
             {
                 "name": "samplers",
                 "value": settings["samplers"],
                 "reason": f"Transformers applies its processors in a fixed order; used {used}",
+                "affects_output": active != [s for s in FIXED_ORDER if s in active],
             }
         )
     for name in ("presence_penalty", "frequency_penalty"):
-        out.append({"name": name, "value": settings[name], "reason": "no Transformers equivalent"})
+        out.append(
+            {
+                "name": name,
+                "value": settings[name],
+                "reason": "no Transformers equivalent",
+                "affects_output": settings[name] != 0,
+            }
+        )
     out.append(
         {
             "name": "repeat_last_n",
             "value": settings["repeat_last_n"],
             "reason": "Transformers' repetition penalty covers the whole sequence",
+            "affects_output": settings["repeat_penalty"] != 1.0,
         }
     )
     return out
@@ -331,8 +357,14 @@ class TransformersBackend:
         )
         seed = request["seed"] if request is not None else settings["seed"]
         logged_request = {"generation_config": values, "seed": seed, "device": self.device}
-        config = GenerationConfig(**values)
-        effective, _ = self.model._prepare_generation_config(config)
+        try:
+            config = GenerationConfig(**values)
+            effective, _ = self.model._prepare_generation_config(config)
+        except Exception as e:  # e.g. a logged config this Transformers version rejects
+            raise BackendError(
+                f"Transformers rejected the generation config: {type(e).__name__}: {e}",
+                Result(text="", token_ids=[], stop_type="none", request=logged_request),
+            ) from e
         check = check_config(effective.to_dict(), values)
         backend_settings = {
             k: {"value": v, "origin": "backend"} for k, v in NEUTRAL_CONFIG.items()
@@ -340,6 +372,7 @@ class TransformersBackend:
         stop_words = values["stop_strings"] or []
         ids: list[int] = []
         shown = 0
+        first_token_at: list[float] = []
         decode = self.tokenizer.decode
 
         def visible() -> str:
@@ -347,7 +380,7 @@ class TransformersBackend:
             text, word = cut_at_stop(text, stop_words)
             if not word:
                 text = text[: len(text) - held_back(text, stop_words)]
-            return text.rstrip("�")  # a character still incomplete
+            return text.rstrip("\ufffd")  # a character still incomplete
 
         class Collect(BaseStreamer):
             first = True
@@ -357,6 +390,8 @@ class TransformersBackend:
                 if self.first:  # the prompt
                     self.first = False
                     return
+                if not first_token_at:
+                    first_token_at.append(time.perf_counter())
                 ids.extend(int(t) for t in value.reshape(-1).tolist())
                 if on_text:
                     text = visible()
@@ -367,12 +402,13 @@ class TransformersBackend:
             def end(self) -> None:
                 pass
 
-        torch.manual_seed(seed)
-        if self.device == "mps":
-            torch.mps.manual_seed(seed)
-        inputs = torch.tensor([token_ids], device=self.device)
         cancelled = False
+        started = time.perf_counter()
         try:
+            torch.manual_seed(seed)
+            if self.device == "mps":
+                torch.mps.manual_seed(seed)
+            inputs = torch.tensor([token_ids], device=self.device)
             with torch.inference_mode():
                 self.model.generate(
                     inputs,
@@ -388,6 +424,15 @@ class TransformersBackend:
                 f"Transformers generate failed: {type(e).__name__}: {e}",
                 Result(text="", token_ids=list(ids), stop_type="none", request=logged_request),
             ) from e
+        ended = time.perf_counter()
+        first = first_token_at[0] if first_token_at else ended
+        # llama-server's names; prompt_ms here is the time to the first generated token.
+        timings = {
+            "prompt_n": len(token_ids),
+            "prompt_ms": (first - started) * 1000,
+            "predicted_n": len(ids),
+            "predicted_ms": (ended - first) * 1000,
+        }
         full = decode(ids, skip_special_tokens=True, clean_up_tokenization_spaces=False)
         text, word = cut_at_stop(full, stop_words)
         if cancelled:
@@ -414,6 +459,7 @@ class TransformersBackend:
             stopping_word=word,
             n_prompt=len(token_ids),
             n_predicted=len(ids),
+            timings=timings,
             request=logged_request,
             response={"effective_generation_config": effective.to_dict()},
             backend_settings=backend_settings,

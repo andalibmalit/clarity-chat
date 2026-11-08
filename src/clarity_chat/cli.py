@@ -32,6 +32,16 @@ Commands:
 Ctrl-C while the model writes cancels the reply (the partial reply is kept and logged)."""
 
 
+def split_command(line: str) -> tuple[str, str]:
+    """ "/name rest" -> ("name", "rest"): the name ends at the first space or newline, and
+    one separator is dropped, so the rest stays as typed."""
+    body = line[1:]
+    for i, char in enumerate(body):
+        if char in " \n\t":
+            return body[:i], body[i + 1 :]
+    return body, ""
+
+
 def visible_lines(text: str) -> list[str]:
     """`repr` of each line, split only on "\\n", so spaces, tabs and newlines show."""
     parts = text.split("\n")
@@ -202,8 +212,10 @@ class ChatLoop:
         if line.startswith("//"):
             return self.send(line[1:])
         if line.startswith("/"):
-            command, _, arg = line[1:].partition(" ")
-            return self.command(command.strip(), arg.strip())
+            command, raw = split_command(line)
+            if command == "edit":
+                return self.command(command, raw)  # the new message exactly as typed
+            return self.command(command, raw.strip())
         if not line.strip():
             return True
         return self.send(line)
@@ -211,12 +223,15 @@ class ChatLoop:
     def command(self, command: str, arg: str) -> bool:
         session = self.session
         conversation = session.conversation
-        assert conversation is not None
         if command in ("quit", "exit", "q"):
             return False
+        if conversation is None and command not in ("help", "profile"):
+            self.write("No conversation is running. Start one with /profile NAME.\n")
+            return True
         if command == "help":
             self.write(HELP + "\n")
         elif command == "prompt":
+            assert conversation is not None
             self.write(format_prompt(conversation.last_call, as_repr=arg == "repr") + "\n")
         elif command == "settings":
             self.write(format_settings(session) + "\n")
@@ -225,7 +240,13 @@ class ChatLoop:
                 self.write("Usage: /profile NAME\n")
                 return True
             # /new reloads the profile's own file, so a profile given as a path is found again.
-            target = arg if command == "profile" else str(conversation.profile.path)
+            if command == "new":
+                assert conversation is not None
+            target = (
+                arg
+                if conversation is None or command == "profile"
+                else str(conversation.profile.path)
+            )
             try:
                 new = session.new_conversation(target)
             except (ConfigError, BackendError) as e:
@@ -384,6 +405,8 @@ def cmd_replay(root: Path, log_path: Path, call_id: str, logged_flags: bool) -> 
     found = find_call(log_path, call_id)
     if logged_flags:
         server = found[1]
+        if server is not None and server.get("backend", "llama.cpp") != "llama.cpp":
+            raise ConfigError("--logged-flags applies only to calls made with llama-server.")
         if server is None:
             raise ConfigError(f"{log_path} has no server record for {call_id}'s server.")
         session.use_server_flags(server["flags"])

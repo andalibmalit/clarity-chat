@@ -183,6 +183,7 @@ class Session:
         self.tokenizer: Tokenizer | None = None
         self.template_tokenizer: Tokenizer | None = None
         self.template: dict[str, Any] | None = None
+        self.weights: Path | None = None  # what the current model was started from
         self._tokenizers: dict[tuple[str, str], Tokenizer] = {}
 
     # --- setup ----------------------------------------------------------------------------
@@ -258,15 +259,18 @@ class Session:
             profile.settings = resolve_settings(
                 profile.raw_settings, self.defaults, str(profile.path), recommended["values"]
             )
-        if profile.backend == "transformers":
-            weights = source_weights(self.root, entry)
-        else:
-            weights = check_weights_quick(self.root, entry)
+        weights = self.weights_for(profile.backend, entry)
         tokenizer, template_tokenizer = self.tokenizers_for(profile, model)
         template = (
             chat_template_source(template_tokenizer, profile) if profile.mode == "chat" else None
         )
         return Prepared(profile, model, entry, weights, tokenizer, template_tokenizer, template)
+
+    def weights_for(self, backend: str, entry: dict[str, Any]) -> Path:
+        """llama.cpp loads the GGUF; Transformers loads the official weights it came from."""
+        if backend == "transformers":
+            return source_weights(self.root, entry)
+        return check_weights_quick(self.root, entry)
 
     def new_conversation(
         self,
@@ -284,9 +288,14 @@ class Session:
         # session changes, so a bad /new leaves the current conversation usable.
         prepared = profile if isinstance(profile, Prepared) else self.prepare(profile)
         model = prepared.model
-        backend = self.use_backend(prepared.profile.backend, prepared.profile.device)
-        started = backend.start(model, prepared.weights)
-        self.model, self.model_lock = model, prepared.lock
+        previous = self.backend
+        try:
+            backend = self.use_backend(prepared.profile.backend, prepared.profile.device)
+            started = backend.start(model, prepared.weights)
+        except (ConfigError, BackendError) as e:
+            self._restore(previous, e)
+            raise
+        self.model, self.model_lock, self.weights = model, prepared.lock, prepared.weights
         self.tokenizer = prepared.tokenizer
         self.template_tokenizer = prepared.template_tokenizer
         self.template = prepared.template
@@ -310,6 +319,23 @@ class Session:
         self.conversation = conversation
         self._log_server_start()
         return conversation
+
+    def _restore(self, previous: Backend, error: Exception) -> None:
+        """After a failed switch, restart the current conversation's model, so a bad /new or
+        /profile leaves that conversation usable. If that fails too, no conversation runs."""
+        if self.conversation is None or self.model is None or self.weights is None:
+            return
+        if self.backend is not previous:
+            self.backend.close()
+            self.backend = previous
+        try:
+            previous.start(self.model, self.weights)
+        except (ConfigError, BackendError) as again:
+            self.conversation = None
+            raise BackendError(
+                f"{error} Restarting {self.model.name} for the current conversation failed "
+                f"too ({again}). Start a conversation with /profile NAME."
+            ) from error
 
     def _log_server_start(self) -> None:
         """A log file has the record of each server its calls use, before the first call."""
@@ -517,6 +543,13 @@ class Session:
             raise
         fields, server_prompt = result_fields(result)
         record.update(fields)
+        ignored = [e["name"] for e in result.not_applied if e.get("affects_output")]
+        if ignored:
+            record["flags"].append("not_applied")
+            warnings.append(
+                f"{self.backend.name} can't apply {ignored} as set, so they had no effect or "
+                "ran differently. /settings has the reasons."
+            )
         if prompt.special_in_content:
             record["flags"].append("special_tokens_in_content")
         self._check_output(prompt.ids, result, server_prompt, record)
@@ -603,14 +636,11 @@ class Session:
             )
         described = call.get("backend") or {}
         name = described.get("backend", "llama.cpp")
-        if name == "transformers":
-            backend = self.use_backend(name, described.get("device"))
-            weights = source_weights(self.root, entry)
-        else:
-            backend = self.use_backend("llama.cpp", None)
-            weights = check_weights_quick(self.root, entry)
+        device = described.get("device") if name == "transformers" else None
+        weights = self.weights_for(name, entry)
+        backend = self.use_backend(name, device)
         backend.start(model, weights)
-        self.model, self.model_lock = model, entry
+        self.model, self.model_lock, self.weights = model, entry, weights
         tokenizer = self._load_tokenizer(
             call["model"]["tokenizer_repo"], call["model"]["tokenizer_revision"]
         )
@@ -626,7 +656,11 @@ class Session:
         logged_facts = facts_from_call(call, server)
         now_facts = facts_from_call(
             {
-                "model": {"gguf_sha256": entry["gguf"]["sha256"]},
+                "model": {
+                    "gguf_sha256": entry["gguf"]["sha256"],
+                    "repo": model.repo,
+                    "revision": model.revision,
+                },
                 "client": client_git(),
                 "libraries": library_versions(),
             },
@@ -674,7 +708,7 @@ class Session:
 
     def _require_conversation(self) -> Conversation:
         if self.conversation is None:
-            raise ConfigError("No conversation yet.")
+            raise ConfigError("No conversation is running. Start one with /profile NAME.")
         return self.conversation
 
 

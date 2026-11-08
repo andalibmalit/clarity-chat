@@ -255,3 +255,73 @@ def test_note_command_says_noted(chat):
     loop.handle("Hi")
     loop.handle("/note made-up note")
     assert "Noted call-" in "".join(output)
+
+
+# --- final review fixes -------------------------------------------------------------------
+
+
+def test_edit_text_is_sent_exactly_as_typed(chat, tiny_tokenizer):
+    loop, _, backend, _, _ = chat
+    loop.handle("Hi")
+    loop.handle("/edit  two spaces, trailing space ")
+    expected = "User:  two spaces, trailing space \nAssistant:"
+    assert sent_text(backend, tiny_tokenizer).endswith(expected)
+    loop.handle("/edit\nnew line first")
+    assert sent_text(backend, tiny_tokenizer).endswith("User: new line first\nAssistant:")
+
+
+def test_a_failed_switch_restarts_the_current_model(make_session, fetched_root):
+    from tests.conftest import MODELS, fake_fetch
+
+    (fetched_root / "models.toml").write_text(
+        MODELS + "\n" + MODELS.replace("[tiny]", "[tiny2]"), encoding="utf-8"
+    )
+    fake_fetch(fetched_root, "tiny2")
+    (fetched_root / "profiles" / "other.toml").write_text(
+        TEXT_PROFILE.replace('model = "tiny"', 'model = "tiny2"'), encoding="utf-8"
+    )
+    session, backend = make_session([" one", " two"])
+    first = session.conversation
+    start = backend.start
+
+    def fail_for_tiny2(model, weights):
+        if model.name == "tiny2":
+            backend.started.append("broken")  # as if the old server had been stopped
+            raise ConfigError("tiny2 won't start")
+        return start(model, weights)
+
+    backend.start = fail_for_tiny2
+    with pytest.raises(ConfigError, match="won't start"):
+        session.new_conversation("other")
+    assert session.conversation is first
+    assert backend.started[-1] == "tiny"  # restarted for the current conversation
+    assert session.say("still here").record["output_text"] == " one"
+
+
+def test_when_the_restart_fails_too_no_conversation_runs(make_session):
+    session, backend = make_session()
+
+    def always_fail(model, weights):
+        raise ConfigError("no GPU")
+
+    backend.start = always_fail
+    output: list[str] = []
+    loop = ChatLoop(session, "text", read=lambda default: "", write=output.append)
+    loop.handle("/new")
+    assert session.conversation is None
+    assert "failed too" in "".join(output)
+    output.clear()
+    loop.handle("/prompt")
+    loop.handle("hello")
+    assert "".join(output).count("Start one with /profile NAME") == 2
+
+
+def test_settings_a_backend_cannot_apply_are_flagged_and_warned(make_session):
+    session, backend = make_session([" one"])
+    backend.not_applied = [
+        {"name": "presence_penalty", "value": 0.5, "reason": "none", "affects_output": True},
+        {"name": "repeat_last_n", "value": 64, "reason": "none", "affects_output": False},
+    ]
+    outcome = session.say("Hi")
+    assert "not_applied" in outcome.record["flags"]
+    assert any("['presence_penalty']" in w for w in outcome.warnings)
