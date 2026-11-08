@@ -26,6 +26,7 @@ class FakeBackend:
         self.cancel_after: int | None = None  # characters streamed before a simulated Ctrl-C
         self.start_warnings: list[str] = []
         self.result_flags: list[str] = []  # e.g. "check_failed:echo", added to every reply
+        self.not_applied: list[dict[str, Any]] = []  # reported with every reply
 
     @property
     def n_ctx(self) -> int:
@@ -99,4 +100,5 @@ class FakeBackend:
             n_predicted=len(reply),
             request={"n_predict": settings["max_tokens"], "seed": settings["seed"], "stop": stop},
             flags=list(self.result_flags),
+            not_applied=list(self.not_applied),
         )

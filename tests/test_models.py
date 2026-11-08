@@ -109,3 +109,18 @@ def test_portable_path_can_keep_a_symlinks_name(tmp_path):
     (root / "model.gguf").symlink_to(root / "blobs" / "abc123")
     assert portable_path(str(root / "model.gguf"), root, resolve=False) == "model.gguf"
     assert portable_path(str(root / "model.gguf"), root) == "blobs/abc123"
+
+
+def test_verify_records_a_new_time_when_the_bytes_match(gguf_root):
+    import os
+
+    root, write = gguf_root
+    model = write()
+    models.fetch(root, model, load_server_config(root))
+    path = weights_path(root, lock_entry(root, model))
+    os.utime(path, ns=(1, 1))  # same bytes, new modified time
+    with pytest.raises(ConfigError, match="changed since it was fetched"):
+        check_weights_quick(root, lock_entry(root, model))
+    ok, message = models.verify(root, "ready")
+    assert ok and "updated" in message
+    check_weights_quick(root, lock_entry(root, model))

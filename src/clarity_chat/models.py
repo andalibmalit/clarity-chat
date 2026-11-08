@@ -166,6 +166,13 @@ def verify(root: Path, name: str) -> tuple[bool, str]:
     digest = sha256_file(path)
     if digest != entry["gguf"]["sha256"]:
         return False, f"{name}: sha256 {digest} != models.lock {entry['gguf']['sha256']}"
+    stat = path.stat()
+    if (stat.st_size, stat.st_mtime_ns) != (entry["gguf"]["size"], entry["gguf"]["mtime_ns"]):
+        # The bytes are the same (say, after a copy or `touch`): record the new time, so
+        # the quick check at server start passes again.
+        entry["gguf"].update(size=stat.st_size, mtime_ns=stat.st_mtime_ns)
+        write_lock_entry(root, name, entry)
+        return True, f"{name}: sha256 matches ({digest[:16]}…); size and time updated"
     return True, f"{name}: sha256 matches ({digest[:16]}…)"
 
 

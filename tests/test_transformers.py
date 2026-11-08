@@ -123,3 +123,19 @@ def test_source_weights_need_the_convert_route(tmp_path):
     assert source_weights(tmp_path, {"name": "m", "route": "convert", "source_dir": "src"}) == (
         tmp_path / "src"
     )
+
+
+def test_only_differences_that_can_change_the_reply_count():
+    neutral = {e["name"]: e["affects_output"] for e in not_applied(SETTINGS)}
+    # top_k 0 and min_p 0 are off, so only top_p and temperature act: the order matters.
+    assert neutral == {
+        "samplers": True,
+        "presence_penalty": False,
+        "frequency_penalty": False,
+        "repeat_last_n": False,
+    }
+    greedy = {e["name"]: e["affects_output"] for e in not_applied({**SETTINGS, "temperature": 0})}
+    assert greedy["samplers"] is False
+    penalised = {**SETTINGS, "presence_penalty": 0.5, "repeat_penalty": 1.1}
+    flags = {e["name"]: e["affects_output"] for e in not_applied(penalised)}
+    assert flags["presence_penalty"] and flags["repeat_last_n"]

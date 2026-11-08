@@ -195,3 +195,39 @@ def test_a_missing_log_file_is_a_clear_error(tmp_path):
 
     with pytest.raises(ConfigError, match="not found"):
         find_call(tmp_path / "nope.jsonl", "call-x")
+
+
+def test_transformers_calls_compare_torch_and_transformers_versions():
+    from clarity_chat.replay import facts_from_call
+
+    call = {"model": {"repo": "r", "revision": "v", "gguf_sha256": "a"}, "client": {}}
+    server = {"backend": "transformers", "torch": "2.15.0", "transformers": "5.22.2"}
+    logged = facts_from_call(call, server)
+    now = facts_from_call(
+        {**call, "model": {**call["model"], "gguf_sha256": "b"}}, {**server, "torch": "2.16.0"}
+    )
+    diffs = environment_diff(logged, now)
+    assert set(diffs) == {"torch"}  # the GGUF, which Transformers never reads, isn't compared
+    assert not unexplained(False, diffs)
+
+
+def test_logged_flags_only_for_llama_server_calls(fetched_root, capsys):
+    import json
+
+    log = fetched_root / "logs" / "x.jsonl"
+    log.parent.mkdir()
+    rows = [
+        {"type": "server_start", "server_id": "backend-1", "backend": "transformers"},
+        {
+            "type": "call",
+            "call_id": "call-1",
+            "conversation_id": "c",
+            "backend": {"backend": "transformers", "server_id": "backend-1"},
+            "output_ids": [1],
+            "stop_type": "eos",
+        },
+    ]
+    log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    argv = ["--root", str(fetched_root), "replay", str(log), "call-1", "--logged-flags"]
+    assert cli.main(argv) == 1
+    assert "only to calls made with llama-server" in capsys.readouterr().err

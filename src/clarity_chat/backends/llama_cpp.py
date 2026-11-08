@@ -373,7 +373,11 @@ class LlamaServer:
         if problem:
             self.stop()
             raise ConfigError(problem)
-        props = self.get_props()
+        try:
+            props = self.get_props()
+        except (httpx.HTTPError, ValueError) as e:
+            self.stop()
+            raise BackendError(f"llama-server's /props failed after startup: {e}") from e
         problems = self.check_props(props)
         if problems:
             self.stop()
@@ -524,8 +528,9 @@ class LlamaCppBackend:
         else:
             request = {**request, "prompt": list(token_ids)}
         logged_request = {k: v for k, v in request.items() if k != "prompt"}
+        # What was actually sent: on replay, the logged values, not today's table.
         backend_settings = {
-            k: {"value": v, "origin": "backend"} for k, v in NEUTRAL_REQUEST.items()
+            k: {"value": request[k], "origin": "backend"} for k in NEUTRAL_REQUEST if k in request
         }
         texts: list[str] = []
         ids: list[int] = []
