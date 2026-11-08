@@ -38,6 +38,13 @@ from clarity_chat.render import (
     chat_template_source,
     library_versions,
 )
+from clarity_chat.replay import (
+    compare_output,
+    environment_diff,
+    facts_from_call,
+    find_call,
+    unexplained,
+)
 
 CONTEXT_WARN_FRACTION = 0.8
 
@@ -63,6 +70,8 @@ class Turn:
     text: str
     call_id: str | None = None
     seed: int | None = None
+    regen_of: str | None = None  # a regenerated reply: the call ID of the first reply
+    edit_of: str | None = None  # an edited message: the user turn it replaces
 
 
 @dataclass
@@ -127,8 +136,22 @@ class Conversation:
                 "origin": origin,
                 "text": text,
                 "call_id": turn.call_id,
+                **{k: v for k, v in extra.items() if k in ("regen_of", "edit_of") and v},
             }
         )
+        return turn
+
+    def replies_to(self, user_turn_id: str) -> list[Turn]:
+        """The model's replies to a user turn, oldest first: the first, then regenerations."""
+        return [
+            t for t in self.turns.values() if t.parent_id == user_turn_id and t.role == "assistant"
+        ]
+
+    def current_reply(self, action: str) -> Turn:
+        """The reply at `head`; an error naming `action` if there isn't one."""
+        turn = self.turns.get(self.head) if self.head else None
+        if turn is None or turn.role != "assistant":
+            raise ConfigError(f"No reply to {action} yet.")
         return turn
 
 
@@ -276,6 +299,67 @@ class Session:
         conversation.head = user.turn_id
         return self.call(user, seed=seed, on_text=on_text)
 
+    def regen(self, on_text: Callable[[str], None] | None = None) -> CallOutcome:
+        """Another reply to the current message, as a new branch. Its seed is the first
+        reply's seed plus k, where k counts this and earlier regenerations of that message."""
+        conversation = self._require_conversation()
+        reply = conversation.current_reply("regenerate")
+        assert reply.parent_id is not None
+        user = conversation.turns[reply.parent_id]
+        replies = conversation.replies_to(user.turn_id)
+        first = next((t for t in replies if t.regen_of is None), replies[0])
+        if first.seed is None or first.call_id is None:
+            raise ConfigError("The first reply to this message has no seed to start from.")
+        seed = first.seed + 1 + sum(t.regen_of is not None for t in replies)
+        if seed > SEED_MAX:
+            raise ConfigError(
+                f"The next regeneration seed, {seed}, is above {SEED_MAX}. Edit the message or "
+                "start a new conversation instead."
+            )
+        try:
+            return self.call(
+                user, seed=Setting(seed, "regen"), regen_of=first.call_id, on_text=on_text
+            )
+        except (ContextError, BackendError, ConfigError):
+            conversation.head = reply.turn_id  # a failed regeneration leaves you where you were
+            raise
+
+    def edit(self, text: str, on_text: Callable[[str], None] | None = None) -> CallOutcome:
+        """Replace the current message with `text`, as a new branch, and get a reply."""
+        conversation = self._require_conversation()
+        reply = conversation.current_reply("edit the message of")
+        assert reply.parent_id is not None
+        original = conversation.turns[reply.parent_id]
+        user = conversation.add_turn(
+            "user", "edit", text, original.parent_id, edit_of=original.turn_id
+        )
+        conversation.head = user.turn_id
+        return self.call(user, on_text=on_text)
+
+    def undo(self) -> Turn | None:
+        """Move back past the last exchange. Returns the new head (None at the start). The
+        undone turns stay in the log; the next message branches from the new head."""
+        conversation = self._require_conversation()
+        reply = conversation.current_reply("undo")
+        assert reply.parent_id is not None
+        conversation.head = conversation.turns[reply.parent_id].parent_id
+        return conversation.turns.get(conversation.head) if conversation.head else None
+
+    def annotate(self, kind: str, text: str) -> dict[str, Any]:
+        """A `mark` (label) or `note` (text) record on the current reply's call."""
+        conversation = self._require_conversation()
+        reply = conversation.current_reply(kind)
+        field_name = "label" if kind == "mark" else "text"
+        return conversation.log.append(
+            {
+                "type": kind,
+                "conversation_id": conversation.conversation_id,
+                "call_id": reply.call_id,
+                "turn_id": reply.turn_id,
+                field_name: text,
+            }
+        )
+
     def build_prompt(self, user_turn: Turn) -> Prompt:
         conversation = self._require_conversation()
         assert self.tokenizer is not None
@@ -385,7 +469,7 @@ class Session:
         record.update(fields)
         if prompt.special_in_content:
             record["flags"].append("special_tokens_in_content")
-        self._check_output(prompt, result, server_prompt, record)
+        self._check_output(prompt.ids, result, server_prompt, record)
         record["warnings"] = warnings
         # The call record names the reply's turn, and is written before the turn record.
         reply_id = new_id("turn")
@@ -399,20 +483,27 @@ class Session:
             turn_id=reply_id,
             call_id=call_id,
             seed=values["seed"],
+            regen_of=regen_of,
         )
         conversation.head = reply.turn_id
         conversation.last_call = record
         return CallOutcome(record, result, reply, warnings)
 
     def _check_output(
-        self, prompt: Prompt, result: Result, server_prompt: str | None, record: dict[str, Any]
+        self,
+        prompt_ids: list[int],
+        result: Result,
+        server_prompt: str | None,
+        record: dict[str, Any],
+        tokenizer: Tokenizer | None = None,
     ) -> None:
         """Checks that need the tokenizer: the server's decoding of the prompt, and whether
         the text matches the output IDs."""
-        assert self.tokenizer is not None
+        tokenizer = tokenizer or self.tokenizer
+        assert tokenizer is not None
         flags, checks = record["flags"], record["checks"]
         if server_prompt is not None:
-            expected = self.tokenizer.decode(prompt.ids)
+            expected = tokenizer.decode(prompt_ids)
             ok = server_prompt == expected
             checks["prompt_echo"] = {"ok": ok}
             if not ok:
@@ -421,13 +512,88 @@ class Session:
         if not result.text.strip():
             flags.append("empty_reply")
         if result.stop_type in ("eos", "limit"):
-            decoded = self.tokenizer.tok.decode(
+            decoded = tokenizer.tok.decode(
                 result.token_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
             )
             if decoded != result.text:
                 # e.g. text llama-server held back as a possible stop string when the limit hit
                 flags.append("text_differs_from_ids")
                 record["decoded_output_text"] = decoded
+
+    # --- replay ---------------------------------------------------------------------------
+
+    def replay_current(self) -> dict[str, Any]:
+        """Replay the current reply's call on the running server."""
+        conversation = self._require_conversation()
+        reply = conversation.current_reply("replay")
+        assert reply.call_id is not None
+        return self.replay(conversation.log.path, reply.call_id, conversation.log)
+
+    def replay(
+        self, log_path: Path, call_id: str, log: LogFile | None = None, flags_from: str = ""
+    ) -> dict[str, Any]:
+        """Re-send a logged call's token IDs and request, compare the output, list what
+        differs from the logged facts, and append a `replay` record to the same log."""
+        call, server = find_call(log_path, call_id)
+        name = call["model"]["name"]
+        if name not in self.models:
+            raise ConfigError(f"Call {call_id} used model {name!r}, which isn't in models.toml.")
+        model = self.models[name]
+        entry = lock_entry(self.root, model)
+        if self.conversation is not None and self.model is not None and self.model.name != name:
+            raise ConfigError(
+                f"Call {call_id} used {name}, but this conversation uses {self.model.name}. "
+                f"Replay it with `clarity replay {log_path} {call_id}`."
+            )
+        self.backend.start(model, check_weights_quick(self.root, entry))
+        self.model, self.model_lock = model, entry
+        tokenizer = self._load_tokenizer(
+            call["model"]["tokenizer_repo"], call["model"]["tokenizer_revision"]
+        )
+        values = {k: v["value"] for k, v in call["settings"].items()}
+        result = self.backend.complete(
+            call["prompt_ids"], values, call["stop"], request=call["request"]
+        )
+        fields, server_prompt = result_fields(result)
+        self._check_output(call["prompt_ids"], result, server_prompt, fields, tokenizer)
+        now_server = self.backend.server_record
+        logged_facts = facts_from_call(call, server)
+        now_facts = facts_from_call(
+            {
+                "model": {"gguf_sha256": entry["gguf"]["sha256"]},
+                "client": client_git(),
+                "libraries": library_versions(),
+            },
+            now_server,
+        )
+        diffs = environment_diff(logged_facts, now_facts)
+        comparison = compare_output(call, fields)
+        record: dict[str, Any] = {
+            "type": "replay",
+            "conversation_id": call["conversation_id"],
+            "replay_id": new_id("replay"),
+            "call_id": call_id,
+            "server_id": (now_server or {}).get("server_id"),
+            "flags_from": flags_from or "server.toml",
+            "logged_server_found": server is not None,
+            **comparison,
+            "unexplained_difference": unexplained(comparison["identical"], diffs),
+            "differences": diffs,
+            "backend": self.backend.describe(),
+            **{
+                k: fields[k]
+                for k in ("output_text", "output_ids", "stop_type", "stopping_word", "timings")
+            },
+            "flags": fields["flags"],
+            "checks": fields["checks"],
+        }
+        if not comparison["identical"]:
+            record["logged_output_text"] = call["output_text"]
+        log = log or LogFile(log_path)
+        if now_server and now_server["server_id"] not in log.servers_logged:
+            log.append({**now_server, "conversation_id": call["conversation_id"]})
+            log.servers_logged.add(now_server["server_id"])
+        return log.append(record)
 
     def _require_conversation(self) -> Conversation:
         if self.conversation is None:

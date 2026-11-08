@@ -1,4 +1,4 @@
-"""The `clarity` command: chat, run, fetch, verify."""
+"""The `clarity` command: chat, run, replay, fetch, verify."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any
 
 from clarity_chat.backends import BackendError
 from clarity_chat.profiles import ConfigError, find_root, load_models, load_server_config
-from clarity_chat.session import ContextError, Conversation, Session
+from clarity_chat.session import CallOutcome, ContextError, Conversation, Session
 
 HELP = """\
 Enter sends; Alt+Enter (or Esc then Enter) starts a new line. Pasted text keeps its newlines.
@@ -19,7 +19,14 @@ Commands:
   /prompt         the exact prompt text of the last call, its token IDs and their count
   /prompt repr    the same, with whitespace and newlines made visible
   /settings       every setting, its value and where it came from
+  /regen          another reply to your last message (seed + 1, + 2, …), as a new branch
+  /edit [TEXT]    replace your last message (prefilled to edit) and get a new reply
+  /undo           go back past the last exchange; your next message starts a branch
+  /mark LABEL     label the current reply (for example landed, dropped)
+  /note TEXT      add a note to the current reply
+  /replay         re-send the current reply's call and compare the output
   /new            start a new conversation with the same profile
+  /profile NAME   start a new conversation with another profile
   /quit           stop the server and exit (also Ctrl-D)
   //text          send a message that starts with "/"
 Ctrl-C while the model writes cancels the reply (the partial reply is kept and logged)."""
@@ -91,14 +98,60 @@ def format_settings(session: Session) -> str:
 def format_status(record: dict[str, Any]) -> str:
     timings = record.get("timings") or {}
     seconds = (timings.get("prompt_ms", 0) + timings.get("predicted_ms", 0)) / 1000
+    seed = record["settings"]["seed"]
     parts = [
         f"stop {record.get('stop_type')}",
         f"{len(record.get('output_ids', []))} tokens",
         f"{seconds:.1f} s",
-        f"seed {record['settings']['seed']['value']}",
+        f"seed {seed['value']}" + (f" ({seed['origin']})" if seed["origin"] != "profile" else ""),
         record["call_id"],
     ]
     return "[" + " · ".join(parts) + "]"
+
+
+def short(value: Any, width: int = 70) -> str:
+    text = repr(value)
+    return text if len(text) <= width else text[: width - 1] + "…"
+
+
+def format_replay(record: dict[str, Any]) -> str:
+    """A replay's result: identical or not, and every recorded fact that differs."""
+    if record["identical"]:
+        lines = [f"Identical: same {record['compared']}. ({record['replay_id']})"]
+    else:
+        stop, n = record["stop_types"], record["n_output_ids"]
+        lines = [
+            f"Different {record['compared']}: from output token {record['first_different_token']};"
+            f" stop {stop['logged']} -> {stop['now']}; {n['logged']} -> {n['now']} tokens."
+            f" ({record['replay_id']})",
+            f"  logged: {short(record['logged_output_text'], 200)}",
+            f"  now:    {short(record['output_text'], 200)}",
+        ]
+    diffs = record["differences"]
+    if not record["logged_server_found"]:
+        lines.append("The log has no record of the server that made this call.")
+    if diffs:
+        lines.append("Differs from the logged call:")
+        for fact, entries in diffs.items():
+            for entry in entries[:5]:
+                lines.append(
+                    f"  {fact}: {entry['path']}: {short(entry['logged'])} -> {short(entry['now'])}"
+                )
+            if len(entries) > 5:
+                lines.append(f"  {fact}: {len(entries) - 5} more (see the replay record)")
+    else:
+        lines.append(
+            "Nothing recorded differs: build, flags, /props, environment, machine, model file, "
+            "client."
+        )
+    if record["unexplained_difference"]:
+        lines.append(
+            "! The output differs, but nothing that could change it does. That is the "
+            "nondeterminism replay exists to catch: keep this log."
+        )
+    if record["flags"]:
+        lines.append("! flags: " + ", ".join(record["flags"]))
+    return "\n".join(lines)
 
 
 class ChatLoop:
@@ -108,9 +161,10 @@ class ChatLoop:
         self,
         session: Session,
         profile_name: str,
-        read: Callable[[], str],
+        read: Callable[[str], str],
         write: Callable[[str], None],
     ) -> None:
+        """`read(default)` returns one input, prefilled with `default` (for /edit)."""
         self.session = session
         self.profile_name = profile_name
         self.read = read
@@ -129,7 +183,7 @@ class ChatLoop:
         self.start()
         while True:
             try:
-                line = self.read()
+                line = self.read("")
             except KeyboardInterrupt:
                 continue
             except EOFError:
@@ -160,18 +214,77 @@ class ChatLoop:
             self.write(format_prompt(conversation.last_call, as_repr=arg == "repr") + "\n")
         elif command == "settings":
             self.write(format_settings(session) + "\n")
-        elif command == "new":
+        elif command in ("new", "profile"):
+            if command == "profile" and not arg:
+                self.write("Usage: /profile NAME\n")
+                return True
+            # /new reloads the profile's own file, so a profile given as a path is found again.
+            target = arg if command == "profile" else str(conversation.profile.path)
             try:
-                # The profile's own file, so a profile given as a path is found again.
-                new = session.new_conversation(str(conversation.profile.path))
+                new = session.new_conversation(target)
             except (ConfigError, BackendError) as e:
                 self.write(f"! {e}\n")
                 return True
-            self.write(f"New conversation {new.conversation_id}.\n")
+            self.write(
+                f"New conversation {new.conversation_id} with profile {new.profile.name} "
+                f"({new.profile.model}, {new.profile.mode} mode).\n"
+            )
             self.show_server_warnings(new)
+        elif command == "regen":
+            self.run_call(lambda: session.regen(on_text=self.write))
+        elif command == "edit":
+            self.edit(arg)
+        elif command == "undo":
+            try:
+                head = session.undo()
+            except ConfigError as e:
+                self.write(f"! {e}\n")
+                return True
+            where = f"after: {head.text[:60]!r}" if head else "at the start"
+            self.write(f"Undone. The next message continues {where}.\n")
+        elif command in ("mark", "note"):
+            if not arg:
+                self.write(f"Usage: /{command} {'LABEL' if command == 'mark' else 'TEXT'}\n")
+                return True
+            try:
+                record = session.annotate(command, arg)
+            except ConfigError as e:
+                self.write(f"! {e}\n")
+                return True
+            self.write(f"{command.capitalize()}ed {record['call_id']}.\n")
+        elif command == "replay":
+            self.replay()
         else:
             self.write(f"Unknown command /{command}. /help lists them.\n")
         return True
+
+    def edit(self, arg: str) -> None:
+        conversation = self.session.conversation
+        assert conversation is not None
+        try:
+            reply = conversation.current_reply("edit the message of")
+        except ConfigError as e:
+            self.write(f"! {e}\n")
+            return
+        assert reply.parent_id is not None
+        text = arg
+        if not text:
+            try:
+                text = self.read(conversation.turns[reply.parent_id].text)
+            except (KeyboardInterrupt, EOFError):
+                text = ""
+        if not text.strip():
+            self.write("Edit cancelled.\n")
+            return
+        self.run_call(lambda: self.session.edit(text, on_text=self.write))
+
+    def replay(self) -> None:
+        try:
+            record = self.session.replay_current()
+        except (ConfigError, BackendError) as e:
+            self.write(f"! {e}\n")
+            return
+        self.write(format_replay(record) + "\n")
 
     def show_server_warnings(self, conversation: Conversation) -> None:
         """The warnings of a server this conversation started (once per server)."""
@@ -179,14 +292,19 @@ class ChatLoop:
             self.write(f"! {warning}\n")
 
     def send(self, text: str) -> bool:
+        self.run_call(lambda: self.session.say(text, on_text=self.write))
+        return True
+
+    def run_call(self, call: Callable[[], CallOutcome]) -> None:
+        """Make a call, streaming its reply, then show warnings, flags and a status line."""
         try:
-            outcome = self.session.say(text, on_text=self.write)
+            outcome = call()
         except (ContextError, ConfigError) as e:
             self.write(f"! {e}\n")
-            return True
+            return
         except BackendError as e:
             self.write(f"\n! Call failed: {e}\n")
-            return True
+            return
         self.write("\n")
         record = outcome.record
         for warning in outcome.warnings:
@@ -194,10 +312,9 @@ class ChatLoop:
         if record.get("flags"):
             self.write("! flags: " + ", ".join(record["flags"]) + "\n")
         self.write(format_status(record) + "\n")
-        return True
 
 
-def prompt_reader() -> Callable[[], str]:
+def prompt_reader() -> Callable[[str], str]:
     from prompt_toolkit import PromptSession
     from prompt_toolkit.key_binding import KeyBindings
 
@@ -212,7 +329,7 @@ def prompt_reader() -> Callable[[], str]:
         event.current_buffer.insert_text("\n")
 
     prompt_session: PromptSession[str] = PromptSession(multiline=True, key_bindings=bindings)
-    return lambda: prompt_session.prompt("> ")
+    return lambda default: prompt_session.prompt("> ", default=default)
 
 
 def write_stdout(text: str) -> None:
@@ -248,6 +365,31 @@ def cmd_run(root: Path, openings: Path, profiles: list[str], seeds: int) -> int:
         session.close()
     print(f"Done. Share {blind}.\nKeep {run_dir / 'key.json'} closed until rating is done.")
     return 0
+
+
+def cmd_replay(root: Path, log_path: Path, call_id: str, logged_flags: bool) -> int:
+    """Exit status 0 if the output is identical, 1 if it differs (or on an error)."""
+    import dataclasses
+
+    from clarity_chat.backends.llama_cpp import LlamaCppBackend
+    from clarity_chat.replay import find_call
+
+    session = Session(root, logs_dir=log_path.parent)  # the server's output log goes alongside
+    atexit.register(session.close)
+    flags_from = ""
+    if logged_flags:
+        _, server = find_call(log_path, call_id)
+        if server is None:
+            raise ConfigError(f"{log_path} has no server record for {call_id}'s server.")
+        config = dataclasses.replace(session.server_config, flags=server["flags"])
+        session.backend = LlamaCppBackend(config, session.logs_dir)
+        flags_from = f"logged ({server['server_id']})"
+    try:
+        record = session.replay(log_path, call_id, flags_from=flags_from)
+    finally:
+        session.close()
+    print(format_replay(record))
+    return 0 if record["identical"] else 1
 
 
 def cmd_fetch(root: Path, name: str) -> int:
@@ -294,6 +436,16 @@ def main(argv: list[str] | None = None) -> int:
         default=1,
         help="replies per opening and profile; their seeds are 333, 334, … (default 1)",
     )
+    replay = commands.add_parser(
+        "replay", help="re-send a logged call and compare (exit 1 if the output differs)"
+    )
+    replay.add_argument("log", type=Path, help="a log file (logs/… or runs/<id>/calls.jsonl)")
+    replay.add_argument("call_id")
+    replay.add_argument(
+        "--logged-flags",
+        action="store_true",
+        help="start llama-server with the call's logged flags instead of server.toml's",
+    )
     fetch = commands.add_parser("fetch", help="download (and convert) a model from models.toml")
     fetch.add_argument("name")
     verify = commands.add_parser("verify", help="re-hash fetched models against models.lock")
@@ -305,6 +457,8 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_chat(root, args.profile)
         if args.command == "run":
             return cmd_run(root, args.openings, args.profiles, args.seeds)
+        if args.command == "replay":
+            return cmd_replay(root, args.log, args.call_id, args.logged_flags)
         if args.command == "fetch":
             return cmd_fetch(root, args.name)
         if args.command == "verify":

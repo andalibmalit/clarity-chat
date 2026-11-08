@@ -25,11 +25,11 @@ Clarity removes that hidden layer, without making experiments harder to run:
 
 ## Reproducibility
 
-The same call on the same machine and llama.cpp build gives the same output; live tests check this. A different build, GPU, macOS version or batch setting can change it, because GPU arithmetic depends on the order of operations. Clarity logs all of these, so replay (coming soon) can show what differed. See [`docs/design.md`](docs/design.md#determinism-and-replay).
+The same call on the same machine and llama.cpp build gives the same output; live tests check this. A different build, GPU, macOS version or batch setting can change it, because GPU arithmetic depends on the order of operations. Clarity logs all of these, and `clarity replay` (or `/replay` in a chat) re-sends a call and lists any that differ. See [`docs/design.md`](docs/design.md#determinism-and-replay).
 
 ## Status
 
-Built so far: fetching and converting a model, the managed llama-server, chat mode (the model's chat template) and text mode (a plain document), the chat loop (`/prompt`, `/settings`, `/new`, `/quit`), and batch runs for blind comparisons. Coming next, in order: branches and replay, and a Transformers backend.
+Built so far: fetching and converting a model, the managed llama-server, chat mode (the model's chat template) and text mode (a plain document), the chat loop with branches (`/regen`, `/edit`, `/undo`), marks and notes, replay, and batch runs for blind comparisons. Coming next: downloading a ready-made GGUF, and a Transformers backend.
 
 ## Quick start
 
@@ -45,6 +45,7 @@ cmake --build vendor/llama.cpp/build --config Release -j 8 --target llama-server
 uv run clarity fetch smollm2-135m-instruct   # download at the pinned commit, convert to GGUF
 uv run clarity chat --profile smol-text      # chat; /help lists the commands
 uv run clarity run --openings FILE --profiles smol-chat smol-text   # blind test
+uv run clarity replay logs/CONVERSATION.jsonl CALL_ID              # re-send a call, compare
 ```
 
 ## Configuration

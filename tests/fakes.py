@@ -60,8 +60,16 @@ class FakeBackend:
         settings: dict[str, Any],
         stop: list[str],
         on_text: Callable[[str], None] | None = None,
+        request: dict[str, Any] | None = None,
     ) -> Result:
-        self.calls.append({"token_ids": list(token_ids), "settings": dict(settings), "stop": stop})
+        self.calls.append(
+            {
+                "token_ids": list(token_ids),
+                "settings": dict(settings),
+                "stop": stop,
+                "request": request,
+            }
+        )
         if self.fail_with:
             raise BackendError(self.fail_with, Result(text="", token_ids=[], stop_type="none"))
         reply = self.replies.pop(0) if self.replies else " ok"
@@ -89,5 +97,6 @@ class FakeBackend:
             stopping_word=stopping_word,
             n_prompt=len(token_ids),
             n_predicted=len(reply),
+            request={"n_predict": settings["max_tokens"], "seed": settings["seed"], "stop": stop},
             flags=list(self.result_flags),
         )

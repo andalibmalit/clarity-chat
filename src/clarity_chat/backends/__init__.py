@@ -59,7 +59,11 @@ class Backend(Protocol):
         settings: dict[str, Any],
         stop: list[str],
         on_text: Callable[[str], None] | None = None,
-    ) -> Result: ...
+        request: dict[str, Any] | None = None,
+    ) -> Result:
+        """Generate a reply. `request`, for replay, is a logged request to send unchanged
+        where the backend can (llama.cpp); otherwise `settings` are applied as usual."""
+        ...
 
     def describe(self) -> dict[str, Any]:
         """Backend name and versions, for every call record."""
