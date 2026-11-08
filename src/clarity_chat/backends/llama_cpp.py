@@ -227,16 +227,41 @@ ENV_PREFIX_REMOVED = "LLAMA_ARG_"
 ENV_REMOVED = {"LLAMA_API_KEY", "HF_TOKEN", "MTMD_BACKEND_DEVICE"}
 
 
-def server_env() -> tuple[dict[str, str], list[str], list[str]]:
-    """The environment for llama-server, the names removed, and LLAMA_*/GGML_* names kept."""
+def server_env() -> tuple[dict[str, str], list[str], dict[str, str]]:
+    """The environment for llama-server, the names removed, and the LLAMA_*/GGML_* variables
+    kept (with values: some, such as GGML_METAL_BF16_DISABLE, change how it computes)."""
     env, removed = {}, []
     for key, value in os.environ.items():
         if key.startswith(ENV_PREFIX_REMOVED) or key in ENV_REMOVED:
             removed.append(key)
         else:
             env[key] = value
-    kept = sorted(k for k in env if k.startswith(("LLAMA_", "GGML_")))
+    kept = {k: env[k] for k in sorted(env) if k.startswith(("LLAMA_", "GGML_"))}
     return env, sorted(removed), kept
+
+
+def start_warnings(
+    build_info: str, pinned_commit: str, checkout: dict[str, Any], kept: dict[str, str]
+) -> list[str]:
+    """Facts about this server that you can act on and that could change its output."""
+    warnings = []
+    if not pinned_commit.startswith(build_info.rsplit("-", 1)[-1] or "?"):
+        warnings.append(
+            f"build_info {build_info!r} doesn't match the checkout commit "
+            f"{pinned_commit[:12]}: rebuild llama-server."
+        )
+    if checkout.get("dirty"):
+        warnings.append(
+            "The llama.cpp checkout has uncommitted changes, so this server can't be rebuilt "
+            "exactly from its commit."
+        )
+    if kept:
+        warnings.append(
+            f"llama-server inherits {list(kept)} from your environment. Some GGML_*/LLAMA_* "
+            "variables change how it computes; the values are logged. Unset them unless you "
+            "mean to keep them."
+        )
+    return warnings
 
 
 def server_binary(llama_cpp_dir: Path) -> Path:
@@ -337,7 +362,6 @@ class LlamaServer:
             self.stop()
             raise ConfigError(problem)
         props = self.get_props()
-        warnings = []
         problems = self.check_props(props)
         if problems:
             self.stop()
@@ -345,11 +369,7 @@ class LlamaServer:
                 "llama-server is not the server the client started: " + "; ".join(problems)
             )
         build_info = str(props.get("build_info", ""))
-        if not self.config.llama_cpp_commit.startswith(build_info.rsplit("-", 1)[-1] or "?"):
-            warnings.append(
-                f"build_info {build_info!r} doesn't match the checkout commit "
-                f"{self.config.llama_cpp_commit[:12]}: rebuild llama-server."
-            )
+        warnings = start_warnings(build_info, self.config.llama_cpp_commit, checkout, kept)
         self.record = {
             "type": "server_start",
             "server_id": self.server_id,

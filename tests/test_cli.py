@@ -105,3 +105,16 @@ def test_a_failing_new_keeps_the_chat_running(loop):
     assert chat.handle("/new")
     assert "! " in "".join(output)
     assert chat.session.conversation is first
+
+
+def test_server_warnings_show_once_per_server(fetched_root, tiny_tokenizer):
+    backend = FakeBackend([" Hi"], tokenizer=tiny_tokenizer)
+    backend.start_warnings = ["llama-server inherits ['GGML_X']"]
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    output: list[str] = []
+    chat = ChatLoop(session, "text", read=lambda: "", write=output.append)
+    chat.start()
+    assert "! llama-server inherits" in "".join(output)
+    output.clear()
+    chat.handle("/new")  # same model, same server: no repeat
+    assert "inherits" not in "".join(output)

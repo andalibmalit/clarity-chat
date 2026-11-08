@@ -24,6 +24,7 @@ class FakeBackend:
         self.record: dict[str, Any] | None = None
         self.fail_with: str | None = None
         self.cancel_after: int | None = None  # characters streamed before a simulated Ctrl-C
+        self.start_warnings: list[str] = []
 
     @property
     def n_ctx(self) -> int:
@@ -42,6 +43,7 @@ class FakeBackend:
             "server_id": f"server-fake{len(self.started)}",
             "backend": self.name,
             "argv": ["fake", str(weights)],
+            "warnings": list(self.start_warnings),
         }
         return self.record
 

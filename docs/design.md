@@ -55,12 +55,32 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 
 **Failure policy.** Configuration problems are errors before anything is sent. A failed after-call check is a flag on the record and a warning in the terminal; in batch mode it stops the run.
 
+## Determinism and replay
+
+**The same call on the same machine and build gives the same output.** This holds at any temperature, because the seed is always fixed. Live tests check it back to back, after a longer call in between, and after a server restart, for SmolLM2 and OLMo 3. It holds because Clarity removes what usually varies: one request at a time (one slot), no prompt cache, and fixed batch sizes, so every GPU kernel sees the same shapes every time.
+
+**Some changes can change the output, and that's expected.** Floating-point sums depend on their order, and when the top tokens are nearly tied, one flipped token changes the rest of the reply. These change the order:
+- the llama.cpp build, batch or micro-batch size, flash attention or KV cache type
+- the GPU family, or the macOS version (Metal compiles llama.cpp's GPU kernels when the server starts)
+- some `GGML_*` environment variables, and the GGUF itself
+
+Clarity logs all of these, and replay (step 4) will list the ones that differ.
+
+**Warnings are for things you can act on.**
+- Per call: a failed check, a nearly full context, or control-token text in your message.
+- Per server start: a build that doesn't match the pinned commit, uncommitted changes in the llama.cpp checkout, or inherited `GGML_*`/`LLAMA_*` variables (their values are logged).
+
+There is no general "results may vary" notice. The avoidable causes are already removed, and the rest is logged. Replay will flag the one case that needs attention: output that differs although nothing that could explain it changed.
+
+**Not attempted:** identical output across machines, builds or backends, which no inference stack offers; llama.cpp's experimental batch-invariant kernels, which fix a variation Clarity's single-slot setup doesn't have; and a determinism guarantee for the Transformers backend on Apple GPUs, which PyTorch doesn't provide (step 5 runs the same live tests instead). Research and sources: `docs/research/nondeterminism.md`.
+
 ## Usage patterns
 
 - **Look at what the model got:** `/prompt` after any reply; `/prompt repr` shows whitespace and newlines, including a trailing newline your editor added to a prompt file.
 - **Compare two setups:** make two profiles that differ in one key. Everything else, including settings you didn't set, is the same, because it comes from `defaults.toml`.
 - **Try a model's own settings:** add `use_recommended = true`; `/settings` shows which values came from the model.
-- **Check reproducibility:** a fixed seed on the same server gives identical output token IDs (tested live).
+- **Check reproducibility:** the same call gives identical output token IDs on the same machine and build (tested live).
+- **Compare setups fairly:** a fixed seed makes a reply replayable, not representative. At temperature 0.6 another seed gives a different reply, so compare setups over several openings or seeds.
 - **Same model, chat versus plain document:** `4-raw-instruct` sends the instruct model a plain document with no template; compare it with a chat profile to see what the template contributes.
 
 ## Not in scope

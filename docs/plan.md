@@ -209,14 +209,14 @@ If same-seed replay on the same server isn't identical, stop and report before g
 
 ## Status and decisions since approval (updated 2026-11-07, after step 1)
 
-**Where we are:** step 1 is done (`a39ef1f`). Step 2 is built but not finished:
-- Done: chat rendering, with the model's tokenizer always tokenizing and `template_repo` supplying only the template, whose sha256 is logged. The OLMo fixtures pass the 37/15 and exact-prompt tests offline. The Check 0 profiles, `smol-chat` and the placeholder `prompts/` exist. `.gitattributes` keeps line endings in prompts, profiles and fixtures. 8 live tests (chat mode on SmolLM2 included) and 118 offline tests pass.
-- The user approved fetching both OLMo models (running). The user declined all four "gets out of the way" changes offered on 2026-11-07: `/set` in chat, branch names in `models.toml`, a per-profile context size, and a looser llama.cpp pin.
+**Where we are:** steps 1 and 2 are done and reviewed.
+- Step 2 (`d6a3efc`): chat mode; OLMo 3 Instruct and Base fetched; 7 OLMo GPU tests pass. The medium code review's ten findings are fixed. `server.toml` sets `no-jinja` and `chat-template = "chatml"`, because OLMo 3's template stopped llama-server from starting. OLMo 3 ends replies with `<|endoftext|>` (its template does too); the brief expected `<|im_end|>`.
+- Nondeterminism (user request): researched and checked by a second agent (`docs/research/nondeterminism.md`). Done: start-up warnings you can act on (build mismatch, uncommitted llama.cpp changes, inherited `GGML_*`/`LLAMA_*` variables with values logged), server warnings after `/new`, macOS build and chip in the machine record, and live replay tests after a longer call and after a restart (identical on both models). `docs/design.md` has a "Determinism and replay" section; the README a short note.
 
 **Next actions, in order:**
-1. After approval: `uv run clarity fetch olmo-3-7b-instruct`, then `olmo-3-7b-base`. Then `uv run pytest -m olmo -v`, run on its own (no pipe) so it runs outside the sandbox on the GPU. `tests/test_olmo.py` is already written.
-2. Code review at medium effort (template rendering and tokenization), fix, commit, report.
-3. Step 3: batch mode.
+1. Step 3: batch mode, then a medium code review. The user may want several seeds or openings per setup for Check 0 (research: seed-to-seed variance dominates at temperature 0.6); raise it when designing `run`.
+2. Step 4, replay: flag the case where output differs and nothing that could change it differs (only the client commit, or nothing). No category list.
+3. Step 5: no `use_deterministic_algorithms` (it does nothing on MPS); gate the MPS backend on the same live replay tests; log torch and macOS versions.
 
 **Docs (user request, 2026-11-07):** README and CLAUDE.md state the problem Clarity solves; `docs/design.md` holds choices, tradeoffs, usage patterns and scope, briefly. Keep both current each step. Still owed in the README at the end: how a profile becomes token IDs, what is logged and why, how to add a backend.
 

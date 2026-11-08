@@ -105,6 +105,21 @@ def test_same_seed_same_server_gives_identical_output_ids(session):
     assert outputs[0]["stop_type"] == outputs[1]["stop_type"]
 
 
+def test_replay_after_a_longer_call_and_after_a_restart(session):
+    """Replaying a call from an older log always follows other calls and a server restart."""
+    session.new_conversation("smol-text")
+    first = session.say("Tell me about the sea.").record
+    ids, stop = first["prompt_ids"], first["stop"]
+    settings = {name: s["value"] for name, s in first["settings"].items()}
+    backend = session.backend
+    backend.complete(counting_ids(300), {**settings, "max_tokens": 8}, [])  # longer, different
+    assert backend.complete(ids, settings, stop).token_ids == first["output_ids"]
+    assert session.model is not None
+    backend.close()
+    backend.start(session.model, check_weights_quick(REPO, session.model_lock))
+    assert backend.complete(ids, settings, stop).token_ids == first["output_ids"]
+
+
 def test_over_long_prompt_is_refused_before_sending(session):
     session.new_conversation("smol-text")
     with pytest.raises(ContextError, match="Nothing was sent"):

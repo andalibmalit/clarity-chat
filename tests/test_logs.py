@@ -61,3 +61,16 @@ def test_ids():
     assert new_id("call") != new_id("call")
     conversation = new_id("conversation")
     assert conversation[:8].isdigit()
+
+
+def test_machine_records_the_macos_build_and_chip_on_a_mac():
+    import platform
+
+    from clarity_chat.logs import machine
+
+    record = machine()
+    if platform.system() != "Darwin":
+        assert record["macos"] is None
+        return
+    assert set(record["macos"]) == {"version", "build", "chip"}
+    assert record["macos"]["version"]
