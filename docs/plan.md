@@ -222,7 +222,7 @@ If same-seed replay on the same server isn't identical, stop and report before g
 **Decisions to review in the morning:** (append as they're made)
 
 **Next actions, in order:**
-1. Step 3: batch mode, then a medium code review. The user may want several seeds or openings per setup for Check 0 (research: seed-to-seed variance dominates at temperature 0.6); raise it when designing `run`.
+1. Step 3: batch mode (`run`, with `--seeds N` starting at seed 333; see the user's decisions above), then a medium code review. Not started yet.
 2. Step 4, replay: flag the case where output differs and nothing that could change it differs (only the client commit, or nothing). No category list.
 3. Step 5: no `use_deterministic_algorithms` (it does nothing on MPS); gate the MPS backend on the same live replay tests; log torch and macOS versions.
 
