@@ -51,7 +51,14 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 
 **Hand-written and generated files stay apart.** The tool never edits `models.toml`, profiles, `defaults.toml` or `server.toml`.
 
-**Logs are append-only JSONL, one file per conversation**, with a `schema_version`. Every call writes a record, including failures and Ctrl-C (`stop_type` `cancelled`). Readers ignore unknown keys, so later additions (token probabilities, reasoning text) need no format change. `logs/` and `runs/` are private and gitignored.
+**Logs are append-only JSONL, one file per conversation** (a batch run puts all its conversations in one `calls.jsonl`), with a `schema_version`. Every call writes a record, including failures and Ctrl-C (`stop_type` `cancelled`). Readers ignore unknown keys, so later additions (token probabilities, reasoning text) need no format change. `logs/` and `runs/` are private and gitignored.
+
+**Batch runs are blind, checked first and kept apart.** `clarity run` sends every opening to every profile, each call in a new conversation, and writes `blind.md` (openings and shuffled, labelled replies, nothing else), `key.json` (which label is which) and `calls.jsonl` to `runs/<run-id>/`.
+- Before any model loads, every profile is prepared and every opening is rendered against it: unequal `max_tokens` (reply length would give the setup away), a profile listed twice, or an opening that doesn't fit the context stops the run.
+- Seeds come from the run, not the profile: 333, then 334 and so on with `--seeds N`, logged with origin `run`. A fixed start makes two runs comparable; several seeds show a setup's spread rather than one sample.
+- Openings are split on lines that are exactly `---` and stripped. CRLF becomes LF first, so an editor's line endings never change the token IDs. Replies are stripped in `blind.md` only; the log keeps them as generated.
+- Calls are grouped by model, so each model loads once. The terminal shows progress and warnings only, never replies.
+- Nothing goes to `logs/`, not even the server's output, so held-out openings never end up in a transcript export.
 
 **Failure policy.** Configuration problems are errors before anything is sent. A failed after-call check is a flag on the record and a warning in the terminal; in batch mode it stops the run.
 
@@ -81,6 +88,7 @@ There is no general "results may vary" notice. The avoidable causes are already 
 - **Try a model's own settings:** add `use_recommended = true`; `/settings` shows which values came from the model.
 - **Check reproducibility:** the same call gives identical output token IDs on the same machine and build (tested live).
 - **Compare setups fairly:** a fixed seed makes a reply replayable, not representative. At temperature 0.6 another seed gives a different reply, so compare setups over several openings or seeds.
+- **Blind test:** `clarity run --openings FILE --profiles A B C` (add `--seeds 3` for three replies each). Give raters `blind.md`; open `key.json` only after rating.
 - **Same model, chat versus plain document:** `4-raw-instruct` sends the instruct model a plain document with no template; compare it with a chat profile to see what the template contributes.
 
 ## Not in scope

@@ -66,6 +66,19 @@ class Turn:
 
 
 @dataclass
+class Prepared:
+    """A profile with everything it needs, checked, before the model starts."""
+
+    profile: Profile
+    model: ModelEntry
+    lock: dict[str, Any]
+    weights: Path
+    tokenizer: Tokenizer
+    template_tokenizer: Tokenizer
+    template: dict[str, Any] | None
+
+
+@dataclass
 class CallOutcome:
     record: dict[str, Any]
     result: Result | None
@@ -80,7 +93,7 @@ class Conversation:
     log: LogFile
     turns: dict[str, Turn] = field(default_factory=dict)
     head: str | None = None
-    servers_logged: set[str] = field(default_factory=set)
+    run: dict[str, Any] | None = None  # set for a batch run's conversations
     last_call: dict[str, Any] | None = None
 
     def path_to(self, turn_id: str | None) -> list[Turn]:
@@ -165,8 +178,9 @@ class Session:
             return tokenizer, self._load_tokenizer(profile.template_repo, profile.template_revision)
         return tokenizer, tokenizer
 
-    def new_conversation(self, profile_name: str, log_dir: Path | None = None) -> Conversation:
-        """Start a conversation with a profile, starting or switching the model as needed."""
+    def prepare(self, profile_name: str) -> Prepared:
+        """Load a profile and everything it needs short of starting the model: its model
+        entry and lock, the weights (size and time only), tokenizers and chat template."""
         profile = self.load_profile(profile_name)
         if profile.model not in self.models:
             raise ConfigError(
@@ -185,26 +199,37 @@ class Session:
                 profile.raw_settings, self.defaults, str(profile.path), recommended["values"]
             )
         weights = check_weights_quick(self.root, entry)
-        # Everything that can fail on the profile alone is checked before the server or the
-        # session changes, so a bad /new leaves the current conversation usable.
         tokenizer, template_tokenizer = self.tokenizers_for(profile, model)
         template = (
             chat_template_source(template_tokenizer, profile) if profile.mode == "chat" else None
         )
-        self.backend.start(model, weights)
-        self.model, self.model_lock = model, entry
-        self.tokenizer, self.template_tokenizer, self.template = (
-            tokenizer,
-            template_tokenizer,
-            template,
-        )
+        return Prepared(profile, model, entry, weights, tokenizer, template_tokenizer, template)
+
+    def new_conversation(
+        self, profile_name: str, log: LogFile | None = None, run: dict[str, Any] | None = None
+    ) -> Conversation:
+        """Start a conversation with a profile, starting or switching the model as needed.
+
+        `log`: a log file to share (a batch run writes all its conversations to one file);
+        by default each conversation gets its own file in `logs_dir`. `run` is copied into
+        the conversation's records and calls."""
+        # Everything that can fail on the profile alone is checked before the server or the
+        # session changes, so a bad /new leaves the current conversation usable.
+        prepared = self.prepare(profile_name)
+        profile, model = prepared.profile, prepared.model
+        self.backend.start(model, prepared.weights)
+        self.model, self.model_lock = model, prepared.lock
+        self.tokenizer = prepared.tokenizer
+        self.template_tokenizer = prepared.template_tokenizer
+        self.template = prepared.template
         conversation_id = new_id("conversation")
-        log = LogFile((log_dir or self.logs_dir) / f"{conversation_id}.jsonl")
-        conversation = Conversation(conversation_id, profile, log)
+        log = log or LogFile(self.logs_dir / f"{conversation_id}.jsonl")
+        conversation = Conversation(conversation_id, profile, log, run=run)
         log.append(
             {
                 "type": "conversation",
                 "conversation_id": conversation_id,
+                **({"run": run} if run else {}),
                 "profile": profile.to_json(),
                 "settings": {k: s.to_json() for k, s in profile.settings.items()},
                 "model": model.to_json(),
@@ -217,26 +242,32 @@ class Session:
         return conversation
 
     def _log_server_start(self) -> None:
-        """Each conversation file starts with the record of the server it uses."""
+        """A log file has the record of each server its calls use, before the first call."""
         conversation = self.conversation
         record = self.backend.server_record
         if conversation is None or record is None:
             return
-        if record["server_id"] not in conversation.servers_logged:
+        if record["server_id"] not in conversation.log.servers_logged:
             conversation.log.append({**record, "conversation_id": conversation.conversation_id})
-            conversation.servers_logged.add(record["server_id"])
+            conversation.log.servers_logged.add(record["server_id"])
 
     def close(self) -> None:
         self.backend.close()
 
     # --- calls ----------------------------------------------------------------------------
 
-    def say(self, text: str, on_text: Callable[[str], None] | None = None) -> CallOutcome:
-        """Add a user turn after `head` and get the model's reply."""
+    def say(
+        self,
+        text: str,
+        on_text: Callable[[str], None] | None = None,
+        seed: Setting | None = None,
+    ) -> CallOutcome:
+        """Add a user turn after `head` and get the model's reply. `seed` replaces the
+        profile's seed for this call (a batch run's seeds)."""
         conversation = self._require_conversation()
         user = conversation.add_turn("user", "user", text, conversation.head)
         conversation.head = user.turn_id
-        return self.call(user, on_text=on_text)
+        return self.call(user, seed=seed, on_text=on_text)
 
     def build_prompt(self, user_turn: Turn) -> Prompt:
         conversation = self._require_conversation()
@@ -279,6 +310,7 @@ class Session:
             "call_id": call_id,
             "parent_id": user_turn.turn_id,
             "regen_of": regen_of,
+            **({"run": conversation.run} if conversation.run else {}),
             "profile": profile.to_json(),
             "settings": {k: s.to_json() for k, s in settings.items()},
             "seed_drawn": seed_drawn,

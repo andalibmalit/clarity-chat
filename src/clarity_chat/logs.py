@@ -1,6 +1,7 @@
 """Log records: one append-only JSONL file per conversation.
 
-Every record has `schema_version`, `type`, `time` and `conversation_id`. Record types:
+Every record has `schema_version`, `type` and `time`, and all but `run` have
+`conversation_id`. Record types: `run` (the first record of a batch run's `calls.jsonl`),
 `conversation`, `server_start`, `turn`, `call`, `mark`, `note`, `replay`. Readers ignore
 keys they don't know, so new fields (token probabilities, reasoning splits, exports) need
 no format change. A line is never rewritten; a correction is a new record pointing at the
@@ -45,6 +46,7 @@ class LogFile:
 
     def __init__(self, path: Path) -> None:
         self.path = path
+        self.servers_logged: set[str] = set()  # each server_start is written once per file
 
     def append(self, record: dict[str, Any]) -> dict[str, Any]:
         full = {"schema_version": SCHEMA_VERSION, "time": now_utc(), **record}

@@ -1,0 +1,244 @@
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from clarity_chat import cli
+from clarity_chat.batch import RunError, label, run_batch, split_openings
+from clarity_chat.logs import read_records
+from clarity_chat.profiles import ConfigError
+from clarity_chat.session import Session
+from tests.conftest import MODELS, TEXT_PROFILE, fake_fetch
+from tests.fakes import FakeBackend
+
+OPENINGS = "The kettle sang twice.\n---\n  Ask me about otters.  \n"
+
+
+@pytest.fixture
+def batch(fetched_root, tiny_tokenizer):
+    """Runs a batch against the fake backend; returns (blind path, run dir, backend, output)."""
+    profiles = fetched_root / "profiles"
+    (profiles / "text2.toml").write_text(
+        TEXT_PROFILE.replace("A conversation.", "Another header."), encoding="utf-8"
+    )
+    (fetched_root / "openings.txt").write_text(OPENINGS, encoding="utf-8")
+
+    def run(profile_names=("text", "text2"), seeds=1, replies=None, setup=None, n_ctx=512):
+        backend = FakeBackend(replies, n_ctx=n_ctx, tokenizer=tiny_tokenizer)
+        if setup:
+            setup(backend)
+        run_dir = fetched_root / "runs" / "run-test"
+        session = Session(
+            fetched_root,
+            backend=backend,
+            logs_dir=run_dir,
+            tokenizer_loader=lambda r, v: tiny_tokenizer,
+        )
+        output: list[str] = []
+        blind = run_batch(
+            session,
+            "run-test",
+            run_dir,
+            fetched_root / "openings.txt",
+            list(profile_names),
+            seeds,
+            output.append,
+        )
+        return blind, run_dir, backend, "".join(output)
+
+    return run
+
+
+# --- openings and labels ------------------------------------------------------------------
+
+
+def test_openings_split_on_dash_lines_and_are_stripped():
+    assert split_openings("one\n---\n  two\nlines \n") == ["one", "two\nlines"]
+
+
+def test_crlf_files_split_the_same_and_send_lf():
+    assert split_openings("one\r\nmore\r\n---\r\ntwo\r\n") == ["one\nmore", "two"]
+
+
+def test_only_an_exact_dash_line_separates():
+    assert split_openings("a\n --- \n----\nb") == ["a\n --- \n----\nb"]
+
+
+@pytest.mark.parametrize("text", ["---\na", "a\n---\n", "a\n---\n\n---\nb", "   "])
+def test_an_empty_opening_is_an_error(text):
+    with pytest.raises(ConfigError, match="empty"):
+        split_openings(text)
+
+
+def test_labels_run_past_z():
+    assert [label(i) for i in (0, 1, 25, 26, 27, 51, 701, 702)] == [
+        "A",
+        "B",
+        "Z",
+        "AA",
+        "AB",
+        "AZ",
+        "ZZ",
+        "AAA",
+    ]
+
+
+# --- a run --------------------------------------------------------------------------------
+
+
+def test_blind_md_has_openings_and_shuffled_labelled_replies_only(batch):
+    blind, _, _, _ = batch(replies=[" r1 ", " r2", " r3", " r4"])
+    text = blind.read_text(encoding="utf-8")
+    assert text.startswith("# Opening 1\n\nThe kettle sang twice.\n")
+    assert "# Opening 2\n\nAsk me about otters.\n" in text
+    assert text.count("## A\n") == 2 and text.count("## B\n") == 2
+    assert text.count("\nRating:\nNote:\n") == 4
+    for reply in ("r1", "r2", "r3", "r4"):
+        assert f"\n\n{reply}\n\nRating:" in text  # trimmed
+    for hidden in ("text2", "call-", "conversation", "333", "run-test"):
+        assert hidden not in text
+
+
+def test_key_maps_each_label_to_its_call(batch):
+    blind, run_dir, _, _ = batch(replies=[" r1", " r2", " r3", " r4"])
+    key = json.loads((run_dir / "key.json").read_text(encoding="utf-8"))
+    calls = {r["call_id"]: r for r in read_records(run_dir / "calls.jsonl") if r["type"] == "call"}
+    text = blind.read_text(encoding="utf-8")
+    assert key["seeds"] == [333]
+    assert isinstance(key["shuffle_seed"], int)
+    assert "str.strip()" in key["trim_rule"] and '"---"' in key["split_rule"]
+    for opening in key["openings"]:
+        assert sorted(opening["labels"]) == ["A", "B"]
+        assert {e["profile"] for e in opening["labels"].values()} == {"text", "text2"}
+        for tag, entry in opening["labels"].items():
+            call = calls[entry["call_id"]]
+            assert call["run"] == {"run_id": "run-test", "opening": opening["opening"]}
+            assert call["profile"]["name"] == entry["profile"]
+            assert f"## {tag}\n\n{call['output_text'].strip()}\n" in text
+
+
+def test_calls_log_has_a_run_record_seeds_from_333_and_nothing_goes_to_logs(batch, fetched_root):
+    _, run_dir, backend, _ = batch(seeds=2)
+    rows = list(read_records(run_dir / "calls.jsonl"))
+    assert rows[0]["type"] == "run"
+    assert rows[0]["seeds"] == [333, 334]
+    calls = [r for r in rows if r["type"] == "call"]
+    assert len(calls) == 2 * 2 * 2
+    assert {c["settings"]["seed"]["origin"] for c in calls} == {"run"}
+    assert sorted({c["settings"]["seed"]["value"] for c in calls}) == [333, 334]
+    assert [c["settings"]["seed"] for c in backend.calls][:2] == [333, 334]
+    assert len({c["conversation_id"] for c in calls}) == 8  # one conversation per call
+    assert sum(r["type"] == "server_start" for r in rows) == 1
+    assert not (fetched_root / "logs").exists()
+
+
+def test_seeds_give_more_labels_per_opening(batch, fetched_root):
+    _, run_dir, _, _ = batch(seeds=2)
+    key = json.loads((run_dir / "key.json").read_text(encoding="utf-8"))
+    assert [sorted(o["labels"]) for o in key["openings"]] == [["A", "B", "C", "D"]] * 2
+
+
+def test_progress_shows_counts_never_replies(batch):
+    _, _, _, output = batch(replies=[" secret one", " secret two", " three", " four"])
+    assert "4/4" in output
+    assert "secret" not in output
+
+
+def test_calls_are_grouped_by_model(batch, fetched_root):
+    (fetched_root / "models.toml").write_text(
+        MODELS + "\n" + MODELS.replace("[tiny]", "[tiny2]"), encoding="utf-8"
+    )
+    fake_fetch(fetched_root, "tiny2")
+    (fetched_root / "profiles" / "other.toml").write_text(
+        TEXT_PROFILE.replace('model = "tiny"', 'model = "tiny2"'), encoding="utf-8"
+    )
+    _, _, backend, _ = batch(profile_names=("text", "other", "text2"))
+    assert backend.started == ["tiny", "tiny2"]
+
+
+# --- refusals and stops -------------------------------------------------------------------
+
+
+def test_profiles_with_different_max_tokens_are_refused_before_any_call(batch, fetched_root):
+    (fetched_root / "profiles" / "long.toml").write_text(
+        TEXT_PROFILE.replace("max_tokens = 16", "max_tokens = 32"), encoding="utf-8"
+    )
+    with pytest.raises(ConfigError, match="max_tokens differ"):
+        batch(profile_names=("text", "long"))
+    assert not (fetched_root / "runs").exists()
+
+
+def test_a_profile_listed_twice_is_refused(batch):
+    with pytest.raises(ConfigError, match="twice"):
+        batch(profile_names=("text", "text"))
+
+
+def test_an_opening_too_long_for_the_context_is_refused_before_any_call(batch, fetched_root):
+    with pytest.raises(ConfigError, match="Opening 1 with profile text"):
+        batch(n_ctx=40)
+    assert not (fetched_root / "runs").exists()
+
+
+@pytest.mark.parametrize(
+    "setup",
+    [
+        lambda b: setattr(b, "fail_with", "server gone"),
+        lambda b: setattr(b, "result_flags", ["check_failed:prompt_echo"]),
+        lambda b: setattr(b, "cancel_after", 2),
+    ],
+    ids=["error", "failed_check", "cancelled"],
+)
+def test_a_failed_call_stops_the_run_before_blind_md(batch, fetched_root, setup):
+    with pytest.raises(RunError):
+        batch(setup=setup)
+    run_dir = fetched_root / "runs" / "run-test"
+    assert not (run_dir / "blind.md").exists()
+    assert not (run_dir / "key.json").exists()
+    calls = [r for r in read_records(run_dir / "calls.jsonl") if r["type"] == "call"]
+    assert len(calls) == 1  # the failed call is logged, and nothing ran after it
+
+
+def test_server_warnings_are_shown_once(batch):
+    _, _, _, output = batch(setup=lambda b: b.start_warnings.append("build differs"))
+    assert output.count("! build differs") == 1
+
+
+# --- the command --------------------------------------------------------------------------
+
+
+def test_run_command_reports_where_blind_md_is(fetched_root, tiny_tokenizer, monkeypatch, capsys):
+    (fetched_root / "openings.txt").write_text(OPENINGS, encoding="utf-8")
+
+    def session(root, logs_dir):
+        return Session(
+            root,
+            backend=FakeBackend(tokenizer=tiny_tokenizer),
+            logs_dir=logs_dir,
+            tokenizer_loader=lambda r, v: tiny_tokenizer,
+        )
+
+    monkeypatch.setattr(cli, "Session", session)
+    argv = ["--root", str(fetched_root), "run", "--openings", str(fetched_root / "openings.txt")]
+    assert cli.main([*argv, "--profiles", "text"]) == 0
+    out = capsys.readouterr().out
+    assert "blind.md" in out and "key.json" in out
+    (run_dir,) = (fetched_root / "runs").iterdir()
+    assert (run_dir / "blind.md").exists()
+
+
+def test_run_command_explains_a_stopped_run(fetched_root, tiny_tokenizer, monkeypatch, capsys):
+    (fetched_root / "openings.txt").write_text(OPENINGS, encoding="utf-8")
+    backend = FakeBackend(tokenizer=tiny_tokenizer)
+    backend.fail_with = "server gone"
+
+    def session(root, logs_dir):
+        return Session(
+            root, backend=backend, logs_dir=logs_dir, tokenizer_loader=lambda r, v: tiny_tokenizer
+        )
+
+    monkeypatch.setattr(cli, "Session", session)
+    argv = ["--root", str(fetched_root), "run", "--openings", str(fetched_root / "openings.txt")]
+    assert cli.main([*argv, "--profiles", "text"]) == 1
+    err = capsys.readouterr().err
+    assert "server gone" in err and "No blind.md" in err

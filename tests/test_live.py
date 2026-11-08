@@ -216,3 +216,26 @@ def test_llama_arg_variables_are_removed(monkeypatch, tmp_path):
     finally:
         backend.close()
     assert backend.server is None
+
+
+def test_a_batch_run_with_both_modes(tmp_path):
+    from clarity_chat.batch import run_batch
+
+    openings = tmp_path / "openings.txt"
+    openings.write_text("Name a colour.\n---\nCount to three.\n", encoding="utf-8")
+    run_dir = tmp_path / "run"
+    session = Session(REPO, logs_dir=run_dir)
+    try:
+        blind = run_batch(
+            session, "run-live", run_dir, openings, ["smol-chat", "smol-text"], 2, lambda s: None
+        )
+    finally:
+        session.close()
+    rows = list(read_records(run_dir / "calls.jsonl"))
+    calls = [r for r in rows if r["type"] == "call"]
+    assert len(calls) == 2 * 2 * 2
+    for call in calls:
+        all_checks_ok(call)
+        assert call["settings"]["seed"]["origin"] == "run"
+    assert sum(r["type"] == "server_start" for r in rows) == 1  # one model, one server
+    assert blind.read_text(encoding="utf-8").count("Rating:") == 8

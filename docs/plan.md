@@ -207,7 +207,7 @@ If same-seed replay on the same server isn't identical, stop and report before g
 - `uv run pytest -m live` (SmolLM2 via llama-server); `-m olmo` after step 2; `-m hf` after step 5.
 - Manual check: `uv run clarity chat --profile smol-chat`, then `/prompt repr`, `/settings`, and Ctrl-C mid-reply; then read the JSONL record.
 
-## Status and decisions since approval (updated 2026-11-07, after step 1)
+## Status and decisions since approval (updated 2026-11-08, during step 3)
 
 **Where we are:** steps 1 and 2 are done and reviewed.
 - Step 2 (`d6a3efc`): chat mode; OLMo 3 Instruct and Base fetched; 7 OLMo GPU tests pass. The medium code review's ten findings are fixed. `server.toml` sets `no-jinja` and `chat-template = "chatml"`, because OLMo 3's template stopped llama-server from starting. OLMo 3 ends replies with `<|endoftext|>` (its template does too); the brief expected `<|im_end|>`.
@@ -220,9 +220,17 @@ If same-seed replay on the same server isn't identical, stop and report before g
 - Transformers backend: MPS by default, with a `device = "cpu"` option. If MPS fails the run-to-run replay test, log and document it, and warn once at backend start (actionable: switch to CPU). The user wants to discuss later whether to move experiments to Linux, and whether Macs need a further warning.
 
 **Decisions to review in the morning:** (append as they're made)
+- **Batch openings: CRLF becomes LF** before splitting, so an editor's line endings never change the token IDs (otherwise a Windows-edited file would send `\r\n`). Reverse: drop the `replace` in `batch.split_openings`.
+- **Batch logs stay in the run folder,** including llama-server's output log (`runs/<id>/server-*.log`), so nothing from a held-out run lands in `logs/`.
+- **Split and trim rules are in the `run` record and `key.json`, not repeated in every call.** Each call has `run: {run_id, opening}`, and its `run` record is the first line of the same file.
+- **Pre-flight before any model loads:** each profile is prepared (model, lock, weights, tokenizer, template) and every opening is rendered and checked against the context. A profile listed twice is refused.
+- **What stops a run:** any error, a `check_failed:*` flag, or Ctrl-C. Other flags (`length`, `empty_reply`, `special_tokens_in_content`) don't; they're in the log, and warnings print once.
+- **`blind.md` layout:** `# Opening N`, the opening, then `## A` and so on, each reply followed by `Rating:` and `Note:`. Labels continue `AA`, `AB` after `Z`. One shuffle seed per run (`random.Random`), recorded in `key.json` with the rule.
+- **`Session.prepare`** now holds the profile checks that `new_conversation` used to do inline, so batch runs and `/new` share them.
+- **PyTorch deterministic mode (your question tonight):** still not planned for step 5. An agent is writing `docs/research/determinism-primer.md` (foundations, what the mode does on CUDA, CPU and MPS, and an audit of the complexity the nondeterminism work added); a second agent will check it before you read it.
 
 **Next actions, in order:**
-1. Step 3: batch mode (`run`, with `--seeds N` starting at seed 333; see the user's decisions above), then a medium code review. Not started yet.
+1. Step 3: batch mode is built and tested (offline and live); next, the medium code review.
 2. Step 4, replay: flag the case where output differs and nothing that could change it differs (only the client commit, or nothing). No category list.
 3. Step 5: no `use_deterministic_algorithms` (it does nothing on MPS); gate the MPS backend on the same live replay tests; log torch and macOS versions.
 
