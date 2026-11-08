@@ -439,7 +439,11 @@ REQUIRED_FLAGS = (
     "cache-reuse",
     "threads",
     "threads-batch",
+    "log-verbosity",
 )
+# llama.cpp logs device and model-buffer lines at its trace level (4). The GPU placement check
+# reads them from the startup output, so a lower verbosity would hide them.
+MIN_LOG_VERBOSITY = 4
 REQUIRED_VALUES = {
     "fit": "off",
     "parallel": 1,
@@ -528,6 +532,12 @@ def load_server_config(root: Path) -> ServerConfig:
     ctx_size = _integer(flags["ctx-size"])
     if ctx_size is None or ctx_size <= 0:
         raise ConfigError(f"{where}: ctx-size must be a positive integer (0 means 'from model').")
+    verbosity = _integer(flags["log-verbosity"])
+    if verbosity is None or verbosity < MIN_LOG_VERBOSITY:
+        raise ConfigError(
+            f"{where}: log-verbosity must be an integer of at least {MIN_LOG_VERBOSITY}; "
+            "the GPU placement check reads device lines llama.cpp logs at that level."
+        )
     if flags["flash-attn"] not in ("on", "off"):
         raise ConfigError(f'{where}: flash-attn must be "on" or "off".')
     timeout = data["startup_timeout_s"]

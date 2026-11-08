@@ -41,8 +41,10 @@ class ContextError(Exception):
 
 
 def fits_context(n_prompt: int, max_tokens: int, n_ctx: int) -> bool:
-    """llama-server stops a reply once prompt + generated + 1 reaches n_ctx (context shift
-    is off), so a reply of max_tokens fits only if n_prompt + max_tokens < n_ctx."""
+    """With context shift off, llama-server returns at most n_ctx - n_prompt tokens and marks
+    the reply truncated once prompt + generated reaches n_ctx, even when that last token was
+    also the max_tokens-th. So a call is allowed only if n_prompt + max_tokens < n_ctx; then
+    the server never marks it truncated. A live test checks both sides of the boundary."""
     return n_prompt + max_tokens < n_ctx
 
 

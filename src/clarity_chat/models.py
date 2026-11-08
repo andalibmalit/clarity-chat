@@ -35,6 +35,19 @@ SOURCE_PATTERNS = ["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model"]
 CONVERTER_PYTHON = "3.13"
 
 
+def portable_path(text: str, root: Path) -> str:
+    """A path as written to models.lock, which is committed: relative to the repo when inside
+    it, `~/...` when under the home folder, so the lock carries no user name. Other text is
+    returned unchanged."""
+    path = Path(text)
+    if not path.is_absolute():
+        return text
+    for base, prefix in ((root.resolve(), ""), (Path.home().resolve(), "~/")):
+        if path.resolve().is_relative_to(base):
+            return prefix + path.resolve().relative_to(base).as_posix()
+    return path.as_posix()
+
+
 def recommended_settings(source_dir: Path, repo: str, revision: str) -> dict[str, Any]:
     """The model's own recommended sampling settings, from its generation_config.json."""
     path = source_dir / "generation_config.json"
@@ -181,7 +194,8 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
         "--outfile",
         str(partial),
     ]
-    print("Converting:", " ".join(command), flush=True)
+    shown = [portable_path(part, root) for part in command]
+    print("Converting:", " ".join(shown), flush=True)
     with (out_dir / "convert.log").open("w", encoding="utf-8", newline="") as log:
         proc = subprocess.Popen(
             command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8"
@@ -203,8 +217,8 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
         "revision": model.revision,
         "tokenizer_repo": model.tokenizer_repo,
         "tokenizer_revision": model.tokenizer_revision,
-        "source_dir": source.as_posix(),
-        "tokenizer_dir": tokenizer.as_posix(),
+        "source_dir": portable_path(str(source), root),
+        "tokenizer_dir": portable_path(str(tokenizer), root),
         "gguf": {
             "path": out.relative_to(root).as_posix(),
             "size": stat.st_size,
@@ -215,7 +229,7 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
         "recommended": recommended_settings(source, model.repo, model.revision),
         "llama_cpp": {"commit": checkout["commit"], "dirty": checkout.get("dirty")},
         "converter": {
-            "command": command,
+            "command": shown,
             "python": converter_env["python"],
             "torch": packages.get("torch"),
             "transformers": packages.get("transformers"),

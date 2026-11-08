@@ -207,22 +207,24 @@ If same-seed replay on the same server isn't identical, stop and report before g
 - `uv run pytest -m live` (SmolLM2 via llama-server); `-m olmo` after step 2; `-m hf` after step 5.
 - Manual check: `uv run clarity chat --profile smol-chat`, then `/prompt repr`, `/settings`, and Ctrl-C mid-reply; then read the JSONL record.
 
-## Status and decisions since approval (updated 2026-11-07)
+## Status and decisions since approval (updated 2026-11-07, after step 1)
 
-**Where we are:** step 1 is code-complete and committed (`c25a0e1`, `8a6a38b`); 90 offline tests, ruff and ty pass. Not done yet: fetching SmolLM2, running `pytest -m live`, and the step 1 report. Step 2 has not started.
+**Where we are:** step 1 is done: SmolLM2 fetched (converting twice gave a byte-identical GGUF), and 7 live tests pass on the GPU (`MTL0`, Apple M2 Max) alongside 92 offline tests, ruff and ty. Step 2 is next.
 
-**Next actions, in order:**
-1. `uv run clarity fetch smollm2-135m-instruct` (sandboxed; needs `enableWeakerNetworkIsolation`, now set).
-2. `uv run pytest -m live`, run as a standalone command so the `excludedCommands` entry matches, and the tests run outside the sandbox with the GPU. First confirm the exclusion works: the server record's `placement` must name `MTL0 (Apple M2 Max)`. If it doesn't, stop and tell the user.
-3. Fix the live-test expectations that were guesses: `one_more.n_predicted == max_tokens - 1` in the context-boundary test, and `stop_type == "word"` in the text-mode test.
-4. Write the step 1 report (two or three sentences, with assumptions), commit, then start step 2.
+**Next actions, in order (step 2):**
+1. Chat rendering (`apply_chat_template`) and the context guard for chat mode.
+2. Commit the OLMo tokenizer fixtures under `tests/fixtures/` (pinned commit, Apache 2.0) with the 37/15 and exact-prompt tests.
+3. Write the Check 0 profiles and the placeholder `prompts/` files.
+4. **Ask the user before fetching OLMo** (about 58 GB), and agree how to run `pytest -m olmo` on the GPU.
+5. Code review at medium effort, fix, commit, report.
 
 **Environment and sandbox (the user's machine):**
 - An M2 Max with 32 GB; 149 GiB free disk; Python 3.13.12 (miniforge), which uv picked for `.venv`.
 - llama.cpp is shallow-cloned at `vendor/llama.cpp`, commit `f477f795cb07…`, pinned in `server.toml`, with `llama-server` built. `build_info` is `b1-f477f79`.
 - **Git clones and pulls into `vendor/` fail inside the sandbox** (writes to `.git/hooks` are blocked, even with `git clone *` excluded). The user runs them with `!`.
 - **Python HTTPS inside the sandbox** needs `sandbox.enableWeakerNetworkIsolation: true`, which lets commands reach `com.apple.trustd.agent`; it is now set. The error without it was `OSStatus -26276`.
-- **The sandbox hides Metal.** llama-server sees an unnamed device with 0 MiB. The user chose GPU live tests, so `excludedCommands` now has `uv run pytest -m live*`, `uv run pytest -m olmo*` and `uv run pytest -m hf*`. Whether exclusions work at all is still unverified (see step 2 above).
+- **The sandbox hides Metal** (`ggml_metal_init: failed to create command queue`). The user chose GPU live tests, so `excludedCommands` has `uv run pytest -m live*`, `uv run pytest -m olmo*` and `uv run pytest -m hf*`. This works, but **only for the bare command**: every command in a call must match, so `uv run pytest -m live -v | tail` stays sandboxed. `uv run pytest -m live -v` ran unsandboxed; `uv run pytest -m live -v -k placement` did not, for reasons not yet understood. Run the whole suite, unpiped.
+- **httpx loads certifi's CA bundle even for plain HTTP**, and the sandbox's `**/*.pem` read deny blocks it there. Local calls pass `verify=False` (they are plain HTTP to 127.0.0.1).
 - `curl` piped to Python was denied by the permission system. Pinned commits were looked up with WebFetch.
 - When giving the user a settings command, check against the Claude Code docs that it does what it claims first; the user asked for this.
 
@@ -233,7 +235,8 @@ If same-seed replay on the same server isn't identical, stop and report before g
 - The response `prompt` is the server's detokenization of the IDs, special tokens included.
 - Stop-string tokens and EOS are streamed with their IDs, and the text leaves out the stop string. Only a token that ends mid-character gets no chunk.
 - If a reply hits `max_tokens` while text is held back as a possible stop string, that text is never streamed. The client then sets the flag `text_differs_from_ids` and logs `decoded_output_text`.
-- With context shift off, the server stops a reply when `prompt + generated + 1 >= n_ctx`. The client's guard allows a call only if `n_prompt + max_tokens < n_ctx`; a live test checks this.
+- With context shift off, the server returns at most `n_ctx - n_prompt` tokens and marks the reply `truncated` once prompt + generated reaches `n_ctx`, even when that token was also the `max_tokens`-th (checked live). The client's guard allows a call only if `n_prompt + max_tokens < n_ctx`, so an allowed call is never marked truncated.
+- Device and model-buffer lines are logged at llama.cpp's trace level (library info maps to verbosity 4), so `server.toml` must set `log-verbosity` of at least 4 for the GPU placement check. The token-embedding table stays in a `CPU_Mapped` buffer by design.
 - `/props.default_generation_settings.n_ctx` holds the context size, and `generation_settings` has no `n_ctx`. The client re-reads `/props` after every call.
 - Config files: `/etc/llama.cpp/config.ini` and `${XDG_CONFIG_HOME:-~/.config}/llama.cpp/config.ini`, logged as `using config file:`. The client checks for both before launch and in the startup output.
 - Environment variables read as flags: `LLAMA_ARG_*`, `LLAMA_API_KEY`, `HF_TOKEN` and `MTMD_BACKEND_DEVICE`, all removed.
@@ -254,4 +257,5 @@ If same-seed replay on the same server isn't identical, stop and report before g
   - The user's intent: clarity should get out of the way, not be a rigidity that obstructs experimentation.
 - **GPU check:** with GPU layers requested, a server start fails if the weights land on the CPU. The device and buffers are parsed from the startup output and logged as `placement`.
 - **Local requests** use `trust_env=False`, so the sandbox's proxy variables never apply to `127.0.0.1`.
+- **`models.lock` is committed**, so it records paths relative to the repo or as `~/...`, never with the user name.
 - **Placeholders** (`prompts/system.txt`, `priming.toml`, `header.txt`) and the Check 0 profiles are still to be written in step 2.

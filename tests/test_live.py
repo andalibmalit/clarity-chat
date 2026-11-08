@@ -6,6 +6,7 @@ Run with `uv run pytest -m live`. Skipped if llama-server isn't built or SmolLM2
 from __future__ import annotations
 
 import dataclasses
+import sys
 from pathlib import Path
 
 import pytest
@@ -53,7 +54,12 @@ def test_server_start_is_logged_with_props_and_gpu_placement(session):
     record = session.backend.server_record
     assert record["props"]["model_path"].endswith(f"{MODEL}-bf16.gguf")
     assert record["props"]["default_generation_settings"]["n_ctx"] == 8192
-    assert record["placement"]["devices"], "no GPU device in use"
+    placement = record["placement"]
+    assert placement["devices"], "no GPU device in use"
+    if sys.platform == "darwin":
+        assert placement["devices"][0]["name"].startswith("MTL"), placement
+        # llama.cpp keeps the token-embedding table on the CPU, so only some buffers are Metal.
+        assert any(b["buffer"].startswith("MTL") for b in placement["model_buffers"]), placement
     assert record["warnings"] == []
     assert "--no-context-shift" in record["argv"]
 
@@ -154,9 +160,17 @@ def test_context_guard_matches_llama_servers_limit(small_context_backend):
     assert full.response["truncated"] is False
     assert full.n_predicted == max_tokens
 
+    # At prompt + max_tokens == n_ctx the server still returns every token but marks the
+    # reply truncated; the client refuses this case so an allowed call is never marked.
     one_more = small_context_backend.complete(counting_ids(fitting + 1), SETTINGS, [])
-    assert one_more.response["truncated"] is True  # the client is right to refuse this
-    assert one_more.n_predicted == max_tokens - 1
+    assert one_more.response["truncated"] is True
+    assert one_more.n_predicted == max_tokens
+    assert "context_full" in one_more.flags
+
+    # One token further, the context really cuts the reply: n_predicted = n_ctx - n_prompt.
+    two_more = small_context_backend.complete(counting_ids(fitting + 2), SETTINGS, [])
+    assert two_more.response["truncated"] is True
+    assert two_more.n_predicted == n_ctx - (fitting + 2)
 
 
 def test_llama_arg_variables_are_removed(monkeypatch, tmp_path):
