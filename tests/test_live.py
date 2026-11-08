@@ -307,6 +307,7 @@ def test_the_gguf_download_route_end_to_end(tmp_path, monkeypatch):
 
     entry = fetch(root, load_models(root)["smol-q8"], load_server_config(root))
     assert entry["gguf"]["path"].startswith("~/"), entry["gguf"]["path"]  # the HF cache
+    assert entry["gguf"]["path"].endswith("/SmolLM2-135M-Instruct-Q8_0.gguf")  # not the blob
     session = Session(root, logs_dir=tmp_path / "logs")
     try:
         session.new_conversation("q8")

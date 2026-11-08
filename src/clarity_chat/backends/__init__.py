@@ -61,8 +61,8 @@ class Backend(Protocol):
         on_text: Callable[[str], None] | None = None,
         request: dict[str, Any] | None = None,
     ) -> Result:
-        """Generate a reply. `request`, for replay, is a logged request to send unchanged
-        where the backend can (llama.cpp); otherwise `settings` are applied as usual."""
+        """Generate a reply. `request`, for replay, is a logged request body: send it
+        exactly as logged, or raise BackendError; never rebuild it from `settings`."""
         ...
 
     def describe(self) -> dict[str, Any]:

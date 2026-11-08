@@ -104,7 +104,8 @@ class Conversation:
     head: str | None = None
     run: dict[str, Any] | None = None  # set for a batch run's conversations
     started_server: dict[str, Any] | None = None  # the server_start, if this one started it
-    last_call: dict[str, Any] | None = None
+    last_call: dict[str, Any] | None = None  # the call of the reply at head (for /prompt)
+    calls: dict[str, dict[str, Any]] = field(default_factory=dict)  # call records by ID
 
     def path_to(self, turn_id: str | None) -> list[Turn]:
         """Turns from the root to `turn_id`, in order."""
@@ -322,6 +323,7 @@ class Session:
             )
         except (ContextError, BackendError, ConfigError):
             conversation.head = reply.turn_id  # a failed regeneration leaves you where you were
+            conversation.last_call = conversation.calls.get(reply.call_id or "")
             raise
 
     def edit(self, text: str, on_text: Callable[[str], None] | None = None) -> CallOutcome:
@@ -334,7 +336,12 @@ class Session:
             "user", "edit", text, original.parent_id, edit_of=original.turn_id
         )
         conversation.head = user.turn_id
-        return self.call(user, on_text=on_text)
+        try:
+            return self.call(user, on_text=on_text)
+        except (ContextError, BackendError, ConfigError):
+            conversation.head = reply.turn_id  # a failed edit leaves you where you were
+            conversation.last_call = conversation.calls.get(reply.call_id or "")
+            raise
 
     def undo(self) -> Turn | None:
         """Move back past the last exchange. Returns the new head (None at the start). The
@@ -343,7 +350,9 @@ class Session:
         reply = conversation.current_reply("undo")
         assert reply.parent_id is not None
         conversation.head = conversation.turns[reply.parent_id].parent_id
-        return conversation.turns.get(conversation.head) if conversation.head else None
+        head = conversation.turns.get(conversation.head) if conversation.head else None
+        conversation.last_call = conversation.calls.get(head.call_id or "") if head else None
+        return head
 
     def annotate(self, kind: str, text: str) -> dict[str, Any]:
         """A `mark` (label) or `note` (text) record on the current reply's call."""
@@ -486,7 +495,7 @@ class Session:
             regen_of=regen_of,
         )
         conversation.head = reply.turn_id
-        conversation.last_call = record
+        conversation.last_call = conversation.calls[call_id] = record
         return CallOutcome(record, result, reply, warnings)
 
     def _check_output(
@@ -530,11 +539,17 @@ class Session:
         return self.replay(conversation.log.path, reply.call_id, conversation.log)
 
     def replay(
-        self, log_path: Path, call_id: str, log: LogFile | None = None, flags_from: str = ""
+        self,
+        log_path: Path,
+        call_id: str,
+        log: LogFile | None = None,
+        flags_from: str = "",
+        found: tuple[dict[str, Any], dict[str, Any] | None] | None = None,
     ) -> dict[str, Any]:
         """Re-send a logged call's token IDs and request, compare the output, list what
-        differs from the logged facts, and append a `replay` record to the same log."""
-        call, server = find_call(log_path, call_id)
+        differs from the logged facts, and append a `replay` record to the same log.
+        `found`: the call and server records, if the caller already read them."""
+        call, server = found or find_call(log_path, call_id)
         name = call["model"]["name"]
         if name not in self.models:
             raise ConfigError(f"Call {call_id} used model {name!r}, which isn't in models.toml.")
@@ -554,6 +569,8 @@ class Session:
         result = self.backend.complete(
             call["prompt_ids"], values, call["stop"], request=call["request"]
         )
+        if result.stop_type == "cancelled":
+            raise ConfigError("Replay cancelled (Ctrl-C): nothing was compared or logged.")
         fields, server_prompt = result_fields(result)
         self._check_output(call["prompt_ids"], result, server_prompt, fields, tokenizer)
         now_server = self.backend.server_record
@@ -582,10 +599,21 @@ class Session:
             "backend": self.backend.describe(),
             **{
                 k: fields[k]
-                for k in ("output_text", "output_ids", "stop_type", "stopping_word", "timings")
+                for k in (
+                    "output_text",
+                    "output_ids",
+                    "stop_type",
+                    "stopping_word",
+                    "flags",
+                    "checks",
+                    "request",
+                    "backend_settings",
+                    "not_applied",
+                    "tokens_evaluated",
+                    "tokens_predicted",
+                    "timings",
+                )
             },
-            "flags": fields["flags"],
-            "checks": fields["checks"],
         }
         if not comparison["identical"]:
             record["logged_output_text"] = call["output_text"]

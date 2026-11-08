@@ -28,6 +28,8 @@ def find_call(path: Path, call_id: str) -> tuple[dict[str, Any], dict[str, Any] 
     """The call record and the start record of the server that ran it (None if not logged)."""
     call = None
     servers: dict[str, dict[str, Any]] = {}
+    if not path.is_file():
+        raise ConfigError(f"Log file {path} not found.")
     for record in read_records(path):
         if record.get("type") == "server_start":
             servers.setdefault(record["server_id"], record)
@@ -109,16 +111,24 @@ def compare_output(call: dict[str, Any], new: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {"identical": identical, "compared": compared}
     if not identical:
         old_ids, new_ids = call["output_ids"], new["output_ids"]
-        first = next(
-            (i for i, (a, b) in enumerate(zip(old_ids, new_ids, strict=False)) if a != b),
-            min(len(old_ids), len(new_ids)),
-        )
         result.update(
-            first_different_token=first,
             stop_types={"logged": call["stop_type"], "now": new["stop_type"]},
             n_output_ids={"logged": len(old_ids), "now": len(new_ids)},
         )
+        if by_text:
+            texts = call["output_text"], new["output_text"]
+            result["first_different_char"] = first_difference(*texts)
+        else:
+            result["first_different_token"] = first_difference(old_ids, new_ids)
     return result
+
+
+def first_difference(old: Any, new: Any) -> int:
+    """The first index where two sequences differ (the shorter length if one is a prefix)."""
+    return next(
+        (i for i, (a, b) in enumerate(zip(old, new, strict=False)) if a != b),
+        min(len(old), len(new)),
+    )
 
 
 def unexplained(identical: bool, diffs: dict[str, Any]) -> bool:
