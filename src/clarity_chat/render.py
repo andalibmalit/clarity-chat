@@ -13,7 +13,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
-from clarity_chat.files import read_text
+from clarity_chat.files import read_text, sha256_text
 from clarity_chat.profiles import ConfigError, Profile
 
 os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")  # no "PyTorch was not found" banner
@@ -171,9 +171,55 @@ def render_text(profile: Profile, turns: list[tuple[str, str]]) -> str:
     return "".join(parts)
 
 
-def build_prompt(tokenizer: Tokenizer, profile: Profile, turns: list[tuple[str, str]]) -> Prompt:
+def chat_template_source(template: Tokenizer, profile: Profile) -> dict[str, Any]:
+    """Where the chat template came from, logged with every call: the repo and commit (or
+    folder), the kwargs, and the template's sha256."""
+    text = template.tok.chat_template
+    if not isinstance(text, str) or not text:
+        raise ConfigError(
+            f"Profile {profile.name}: {template.source} has no single chat template "
+            f"(found {type(text).__name__}). Set template_repo to a repo that has one."
+        )
+    return {**template.source, "kwargs": profile.template_kwargs, "sha256": sha256_text(text)}
+
+
+def chat_messages(profile: Profile, turns: list[tuple[str, str]]) -> list[dict[str, str]]:
+    """System (if set), then priming, then the conversation, in that order."""
+    messages = []
+    if profile.system is not None:
+        messages.append({"role": "system", "content": profile.system})
+    messages.extend(dict(m) for m in profile.priming_messages)
+    messages.extend({"role": role, "content": text} for role, text in turns)
+    return messages
+
+
+def render_chat(template: Tokenizer, profile: Profile, turns: list[tuple[str, str]]) -> str:
+    """The chat template's output for this conversation, ending with the generation prompt."""
+    text = template.tok.apply_chat_template(
+        chat_messages(profile, turns),
+        tokenize=False,
+        add_generation_prompt=True,
+        **profile.template_kwargs,
+    )
+    if not isinstance(text, str):
+        raise ConfigError(f"Profile {profile.name}: the chat template did not return text.")
+    return text
+
+
+def build_prompt(
+    tokenizer: Tokenizer,
+    profile: Profile,
+    turns: list[tuple[str, str]],
+    template: Tokenizer | None = None,
+) -> Prompt:
+    """The prompt for `turns`. `tokenizer` is always the model's; in chat mode `template`
+    (default: the same tokenizer) supplies only the chat template."""
     if profile.mode == "text":
         text = render_text(profile, turns)
         ids, bos = tokenize(tokenizer, text, "text")
         return Prompt(text=text, ids=ids, bos=bos, template=None)
-    raise ConfigError(f"Profile {profile.name}: chat mode is not built yet (step 2).")
+    source = template or tokenizer
+    template_info = chat_template_source(source, profile)  # checks there is a template first
+    text = render_chat(source, profile, turns)
+    ids, bos = tokenize(tokenizer, text, "chat")
+    return Prompt(text=text, ids=ids, bos=bos, template=template_info)

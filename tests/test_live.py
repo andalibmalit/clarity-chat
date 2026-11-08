@@ -78,6 +78,22 @@ def test_text_mode_reply_stops_before_the_next_user_line(session):
     assert "incomplete_output_ids" not in record["flags"]
 
 
+def test_chat_mode_reply_ends_with_the_end_of_turn_token(session):
+    session.new_conversation("smol-chat")  # same model: the server keeps running
+    outcome = session.say("Name one colour.")
+    record = outcome.record
+    all_checks_ok(record)
+    assert record["prompt_text"].endswith("<|im_start|>assistant\n")
+    assert record["bos"]["prepended"] is False
+    assert record["template"]["sha256"]
+    assert record["stop_type"] == "eos", record["output_text"]
+    im_end = session.tokenizer.tok.convert_tokens_to_ids("<|im_end|>")
+    assert record["output_ids"][-1] == im_end
+    follow_up = session.say("And another?").record
+    all_checks_ok(follow_up)
+    assert f"{record['output_text']}<|im_end|>" in follow_up["prompt_text"]
+
+
 def test_same_seed_same_server_gives_identical_output_ids(session):
     """If this fails, no replay result means anything (the brief: stop and report)."""
     outputs = []

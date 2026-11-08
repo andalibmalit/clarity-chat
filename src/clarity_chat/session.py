@@ -31,7 +31,13 @@ from clarity_chat.profiles import (
     load_server_config,
     resolve_settings,
 )
-from clarity_chat.render import Prompt, Tokenizer, build_prompt, library_versions
+from clarity_chat.render import (
+    Prompt,
+    Tokenizer,
+    build_prompt,
+    chat_template_source,
+    library_versions,
+)
 
 CONTEXT_WARN_FRACTION = 0.8
 
@@ -131,6 +137,7 @@ class Session:
         self.model: ModelEntry | None = None
         self.model_lock: dict[str, Any] = {}
         self.tokenizer: Tokenizer | None = None
+        self.template_tokenizer: Tokenizer | None = None
         self.template: dict[str, Any] | None = None
         self._tokenizers: dict[tuple[str, str], Tokenizer] = {}
 
@@ -139,17 +146,18 @@ class Session:
     def load_profile(self, name: str) -> Profile:
         return load_profile(self.root, name, self.defaults)
 
-    def tokenizer_for(self, profile: Profile, model: ModelEntry) -> tuple[Tokenizer, dict | None]:
+    def _load_tokenizer(self, repo: str, revision: str) -> Tokenizer:
+        if (repo, revision) not in self._tokenizers:
+            self._tokenizers[repo, revision] = self.tokenizer_loader(repo, revision)
+        return self._tokenizers[repo, revision]
+
+    def tokenizers_for(self, profile: Profile, model: ModelEntry) -> tuple[Tokenizer, Tokenizer]:
+        """The model's tokenizer, which always tokenizes, and the tokenizer whose chat
+        template renders chat mode (the profile's template_repo, else the model's)."""
+        tokenizer = self._load_tokenizer(model.tokenizer_repo, model.tokenizer_revision)
         if profile.mode == "chat" and profile.template_repo and profile.template_revision:
-            key = (profile.template_repo, profile.template_revision)
-        else:
-            key = (model.tokenizer_repo, model.tokenizer_revision)
-        if key not in self._tokenizers:
-            self._tokenizers[key] = self.tokenizer_loader(*key)
-        template = None
-        if profile.mode == "chat":
-            template = {"repo": key[0], "revision": key[1], "kwargs": profile.template_kwargs}
-        return self._tokenizers[key], template
+            return tokenizer, self._load_tokenizer(profile.template_repo, profile.template_revision)
+        return tokenizer, tokenizer
 
     def new_conversation(self, profile_name: str, log_dir: Path | None = None) -> Conversation:
         """Start a conversation with a profile, starting or switching the model as needed."""
@@ -173,7 +181,12 @@ class Session:
         weights = check_weights_quick(self.root, entry)
         self.backend.start(model, weights)
         self.model, self.model_lock = model, entry
-        self.tokenizer, self.template = self.tokenizer_for(profile, model)
+        self.tokenizer, self.template_tokenizer = self.tokenizers_for(profile, model)
+        self.template = (
+            chat_template_source(self.template_tokenizer, profile)
+            if profile.mode == "chat"
+            else None
+        )
         conversation_id = new_id("conversation")
         log = LogFile((log_dir or self.logs_dir) / f"{conversation_id}.jsonl")
         conversation = Conversation(conversation_id, profile, log)
@@ -219,7 +232,7 @@ class Session:
         assert self.tokenizer is not None
         path = conversation.path_to(user_turn.turn_id)
         turns = [(t.role, t.text) for t in path if t.origin != "priming"]
-        return build_prompt(self.tokenizer, conversation.profile, turns)
+        return build_prompt(self.tokenizer, conversation.profile, turns, self.template_tokenizer)
 
     @staticmethod
     def resolve_settings(

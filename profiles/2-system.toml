@@ -1,0 +1,17 @@
+# Check 0, setup 2: chat with the system prompt in prompts/system.txt.
+backend = "llama.cpp"
+model = "olmo-3-7b-instruct"
+mode = "chat"
+system = { file = "../prompts/system.txt" }
+
+# Check 0 settings, shared by every Check 0 profile (OLMo 3's generation_config.json values
+# for temperature and top_p; everything else off). The context size (8192) is in server.toml.
+[settings]
+temperature = 0.6
+top_p = 0.95
+top_k = 0
+min_p = 0.0
+repeat_penalty = 1.0
+max_tokens = 1024
+seed = 42
+samplers = ["top_k", "top_p", "min_p", "temperature"]
