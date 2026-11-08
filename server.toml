@@ -26,3 +26,4 @@ no-cache-idle-slots = true
 cache-reuse = 0
 threads = 8
 threads-batch = 8
+log-verbosity = 4             # the GPU placement check reads lines logged at level 4

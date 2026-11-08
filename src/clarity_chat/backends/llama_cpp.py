@@ -400,7 +400,7 @@ class LlamaServer:
                 time.sleep(0.2)  # let the drain thread catch the last lines
                 return f"exited with code {proc.returncode}:\n{self.output_text()[-3000:]}"
             try:
-                r = httpx.get(f"{self.url}/health", timeout=2, trust_env=False)
+                r = httpx.get(f"{self.url}/health", timeout=2, trust_env=False, verify=False)
                 if r.status_code == 200:
                     return None
             except httpx.TransportError:
@@ -410,7 +410,7 @@ class LlamaServer:
         return f"no healthy response within {self.config.startup_timeout_s} s"
 
     def get_props(self) -> dict[str, Any]:
-        r = httpx.get(f"{self.url}/props", timeout=10, trust_env=False)
+        r = httpx.get(f"{self.url}/props", timeout=10, trust_env=False, verify=False)
         r.raise_for_status()
         return r.json()
 
@@ -505,13 +505,15 @@ class LlamaCppBackend:
         final: dict[str, Any] | None = None
         timeout = httpx.Timeout(connect=10, read=600, write=60, pool=10)
         try:
-            # trust_env=False: a local server is never reached through a proxy from the environment.
+            # The server is plain HTTP on 127.0.0.1. trust_env=False ignores proxy variables;
+            # verify=False stops httpx loading a CA bundle that a plain-HTTP call never uses.
             with httpx.stream(
                 "POST",
                 f"{self.server.url}/completion",
                 json=request,
                 timeout=timeout,
                 trust_env=False,
+                verify=False,
             ) as response:
                 if response.status_code != 200:
                     response.read()

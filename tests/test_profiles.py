@@ -170,6 +170,7 @@ def test_server_config_rejects_flags(root, line, message):
         ('fit = "off"', 'fit = "on"', "fit must be"),
         ("parallel = 1", "parallel = 2", "parallel must be"),
         ("ctx-size = 8192\n", "", "must set"),
+        ("log-verbosity = 4 ", "log-verbosity = 3 ", "at least 4"),
     ],
 )
 def test_server_config_requires_explicit_values(root, old, new, message):

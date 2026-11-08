@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "models": {
+    "smollm2-135m-instruct": {
+      "name": "smollm2-135m-instruct",
+      "route": "convert",
+      "repo": "HuggingFaceTB/SmolLM2-135M-Instruct",
+      "revision": "12fd25f77366fa6b3b4b768ec3050bf629380bac",
+      "tokenizer_repo": "HuggingFaceTB/SmolLM2-135M-Instruct",
+      "tokenizer_revision": "12fd25f77366fa6b3b4b768ec3050bf629380bac",
+      "source_dir": "~/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-135M-Instruct/snapshots/12fd25f77366fa6b3b4b768ec3050bf629380bac",
+      "tokenizer_dir": "~/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-135M-Instruct/snapshots/12fd25f77366fa6b3b4b768ec3050bf629380bac",
+      "gguf": {
+        "path": "models/smollm2-135m-instruct/smollm2-135m-instruct-bf16.gguf",
+        "size": 270885920,
+        "mtime_ns": 1794104037248330782,
+        "sha256": "0f049d7126689b64e971b71164a9c38da59038f2e9c546221449146f3534589e",
+        "outtype": "bf16"
+      },
+      "recommended": {
+        "source": {
+          "file": "generation_config.json",
+          "repo": "HuggingFaceTB/SmolLM2-135M-Instruct",
+          "revision": "12fd25f77366fa6b3b4b768ec3050bf629380bac"
+        },
+        "values": {},
+        "not_applied": {
+          "bos_token_id": 1,
+          "eos_token_id": 2,
+          "pad_token_id": 2
+        },
+        "notes": []
+      },
+      "llama_cpp": {
+        "commit": "f477f795cb071baf5b8af6488378366a72034ac4",
+        "dirty": false
+      },
+      "converter": {
+        "command": [
+          "uv",
+          "run",
+          "--no-project",
+          "--python",
+          "3.13",
+          "--with-requirements",
+          "vendor/llama.cpp/requirements/requirements-convert_hf_to_gguf.txt",
+          "python",
+          "-I",
+          "src/clarity_chat/convert_shim.py",
+          "models/smollm2-135m-instruct/converter-versions.json",
+          "vendor/llama.cpp/convert_hf_to_gguf.py",
+          "~/.cache/huggingface/hub/models--HuggingFaceTB--SmolLM2-135M-Instruct/snapshots/12fd25f77366fa6b3b4b768ec3050bf629380bac",
+          "--outtype",
+          "bf16",
+          "--outfile",
+          "models/smollm2-135m-instruct/smollm2-135m-instruct-bf16.gguf.partial"
+        ],
+        "python": "3.13.12",
+        "torch": "2.11.0",
+        "transformers": "5.22.2",
+        "gguf": "gguf-py at llama.cpp f477f795cb07",
+        "packages": {
+          "Jinja2": "3.1.6",
+          "MarkupSafe": "3.0.4",
+          "PyYAML": "6.0.3",
+          "Pygments": "2.21.0",
+          "annotated-doc": "0.0.5",
+          "anyio": "4.16.0",
+          "certifi": "2026.10.23",
+          "charset-normalizer": "3.5.2",
+          "clarity-chat": "0.1.0",
+          "click": "8.5.1",
+          "filelock": "4.2.9",
+          "fsspec": "2026.9.0",
+          "gguf": "0.19.0",
+          "h11": "0.16.0",
+          "hf-xet": "1.8.0",
+          "httpcore": "1.0.9",
+          "httpcore2": "2.16.0",
+          "httpx": "0.28.1",
+          "httpx2": "2.16.0",
+          "huggingface_hub": "2.4.0",
+          "hypothesis": "6.170.15",
+          "idna": "3.20",
+          "iniconfig": "2.3.1",
+          "markdown-it-py": "4.2.0",
+          "mdurl": "0.1.2",
+          "mpmath": "1.3.0",
+          "networkx": "3.7",
+          "numpy": "2.5.4",
+          "packaging": "26.3",
+          "pluggy": "1.7.0",
+          "prompt_toolkit": "3.0.53",
+          "protobuf": "4.25.9",
+          "pytest": "9.2.0",
+          "regex": "2026.11.7",
+          "requests": "2.34.2",
+          "rich": "15.0.0",
+          "ruff": "0.17.4",
+          "safetensors": "0.8.0",
+          "sentencepiece": "0.2.3",
+          "setuptools": "81.0.0",
+          "shellingham": "1.5.4",
+          "sortedcontainers": "2.4.0",
+          "sympy": "1.14.0",
+          "tokenizers": "0.23.3",
+          "torch": "2.11.0",
+          "tqdm": "4.70.1",
+          "transformers": "5.22.2",
+          "truststore": "0.10.5",
+          "ty": "0.0.99",
+          "typer": "0.28.0",
+          "typing_extensions": "4.16.0",
+          "urllib3": "2.8.0",
+          "wcwidth": "0.9.4"
+        }
+      },
+      "fetched_at": "2026-11-08T02:13:58.012+00:00"
+    }
+  }
+}

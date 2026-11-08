@@ -44,3 +44,4 @@ No silent fallbacks: if something can't be done exactly as configured, stop with
 ## Sandbox notes
 - `vendor/llama.cpp` can't be cloned or updated from inside the sandbox (it blocks writes to `.git/hooks`); the user runs those git commands.
 - Delete files with Python's `shutil`; `rm -rf` is denied.
+- Run `uv run pytest -m live -v` (or `-m olmo`, `-m hf`) on its own: no pipe, `cd` or `&&`. Only then does the `excludedCommands` entry take it out of the sandbox, which hides the GPU.
