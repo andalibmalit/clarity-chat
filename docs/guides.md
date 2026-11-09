@@ -4,7 +4,7 @@ Short recipes for common tasks. [Getting started](getting-started.md) covers ins
 
 ## Write a profile
 
-A profile is one experimental setup: a model, a mode, the prompt pieces and the settings. Save it as `profiles/NAME.toml` and start it with `uv run clarity chat --profile NAME`. Unknown keys and setting names are errors, so most typos stop the profile from loading. Keys inside `template_kwargs` aren't checked, because the chat template defines them; a misspelled one is silently ignored.
+A profile is one experimental setup: a model, a mode, the prompt pieces and the settings. Save it as `profiles/NAME.toml` and start it with `uv run clarity chat --profile NAME`.
 
 A chat-mode profile uses the model's chat template:
 
@@ -34,19 +34,24 @@ user_name = "User"
 assistant_name = "Assistant"
 ```
 
-The document is the header, the priming text, one `User: …` or `Assistant: …` line per turn, and a final `Assistant:`. Generation stops at a new line starting with `User:`.
+The model sees the header, the priming text, one line per turn, and a final `Assistant:`. Generation stops at a new line starting with `User:`. [Profile keys](reference.md#profile-keys) gives the exact format.
 
 Tips:
+- Unknown keys and setting names are errors, so most typos stop the profile from loading. Keys inside `template_kwargs` aren't checked, because the chat template defines them, so a misspelled one is silently ignored.
 - File paths are relative to the profile, and files are read byte for byte. A trailing newline your editor added is part of the prompt; `/prompt repr` shows it.
 - A priming file holds only `[[messages]]` tables, each with `role` (`"user"` or `"assistant"`) and `content`. See `prompts/priming.toml`.
 - Template options such as `enable_thinking` go in a `[template_kwargs]` table.
-- To use another repo's chat template, set `template_repo` and `template_revision` (a full commit hash) together. The model's own tokenizer still does the tokenizing. `fetch` doesn't download that repo, so put its tokenizer files in the Hugging Face cache yourself:
+- Settings you leave out come from the model if `use_recommended = true`, and otherwise from `defaults.toml`, whose values turn every sampler off.
 
-  ```
-  uv run python -c "from huggingface_hub import snapshot_download; from clarity_chat.render import TOKENIZER_FILES; snapshot_download('ORG/REPO', revision='COMMIT', allow_patterns=TOKENIZER_FILES)"
-  ```
+## Use another repo's chat template
 
-- Every setting you leave out comes from `defaults.toml`, which turns every sampler off (see [Settings](reference.md#settings)), unless `use_recommended` fills it from the model first.
+Set `template_repo` and `template_revision` (a full commit hash) together in a chat-mode profile. The template comes from that repo; the model's own tokenizer still does the tokenizing.
+
+`fetch` doesn't download that repo, so put its tokenizer files in the Hugging Face cache yourself:
+
+```
+uv run python -c "from huggingface_hub import snapshot_download; from clarity_chat.render import TOKENIZER_FILES; snapshot_download('ORG/REPO', revision='COMMIT', allow_patterns=TOKENIZER_FILES)"
+```
 
 ## Compare two setups
 
@@ -54,13 +59,13 @@ Make two profiles that differ in one key, and keep everything else the same. Set
 
 A fixed seed makes a reply replayable, not representative: at temperature 0.6, another seed gives another reply. Compare setups over several openings or seeds with a [blind test](#run-and-rate-a-blind-test).
 
-To see what a chat template contributes, compare a chat profile with a text profile on the same instruct model, like the `2-system` and `4-raw-instruct` profiles.
+To see what a chat template contributes, compare a text profile with a chat profile on the same instruct model. `4-raw-instruct` sends OLMo 3 Instruct a plain document; `1a-stock` sends it the same conversation through its chat template.
 
 ## Use a model's recommended settings
 
 Add `use_recommended = true` to a profile. Every setting the profile leaves out then comes from the model's own `generation_config.json`, at the commit pinned in `models.toml`, before falling back to `defaults.toml`.
 
-`/settings` marks these values with origin `model` and lists what the model recommends whether or not you use it. Only sampling values carry over: `repetition_penalty` becomes `repeat_penalty`, and `do_sample = false` becomes temperature 0. Everything else, including `max_new_tokens`, is listed as not applied.
+`/settings` marks these values with origin `model`, and lists what the model recommends whether or not you use it. Only sampling values carry over: `repetition_penalty` becomes `repeat_penalty`, and `do_sample = false` becomes temperature 0. Everything else, including `max_new_tokens`, is listed as not applied.
 
 ## Add a model
 
@@ -104,7 +109,7 @@ Hugging Face shows a file's sha256 on its page. Or look it up:
 uv run python -c "from huggingface_hub import HfApi; print(HfApi().get_paths_info('ORG/REPO-GGUF', ['model-Q8_0.gguf'], revision='COMMIT')[0].lfs.sha256)"
 ```
 
-Clarity checks on every call that the server's own decoding of the token IDs matches the prompt text. If a GGUF and its `tokenizer_repo` don't agree, that check fails.
+After every call, Clarity checks that the server's own decoding of the token IDs matches the prompt text. If a GGUF and its `tokenizer_repo` don't agree, that check fails.
 
 ## Run and rate a blind test
 
@@ -117,18 +122,20 @@ Clarity checks on every call that the server's own decoding of the token IDs mat
 
    Add `--seeds 3` for three replies per opening and profile, with seeds 333, 334 and 335. The run's seeds replace the profiles' seeds, so two runs with the same profiles are comparable.
 
-3. Give raters `runs/<run ID>/blind.md`. Each reply has empty `Rating:` and `Note:` lines.
-4. Open `key.json` only after rating. It says which label came from which profile and seed, and gives each label's call ID (under `openings[].labels.<label>.call_id`), which you need to [label](#label-replies-after-the-fact) or [replay](#replay-a-call) a reply.
+3. Give raters `runs/RUN_ID/blind.md`. Each reply has empty `Rating:` and `Note:` lines.
+4. After rating, open `key.json`. It says which profile and seed each label came from. Each label's call ID, under `openings[].labels.<label>.call_id`, is what you pass to [`clarity mark`](#label-replies-after-the-fact) or [`clarity replay`](#replay-a-call).
 
 Before any model loads, Clarity checks every profile and renders every opening. It stops if the profiles' `max_tokens` differ (reply length would give a setup away), a profile is listed twice, or an opening doesn't fit the context. During the run, any error or failed check stops it, and no `blind.md` is written.
+
+Each call is its own conversation. Profiles are read once, at the start, so editing one during a run changes nothing. `blind.md` strips the whitespace around each reply; `calls.jsonl` keeps replies exactly as generated.
 
 ## Label replies after the fact
 
 `/mark` and `/note` label the current reply during a chat. To label any logged reply later, for example while reading a blind run's results, use:
 
 ```
-uv run clarity mark runs/<run ID>/calls.jsonl CALL_ID landed
-uv run clarity note runs/<run ID>/calls.jsonl CALL_ID "Drifts off topic after the first line."
+uv run clarity mark runs/RUN_ID/calls.jsonl CALL_ID landed
+uv run clarity note runs/RUN_ID/calls.jsonl CALL_ID "Drifts off topic after the first line."
 ```
 
 These append one record to the log, with `origin` `review` (in-chat ones say `live`), and start no server. A failed call has no reply, so it can't be marked.
@@ -138,10 +145,10 @@ These append one record to the log, with `origin` `review` (in-chat ones say `li
 In a chat, `/replay` re-sends the current reply's call. For any logged call, use:
 
 ```
-uv run clarity replay logs/<conversation ID>.jsonl CALL_ID
+uv run clarity replay logs/CONVERSATION_ID.jsonl CALL_ID
 ```
 
-The call ID is on each reply's status line, and in the `call_id` field of the log. For a batch run, pass `runs/<run ID>/calls.jsonl`.
+The call ID is on each reply's status line, and in the `call_id` field of the log. For a batch run, pass `runs/RUN_ID/calls.jsonl`.
 
 Replay sends the logged token IDs and request body exactly, then reports one of:
 - `Identical`: the same output token IDs and stop type.
@@ -153,49 +160,59 @@ Replay uses the current `server.toml`. Add `--logged-flags` to start llama-serve
 
 ## Use the Transformers backend
 
-The Transformers backend runs the official weights in-process with PyTorch. It is given the same prompt token IDs as llama-server; its output can still differ, since the arithmetic and sampler code differ.
+The Transformers backend runs the official weights in-process with PyTorch. It is given the same prompt token IDs as llama-server, but its output can still differ, because the arithmetic and the sampler code differ.
 
 1. Install the extra: `uv sync --extra hf`.
 2. Fetch the model with the `convert` route; a ready-made GGUF has no official weights.
 3. Set `backend = "transformers"` in a profile. It runs on MPS by default; add `device = "cpu"` or `device = "cuda"` to change it.
 
-Transformers applies its samplers in a fixed order and has no `presence_penalty`, `frequency_penalty` or `repeat_last_n`. When a profile asks for something it can't do, the call is flagged `not_applied`, and `/settings` gives the reason. The Check 0 profiles list temperature last, which Transformers can't do, so on Transformers they run with a different sampler order and each call is flagged.
+Some settings can't run on Transformers exactly as written; [Settings](reference.md#settings) lists which. When that can change the reply, the call is flagged `not_applied`, and `/settings` gives the reason. The most common case is sampler order: `defaults.toml` and most profiles, including `smol-chat`, list temperature last, so with temperature ≠ 1 and `top_p` < 1, every Transformers call is flagged.
 
-The Transformers backend also takes its context size from `ctx-size` in `server.toml`, so the context guard is the same on both backends. A model with fewer positions than that won't start.
+The context size is `ctx-size` from `server.toml` here too, so the context guard is the same on both backends. A model with fewer positions than that won't start.
 
 ## Change the context size or a server flag
 
 Edit `[flags]` in `server.toml`. The context size is `ctx-size`. The next `clarity` command uses the new values, and every call logs them. A chat that is already running keeps the flags it started with, even if `/profile` restarts its server, so quit and start it again.
 
-Some flags are required, some values are fixed (one slot, no prompt cache, no context shift), and some flags are refused, such as `model`, `port` and anything that loads another model. Values of `auto` or `-1` are refused, so nothing is left to llama.cpp's defaults. See [server.toml](reference.md#servertoml) in the reference.
+Some flags are required, some values are fixed, and some flags are refused; see [server.toml](reference.md#servertoml) in the reference.
 
 ## Read your logs
 
-Each conversation is one JSONL file in `logs/`, one record per line. These [jq](https://jqlang.org/) queries are a starting point:
+Each chat conversation is one JSONL file in `logs/`, one record per line. These [jq](https://jqlang.org/) queries are a starting point:
 
 ```
 # each reply: call ID, stop reason, text
-jq -c 'select(.type == "call") | {call_id, stop_type, output_text}' logs/FILE.jsonl
+jq -c 'select(.type == "call") | {call_id, stop_type, output_text}' logs/CONVERSATION_ID.jsonl
 
 # the settings of one call, with their origins
-jq 'select(.call_id == "CALL_ID" and .type == "call") | .settings' logs/FILE.jsonl
+jq 'select(.call_id == "CALL_ID" and .type == "call") | .settings' logs/CONVERSATION_ID.jsonl
 
 # calls with flags
-jq -c 'select(.type == "call" and (.flags | length) > 0) | {call_id, flags}' logs/FILE.jsonl
+jq -c 'select(.type == "call" and (.flags | length) > 0) | {call_id, flags}' logs/CONVERSATION_ID.jsonl
 
 # marks and notes
-jq -c 'select(.type == "mark" or .type == "note")' logs/FILE.jsonl
+jq -c 'select(.type == "mark" or .type == "note")' logs/CONVERSATION_ID.jsonl
 ```
 
 [Log records](reference.md#log-records) in the reference lists the record types and their fields.
 
+## Read activations from a logged call
+
+Clarity doesn't read activations itself, but a logged call holds everything you need to read them in PyTorch.
+
+1. Pick the call. A call made on the Transformers backend gives the closest match.
+2. Load the weights named by `model.repo` and `model.revision`. These are the official weights only for a model fetched with the `convert` route; a `gguf`-route model's source is usually `model.tokenizer_repo`.
+3. For a Transformers call, match its `backend.dtype`, `backend.device` and `backend.attn_implementation`, and the `backend.torch` and `backend.transformers` versions.
+4. Run one forward pass over `prompt_ids` followed by `output_ids`, so nothing is re-tokenized.
+5. Check the reading, as below.
+
+Even for a Transformers call, the reading is a new forward pass over the whole sequence, not the one that generated the reply, so small numeric differences are possible. A llama.cpp call is further off, because llama.cpp ran a GGUF (`model.gguf_sha256`) with its own kernels.
+
+To check a reading, confirm that it predicts the logged output IDs, and report how often it agrees. For a greedy call (temperature 0), the top token at each position should be the logged one. For a sampled call, the top token differs wherever the sampler picked another, so check instead that each logged token is one the call's sampler settings would keep.
+
 ## Troubleshooting
 
-**`… is at …, but server.toml pins …. Check out that commit and rebuild.`** The llama.cpp checkout is at another commit. Run `git -C vendor/llama.cpp checkout <llama_cpp_commit from server.toml>` and rebuild.
-
-**`build_info … doesn't match the checkout commit …: rebuild llama-server.`** The checkout is right, but the binary was built from another commit. Rebuild it.
-
-**`llama-server not found under vendor/llama.cpp/build.`** Build it; see [Getting started](getting-started.md#install-clarity-and-build-llamacpp).
+Clarity's errors say what to do. These entries add context where a message can't.
 
 **`n-gpu-layers = 'all', but llama-server put the model on the CPU …`** llama.cpp found no usable GPU. On a machine without one, set `n-gpu-layers = 0` in `server.toml`.
 
@@ -203,12 +220,10 @@ jq -c 'select(.type == "mark" or .type == "note")' logs/FILE.jsonl
 
 **`llama-server inherits [...] from your environment.`** A `GGML_*` or `LLAMA_*` variable is set in your shell. Some change how llama.cpp computes, so unset them unless you mean to keep them. Clarity removes `LLAMA_ARG_*` variables itself, since they act as flags.
 
-**`Model '…' is not fetched.` or `Tokenizer … is not in the Hugging Face cache.`** Run `uv run clarity fetch NAME`.
+**`PyTorch inherits [...] from your environment.`** The same, for `PYTORCH_*` or `TORCH_*` variables on the Transformers backend.
 
-**`… changed since it was fetched (size or modified time differs from models.lock).`** Run `uv run clarity verify NAME`. If the sha256 still matches, it updates the lock and you can carry on.
+**`Tokenizer … is not in the Hugging Face cache.`** `clarity fetch` downloads a model's own tokenizer, but not a `template_repo`'s; see [Use another repo's chat template](#use-another-repos-chat-template).
 
-**`The prompt is N tokens; with max_tokens M it needs more than the context …`** The conversation no longer fits. Start a new one with `/new`, lower `max_tokens`, or raise `ctx-size` in `server.toml` and restart the chat.
-
-**`temperature = … has no effect, because 'temperature' is not in samplers …`** A setting only acts if its sampler is in `samplers`. Add the sampler, or set the value back to neutral.
+**`The prompt is N tokens; with max_tokens M it needs more than the context …`** Besides a new conversation or a lower `max_tokens`, you can raise `ctx-size` in `server.toml` and restart the chat.
 
 **`! flags: check_failed:…`** After the call, the server reported something other than what was sent. The reply is logged with the failed check; see [Call flags](reference.md#call-flags).

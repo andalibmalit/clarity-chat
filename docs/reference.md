@@ -4,17 +4,17 @@ Every command, key and record field a user sees. For task-based instructions, se
 
 ## Commands
 
-`--root PATH` sets the project folder; it goes before the command, as in `clarity --root PATH chat --profile NAME`. By default it's the nearest folder, from the current one upwards, that holds both `defaults.toml` and `server.toml`. `mark` and `note` need only the log file.
-
 | Command | What it does |
 |---|---|
 | `clarity chat --profile NAME` | Chat with `profiles/NAME.toml`. NAME can also be a path to a `.toml` file. |
-| `clarity run --openings FILE --profiles A B … [--seeds N]` | Collect replies for a blind test into `runs/<run ID>/`. `--seeds N` (default 1) gives N replies per opening and profile, with seeds 333, 334 and so on. |
+| `clarity run --openings FILE --profiles A B … [--seeds N]` | Collect replies for a blind test into `runs/RUN_ID/`. FILE holds openings separated by lines that are exactly `---`. `--seeds N` (default 1) gives N replies per opening and profile, with seeds 333, 334 and so on. |
 | `clarity replay LOG CALL_ID [--logged-flags]` | Re-send a logged call and compare the output. `--logged-flags` starts llama-server with the call's logged flags instead of `server.toml`'s. |
 | `clarity mark LOG CALL_ID LABEL` | Label a logged call's reply while reviewing, in `logs/` or a run's `calls.jsonl`. Appends one record and starts no server. |
 | `clarity note LOG CALL_ID TEXT` | Add a note to a logged call's reply while reviewing. Quote TEXT if it has spaces. |
 | `clarity fetch NAME` | Download (and, for the `convert` route, convert) a model from `models.toml`, and record it in `models.lock`. |
 | `clarity verify [NAME …]` | Re-hash fetched models against `models.lock`; with no names, every fetched model. |
+
+`--root PATH` sets the project folder, and goes before the command: `clarity --root PATH chat --profile NAME`. By default, the project folder is the nearest folder, from the current one upwards, that holds both `defaults.toml` and `server.toml`. `mark` and `note` don't need a project folder, only the log file.
 
 Exit status:
 - `0`: success, or `replay` found the output identical.
@@ -33,7 +33,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/prompt repr` | The same, with each line shown as a Python string, so spaces, tabs and newlines are visible. |
 | `/settings` | Every setting, its value and origin; the fixed values sent for the backend's other fields; the model's recommended values; what wasn't applied; the context size and stop strings. |
 | `/regen` | Another reply to your last message, as a new branch. The k-th regeneration uses the first reply's seed plus k. |
-| `/edit [TEXT]` | Replace your last message and get a new reply, as a new branch. With no text, the input is prefilled with your last message. |
+| `/edit [TEXT]` | Replace your last message and get a new reply, as a new branch. With no text, the input is prefilled with your last message. The new message uses the profile's seed. |
 | `/undo` | Go back past the last exchange; your next message starts a new branch. Nothing is deleted. |
 | `/mark LABEL` | Label the current reply, for example `landed` or `dropped`. |
 | `/note TEXT` | Add a note to the current reply. |
@@ -43,7 +43,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/quit` | Stop the server and exit. `/exit`, `/q` and Ctrl-D also work. |
 | `//text` | Send a message that starts with `/`. |
 
-After each reply, a status line shows the stop reason, the reply length in tokens, the time, the seed (with its origin unless it came from the profile) and the call ID. Warnings and [call flags](#call-flags) appear above it, marked `!`.
+After each reply, a status line shows the stop reason, the reply length in tokens, the time, the seed (with its origin unless it came from the profile) and the call ID. Warnings and [call flags](#call-flags) appear above it, marked `!`. A warning appears when the prompt uses more than 80% of the context.
 
 ## Profile keys
 
@@ -102,7 +102,7 @@ Settings use the same names on every backend. Each resolved value records its or
 
 A sampler not listed in `samplers` doesn't run. A setting whose sampler isn't listed must keep its neutral value; anything else is an error when the profile loads.
 
-The Transformers backend applies its samplers in a fixed order and has no `presence_penalty`, `frequency_penalty` or `repeat_last_n`. These are recorded as not applied.
+The Transformers backend applies its samplers in a fixed order: penalties, temperature, `top_k`, `top_p`, `min_p`. It has no `presence_penalty`, `frequency_penalty` or `repeat_last_n`. These are recorded as not applied, and a call is flagged `not_applied` when the difference can change the reply.
 
 ## models.toml
 
@@ -127,9 +127,7 @@ Each table is one model. Every revision is a full 40-character commit hash.
 | `startup_timeout_s` | Seconds to wait for the server to become healthy. |
 | `[flags]` | llama-server flags by long name, without dashes. `true` passes a bare flag; `false` leaves it out. |
 
-Required flags: `ctx-size`, `n-gpu-layers`, `flash-attn` (`"on"` or `"off"`), `cache-type-k`, `cache-type-v`, `batch-size`, `ubatch-size`, `fit`, `parallel`, `no-context-shift`, `swa-full`, `ctx-checkpoints`, `cache-ram`, `no-cache-idle-slots`, `cache-reuse`, `threads`, `threads-batch`, `log-verbosity` (at least 4), and exactly one of `kv-unified` or `no-kv-unified`.
-
-Fixed values: `fit = "off"`, `parallel = 1`, `no-context-shift = true`, `cache-ram = 0`, `cache-reuse = 0`, `no-cache-idle-slots = true`.
+Every flag that affects output must be set explicitly. The shipped `server.toml` sets them all, with comments, and Clarity names any that is missing or has the wrong value. These values are fixed: one slot (`parallel = 1`), no prompt cache, no context shift, and `fit = "off"`.
 
 Refused: `auto` and `-1` as values; the flags `model`, `host`, `port` (Clarity sets these), `context-shift`, `override-kv`, `lora`, `control-vector`, `model-draft`, `backend-sampling`, `api-key`; and any flag starting with `hf-`, `models-` or `spec-`.
 
@@ -159,18 +157,27 @@ Each line is one JSON record with `schema_version` (currently 1), `type` and `ti
 | `server_start` | once per server per log file, before its first call | `server_id`, `argv`, `flags`, `env_removed`, `env_llama_ggml_kept`, `llama_cpp` (commit, dirty), `build_info`, `placement`, `props`, `startup_output`, `warnings`, `machine`. Transformers: `device`, `dtype`, `attn_implementation`, `torch`, `transformers`, `eos_token_id` and similar. |
 | `turn` | for each message and reply | `turn_id`, `parent_id`, `role`, `origin` (`user`, `model` or `edit`), `text`, `call_id`, and `regen_of` or `edit_of` for branches |
 | `call` | for every call, including failed and cancelled ones | see below |
-| `mark`, `note` | for `/mark`, `/note`, `clarity mark` and `clarity note` | `call_id`, `turn_id`, `label` or `text`, and `origin`: `live` (in a chat) or `review` (afterwards). Records without `origin` predate it and were made live. |
+| `mark`, `note` | for `/mark`, `/note`, `clarity mark` and `clarity note` | `call_id`, `turn_id`, `label` or `text`, and `origin`: `live` (in a chat) or `review` (afterwards). |
 | `replay` | for every replay | `replay_id`, `call_id`, `identical`, `compared`, `differences`, `unexplained_difference`, and the new output |
 | `run` | first line of a batch run's `calls.jsonl` | `run_id`, `openings_file`, `openings_sha256`, `profiles`, `seeds`, the split and trim rules |
 
 A `call` record holds:
-- **Inputs:** `profile`, `settings` (each with its origin), `seed_drawn`, `model` (with the GGUF's sha256), `template` (repo, commit, kwargs and sha256), `libraries` (the `transformers`, `tokenizers` and `jinja2` versions), `client`, `n_ctx`, `stop`.
-- **Prompt:** `prompt_text`, `prompt_ids`, `n_prompt_client`, `bos` (whether BOS was prepended and why).
+- **Where it sits:** `call_id`, `parent_id` (your message's turn), `regen_of` (for a `/regen`), `run` (in a batch run: the run ID and opening).
+- **Inputs:** `profile`, `settings` (each with its origin), `seed_drawn`, `recommended` (with `use_recommended`), `model` (the `models.toml` entry, plus the GGUF's sha256), `template` (repo, commit, kwargs and sha256), `libraries` (the `transformers`, `tokenizers` and `jinja2` versions), `client`, `n_ctx`, `stop`.
+- **Backend:** `backend`, with its name and server ID. llama.cpp adds `build_info` and `llama_cpp_commit`; Transformers adds `device`, `dtype`, `attn_implementation`, `torch` and `transformers`.
+- **Prompt:** `prompt_text`, `prompt_ids`, `n_prompt_client`, `bos` (whether BOS was prepended and why), `special_tokens_in_content` (where any control-token text was found).
 - **Request and response:** `request` (what was sent, except the prompt IDs, which are in `prompt_ids`), `backend_settings`, `not_applied`, `generation_settings`, `response`, `timings`, `tokens_evaluated`, `tokens_predicted`.
 - **Output:** `output_text`, `output_ids`, `stop_type` (`eos`, `word`, `limit`, `cancelled` or `none`), `stopping_word`, `turn_id`.
 - **Checks:** `checks`, `flags`, `warnings`, and `error` if the call failed.
 
 `output_ids` include the tokens of a stop string and the end-of-sequence token; `output_text` leaves out the stop string.
+
+A replay compares the output token IDs and stop type, or the text if the logged IDs were incomplete. Its `differences` list every recorded fact that changed since the call:
+- llama.cpp: the build and checkout, server flags, `/props`, `GGML_*` and `LLAMA_*` variables, and the GGUF's sha256.
+- Transformers: the torch and Transformers versions, device, dtype, attention implementation, `PYTORCH_*` and `TORCH_*` variables, deterministic-mode state, and the weights' commit.
+- Both: the machine, the client's commit, and the rendering libraries.
+
+`unexplained_difference` is true when the output differs and nothing changed except, at most, the client's commit or the rendering libraries. Neither can change a replay, since it sends the logged IDs and request.
 
 ## Call flags
 
@@ -190,7 +197,7 @@ A call's `flags` list marks anything to look at. The terminal shows them after t
 
 Checks after each call:
 - `prompt_echo`: the server's decoding of the token IDs equals the prompt text.
-- `settings_echo`: every value sent comes back unchanged in the server's `generation_settings`.
+- `settings_echo`: every value sent comes back unchanged in the server's `generation_settings`. Floats are compared at float32 precision, as the server stores them, so `0.6` sent and `0.6000000238418579` echoed is a match.
 - `unaccounted_settings`: the server reports no setting Clarity didn't send or expect.
 - `tokens_evaluated`: the server read as many prompt tokens as were sent.
 - `no_cache_reuse`: no prompt tokens came from a cache.

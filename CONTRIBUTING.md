@@ -27,7 +27,7 @@ Update the docs in the same commit as the change. Choices, tradeoffs and scope g
 
 ## Add a backend
 
-A backend turns token IDs plus settings into a reply. Write a module in `src/clarity_chat/backends/` with a class that has `start`, `complete`, `close`, `describe`, `n_ctx` and `server_record` (see the `Backend` protocol in `backends/__init__.py`), then add its name to `BACKENDS` in `profiles.py` and to `Session.backend_for`. Two other places branch on the backend's name: `format_settings` in `cli.py` (which fixed values `/settings` shows) and `facts_from_call` in `replay.py` (which facts replay compares).
+A backend turns token IDs plus settings into a reply. Write a module in `src/clarity_chat/backends/` with a class that implements the `Backend` protocol in `backends/__init__.py`. Then add its name to `BACKENDS` in `profiles.py` and to `Session.backend_for`. Other code branches on the backend's name, such as `Session.weights_for`, which picks the files a backend loads; `grep -rn '"transformers"' src/` finds each place.
 
 - Map every Clarity setting to the backend's own, and set every other output-affecting value to a fixed neutral one.
 - List any setting it can't apply in `not_applied`, with the reason; never drop one silently.
