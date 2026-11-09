@@ -2,48 +2,6 @@
 
 This tutorial takes you from a fresh clone to a first chat and a first blind test, using SmolLM2-135M-Instruct, a tiny model that downloads in a minute. It takes about 20 minutes, most of it building llama.cpp.
 
-Clarity reads files you write and never edits them. What it resolves and records goes into files of its own:
-
-```mermaid
-flowchart LR
-    subgraph yours["Files you write"]
-        direction TB
-        MT["models.toml"]
-        ST["server.toml"]
-        DT["defaults.toml"]
-        PR["profiles/*.toml<br/>prompts/"]
-    end
-    subgraph cmds["Commands"]
-        direction TB
-        F["clarity fetch / verify"]
-        CH["clarity chat"]
-        R["clarity run"]
-        RP["clarity replay<br/>clarity mark / note"]
-    end
-    subgraph gen["Files Clarity writes"]
-        direction TB
-        ML["models.lock<br/>models/ (GGUF)"]
-        LG["logs/*.jsonl"]
-        RN["runs/RUN_ID/<br/>blind.md, key.json, calls.jsonl"]
-    end
-    MT --> F
-    F --> ML
-    ST --> CH
-    DT --> CH
-    PR --> CH
-    ML --> CH
-    ST --> R
-    DT --> R
-    PR --> R
-    ML --> R
-    CH --> LG
-    R --> RN
-    LG --> RP
-    RN --> RP
-    RP -. "appends to the log it read" .-> LG
-    RP -.-> RN
-```
-
 ## Before you begin
 
 You need:
@@ -112,7 +70,7 @@ ok    smollm2-135m-instruct: sha256 matches (0f049d7126689b64…)
    Ready: smollm2-135m-instruct (chat mode), conversation 20261108-220704-a2dc64. /help for commands.
    ```
 
-   The conversation's log is `logs/<conversation ID>.jsonl`, here `logs/20261108-220704-a2dc64.jsonl`.
+   The conversation's log is `logs/CONVERSATION_ID.jsonl`, here `logs/20261108-220704-a2dc64.jsonl`.
 
 2. Type a message and press Enter. Alt+Enter, or Esc then Enter, starts a new line. The reply streams in, followed by a status line with the stop reason, the reply length in tokens, the time, the seed and the call ID:
 
@@ -188,12 +146,12 @@ ok    smollm2-135m-instruct: sha256 matches (0f049d7126689b64…)
 
 ## Look at the log
 
-Every call wrote one line to `logs/<conversation ID>.jsonl`. A call record holds everything needed to reproduce the call or explain a difference: the profile's full text, every setting with its origin, the prompt text and token IDs, the request sent, the server's response, the output text and token IDs, and the checks that ran after the call.
+Every call wrote a record to `logs/CONVERSATION_ID.jsonl`, with everything needed to reproduce it or explain a difference. [Log records](reference.md#log-records) lists what's in it.
 
 To list the replies in a conversation with [jq](https://jqlang.org/):
 
 ```
-jq -c 'select(.type == "call") | {call_id, stop_type, output_text}' logs/<conversation ID>.jsonl
+jq -c 'select(.type == "call") | {call_id, stop_type, output_text}' logs/CONVERSATION_ID.jsonl
 ```
 
 `logs/` is gitignored, because it holds your conversations.
@@ -227,12 +185,56 @@ A blind test sends the same openings to several profiles and gives you the repli
    Keep /path/to/clarity-chat/runs/20261108-220743-a82d31/key.json closed until rating is done.
    ```
 
-3. Open `runs/<run ID>/blind.md`. Each opening is followed by its replies, labelled A, B and so on, each with empty `Rating:` and `Note:` lines to fill in.
+3. Open `runs/RUN_ID/blind.md`. Each opening is followed by its replies, labelled A, B and so on, each with empty `Rating:` and `Note:` lines to fill in.
 
-4. When you've rated every reply, open `runs/<run ID>/key.json` to see which label came from which profile. The calls themselves are in `runs/<run ID>/calls.jsonl`.
+4. When you've rated every reply, open `runs/RUN_ID/key.json` to see which label came from which profile. The calls themselves are in `runs/RUN_ID/calls.jsonl`.
+
+## How the files fit together
+
+Clarity reads the files you write and never edits them. What it resolves and records goes into files of its own:
+
+```mermaid
+flowchart LR
+    subgraph yours["Files you write"]
+        direction TB
+        MT["models.toml"]
+        ST["server.toml"]
+        DT["defaults.toml"]
+        PR["profiles/*.toml<br/>prompts/"]
+    end
+    subgraph cmds["Commands"]
+        direction TB
+        F["clarity fetch / verify"]
+        CH["clarity chat"]
+        R["clarity run"]
+        RP["clarity replay<br/>clarity mark / note"]
+    end
+    subgraph gen["Files Clarity writes"]
+        direction TB
+        ML["models.lock<br/>models/ (GGUF)"]
+        LG["logs/*.jsonl"]
+        RN["runs/RUN_ID/<br/>blind.md, key.json, calls.jsonl"]
+    end
+    MT --> F
+    F --> ML
+    ST --> CH
+    DT --> CH
+    PR --> CH
+    ML --> CH
+    ST --> R
+    DT --> R
+    PR --> R
+    ML --> R
+    CH --> LG
+    R --> RN
+    LG --> RP
+    RN --> RP
+    RP -. "appends to the log it read" .-> LG
+    RP -. "appends to calls.jsonl" .-> RN
+```
 
 ## Next steps
 
 - Write your own profile: see [Write a profile](guides.md#write-a-profile).
-- Fetch the OLMo 3 models (`uv run clarity fetch olmo-3-7b-instruct`, then `olmo-3-7b-base`) and try the Check 0 profiles in `profiles/`, which compare a stock chat, a system prompt, priming messages and a plain document. `2-system` and `3-primed` read placeholder text from `prompts/`; replace it with your own first.
+- Fetch the OLMo 3 models (`uv run clarity fetch olmo-3-7b-instruct`, then `olmo-3-7b-base`) and try the five OLMo 3 profiles in `profiles/` (`1a-stock` to `5-raw-base`), which compare a stock chat, a system prompt, priming messages and a plain document. `2-system` and `3-primed` read placeholder text from `prompts/`; replace it with your own first.
 - Read [Design](design.md) for why Clarity works the way it does.

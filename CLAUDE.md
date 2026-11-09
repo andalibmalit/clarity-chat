@@ -12,8 +12,9 @@ uv sync                                   # install (add --extra hf for the Tran
 uv run clarity fetch NAME                 # download a model from models.toml, convert it, write models.lock
 uv run clarity verify [NAME]              # re-hash GGUF files against models.lock
 uv run clarity chat --profile NAME        # chat with a profile from profiles/
-uv run clarity run --openings FILE --profiles A B [--seeds N]   # blind test into runs/<run-id>/
+uv run clarity run --openings FILE --profiles A B [--seeds N]   # blind test into runs/RUN_ID/
 uv run clarity replay LOG CALL_ID [--logged-flags]                # re-send a call and compare
+uv run clarity mark LOG CALL_ID LABEL                             # label a logged reply (note: TEXT)
 uv run pytest                             # offline tests (no network, model or server)
 uv run pytest -m live                     # SmolLM2 via the managed llama-server
 uv run pytest -m olmo                     # OLMo 3 (needs both OLMo models fetched)
