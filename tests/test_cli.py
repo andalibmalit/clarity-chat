@@ -55,6 +55,22 @@ def test_settings_lists_values_and_origins(loop):
     assert "mirostat = 0" in text
 
 
+def test_settings_gives_the_reason_a_setting_was_not_applied(loop):
+    chat, output, backend = loop
+    backend.not_applied = [
+        {
+            "name": "presence_penalty",
+            "value": 0.5,
+            "reason": "no equivalent",
+            "affects_output": True,
+        }
+    ]
+    chat.handle("Hi")
+    output.clear()
+    chat.handle("/settings")
+    assert "  presence_penalty: no equivalent" in "".join(output)
+
+
 def test_slash_slash_sends_a_literal_slash(loop):
     chat, _, backend = loop
     chat.handle("//not a command")

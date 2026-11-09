@@ -29,18 +29,18 @@ Clarity removes that hidden layer, without making experiments harder to run:
 
 The same call on the same machine and llama.cpp build gives the same output; live tests check this, and the same holds for the Transformers backend on MPS and CPU. A different build, GPU, macOS version or batch setting can change it, because GPU arithmetic depends on the order of operations. Clarity logs all of these, and `clarity replay` (or `/replay` in a chat) re-sends a call and lists any that differ. See [`docs/design.md`](docs/design.md#determinism-and-replay).
 
-## Status
+## Features
 
-Built so far: fetching and converting a model, the managed llama-server, chat mode (the model's chat template) and text mode (a plain document), the chat loop with branches (`/regen`, `/edit`, `/undo`), marks and notes, replay, batch runs for blind comparisons, downloading a ready-made GGUF as an alternative to converting, and a Transformers backend that runs the same weights in-process (`uv sync --extra hf`; MPS by default).
+Fetching and converting a model, the managed llama-server, chat mode (the model's chat template) and text mode (a plain document), the chat loop with branches (`/regen`, `/edit`, `/undo`), marks and notes, replay, batch runs for blind comparisons, downloading a ready-made GGUF as an alternative to converting, and a Transformers backend that runs the same weights in-process (`uv sync --extra hf`; MPS by default).
 
 ## Quick start
 
-Needs [uv](https://docs.astral.sh/uv/), CMake and a C++ compiler.
+Needs [uv](https://docs.astral.sh/uv/), CMake, a C++ compiler and a GPU that llama.cpp supports (or see [Getting started](docs/getting-started.md#before-you-begin) to run on the CPU). Getting started also walks through these steps.
 
 ```
 uv sync
 git clone https://github.com/ggml-org/llama.cpp vendor/llama.cpp
-git -C vendor/llama.cpp checkout <llama_cpp_commit from server.toml>
+git -C vendor/llama.cpp checkout f477f795cb071baf5b8af6488378366a72034ac4
 cmake -S vendor/llama.cpp -B vendor/llama.cpp/build -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF
 cmake --build vendor/llama.cpp/build --config Release -j 8 --target llama-server
 
@@ -75,6 +75,35 @@ A batch run (`clarity run`) reads openings from a text file, separated by lines 
 
 `/prompt` shows the text and IDs of the current reply's call; `/prompt repr` makes whitespace visible.
 
+One call on the llama.cpp backend, end to end:
+
+```mermaid
+sequenceDiagram
+    actor You
+    participant C as Clarity
+    participant T as Tokenizer<br/>(Hugging Face, pinned commit)
+    participant S as llama-server<br/>(started by Clarity)
+    participant L as Log<br/>(logs/*.jsonl)
+
+    You->>C: message
+    C->>C: resolve settings: profile, then model (opt-in), then defaults.toml, each with its origin
+    C->>T: render the chat template (or the plain text document)
+    T-->>C: prompt text
+    C->>T: tokenize, adding no special tokens, and decide BOS
+    T-->>C: token IDs
+    C->>C: context guard: prompt + max_tokens must fit the context
+    C->>S: POST /completion with the token IDs, every sampling value, the sampler order, cache_prompt false
+    S-->>C: streamed reply text and token IDs
+    S-->>C: final response: the settings it used, its own decoding of the prompt, timings
+    C->>S: GET /props
+    S-->>C: model path, context size (process still alive)
+    C->>C: check: every value echoed unchanged, decoded prompt equals the text, no cache used
+    C->>L: append the call record: inputs, request, response, output, checks
+    C-->>You: reply, then any warnings, flags and a status line
+```
+
+The Transformers backend runs the model in-process instead of through llama-server, and checks its effective generation config after each call.
+
 ## What is logged, and why
 
 Each conversation is one JSONL file in `logs/`, append-only. Every call writes a record, even when it fails or you cancel it, holding everything needed to reproduce it or explain a difference:
@@ -87,22 +116,15 @@ Each conversation is one JSONL file in `logs/`, append-only. Every call writes a
 
 Each server start is logged once per file: its command line, `/props`, build, environment variables and machine. Turns, marks, notes and replays are their own records. Logs hold private conversations, so `logs/` and `runs/` are gitignored. Records name their schema version, and readers ignore fields they don't know.
 
-## Adding a backend
+## Documentation
 
-A backend turns token IDs plus settings into a reply. Write a module in `src/clarity_chat/backends/` with a class that has `start`, `complete`, `close`, `describe`, `n_ctx` and `server_record` (see the `Backend` protocol in `backends/__init__.py`), then add its name to `BACKENDS` in `profiles.py` and to `Session.backend_for`.
+- [Getting started](docs/getting-started.md): from a fresh clone to a first chat and a first blind test.
+- [Guides](docs/guides.md): write a profile, add a model, run a blind test, replay a call, read the logs, and fix common errors.
+- [Reference](docs/reference.md): every command, profile key, setting, log record and flag.
+- [Design](docs/design.md): the choices, their tradeoffs, and what is out of scope.
+- [Contributing](CONTRIBUTING.md): tests, checks, and how to add a backend.
 
-- Map every Clarity setting to the backend's own, and set every other output-affecting value to a fixed neutral one.
-- List any setting it can't apply in `not_applied`, with the reason; never drop one silently.
-- Return a `Result`: output token IDs including stop-string and end tokens, text without the stop string.
-- For replay, send a logged request exactly as logged, or raise `BackendError`.
-
-`backends/llama_cpp.py` and `backends/transformers_hf.py` are the two examples.
-
-## More
-
-- [`docs/design.md`](docs/design.md): design choices, tradeoffs, usage patterns and what is out of scope.
-- [`docs/brief.md`](docs/brief.md): the spec.
-- [`docs/plan.md`](docs/plan.md): the build plan and status.
+Project history: [the brief](docs/brief.md) Clarity was built from, and [the build plan](docs/plan.md).
 
 ## License and citation
 
