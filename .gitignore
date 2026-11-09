@@ -1,6 +1,8 @@
 # Private: conversations and held-out test material
 logs/
 runs/
+# Local-only notes: the spec, the build plan and research (see CLAUDE.md)
+notes/
 # Model weights (sources live in the Hugging Face cache)
 models/
 # llama.cpp checkout and build (path and commit in server.toml)

@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Clarity: a terminal chat client for reproducible prompting experiments with local LLMs. Spec: `docs/brief.md`. Design choices, tradeoffs and scope: `docs/design.md`. Build plan and current status: `docs/plan.md`.
+Clarity: a terminal chat client for reproducible prompting experiments with local LLMs. Design choices, tradeoffs and scope: `docs/design.md`. Local-only notes in `notes/` (gitignored, so not in clones or CI): the spec `notes/brief.md`, the build plan and current status `notes/plan.md`, and research in `notes/research/`. `docs/` holds only docs for other readers.
 
 ## The problem it solves
 When you prompt a local model through a server or chat app, much of what shapes a reply is hidden: which chat template ran and how the text was tokenized, whether a BOS token was added, sampler defaults from the server or the model file, samplers skipped silently, prompt caching, context shift dropping tokens, flags picked up from environment variables or config files. A difference between two replies can come from any of these rather than from your prompt, and you can't rerun the call to find out. Clarity removes that hidden layer: it builds the token IDs itself, sends every value, checks the server used them, logs everything and can replay any call.
@@ -35,7 +35,7 @@ Clarity should get out of the way: being exact must not make common experiments 
 ## How to work
 - State your assumptions in each step report. Ask before decisions that are hard to undo.
 - A step is done when its tests pass. Write tests with the change, and run ruff, ty and pytest before every commit.
-- Keep the docs current as you go: update `docs/design.md` and the README in the same commit as a change to a choice, tradeoff, scope or usage. Write for human readers, in Google developer-docs style: lead with the point, use short sentences and plain words, and use lists only for parallel items. Say each thing once. Keep caveats and sources; cut padding.
+- Keep the docs current as you go: update the docs in the same commit as a change to a choice, tradeoff, scope or usage: `docs/design.md` for choices and tradeoffs, `docs/reference.md` for keys, commands and record fields, `docs/guides.md` and `docs/getting-started.md` for usage, and the README. `tests/test_docs.py` catches some drift, not all. Write for human readers, in Google developer-docs style: lead with the point, use short sentences and plain words, and use lists only for parallel items. Say each thing once. Keep caveats and sources; cut padding.
 - Use the same names everywhere: profile, conversation, turn, call, mark and note mean the same thing in code, profiles, logs and commands.
 - Never open files in `logs/` or `runs/` unless I ask; they hold private conversations. Tests use made-up text.
 
