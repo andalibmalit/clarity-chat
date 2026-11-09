@@ -3,6 +3,8 @@ name = "clarity-chat"
 version = "0.1.0"
 description = "Clarity: a simple chat client for transparent, reproducible experiments with local LLMs."
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Andalib Samandari", email = "andalibmalit@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = [
