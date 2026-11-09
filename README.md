@@ -124,8 +124,6 @@ Each server start is logged once per file: its command line, `/props`, build, en
 - [Design](docs/design.md): the choices, their tradeoffs, and what is out of scope.
 - [Contributing](CONTRIBUTING.md): tests, checks, and how to add a backend.
 
-Project history: [the brief](docs/brief.md) Clarity was built from, and [the build plan](docs/plan.md).
-
 ## License and citation
 
 Clarity is licensed under Apache 2.0; see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). The OLMo 3 tokenizer files in `tests/fixtures/` come from AllenAI under the same license.

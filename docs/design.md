@@ -1,6 +1,6 @@
 # Design
 
-Why Clarity works the way it does: the choices, what each one costs, and what is out of scope. The spec is `docs/brief.md`; the build plan and status are in `docs/plan.md`.
+Why Clarity works the way it does: the choices, what each one costs, and what is out of scope.
 
 ## Principles
 
@@ -59,7 +59,7 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 - Transformers applies its samplers in a fixed order (repetition penalty, temperature, top_k, top_p, min_p). A profile with another order runs in this one, and the record lists `samplers` as not applied, with the order used. `presence_penalty`, `frequency_penalty` and `repeat_last_n` have no equivalent and are always listed as not applied. When one of these can change the reply at the profile's values, the call is flagged `not_applied` and the terminal warns. The Check 0 profiles do trigger this: they list temperature last, which llama.cpp honours and Transformers can't, so the two backends sample differently for them.
 - Stop strings end generation like llama-server's: the output IDs include the stop string's tokens, the text leaves it out.
 - `PYTORCH_ENABLE_MPS_FALLBACK` is refused on MPS, because it would run unsupported operations on the CPU without notice. Inherited `PYTORCH_*`/`TORCH_*` variables are logged with values and are a start warning.
-- PyTorch's deterministic mode is never turned on: in inference it makes nothing deterministic on MPS or CPU and can only raise errors. Its state is logged, with a warning if something else turned it on. See `docs/research/determinism-primer.md`.
+- PyTorch's deterministic mode is never turned on: in inference it makes nothing deterministic on MPS or CPU and can only raise errors. Its state is logged, with a warning if something else turned it on.
 - Only one model is ever in memory: switching to a profile on the other backend stops the current one first. If the new model fails to start, the current conversation's model is started again, so a bad `/new` or `/profile` leaves you where you were.
 - Timings use llama-server's names; `prompt_ms` is the time to the first generated token.
 
@@ -99,7 +99,7 @@ Clarity logs all of these, and replay lists the ones that differ.
 
 There is no general "results may vary" notice. The avoidable causes are already removed, and the rest is logged. Replay flags the one case that needs attention: output that differs although nothing that could explain it changed (`unexplained_difference`).
 
-**Not attempted:** identical output across machines, builds or backends, which no inference stack offers; llama.cpp's experimental batch-invariant kernels, which fix a variation Clarity's single-slot setup doesn't have; and a determinism guarantee for the Transformers backend on Apple GPUs, which PyTorch doesn't provide (the live tests above check it instead; a failure would become a start-up warning). Research and sources: `docs/research/nondeterminism.md`.
+**Not attempted:** identical output across machines, builds or backends, which no inference stack offers; llama.cpp's experimental batch-invariant kernels, which fix a variation Clarity's single-slot setup doesn't have; and a determinism guarantee for the Transformers backend on Apple GPUs, which PyTorch doesn't provide (the live tests above check it instead; a failure would become a start-up warning).
 
 ## Usage patterns
 
@@ -130,7 +130,7 @@ Clarity sets the attention implementation (`sdpa`) instead of leaving it to Tran
 
 ## Not in scope
 
-From the brief: no GUI or web UI; no tools, retrieval or agents; no metrics or LLM judges; no multi-user features; no Ollama backend; no llama-server router mode; no MLflow export. The design stays open to a small local web page and an MLflow exporter.
+Left out from the start: no GUI or web UI; no tools, retrieval or agents; no metrics or LLM judges; no multi-user features; no Ollama backend; no llama-server router mode; no MLflow export. The design stays open to a small local web page and an MLflow exporter.
 
 Also left out:
 - Running two models side by side (memory: two 7B models don't fit together on a 32 GB Mac).
