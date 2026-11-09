@@ -48,6 +48,8 @@ uv run clarity fetch smollm2-135m-instruct   # download at the pinned commit, co
 uv run clarity chat --profile smol-text      # chat; /help lists the commands
 uv run clarity run --openings FILE --profiles smol-chat smol-text   # blind test
 uv run clarity replay logs/CONVERSATION.jsonl CALL_ID              # re-send a call, compare
+uv run clarity mark logs/CONVERSATION.jsonl CALL_ID LABEL          # label a past reply
+uv run clarity note logs/CONVERSATION.jsonl CALL_ID "TEXT"         # add a note to a past reply
 ```
 
 ## Configuration

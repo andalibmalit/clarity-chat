@@ -133,6 +133,19 @@ def test_calls_log_has_a_run_record_seeds_from_333_and_nothing_goes_to_logs(batc
     assert not (fetched_root / "logs").exists()
 
 
+def test_a_run_call_can_be_marked_while_reviewing(batch):
+    _, run_dir, _, _ = batch()
+    log = run_dir / "calls.jsonl"
+    call = [r for r in read_records(log) if r["type"] == "call"][1]
+    assert cli.main(["note", str(log), call["call_id"], "made-up rating note"]) == 0
+    note = list(read_records(log))[-1]
+    assert note["type"] == "note" and note["origin"] == "review"
+    assert (note["conversation_id"], note["turn_id"]) == (
+        call["conversation_id"],
+        call["turn_id"],
+    )
+
+
 def test_seeds_give_more_labels_per_opening(batch, fetched_root):
     _, run_dir, _, _ = batch(seeds=2)
     key = json.loads((run_dir / "key.json").read_text(encoding="utf-8"))

@@ -73,6 +73,7 @@ def test_text_mode_reply_stops_before_the_next_user_line(session, folder):
     record = outcome.record
     checks_ok(record)
     assert record["backend"]["device"] == "mps"
+    assert record["backend"]["attn_implementation"] == "sdpa"
     assert record["timings"]["predicted_ms"] > 0 and record["timings"]["predicted_n"] > 0
     assert record["stop_type"] in ("word", "eos", "limit")
     assert "\nUser:" not in record["output_text"]
