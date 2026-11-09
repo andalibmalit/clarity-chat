@@ -1,5 +1,7 @@
 # Clarity
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24068236.svg)](https://doi.org/10.5281/zenodo.24068236)
+
 **Clarity**: a simple chat client for transparent, reproducible experiments with local LLMs.
 
 **What you see is exactly what the model got, and every call can be replayed.**
@@ -104,4 +106,4 @@ A backend turns token IDs plus settings into a reply. Write a module in `src/cla
 
 Clarity is licensed under Apache 2.0; see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). The OLMo 3 tokenizer files in `tests/fixtures/` come from AllenAI under the same license.
 
-To cite Clarity, use **Cite this repository** on its GitHub page, which reads [`CITATION.cff`](CITATION.cff).
+To cite Clarity, use **Cite this repository** on its GitHub page, which reads [`CITATION.cff`](CITATION.cff). Each release is archived on Zenodo with its own DOI; [10.5281/zenodo.24068236](https://doi.org/10.5281/zenodo.24068236) covers all versions. For reproducible work, cite the DOI of the release you used.
