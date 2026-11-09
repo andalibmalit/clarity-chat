@@ -139,3 +139,12 @@ def test_only_differences_that_can_change_the_reply_count():
     penalised = {**SETTINGS, "presence_penalty": 0.5, "repeat_penalty": 1.1}
     flags = {e["name"]: e["affects_output"] for e in not_applied(penalised)}
     assert flags["presence_penalty"] and flags["repeat_last_n"]
+
+
+def test_every_call_record_names_the_attention_implementation():
+    # describe() goes into every call record. The value is fixed by Clarity, not read back
+    # from the library, so it's there before a model loads (and with no torch installed).
+    from clarity_chat.backends.transformers_hf import ATTN_IMPLEMENTATION, TransformersBackend
+
+    described = TransformersBackend("cpu", 512).describe()
+    assert described["attn_implementation"] == ATTN_IMPLEMENTATION == "sdpa"

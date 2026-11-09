@@ -211,6 +211,18 @@ def test_transformers_calls_compare_torch_and_transformers_versions():
     assert not unexplained(False, diffs)
 
 
+def test_transformers_calls_compare_the_attention_implementation():
+    from clarity_chat.replay import facts_from_call
+
+    call = {"model": {"repo": "r", "revision": "v"}, "client": {}}
+    server = {"backend": "transformers", "attn_implementation": "sdpa"}
+    logged = facts_from_call(call, server)
+    now = facts_from_call(call, {**server, "attn_implementation": "eager"})
+    diffs = environment_diff(logged, now)
+    assert set(diffs) == {"attn_implementation"}
+    assert not unexplained(False, diffs)  # another attention kernel can explain another reply
+
+
 def test_logged_flags_only_for_llama_server_calls(fetched_root, capsys):
     import json
 

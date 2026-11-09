@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
+from clarity_chat import cli
+from clarity_chat.backends import BackendError
 from clarity_chat.cli import ChatLoop
-from clarity_chat.logs import read_records
+from clarity_chat.logs import SCHEMA_VERSION, read_records
 from clarity_chat.profiles import SEED_MAX, ConfigError
-from clarity_chat.session import Session
+from clarity_chat.session import Session, annotate_log
 from tests.conftest import TEXT_PROFILE
 from tests.fakes import FakeBackend
 
@@ -154,6 +158,80 @@ def test_a_mark_needs_a_reply(make_session):
     session, _ = make_session()
     with pytest.raises(ConfigError, match="No reply to mark"):
         session.annotate("mark", "x")
+
+
+def test_live_marks_and_notes_say_so(make_session):
+    session, _ = make_session()
+    session.say("a")
+    assert session.annotate("mark", "landed")["origin"] == "live"
+    assert session.annotate("note", "made-up note")["origin"] == "live"
+
+
+# --- review-time marks and notes (clarity mark / clarity note) ----------------------------
+
+
+def test_review_marks_and_notes_point_at_an_earlier_call(make_session, monkeypatch, capsys):
+    session, _ = make_session([" one", " two"])
+    first = session.say("a").record
+    session.say("b")
+    log = session.conversation.log.path
+    before = log.read_bytes()
+    # No session, backend or server: building one would fail the test.
+    monkeypatch.setattr("clarity_chat.session.Session.__init__", None)
+    assert cli.main(["mark", str(log), first["call_id"], "dropped"]) == 0
+    assert cli.main(["note", str(log), first["call_id"], "made-up review note"]) == 0
+    assert f"Marked {first['call_id']} ({first['turn_id']})" in capsys.readouterr().out
+    after = log.read_bytes()
+    assert after.startswith(before)  # appended, never rewritten
+    mark, note = [json.loads(line) for line in after[len(before) :].splitlines()]
+    assert mark == {
+        "schema_version": SCHEMA_VERSION,
+        "time": mark["time"],
+        "type": "mark",
+        "conversation_id": first["conversation_id"],
+        "call_id": first["call_id"],
+        "turn_id": first["turn_id"],
+        "label": "dropped",
+        "origin": "review",
+    }
+    assert note["text"] == "made-up review note" and note["origin"] == "review"
+
+
+def test_review_marks_on_a_cancelled_call(make_session):
+    session, backend = make_session()
+    backend.cancel_after = 1
+    call = session.say("a").record
+    assert call["stop_type"] == "cancelled"
+    record = annotate_log(session.conversation.log.path, "mark", call["call_id"], "cut")
+    assert record["turn_id"] == call["turn_id"]
+
+
+@pytest.mark.parametrize(
+    ("call_id", "label", "message"),
+    [
+        ("call-nope", "x", "has no call call-nope"),
+        (None, "", "A mark needs a label"),
+        ("failed", "x", "failed, so it has no reply to mark"),
+    ],
+)
+def test_review_mark_errors(make_session, capsys, call_id, label, message):
+    session, backend = make_session([" one"])
+    ok = session.say("a").record
+    if call_id == "failed":
+        backend.fail_with = "server gone"
+        with pytest.raises(BackendError):
+            session.say("b")
+        call_id = records(session, "call")[-1]["call_id"]
+    log = session.conversation.log.path
+    before = log.read_bytes()
+    assert cli.main(["mark", str(log), call_id or ok["call_id"], label]) == 1
+    assert message in capsys.readouterr().err
+    assert log.read_bytes() == before
+
+
+def test_review_mark_needs_the_log_file(tmp_path, capsys):
+    assert cli.main(["mark", str(tmp_path / "nope.jsonl"), "call-x", "x"]) == 1
+    assert "not found" in capsys.readouterr().err
 
 
 # --- the commands -------------------------------------------------------------------------

@@ -7,6 +7,10 @@ keys they don't know, so new fields (token probabilities, reasoning splits, expo
 no format change. A line is never rewritten; a correction is a new record pointing at the
 old one.
 
+A `mark` or `note` has `origin`: "live" (/mark, /note in a chat) or "review" (`clarity
+mark`, `clarity note` on a log afterwards). One without `origin` predates the field and was
+made live; the field needed no schema_version change.
+
 Output token IDs in a `call` record are exactly what the backend generated: they include
 the tokens of a stop string and an end-of-sequence token, while `output_text` (the
 backend's text, as returned) leaves out the stop string and special tokens.

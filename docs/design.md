@@ -67,7 +67,7 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 - `/regen` uses the first reply's seed plus k for the k-th regeneration, logged with origin `regen`. With the same seed it would only repeat the reply; checking that is `/replay`'s job.
 - An edited message is a new message, so it uses the profile's seed.
 
-**Replay re-sends the logged request, not a rebuilt one.** `clarity replay LOG CALL_ID` (or `/replay` for the current reply) sends the call's token IDs and its logged request body, so a later change to Clarity's request-building can't change the replay. It reports identical (same output token IDs and stop type, or the same text if the logged IDs were incomplete) or where the output first differs. It also lists every recorded fact that differs from now. For llama.cpp: build and checkout, server flags, `/props`, `GGML_*`/`LLAMA_*` variables and the GGUF hash. For Transformers: torch and Transformers versions, device, dtype, `PYTORCH_*` variables, deterministic-mode state and the weights' commit. For both: machine, client commit and rendering libraries. It appends a `replay` record to the same log.
+**Replay re-sends the logged request, not a rebuilt one.** `clarity replay LOG CALL_ID` (or `/replay` for the current reply) sends the call's token IDs and its logged request body, so a later change to Clarity's request-building can't change the replay. It reports identical (same output token IDs and stop type, or the same text if the logged IDs were incomplete) or where the output first differs. It also lists every recorded fact that differs from now. For llama.cpp: build and checkout, server flags, `/props`, `GGML_*`/`LLAMA_*` variables and the GGUF hash. For Transformers: torch and Transformers versions, device, dtype, attention implementation, `PYTORCH_*` variables, deterministic-mode state and the weights' commit. For both: machine, client commit and rendering libraries. It appends a `replay` record to the same log.
 - It uses `server.toml`'s flags; `--logged-flags` starts the server with the call's logged flags instead.
 - `/props` field `media_marker` is left out: it is random at every server start and only marks images.
 - Failed and cancelled calls can't be replayed: there is no complete reply to compare.
@@ -109,9 +109,24 @@ There is no general "results may vary" notice. The avoidable causes are already 
 - **Check reproducibility:** the same call gives identical output token IDs on the same machine and build (tested live).
 - **Check a surprising reply:** `/replay` re-sends it; if the output differs and nothing recorded differs, keep the log, as that is real nondeterminism.
 - **Explore alternatives:** `/regen` for another sample, `/edit` to reword, `/undo` to step back; `/mark` and `/note` label replies for later.
+- **Label replies while reviewing:** `clarity mark LOG CALL_ID LABEL` and `clarity note LOG CALL_ID TEXT` label any logged call, in `logs/` or a run's `calls.jsonl`. They only append a record (with `origin` `review`; in-chat ones say `live`) and start no server. A failed call has no reply, so it can't be marked.
 - **Compare setups fairly:** a fixed seed makes a reply replayable, not representative. At temperature 0.6 another seed gives a different reply, so compare setups over several openings or seeds.
 - **Blind test:** `clarity run --openings FILE --profiles A B C` (add `--seeds 3` for three replies each). Give raters `blind.md`; open `key.json` only after rating.
 - **Same model, chat versus plain document:** `4-raw-instruct` sends the instruct model a plain document with no template; compare it with a chat profile to see what the template contributes.
+
+## Using logs for analysis
+
+An interpretability tool can reload any logged call and read the model's activations on it. It needs these fields of the `call` record:
+- `prompt_ids` and `output_ids`: the exact tokens, so the tool never re-tokenizes
+- `model.repo` and `model.revision`: the official weights at a fixed commit
+- `backend.dtype`, `backend.device` and `backend.attn_implementation` (Transformers calls)
+- `backend.torch` and `backend.transformers`: the library versions
+
+Clarity sets the attention implementation (`sdpa`) instead of leaving it to Transformers, whose default falls back to `eager` without saying so.
+
+**Fidelity depends on the backend that made the call.** Replaying a Transformers-backend call with the same weights, dtype, device, attention and library versions recomputes the same activations. Reading a llama.cpp call in PyTorch is close but not bit-identical: llama.cpp ran a GGUF (`model.gguf_sha256`) with its own kernels.
+
+**Check a reading's fidelity** by confirming that the analysis pass predicts the logged output IDs, and report the agreement rate. For a greedy call (temperature 0), the top token at each position should be the logged one. For a sampled call, a faithful reading still disagrees with the top token wherever the sampler picked another, so check instead that each logged token is one the call's sampler settings would keep.
 
 ## Not in scope
 
@@ -121,3 +136,6 @@ Also left out:
 - Running two models side by side (memory: two 7B models don't fit together on a 32 GB Mac).
 - Speculative decoding, LoRA and control vectors (refused in `server.toml`).
 - Windows and Linux are covered by offline CI only; the live tests have run on macOS (Metal) only.
+
+Not now:
+- Capturing activations during replay on the Transformers backend. Revisit if after-the-fact readings ever disagree with replays.

@@ -1,4 +1,4 @@
-"""The `clarity` command: chat, run, replay, fetch, verify."""
+"""The `clarity` command: chat, run, replay, mark, note, fetch, verify."""
 
 from __future__ import annotations
 
@@ -419,6 +419,16 @@ def cmd_replay(root: Path, log_path: Path, call_id: str, logged_flags: bool) -> 
     return 0 if record["identical"] else 1
 
 
+def cmd_annotate(log_path: Path, kind: str, call_id: str, text: str) -> int:
+    """A review-time mark or note: appends one record to the log, starts nothing."""
+    from clarity_chat.session import annotate_log
+
+    record = annotate_log(log_path, kind, call_id, text)
+    done = "Marked" if kind == "mark" else "Noted"
+    print(f"{done} {call_id} ({record['turn_id']}) in {log_path}.")
+    return 0
+
+
 def cmd_fetch(root: Path, name: str) -> int:
     from clarity_chat.models import fetch
 
@@ -473,12 +483,23 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="start llama-server with the call's logged flags instead of server.toml's",
     )
+    for kind, field_name, what in (("mark", "label", "label"), ("note", "text", "add a note to")):
+        annotate = commands.add_parser(
+            kind, help=f"{what} a logged call's reply while reviewing (appends to the log)"
+        )
+        annotate.add_argument("log", type=Path, help="a log file (logs/… or runs/<id>/calls.jsonl)")
+        annotate.add_argument("call_id")
+        annotate.add_argument(field_name, help="one argument: quote it if it has spaces")
     fetch = commands.add_parser("fetch", help="download (and convert) a model from models.toml")
     fetch.add_argument("name")
     verify = commands.add_parser("verify", help="re-hash fetched models against models.lock")
     verify.add_argument("names", nargs="*")
     args = parser.parse_args(argv)
     try:
+        if args.command == "mark":  # a log file is all these need: no project root
+            return cmd_annotate(args.log, "mark", args.call_id, args.label)
+        if args.command == "note":
+            return cmd_annotate(args.log, "note", args.call_id, args.text)
         root = args.root.resolve() if args.root else find_root()
         if args.command == "chat":
             return cmd_chat(root, args.profile)

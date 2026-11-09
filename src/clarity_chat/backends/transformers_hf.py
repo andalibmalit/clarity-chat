@@ -29,6 +29,9 @@ from clarity_chat.logs import machine, new_id
 from clarity_chat.profiles import ConfigError, ModelEntry
 
 NAME = "transformers"
+# Set, not left to the library: with None Transformers picks sdpa but falls back to eager
+# without saying so. Analysis tools that reload a call need to know which one ran.
+ATTN_IMPLEMENTATION = "sdpa"
 FIXED_ORDER = ["penalties", "temperature", "top_k", "top_p", "min_p"]
 
 # Fields Clarity sets to a fixed value on every call (logged with origin "backend").
@@ -282,7 +285,15 @@ class TransformersBackend:
         if not self.eos_ids:
             raise ConfigError(f"{generation_file} has no eos_token_id.")
         self.tokenizer = AutoTokenizer.from_pretrained(weights)
-        loaded = AutoModelForCausalLM.from_pretrained(weights, dtype=torch.bfloat16)
+        loaded = AutoModelForCausalLM.from_pretrained(
+            weights, dtype=torch.bfloat16, attn_implementation=ATTN_IMPLEMENTATION
+        )
+        attention = getattr(loaded.config, "_attn_implementation", None)
+        if attention != ATTN_IMPLEMENTATION:
+            raise ConfigError(
+                f"{model.name} loaded with attention {attention!r}, not "
+                f"{ATTN_IMPLEMENTATION!r} as requested."
+            )
         loaded.generation_config = GenerationConfig()  # nothing of the model's merges in
         loaded.to(self.device)
         loaded.eval()
@@ -314,6 +325,7 @@ class TransformersBackend:
             "weights": weights.as_posix(),
             "device": self.device,
             "dtype": "bfloat16",
+            "attn_implementation": ATTN_IMPLEMENTATION,
             "torch": torch.__version__,
             "transformers": transformers.__version__,
             "eos_token_id": self.eos_ids,
@@ -332,6 +344,7 @@ class TransformersBackend:
             "server_id": record.get("server_id"),
             "device": self.device,
             "dtype": "bfloat16",
+            "attn_implementation": ATTN_IMPLEMENTATION,
             "torch": record.get("torch"),
             "transformers": record.get("transformers"),
         }

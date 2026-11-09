@@ -91,6 +91,7 @@ def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict
             "transformers": server.get("transformers"),
             "device": server.get("device"),
             "dtype": server.get("dtype"),
+            "attn_implementation": server.get("attn_implementation"),
             "env": server.get("env_torch_kept"),
             "deterministic_algorithms": server.get("deterministic_algorithms"),
             "weights": {k: call["model"].get(k) for k in ("repo", "revision")},

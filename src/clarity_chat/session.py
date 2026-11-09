@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends import Backend, BackendError, Result
-from clarity_chat.logs import LogFile, client_git, machine, new_id
+from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records
 from clarity_chat.models import check_weights_quick, lock_entry, source_weights
 from clarity_chat.profiles import (
     SEED_MAX,
@@ -425,15 +425,15 @@ class Session:
         """A `mark` (label) or `note` (text) record on the current reply's call."""
         conversation = self._require_conversation()
         reply = conversation.current_reply(kind)
-        field_name = "label" if kind == "mark" else "text"
         return conversation.log.append(
-            {
-                "type": kind,
-                "conversation_id": conversation.conversation_id,
-                "call_id": reply.call_id,
-                "turn_id": reply.turn_id,
-                field_name: text,
-            }
+            annotation(
+                kind,
+                conversation.conversation_id,
+                reply.call_id,
+                reply.turn_id,
+                text,
+                "live",
+            )
         )
 
     def build_prompt(self, user_turn: Turn) -> Prompt:
@@ -710,6 +710,40 @@ class Session:
         if self.conversation is None:
             raise ConfigError("No conversation is running. Start one with /profile NAME.")
         return self.conversation
+
+
+def annotation(
+    kind: str, conversation_id: str, call_id: str | None, turn_id: str, text: str, origin: str
+) -> dict[str, Any]:
+    """A `mark` (label) or `note` (text) record. `origin` is "live" (/mark, /note in a
+    chat) or "review" (`clarity mark`, `clarity note` on a log afterwards)."""
+    return {
+        "type": kind,
+        "conversation_id": conversation_id,
+        "call_id": call_id,
+        "turn_id": turn_id,
+        "label" if kind == "mark" else "text": text,
+        "origin": origin,
+    }
+
+
+def annotate_log(path: Path, kind: str, call_id: str, text: str) -> dict[str, Any]:
+    """Append a review-time mark or note on a logged call. Starts no server, reads no
+    model, and only appends to the log."""
+    if not path.is_file():
+        raise ConfigError(f"Log file {path} not found.")
+    if not text:
+        raise ConfigError(f"A {kind} needs a {'label' if kind == 'mark' else 'text'}.")
+    call = None
+    for record in read_records(path):
+        if record.get("type") == "call" and record.get("call_id") == call_id:
+            call = record
+    if call is None:
+        raise ConfigError(f"{path} has no call {call_id}.")
+    if not call.get("turn_id"):
+        raise ConfigError(f"Call {call_id} failed, so it has no reply to {kind}.")
+    record = annotation(kind, call["conversation_id"], call_id, call["turn_id"], text, "review")
+    return LogFile(path).append(record)
 
 
 def result_fields(result: Result) -> tuple[dict[str, Any], str | None]:
