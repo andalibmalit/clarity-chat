@@ -11,7 +11,7 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 ## Choices and tradeoffs
 
 **The client owns the prompt, down to the token IDs.** It renders the prompt and tokenizes it with the model's Hugging Face tokenizer at a pinned commit, then sends token IDs. No server applies a template or tokenizes.
-- Cost: the tokenizer and template files must be in the Hugging Face cache (`clarity fetch` puts them there), and `transformers` is a dependency (no torch).
+- Cost: the tokenizer and template files must be in the Hugging Face cache (`clarity fetch` puts the model's own there; a `template_repo` must be downloaded by hand), and `transformers` is a dependency (no torch).
 - Check: the server's own decoding of the IDs must equal the client's prompt text, which shows the tokenizer and the GGUF agree.
 
 **BOS is decided per mode and logged.** Text mode follows `add_bos_token` in `tokenizer_config.json`, cross-checked by probing the tokenizer; if they disagree, the profile won't load. Chat mode never prepends BOS: the chat template decides.
@@ -22,7 +22,7 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 
 **Line endings are part of the prompt.** Prompt files are read byte for byte, so `.gitattributes` stops git from converting line endings in `prompts/`, `profiles/` and the test fixtures. A Windows checkout therefore sends the same bytes.
 
-**Every sampling value is sent, every time.** Settings come from the profile, then `defaults.toml` (neutral values). Every other field llama-server reports in `generation_settings` gets a fixed neutral value. After each call the client checks that the server echoes what was sent (floats at float32 precision) and that no unknown field appeared.
+**Every sampling value is sent, every time.** Settings come from the profile, then the model's recommended values if the profile opts in (below), then `defaults.toml` (neutral values). Every other field llama-server reports in `generation_settings` gets a fixed neutral value. After each call the client checks that the server echoes what was sent (floats at float32 precision) and that no unknown field appeared.
 - Why: llama-server's defaults are not neutral, and since the converter copies `generation_config.json` into the GGUF, the server's defaults can differ per model.
 - Cost: the neutral table is tied to the pinned llama.cpp commit. An upgrade that adds a sampler fails the "unaccounted settings" check until the table is updated.
 - A setting only acts if its sampler is in `samplers`, so a non-neutral setting whose sampler is missing is an error when the profile loads, rather than a value that silently does nothing.
@@ -54,7 +54,7 @@ Why Clarity works the way it does: the choices, what each one costs, and what is
 
 **Logs are append-only JSONL, one file per conversation** (a batch run puts all its conversations in one `calls.jsonl`), with a `schema_version`. Every call writes a record, including failures and Ctrl-C (`stop_type` `cancelled`). Readers ignore unknown keys, so later additions (token probabilities, reasoning text) need no format change. `logs/` and `runs/` are private and gitignored.
 
-**The Transformers backend runs the same weights in-process** (`backend = "transformers"`, `uv sync --extra hf`). It loads the official weights the GGUF was converted from, in bf16, on MPS by default (`device = "cpu"` or `"cuda"` to change it), and gets the same token IDs as llama-server.
+**The Transformers backend runs the same weights in-process** (`backend = "transformers"`, `uv sync --extra hf`). It loads the official weights the GGUF was converted from, in bf16, on MPS by default (`device = "cpu"` or `"cuda"` to change it), and is given the same prompt token IDs as llama-server.
 - Every output-affecting `GenerationConfig` field is set on every call. Transformers would otherwise fill unset fields from the model's `generation_config.json` and then its own defaults (`top_k` 50, for one), so the model's config is replaced with an empty one at load and the effective config is checked after each call. Only `eos_token_id` comes from the model's file, and it is logged.
 - Transformers applies its samplers in a fixed order (repetition penalty, temperature, top_k, top_p, min_p). A profile with another order runs in this one, and the record lists `samplers` as not applied, with the order used. `presence_penalty`, `frequency_penalty` and `repeat_last_n` have no equivalent and are always listed as not applied. When one of these can change the reply at the profile's values, the call is flagged `not_applied` and the terminal warns. The Check 0 profiles do trigger this: they list temperature last, which llama.cpp honours and Transformers can't, so the two backends sample differently for them.
 - Stop strings end generation like llama-server's: the output IDs include the stop string's tokens, the text leaves it out.
