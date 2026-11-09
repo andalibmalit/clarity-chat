@@ -8,6 +8,16 @@ authors:
     orcid: "https://orcid.org/0009-0004-9786-5285"
 repository-code: "https://github.com/andalibmalit/clarity-chat"
 license: Apache-2.0
+version: 0.1.0
+date-released: 2026-11-09
+doi: 10.5281/zenodo.24068236
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.24068236
+    description: "All versions (concept DOI)"
+  - type: doi
+    value: 10.5281/zenodo.24068237
+    description: "Version 0.1.0"
 abstract: >-
   Clarity builds the token IDs for each call itself, sends every sampling value
   explicitly, checks that the backend used them, logs everything and can replay
