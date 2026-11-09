@@ -57,6 +57,10 @@ explicit-preview-rules = true
 [tool.ty.src]
 include = ["src", "tests"]
 
+[tool.ty.analysis]
+# torch comes with the optional `hf` extra, which CI doesn't install.
+allowed-unresolved-imports = ["torch"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Offline by default. Opt in with `pytest -m live` (SmolLM2 via llama-server),

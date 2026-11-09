@@ -5,6 +5,7 @@ title: "Clarity: a terminal chat client for reproducible prompting experiments w
 authors:
   - family-names: Samandari
     given-names: Andalib
+    orcid: "https://orcid.org/0009-0004-9786-5285"
 repository-code: "https://github.com/andalibmalit/clarity-chat"
 license: Apache-2.0
 abstract: >-
