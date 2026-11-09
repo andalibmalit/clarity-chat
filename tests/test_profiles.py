@@ -123,9 +123,9 @@ def test_text_mode_stop_is_newline_user_name(root):
 
 def test_profile_records_its_toml_text(root):
     profile = load_profile(root, "text", load_defaults(root))
-    assert profile.to_json()["toml"] == (root / "profiles" / "text.toml").read_text(
-        encoding="utf-8"
-    )
+    # Byte for byte: on Windows the file has CRLF, and the record keeps it.
+    raw = (root / "profiles" / "text.toml").read_bytes().decode("utf-8")
+    assert profile.to_json()["toml"] == raw
 
 
 def test_models_need_full_commit_hashes(root):
