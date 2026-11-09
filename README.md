@@ -99,3 +99,9 @@ A backend turns token IDs plus settings into a reply. Write a module in `src/cla
 - [`docs/design.md`](docs/design.md): design choices, tradeoffs, usage patterns and what is out of scope.
 - [`docs/brief.md`](docs/brief.md): the spec.
 - [`docs/plan.md`](docs/plan.md): the build plan and status.
+
+## License and citation
+
+Clarity is licensed under Apache 2.0; see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). The OLMo 3 tokenizer files in `tests/fixtures/` come from AllenAI under the same license.
+
+To cite Clarity, use **Cite this repository** on its GitHub page, which reads [`CITATION.cff`](CITATION.cff).
