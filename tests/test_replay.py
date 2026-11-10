@@ -150,7 +150,7 @@ def test_replay_command_exit_status(make_session, fetched_root, monkeypatch, cap
     call_id = first.say("Hi").record["call_id"]
     replies = iter([[" Hello!"], [" Bye"]])
 
-    def session(root, logs_dir):
+    def session(root, logs_dir, on_server=None):
         return make_session(next(replies), logs_dir=logs_dir)[0]
 
     monkeypatch.setattr(cli, "Session", session)
@@ -243,3 +243,48 @@ def test_logged_flags_only_for_llama_server_calls(fetched_root, capsys):
     argv = ["--root", str(fetched_root), "replay", str(log), "call-1", "--logged-flags"]
     assert cli.main(argv) == 1
     assert "only to calls made with llama-server" in capsys.readouterr().err
+
+
+def test_llama_cpp_calls_compare_graph_splits():
+    from clarity_chat.replay import facts_from_call
+
+    call = {"model": {"gguf_sha256": "a"}, "client": {}}
+    server = {"backend": "llama.cpp", "graph_splits": {"prompt": 1, "reply": 1}}
+    now = {**server, "graph_splits": {"prompt": 2, "reply": 2}}
+    diffs = environment_diff(facts_from_call(call, server), facts_from_call(call, now))
+    assert set(diffs) == {"graph_splits"}
+    assert not unexplained(False, diffs)  # work moved to another device can change a reply
+
+
+def test_replay_uses_the_calls_logged_context_size(make_session, fetched_root, tmp_path):
+    text = (fetched_root / "profiles" / "text.toml").read_text(encoding="utf-8")
+    (fetched_root / "profiles" / "big.toml").write_text(f"ctx_size = 16384\n{text}", "utf-8")
+    first, _ = make_session([" Hello!"], logs_dir=tmp_path)
+    conversation = first.new_conversation("big")
+    call_id = first.say("Hi").record["call_id"]
+
+    in_chat, _ = make_session()  # a chat at server.toml's 8192 can't replay a 16384 call
+    in_chat.new_conversation("text")
+    with pytest.raises(ConfigError, match="context of 16384 tokens, but this conversation"):
+        in_chat.replay(conversation.log.path, call_id)
+
+    alone, backend = make_session([" Hello!"])  # `clarity replay`: no conversation running
+    record = alone.replay(conversation.log.path, call_id)
+    assert backend.ctx_sizes == [16384]
+    assert record["identical"] and record["n_ctx_from"] == "the call's log"
+
+
+def test_an_older_logs_server_compares_without_false_differences():
+    from clarity_chat.replay import facts_from_call, not_recorded
+
+    call = {"model": {"gguf_sha256": "a"}, "client": {}}
+    v010 = {"backend": "llama.cpp", "props": {"endpoint_slots": True, "ui": True, "n": 1}}
+    now = {
+        "backend": "llama.cpp",
+        "props": {"endpoint_slots": False, "ui": False, "n": 1},  # --no-slots, --no-webui
+        "graph_splits": {"prompt": 1, "reply": 1},  # not logged before v0.2.0
+    }
+    logged, current = facts_from_call(call, v010), facts_from_call(call, now)
+    assert environment_diff(logged, current) == {}
+    assert not_recorded(logged, current) == ["graph_splits"]
+    assert unexplained(False, environment_diff(logged, current))

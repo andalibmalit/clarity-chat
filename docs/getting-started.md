@@ -72,12 +72,12 @@ ok    smollm2-135m-instruct: sha256 matches (0f049d7126689b64…)
 
    The conversation's log is `logs/CONVERSATION_ID.jsonl`, here `logs/20261108-220704-a2dc64.jsonl`.
 
-2. Type a message and press Enter. Alt+Enter, or Esc then Enter, starts a new line. The reply streams in, followed by a status line with the stop reason, the reply length in tokens, the time, the seed and the call ID:
+2. Type a message and press Enter. Alt+Enter, or Esc then Enter, starts a new line. The reply streams in, followed by a status line with the stop reason, the reply length in tokens, the time, the seed, how much of the context the conversation uses, and the call ID:
 
    ```
    > hello world!
    Hello world!
-   [stop eos · 4 tokens · 0.1 s · seed 42 · call-e32b57a3e5e4]
+   [stop eos · 4 tokens · 0.1 s · seed 42 · context 31 of 8,192 · call-e32b57a3e5e4]
    ```
 
 3. See exactly what the model got:
@@ -191,7 +191,7 @@ A blind test sends the same openings to several profiles and gives you the repli
 
 ## How the files fit together
 
-Clarity reads the files you write and never edits them. What it resolves and records goes into files of its own:
+Clarity reads the files you write and never edits the ones it ships; your own profiles go in `local/profiles/`. What it resolves and records goes into files of its own:
 
 ```mermaid
 flowchart LR

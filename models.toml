@@ -29,3 +29,11 @@ repo = "allenai/Olmo-3-1025-7B"
 revision = "a81bae42db3975be1671e27b9c9a56da1a9f980f"
 tokenizer_repo = "allenai/Olmo-3-1025-7B"
 tokenizer_revision = "a81bae42db3975be1671e27b9c9a56da1a9f980f"
+
+["bge-small-en-v1.5"]  # quoted: a bare dot would nest tables
+# Embedding model for the meaning-search tests, `pytest -m embed` (MIT).
+route = "convert"
+repo = "BAAI/bge-small-en-v1.5"
+revision = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"
+tokenizer_repo = "BAAI/bge-small-en-v1.5"
+tokenizer_revision = "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a"

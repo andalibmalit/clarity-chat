@@ -6,9 +6,11 @@ Facts below were checked against the llama.cpp source at the commit in server.to
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
+import secrets
 import socket
 import struct
 import subprocess
@@ -181,6 +183,34 @@ DEVICE_RE = re.compile(r"using device (\S+) \((.*?)\) \(.*?\) - (\d+) MiB free")
 BUFFER_RE = re.compile(r"(\S+) model buffer size = +([\d.]+) MiB")
 
 
+EOG_RE = re.compile(r"EOG token += (\d+) '(.*)'\r?$", re.MULTILINE)
+
+
+def eog_tokens(startup_output: str) -> list[dict[str, Any]]:
+    """The tokens that end a reply, as llama.cpp read them from the GGUF (its startup log)."""
+    return [{"id": int(m[1]), "text": m[2]} for m in EOG_RE.finditer(startup_output)]
+
+
+# "graph: nodes = 1131, splits = 2, …", or "graph (pp bs=512, tg bs=1): … splits = 2 / 3, …"
+# when prompt processing and generation differ (src/llama-context.cpp).
+SPLITS_RE = re.compile(r"graph(?: \(.*?\))?: nodes = [^,]+, splits = (\d+)(?: / (\d+))?")
+
+
+# llama-server caps the context at the model's training context, with only this warning
+# (tools/server/server-context.cpp); its /props then reports the capped size.
+TRAINING_CONTEXT_RE = re.compile(r"exceeds the training context of the model \((\d+)\)")
+
+
+def graph_splits(startup_output: str) -> dict[str, int] | None:
+    """How many pieces llama.cpp cut the compute graph into, for prompt processing and for
+    generation. On Metal, 2 is normal with the whole model on the GPU (measured: M2); what
+    matters is a change between a call and its replay."""
+    m = SPLITS_RE.search(startup_output)
+    if m is None:
+        return None
+    return {"prompt": int(m[1]), "reply": int(m[2] or m[1])}
+
+
 def device_placement(startup_output: str) -> dict[str, Any]:
     """Which devices llama-server used and where the model's weights went (its startup log)."""
     devices = [
@@ -191,12 +221,74 @@ def device_placement(startup_output: str) -> dict[str, Any]:
     return {"devices": devices, "model_buffers": buffers}
 
 
+KV_RE = re.compile(r"(\S+) KV buffer size = +([\d.]+) MiB")
+COMPUTE_RE = re.compile(r"(\S+) compute buffer size = +([\d.]+) MiB")
+
+
+def memory_use(startup_output: str, placement: dict[str, Any]) -> list[dict[str, Any]]:
+    """Per GPU: its limit, and what the model, the context (KV) cache and the compute buffers
+    took on it, from llama.cpp's startup log. On Metal, the "MiB free" llama.cpp prints is
+    recommendedMaxWorkingSetSize minus what this process had allocated
+    (ggml-metal-device.m), so at start it is about the limit itself: other apps' memory
+    isn't counted (measured: 25,558 of 25,559 MiB "free" with other apps open)."""
+    model = [(b["buffer"], b["mib"]) for b in placement["model_buffers"]]
+    kv = [(m[1], float(m[2])) for m in KV_RE.finditer(startup_output)]
+    compute = [(m[1], float(m[2])) for m in COMPUTE_RE.finditer(startup_output)]
+
+    def on(device: str, buffers: list[tuple[str, float]]) -> float:
+        return round(sum(mib for name, mib in buffers if name.startswith(device)), 2)
+
+    found = []
+    for device in placement["devices"]:
+        name = device["name"]
+        use = {
+            "model_mib": on(name, model),
+            "kv_mib": on(name, kv),
+            "compute_mib": on(name, compute),
+        }
+        found.append(
+            {
+                "device": name,
+                "limit_mib": device["free_mib"],
+                **use,
+                "total_mib": round(sum(use.values()), 2),
+            }
+        )
+    return found
+
+
+def memory_problem(ctx_size: int, memory: list[dict[str, Any]]) -> str | None:
+    """Metal only for now. Apple documents recommendedMaxWorkingSetSize as "an approximation
+    of how much memory ... this GPU device can allocate without affecting its runtime
+    performance". Other GPUs log the figures only (until the Linux release)."""
+    for m in memory:
+        if m["device"].startswith("MTL") and m["total_mib"] > m["limit_mib"]:
+            return (
+                f"At ctx_size {ctx_size}, the model needs {m['total_mib']:,.0f} MiB of GPU "
+                f"memory ({m['model_mib']:,.0f} for the model, {m['kv_mib']:,.0f} for the "
+                f"context cache, {m['compute_mib']:,.0f} for computing), more than Metal's "
+                f"recommended limit for this GPU, {m['limit_mib']:,} MiB. "
+                + (
+                    "The model alone is over the limit, so no ctx_size fits: use a smaller "
+                    "model or a smaller quantization."
+                    if m["model_mib"] > m["limit_mib"]
+                    else "Lower ctx_size: the context cache grows with it."
+                )
+            )
+    return None
+
+
 def placement_problem(flags: dict[str, Any], placement: dict[str, Any]) -> str | None:
     """With GPU layers requested, the weights must be on a named GPU, not quietly on the CPU."""
     if flags.get("n-gpu-layers") in (0, "0") or flags.get("device") == "none":
         return None
     gpu_devices = [d for d in placement["devices"] if d["name"] and d["description"]]
-    gpu_buffers = [b for b in placement["model_buffers"] if not b["buffer"].startswith("CPU")]
+    # CUDA_Host and Vulkan_Host are pinned system memory, not the GPU's.
+    gpu_buffers = [
+        b
+        for b in placement["model_buffers"]
+        if not b["buffer"].startswith("CPU") and not b["buffer"].endswith("_Host")
+    ]
     if not gpu_devices or not gpu_buffers:
         return (
             f"n-gpu-layers = {flags.get('n-gpu-layers')!r}, but llama-server put the model on "
@@ -231,6 +323,11 @@ ENV_REMOVED = {"LLAMA_API_KEY", "HF_TOKEN", "MTMD_BACKEND_DEVICE"}
 # tools): their values are never logged.
 SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASS|AUTH|CREDENTIAL", re.IGNORECASE)
 REDACTED = "(value not logged: the name looks like a secret)"
+
+# At log-verbosity 4 llama-server prints the API key's last four characters
+# (tools/server/server-http.cpp); Clarity replaces the line in its output and log.
+API_KEY_LINE = re.compile(r"api_keys: \*\*\*\*\S*")
+API_KEY_REDACTED = "api_keys: (redacted by Clarity)"
 
 
 def server_env() -> tuple[dict[str, str], list[str], dict[str, str]]:
@@ -297,8 +394,15 @@ def free_port() -> int:
 class LlamaServer:
     """One llama-server process, started and stopped by the client."""
 
-    def __init__(self, config: ServerConfig, gguf: Path, logs_dir: Path) -> None:
+    def __init__(
+        self,
+        config: ServerConfig,
+        gguf: Path,
+        logs_dir: Path,
+        on_change: Callable[[dict[str, Any] | None], None] | None = None,
+    ) -> None:
         self.config = config
+        self.on_change = on_change  # told the port, PID and key on start, None on stop
         # Not resolved: a Hugging Face cache symlink keeps the GGUF's file name for the server.
         self.gguf = gguf.absolute()
         self.server_id = new_id("server")
@@ -308,10 +412,17 @@ class LlamaServer:
         self.output: list[str] = []
         self._output_lock = threading.Lock()
         self.record: dict[str, Any] = {}
+        # A new key per start, so a web page in a browser can't use the server (only /health
+        # is public). It goes in the child's environment, not argv, which is logged.
+        self.api_key = secrets.token_urlsafe(32)
 
     @property
     def url(self) -> str:
         return f"http://127.0.0.1:{self.port}"
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"}
 
     def output_text(self) -> str:
         with self._output_lock:
@@ -320,7 +431,7 @@ class LlamaServer:
     def _drain(self, stream: Any) -> None:
         with self.log_path.open("a", encoding="utf-8", newline="") as log:
             for raw in iter(stream.readline, b""):
-                line = raw.decode("utf-8", errors="replace")
+                line = API_KEY_LINE.sub(API_KEY_REDACTED, raw.decode("utf-8", errors="replace"))
                 with self._output_lock:
                     self.output.append(line)
                 log.write(line)
@@ -341,6 +452,7 @@ class LlamaServer:
             )
         binary = server_binary(self.config.llama_cpp_dir)
         env, removed, kept = server_env()
+        env = {**env, "LLAMA_API_KEY": self.api_key}  # after server_env: not "inherited"
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         attempts = []
         for _ in range(3):  # a free port can be taken between choosing it and binding it
@@ -353,6 +465,8 @@ class LlamaServer:
                 "127.0.0.1",
                 "--port",
                 str(self.port),
+                "--no-slots",  # /slots would show prompts to anyone holding the key
+                "--no-webui",  # the built-in web UI is public even with a key
                 *self.config.flag_argv(),
             ]
             error = self._launch(argv, env)
@@ -370,6 +484,8 @@ class LlamaServer:
             raise ConfigError("llama-server loaded a config file (see its startup output).")
         placement = device_placement(startup)
         problem = placement_problem(self.config.flags, placement)
+        memory = memory_use(startup, placement)
+        problem = problem or memory_problem(self.config.ctx_size, memory)
         if problem:
             self.stop()
             raise ConfigError(problem)
@@ -381,6 +497,13 @@ class LlamaServer:
         problems = self.check_props(props)
         if problems:
             self.stop()
+            capped = TRAINING_CONTEXT_RE.search(startup)
+            if capped:
+                raise ConfigError(
+                    f"ctx_size {self.config.ctx_size} is more than this model was trained on "
+                    f"({capped[1]} tokens), and llama-server would quietly use {capped[1]}. "
+                    f"Set ctx_size to {capped[1]} or less."
+                )
             raise BackendError(
                 "llama-server is not the server the client started: " + "; ".join(problems)
             )
@@ -393,11 +516,15 @@ class LlamaServer:
             "argv": argv,
             "flags": self.config.flags,
             "port_attempts": attempts,
+            "api_key": "random per start; value not logged",
             "env_removed": removed,
             "env_llama_ggml_kept": kept,
             "llama_cpp": {"dir": self.config.llama_cpp_dir.as_posix(), **checkout},
             "build_info": build_info,
             "placement": placement,
+            "memory": memory,
+            "model_file": {"eog_tokens": eog_tokens(startup)},
+            "graph_splits": graph_splits(startup),
             "props": props,
             "startup_output": startup,
             "warnings": warnings,
@@ -429,10 +556,20 @@ class LlamaServer:
                 start_new_session=True,
             )
         self.proc = proc
+        if self.on_change:  # recorded before the model loads: a crash then still finds it
+            self.on_change(
+                {
+                    "port": self.port,
+                    "pid": proc.pid,
+                    "api_key": self.api_key,
+                    "model_path": str(self.gguf),
+                }
+            )
         threading.Thread(target=self._drain, args=(proc.stdout,), daemon=True).start()
         deadline = time.monotonic() + self.config.startup_timeout_s
         while time.monotonic() < deadline:
             if proc.poll() is not None:
+                self._stopped()
                 time.sleep(0.2)  # let the drain thread catch the last lines
                 return f"exited with code {proc.returncode}:\n{self.output_text()[-3000:]}"
             try:
@@ -446,7 +583,9 @@ class LlamaServer:
         return f"no healthy response within {self.config.startup_timeout_s} s"
 
     def get_props(self) -> dict[str, Any]:
-        r = httpx.get(f"{self.url}/props", timeout=10, trust_env=False, verify=False)
+        r = httpx.get(
+            f"{self.url}/props", headers=self.headers, timeout=10, trust_env=False, verify=False
+        )
         r.raise_for_status()
         return r.json()
 
@@ -464,42 +603,56 @@ class LlamaServer:
         return problems
 
     def stop(self) -> None:
-        if self.proc is None or self.proc.poll() is not None:
-            return
-        self.proc.terminate()
-        try:
-            self.proc.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
-            self.proc.wait(timeout=15)
+        if self.proc is not None and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(timeout=15)
+        self._stopped()  # only once it has exited: if stopping fails, the record stays
+
+    def _stopped(self) -> None:
+        if self.on_change:
+            self.on_change(None)
 
 
 class LlamaCppBackend:
     name = NAME
 
-    def __init__(self, config: ServerConfig, logs_dir: Path) -> None:
+    def __init__(
+        self,
+        config: ServerConfig,
+        logs_dir: Path,
+        on_server: Callable[[dict[str, Any] | None], None] | None = None,
+    ) -> None:
         self.config = config
         self.logs_dir = logs_dir
+        self.on_server = on_server
         self.server: LlamaServer | None = None
         self.model: ModelEntry | None = None
 
     @property
     def n_ctx(self) -> int:
-        return self.config.ctx_size
+        return (self.server.config if self.server else self.config).ctx_size
 
     @property
     def server_record(self) -> dict[str, Any] | None:
         return self.server.record if self.server else None
 
-    def start(self, model: ModelEntry, weights: Path) -> dict[str, Any] | None:
-        """Start llama-server with `weights`. The old server stops first, so two models never
-        share memory. Returns the new server_start record, or None if nothing changed."""
-        if self.server and self.server.gguf == weights.absolute() and self.server.proc:
-            if self.server.proc.poll() is None:
+    def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
+        """Start llama-server with `weights` and a context of `ctx_size`. The old server stops
+        first, so two models never share memory. Returns the new server_start record, or None
+        if the same GGUF already runs at that size."""
+        server = self.server
+        if server and server.gguf == weights.absolute() and server.config.ctx_size == ctx_size:
+            if server.proc and server.proc.poll() is None:
                 return None
         self.close()
         self.model = model
-        self.server = LlamaServer(self.config, weights, self.logs_dir)
+        # The size goes into the flags, so argv, the /props check and the log all agree.
+        config = dataclasses.replace(self.config, flags={**self.config.flags, "ctx-size": ctx_size})
+        self.server = LlamaServer(config, weights, self.logs_dir, self.on_server)
         return self.server.start()
 
     def describe(self) -> dict[str, Any]:
@@ -518,9 +671,14 @@ class LlamaCppBackend:
         stop: list[str],
         on_text: Callable[[str], None] | None = None,
         request: dict[str, Any] | None = None,
+        cancel: threading.Event | None = None,
     ) -> Result:
         """`request`: a logged request body (prompt left out) to send exactly as it was,
-        for replay; otherwise it is built from `settings` and `stop`."""
+        for replay; otherwise it is built from `settings` and `stop`. `cancel` is checked
+        between stream lines; the request asks llama-server for a ping each second while it
+        reads the prompt (sse_ping_interval), so this returns within about a second even
+        then. The server stops once it finishes its current batch of prompt tokens
+        (measured: M1)."""
         if self.server is None:
             raise BackendError("No model loaded.")
         if request is None:
@@ -540,6 +698,9 @@ class LlamaCppBackend:
                 text="".join(texts),
                 token_ids=list(ids),
                 stop_type=stop_type,
+                cancelled_during=(
+                    ("reply" if ids else "prompt") if stop_type == "cancelled" else None
+                ),
                 request=logged_request,
                 backend_settings=backend_settings,
                 flags=flags,
@@ -553,6 +714,7 @@ class LlamaCppBackend:
             with httpx.stream(
                 "POST",
                 f"{self.server.url}/completion",
+                headers=self.server.headers,
                 json=request,
                 timeout=timeout,
                 trust_env=False,
@@ -565,6 +727,9 @@ class LlamaCppBackend:
                         partial("none", []),
                     )
                 for line in response.iter_lines():
+                    if cancel is not None and cancel.is_set():
+                        # Leaving the stream closes it, which tells llama-server to stop.
+                        return partial("cancelled", ["cancelled"])
                     try:
                         chunk = parse_sse_line(line)
                     except ValueError as e:

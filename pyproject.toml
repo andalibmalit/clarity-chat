@@ -1,6 +1,6 @@
 [project]
 name = "clarity-chat"
-version = "0.1.0"
+version = "0.2.0"
 description = "Clarity: a simple chat client for transparent, reproducible experiments with local LLMs."
 readme = "README.md"
 license = "Apache-2.0"
@@ -64,10 +64,13 @@ allowed-unresolved-imports = ["torch"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Offline by default. Opt in with `pytest -m live` (SmolLM2 via llama-server),
-# `pytest -m olmo` (OLMo 3, needs it fetched) or `pytest -m hf` (Transformers backend).
-addopts = "-m 'not live and not olmo and not hf'"
+# `pytest -m olmo` (OLMo 3, needs it fetched), `pytest -m hf` (Transformers backend) or
+# `pytest -m measure -s` (timings and memory for design decisions; prints, barely asserts).
+addopts = "-m 'not live and not olmo and not hf and not measure and not embed'"
 markers = [
     "live: needs the built llama-server and the fetched SmolLM2 model",
     "olmo: needs the fetched OLMo 3 models",
     "hf: needs the hf extra (torch) and a fetched model",
+    "measure: measurements on OLMo 3 for design decisions; run with -s to see them",
+    "embed: embedding determinism on bge-small; decides whether v0.3.3 goes ahead",
 ]

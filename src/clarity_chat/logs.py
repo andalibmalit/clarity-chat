@@ -1,8 +1,9 @@
 """Log records: one append-only JSONL file per conversation.
 
-Every record has `schema_version`, `type` and `time`, and all but `run` have
-`conversation_id`. Record types: `run` (the first record of a batch run's `calls.jsonl`),
-`conversation`, `server_start`, `turn`, `call`, `mark`, `note`, `replay`. Readers ignore
+Every record has `schema_version`, `type` and `time`, and all but `run` and `torn_line`
+have `conversation_id`. Record types: `run` (the first record of a batch run's
+`calls.jsonl`), `conversation`, `server_start`, `turn`, `call`, `mark`, `note`, `replay`,
+`torn_line` (the line before it was cut off). Readers ignore
 keys they don't know, so new fields (token probabilities, reasoning splits, exports) need
 no format change. A line is never rewritten; a correction is a new record pointing at the
 old one.
@@ -23,12 +24,18 @@ import os
 import platform
 import secrets
 import subprocess
+import sys
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 from typing import Any
+
+from clarity_chat.profiles import ConfigError
+
+if sys.platform != "win32":
+    import fcntl
 
 SCHEMA_VERSION = 1
 _append_lock = threading.Lock()
@@ -46,29 +53,201 @@ def new_id(kind: str) -> str:
 
 
 class LogFile:
-    """Append-only JSONL. Each record is one line, flushed and synced when written."""
+    """Append-only JSONL. Each record is one line, written in one append and synced.
+
+    One os.write on an O_APPEND descriptor, so another process appending to the same file
+    (`clarity mark` on a live chat's log) adds its line after this one, not inside it, on
+    local file systems. Windows only emulates O_APPEND; the instance lock keeps a second
+    chat away there, and mark and note write one short line.
+
+    A last line with no line end was cut off (a crash or a full disk while it was written).
+    The next append ends it and adds a `torn_line` record naming it, in the same write.
+    Nothing is rewritten. On Linux and macOS the check and the write hold a file lock, so a
+    line another process is still writing is never taken for a cut one."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
         self.servers_logged: set[str] = set()  # each server_start is written once per file
+        self.on_append: Callable[[dict[str, Any]], None] | None = None  # sees each record
 
     def append(self, record: dict[str, Any]) -> dict[str, Any]:
         full = {"schema_version": SCHEMA_VERSION, "time": now_utc(), **record}
-        line = json.dumps(full, ensure_ascii=False)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with _append_lock, self.path.open("a", encoding="utf-8", newline="\n") as f:
-            f.write(line + "\n")
-            f.flush()
-            os.fsync(f.fileno())
+        flags = os.O_RDWR | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0)
+        with _append_lock:
+            fd = os.open(self.path, flags, 0o644)
+            try:
+                if sys.platform != "win32":
+                    # Another process's write can be half visible (Linux): the check for a
+                    # torn last line and this write go under one lock, so a line still
+                    # being written is never taken for a torn one. Closing the fd unlocks.
+                    fcntl.flock(fd, fcntl.LOCK_EX)
+                torn = _torn_tail(fd)
+                lines = (b"\n" + _line(torn) if torn else b"") + _line(full)
+                data = memoryview(lines)
+                while data:  # a short write (a full disk) is rare; finish the line
+                    data = data[os.write(fd, data) :]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+        if self.on_append:
+            if torn:
+                self.on_append(torn)
+            self.on_append(full)
         return full
 
 
-def read_records(path: Path) -> Iterator[dict[str, Any]]:
-    """Records in file order. Splits only on "\\n" (never on U+2028 and friends)."""
-    with path.open(encoding="utf-8", newline="\n") as f:
-        for line in f:
-            if line.strip():
-                yield json.loads(line)
+def _line(record: dict[str, Any]) -> bytes:
+    return (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _torn_tail(fd: int) -> dict[str, Any] | None:
+    """A `torn_line` record if the file's last line has no line end, else None."""
+    size = os.lseek(fd, 0, os.SEEK_END)
+    if size == 0:
+        return None
+    os.lseek(fd, -1, os.SEEK_END)
+    if os.read(fd, 1) == b"\n":
+        return None
+    os.lseek(fd, 0, os.SEEK_SET)
+    newlines, last_newline, read = 0, -1, 0
+    # Only up to `size`: another process may be appending meanwhile.
+    while read < size and (chunk := os.read(fd, min(1 << 20, size - read))):
+        newlines += chunk.count(b"\n")
+        if (i := chunk.rfind(b"\n")) >= 0:
+            last_newline = read + i
+        read += len(chunk)
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "type": "torn_line",
+        "time": now_utc(),
+        "line": newlines + 1,
+        "bytes": size - last_newline - 1,
+    }
+
+
+def torn_message(record: dict[str, Any], where: str) -> str:
+    return (
+        f"Line {record['line']} of {where} has no line end, so it was cut off (a crash, a "
+        "full disk, or another program). It stays as it was; a torn_line record after it "
+        "says so."
+    )
+
+
+_PASSED = object()  # a line read_records was told not to parse
+
+
+def read_records(
+    path: Path, parse: Callable[[bytes], bool] | None = None
+) -> Iterator[dict[str, Any]]:
+    """Records in file order. Splits only on "\\n" (never on U+2028 and friends).
+
+    A last line with no line end isn't a record yet. A line a `torn_line` names is never a
+    record, even if it parses, and neither are the malformed lines just before it (the
+    write that ends a torn line can be cut off too). Any other malformed line is an error.
+    `parse(raw)`, if given, says which lines to parse; the rest are passed over unread
+    (the chat list reads only what it shows)."""
+    held: list[tuple[int, Any, int]] = []  # (line, record, bytes): a torn_line may name one
+
+    def release() -> list[dict[str, Any]]:
+        bad = next((n for n, record, _ in held if record is None), None)
+        if bad is not None:
+            raise ConfigError(
+                f"Line {bad} of {path.name} isn't a complete record, and no torn_line "
+                f"record says it was cut off. Clarity won't guess what it held; the file is "
+                f"at {path}."
+            )
+        records = [record for _, record, _ in held if record is not _PASSED]
+        held.clear()
+        return records
+
+    with path.open("rb") as f:  # bytes split only on b"\n"; a broken UTF-8 line is malformed
+        for number, line in enumerate(f, 1):
+            if not line.endswith(b"\n"):
+                break  # not finished: still being written, or cut off (the next append says)
+            if not line.strip():
+                continue
+            record: Any = _PASSED
+            if parse is None or parse(line):
+                try:
+                    record = json.loads(line)  # UnicodeDecodeError is a ValueError
+                except ValueError:
+                    record = None
+                if record is not None and not isinstance(record, dict):
+                    record = None
+            if isinstance(record, dict) and record.get("type") == "torn_line":
+                # A torn_line names a line and how much of it was written. A line that is
+                # longer now was still being written when the tail was checked (a write
+                # half visible to another process), not cut off: it stays a record.
+                if (
+                    held
+                    and held[-1][0] == record.get("line")
+                    and held[-1][2] == record.get("bytes")
+                ):
+                    held.pop()  # the named line
+                    while held and held[-1][1] is None:
+                        held.pop()  # malformed lines just before it
+                yield from release()
+                yield record
+            elif record is None:
+                held.append((number, None, len(line) - 1))
+            else:
+                yield from release()
+                held.append((number, record, len(line) - 1))
+        yield from release()
+
+
+TITLE_WORDS = 8  # a title that isn't set: the first words of the first message
+
+
+def list_chats(logs_dir: Path) -> list[dict[str, Any]]:
+    """The conversations in `logs_dir`, newest first (their IDs start with the time). A log
+    that can't be read is listed with its `error`, so one bad file doesn't hide the rest."""
+    chats = []
+    for path in sorted(logs_dir.glob("*.jsonl"), reverse=True):
+        try:
+            chats.append(chat_summary(path))
+        except (OSError, ValueError, ConfigError) as e:
+            chats.append({**_blank_summary(path), "error": str(e)})
+    return chats
+
+
+def _blank_summary(path: Path) -> dict[str, Any]:
+    """Every chat-list entry has these keys, readable or not, so clients needn't branch."""
+    return {
+        "conversation_id": path.stem,
+        "path": path.as_posix(),
+        "profile": None,
+        "model": None,
+        "started": None,
+        "title": None,
+        "title_set": False,
+        "error": None,
+    }
+
+
+def chat_summary(path: Path) -> dict[str, Any]:
+    """A conversation's ID, profile, model, start time and title. Reads the log as far as
+    its first message; after that, only lines that may be `title` or `torn_line` records."""
+    summary = _blank_summary(path)
+    first_message = False
+
+    def parse(line: bytes) -> bool:
+        return not first_message or b'"type": "title"' in line or b'"type": "torn_line"' in line
+
+    for record in read_records(path, parse):
+        kind = record.get("type")
+        if kind == "conversation":
+            summary["profile"] = (record.get("profile") or {}).get("name")
+            summary["model"] = (record.get("model") or {}).get("name")
+            summary["started"] = record.get("time")
+        elif kind == "turn" and record.get("role") == "user" and not first_message:
+            first_message = True
+            if not summary["title_set"]:
+                summary["title"] = " ".join(record["text"].split()[:TITLE_WORDS])
+        elif kind == "title":
+            summary["title"], summary["title_set"] = record["title"], True
+    return summary
 
 
 # --- environment facts -----------------------------------------------------------------

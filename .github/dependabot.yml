@@ -1,0 +1,24 @@
+# Monthly, grouped into one pull request per ecosystem. tokenizers, transformers and jinja2
+# can change output, so each gets its own pull request and the live tests (CONTRIBUTING.md).
+version: 2
+updates:
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      python:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "tokenizers"
+          - "transformers"
+          - "jinja2"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    groups:
+      actions:
+        patterns:
+          - "*"

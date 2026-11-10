@@ -83,6 +83,22 @@ def test_template_kwargs_reach_the_template(root, chat_tokenizer):
     assert prompt.template is not None and prompt.template["kwargs"] == {"greeting": "hey"}
 
 
+def test_a_template_kwarg_the_template_never_reads_is_a_logged_warning(
+    fetched_root, chat_tokenizer
+):
+    profiles = fetched_root / "profiles"
+    text = (profiles / "chat.toml").read_text(encoding="utf-8")
+    (profiles / "typo.toml").write_text(
+        text + '\n[template_kwargs]\ngreting = "hey"\n', encoding="utf-8"
+    )
+    backend = FakeBackend(["ok"], tokenizer=chat_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
+    conversation = session.new_conversation("typo")
+    assert "never reads template_kwargs ['greting']" in conversation.warnings[0]
+    first = next(read_records(conversation.log.path))
+    assert first["warnings"] == conversation.warnings
+
+
 def test_chat_mode_never_prepends_bos(root, chat_tokenizer):
     """The tokenizer config says add_bos_token = true; chat mode still adds nothing."""
     prompt = build_prompt(chat_tokenizer, chat_profile(root), [("user", "u")])
@@ -168,3 +184,10 @@ def test_control_token_text_in_a_message_warns_and_flags(chat_session):
     plain = session.say("fine")
     assert not any("control tokens" in w for w in plain.warnings)  # only the new message warns
     assert "special_tokens_in_content" in plain.record["flags"]  # still in the prompt
+
+
+def test_unread_kwargs_parses_a_real_template(olmo_tokenizer):
+    from clarity_chat.render import unread_kwargs
+
+    template = olmo_tokenizer.tok.chat_template
+    assert unread_kwargs(template, {"tools": [], "no_such_key": 1}) == ["no_such_key"]

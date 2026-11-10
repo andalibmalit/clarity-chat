@@ -4,7 +4,7 @@
 
 **Clarity**: a simple chat client for transparent, reproducible experiments with local LLMs.
 
-**What you see is exactly what the model got, and every call can be replayed.**
+**What you see is exactly what the model got.**
 
 ## The problem
 
@@ -53,6 +53,8 @@ uv run clarity fetch smollm2-135m-instruct   # download at the pinned commit, co
 uv run clarity chat --profile smol-text      # chat; /help lists the commands
 uv run clarity run --openings FILE --profiles smol-chat smol-text  # blind test; FILE holds openings separated by --- lines
 uv run clarity replay logs/CONVERSATION_ID.jsonl CALL_ID           # re-send a call, compare
+uv run clarity chats                                                # list your conversations
+uv run clarity chat --json --profile smol-chat                     # chat from a script: JSON lines in and out
 uv run clarity mark logs/CONVERSATION_ID.jsonl CALL_ID LABEL       # label a past reply
 uv run clarity note logs/CONVERSATION_ID.jsonl CALL_ID "TEXT"      # add a note to a past reply
 ```
@@ -63,16 +65,17 @@ uv run clarity note logs/CONVERSATION_ID.jsonl CALL_ID "TEXT"      # add a note 
 - [Guides](docs/guides.md): write a profile, add a model, run a blind test, replay a call, read the logs, and fix common errors.
 - [Reference](docs/reference.md): every command, profile key, setting, log record and flag.
 - [Design](docs/design.md): the choices, their tradeoffs, and what is out of scope.
-- [Contributing](CONTRIBUTING.md): tests, checks, and how to add a backend.
+- [Contributing](CONTRIBUTING.md): tests, checks, how to add a backend, credit, and the release checklist.
+- [Changelog](CHANGELOG.md) and [Roadmap](ROADMAP.md): what changed in each release, and what's next.
 
 ## Configuration
 
-You set up every experiment in these files, and Clarity never edits them. What `fetch` resolves goes to `models.lock`; what each call resolves goes to its log.
+You set up every experiment in these files. Clarity doesn't edit the ones it ships; your own go in `local/`, which git ignores. What `fetch` resolves goes to `models.lock`; what each call resolves goes to its log.
 
 - `models.toml`: the models, each pinned to a commit.
 - `server.toml`: every llama-server flag.
 - `defaults.toml`: the neutral value of every setting.
-- `profiles/*.toml`: one experimental setup each (model, mode, prompt pieces and settings).
+- `profiles/*.toml`: one experimental setup each (model, mode, prompt pieces and settings). Put your own in `local/profiles/`.
 
 To use a model's own recommended sampling settings, add `use_recommended = true` to a profile. [Reference](docs/reference.md) lists every key.
 

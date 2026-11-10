@@ -25,6 +25,7 @@ def test_message_streams_the_reply_and_a_status_line(loop):
     assert " Hello!" in text
     assert "stop eos" in text
     assert "seed 42" in text
+    assert "context 43 of 8,192" in text  # 36 prompt tokens (one per byte) + 7 reply tokens
 
 
 def test_prompt_shows_text_ids_and_count(loop):
@@ -53,6 +54,13 @@ def test_settings_lists_values_and_origins(loop):
     assert "temperature" in text and "profile" in text
     assert "repeat_penalty" in text and "default" in text
     assert "mirostat = 0" in text
+
+
+def test_settings_lists_the_end_of_reply_tokens(loop):
+    chat, output, backend = loop
+    backend.record = {**backend.record, "model_file": {"eog_tokens": [{"id": 2, "text": "</s>"}]}}
+    chat.handle("/settings")
+    assert "end-of-reply tokens (from the model file): 2 '</s>'" in "".join(output)
 
 
 def test_settings_gives_the_reason_a_setting_was_not_applied(loop):
@@ -134,3 +142,64 @@ def test_server_warnings_show_once_per_server(fetched_root, tiny_tokenizer):
     output.clear()
     chat.handle("/new")  # same model, same server: no repeat
     assert "inherits" not in "".join(output)
+
+
+def test_an_early_cancel_offers_the_message_back(loop):
+    chat, output, backend = loop
+    backend.cancel_after = 0  # Ctrl-C before the first token
+    chat.handle("Hi there")
+    text = "".join(output)
+    assert "Cancelled before the reply started. No reply was added." in text
+    assert "Your message is back in the input" in text
+    assert chat.draft == "Hi there"
+
+
+@pytest.mark.parametrize("line", ["/edit  ", "/edit \n\n"])
+def test_an_edit_of_only_whitespace_is_cancelled(loop, line):
+    chat, output, backend = loop
+    chat.handle("Hi")
+    output.clear()
+    chat.handle(line)
+    assert "Edit cancelled." in "".join(output)
+    assert len(backend.calls) == 1
+
+
+def test_cancel_between_calls_says_there_is_nothing_to_cancel(loop):
+    chat, output, _ = loop
+    chat.handle("/cancel")
+    assert "Nothing to cancel." in "".join(output)
+
+
+def test_the_chat_says_when_it_ends_a_torn_line(loop):
+    chat, output, _ = loop
+    chat.handle("a")
+    with chat.session.conversation.log.path.open("ab") as f:
+        f.write(b'{"type": "no')
+    chat.handle("b")
+    text = "".join(output)
+    assert "Line 6 of this conversation's log has no line end, so it was cut off" in text
+
+
+def test_set_in_the_terminal_and_in_settings(loop):
+    chat, output, _ = loop
+    chat.handle("/set temperature 0.9")
+    chat.handle("/settings")
+    chat.handle("/set temperature")
+    text = "".join(output)
+    assert "temperature = 0.9 for this chat." in text
+    assert "temperature is back to 0.6 (profile)." in text
+    assert any("temperature" in line and "chat" in line for line in text.splitlines())
+
+
+def test_title_and_chats_in_the_terminal(loop, fetched_root, capsys):
+    from clarity_chat import cli
+
+    chat, output, _ = loop
+    chat.handle("Hi")
+    chat.handle("/title Made-up greeting")
+    chat.handle("/chats")
+    text = "".join(output)
+    assert "Titled 'Made-up greeting'." in text
+    assert f"{chat.session.conversation.conversation_id}  text  Made-up greeting" in text
+    assert cli.main(["--root", str(fetched_root), "chats"]) == 0
+    assert "Made-up greeting" in capsys.readouterr().out

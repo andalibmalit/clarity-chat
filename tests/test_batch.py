@@ -188,6 +188,8 @@ def test_a_profile_listed_twice_is_refused(batch):
 
 
 def test_an_opening_too_long_for_the_context_is_refused_before_any_call(batch, fetched_root):
+    profile = fetched_root / "profiles" / "text.toml"
+    profile.write_text("ctx_size = 40\n" + profile.read_text(encoding="utf-8"), encoding="utf-8")
     with pytest.raises(ConfigError, match="Opening 1 with profile text"):
         batch(n_ctx=40)
     assert not (fetched_root / "runs").exists()
@@ -223,7 +225,7 @@ def test_server_warnings_are_shown_once(batch):
 def test_run_command_reports_where_blind_md_is(fetched_root, tiny_tokenizer, monkeypatch, capsys):
     (fetched_root / "openings.txt").write_text(OPENINGS, encoding="utf-8")
 
-    def session(root, logs_dir):
+    def session(root, logs_dir, on_server=None):
         return Session(
             root,
             backend=FakeBackend(tokenizer=tiny_tokenizer),
@@ -245,7 +247,7 @@ def test_run_command_explains_a_stopped_run(fetched_root, tiny_tokenizer, monkey
     backend = FakeBackend(tokenizer=tiny_tokenizer)
     backend.fail_with = "server gone"
 
-    def session(root, logs_dir):
+    def session(root, logs_dir, on_server=None):
         return Session(
             root, backend=backend, logs_dir=logs_dir, tokenizer_loader=lambda r, v: tiny_tokenizer
         )
@@ -309,10 +311,10 @@ def test_a_server_restart_mid_run_stops_it(batch, fetched_root):
     def setup(backend):
         start = backend.start
 
-        def restart_after_first_call(model, weights):
+        def restart_after_first_call(model, weights, ctx_size):
             if backend.calls:
                 backend.started.clear()  # as if the server had died
-            return start(model, weights)
+            return start(model, weights, ctx_size)
 
         backend.start = restart_after_first_call
 
@@ -325,12 +327,34 @@ def test_ctrl_c_between_calls_says_where_the_run_stopped(batch):
     def setup(backend):
         start = backend.start
 
-        def interrupt_after_first_call(model, weights):
+        def interrupt_after_first_call(model, weights, ctx_size):
             if backend.calls:
                 raise KeyboardInterrupt
-            return start(model, weights)
+            return start(model, weights, ctx_size)
 
         backend.start = interrupt_after_first_call
 
     with pytest.raises(RunError, match="Interrupted .* opening 2, profile text"):
         batch(setup=setup)
+
+
+def test_profiles_on_one_model_with_different_context_sizes_each_start_once(batch, fetched_root):
+    profile = fetched_root / "profiles" / "text2.toml"
+    profile.write_text("ctx_size = 4096\n" + profile.read_text(encoding="utf-8"), "utf-8")
+    _, _, backend, _ = batch(seeds=2)
+    assert backend.ctx_sizes == [8192, 4096]  # grouped by size: no restart mid-group
+
+
+def test_a_conversation_warning_prints_once_in_a_run(batch, fetched_root, monkeypatch):
+    from clarity_chat import session as session_module
+
+    real = session_module.Session.new_conversation
+
+    def with_warning(self, *args, **kwargs):
+        conversation = real(self, *args, **kwargs)
+        conversation.warnings.append("made-up conversation warning")
+        return conversation
+
+    monkeypatch.setattr(session_module.Session, "new_conversation", with_warning)
+    _, _, _, output = batch(seeds=2)
+    assert output.count("made-up conversation warning") == 1

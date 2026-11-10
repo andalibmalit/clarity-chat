@@ -124,3 +124,11 @@ def test_verify_records_a_new_time_when_the_bytes_match(gguf_root):
     ok, message = models.verify(root, "ready")
     assert ok and "updated" in message
     check_weights_quick(root, lock_entry(root, model))
+
+
+def test_the_shipped_models_toml_loads():
+    from clarity_chat.profiles import load_models
+
+    repo = Path(__file__).resolve().parents[1]
+    models = load_models(repo)
+    assert "bge-small-en-v1.5" in models and "olmo-3-7b-instruct" in models

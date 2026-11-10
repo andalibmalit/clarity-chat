@@ -30,7 +30,7 @@ from clarity_chat.logs import LogFile, client_git, machine
 from clarity_chat.models import portable_path
 from clarity_chat.profiles import SEED_MAX, ConfigError, Setting
 from clarity_chat.render import build_prompt
-from clarity_chat.session import ContextError, Prepared, Session, fits_context
+from clarity_chat.session import ContextError, Prepared, Session, room_left
 
 FIRST_SEED = 333  # the user's choice: a run's seeds are 333, 334, …
 SPLIT_RULE = (
@@ -118,12 +118,12 @@ def check_run(
             f"The profiles' max_tokens differ ({max_tokens}); reply length would give the "
             "setup away. Give them the same max_tokens."
         )
-    n_ctx = session.backend.n_ctx
     for name, p in zip(profile_names, prepared, strict=True):
+        n_ctx = session.ctx_size_for(p.profile).value
         limit = p.profile.settings["max_tokens"].value
         for i, opening in enumerate(openings, 1):
             prompt = build_prompt(p.tokenizer, p.profile, [("user", opening)], p.template_tokenizer)
-            if not fits_context(len(prompt.ids), limit, n_ctx):
+            if room_left(n_ctx, len(prompt.ids), limit) < 0:
                 raise ConfigError(
                     f"Opening {i} with profile {name} is {len(prompt.ids)} tokens; with "
                     f"max_tokens {limit} it doesn't fit the context of {n_ctx} tokens."
@@ -162,17 +162,18 @@ def run_batch(
     log = LogFile(run_dir / "calls.jsonl")
     log.append({"type": "run", **facts, "client": client_git(), "machine": machine()})
 
-    # Group the calls by backend and model, so each model loads once.
-    def loaded(name: str) -> tuple[str, str | None, str]:
+    # Group the calls by backend, model and context size, so each server starts once.
+    def loaded(name: str) -> tuple[str, str | None, str, int]:
         profile = prepared[name].profile
-        return profile.backend, profile.device, prepared[name].model.name
+        ctx_size = session.ctx_size_for(profile).value
+        return profile.backend, profile.device, prepared[name].model.name, ctx_size
 
     groups = list(dict.fromkeys(loaded(name) for name in profile_names))
     order = sorted(profile_names, key=lambda name: groups.index(loaded(name)))
     total = len(openings) * len(profile_names) * n_seeds
     replies: dict[tuple[int, str, int], Reply] = {}
     shown: set[str] = set()
-    started: set[tuple[str, str | None, str]] = set()  # what this run has loaded
+    started: set[tuple[str, str | None, str, int]] = set()  # what this run has loaded
 
     def warn(message: str) -> None:
         if message not in shown:  # each warning once; they never contain reply text
@@ -198,6 +199,8 @@ def run_batch(
                         started.add(model)
                         for warning in conversation.started_server.get("warnings", []):
                             warn(warning)
+                    for warning in conversation.warnings:  # e.g. unread template_kwargs
+                        warn(warning)
                     outcome = session.say(opening, seed=Setting(seed, "run"))
                 except (ContextError, BackendError, ConfigError) as e:
                     raise RunError(f"{where.capitalize()}: {e}") from e

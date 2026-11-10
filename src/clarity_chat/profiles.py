@@ -58,10 +58,19 @@ NEUTRAL = {
 }
 
 SEED_MAX = 2**32 - 2  # llama.cpp reads 0xFFFFFFFF (2**32 - 1) as "pick a random seed"
-# "model": its recommended value; "run": a batch run's seed
-ORIGINS = ("profile", "model", "default", "backend", "regen", "run")
+# "model": its recommended value; "run": a batch run's seed; "server.toml": ctx_size only;
+# "chat": set with /set for one conversation; "log": a resumed conversation's logged value
+ORIGINS = ("profile", "model", "default", "backend", "regen", "run", "server.toml", "chat", "log")
 
-PROFILE_KEYS_COMMON = {"backend", "model", "mode", "settings", "use_recommended", "device"}
+PROFILE_KEYS_COMMON = {
+    "backend",
+    "model",
+    "mode",
+    "settings",
+    "use_recommended",
+    "device",
+    "ctx_size",
+}
 # apply_chat_template arguments that Clarity sets, or that would change what it renders or
 # returns behind the logged template (chat_template replaces the template's text).
 RESERVED_TEMPLATE_KWARGS = {
@@ -198,6 +207,12 @@ def resolve_settings(
     for name in SETTING_NAMES:
         origin, values = next((o, v) for o, v in layers if name in v)
         resolved[name] = Setting(values[name], origin)
+    check_samplers(resolved, where)
+    return resolved
+
+
+def check_samplers(resolved: dict[str, Setting], where: str) -> None:
+    """Reject a non-neutral setting whose sampler isn't in `samplers`: it would do nothing."""
     samplers = resolved["samplers"].value
     for name, sampler in SAMPLER_OF.items():
         setting = resolved[name]
@@ -207,7 +222,19 @@ def resolve_settings(
                 f"because {sampler!r} is not in samplers {samplers}. Add {sampler!r} to "
                 f"samplers or set {name} = {NEUTRAL[name]!r}."
             )
-    return resolved
+
+
+def parse_setting(name: str, text: str, where: str) -> Any:
+    """A setting typed as text (`/set`): a number, `random` for seed, or sampler names
+    separated by spaces or commas. Checked like a profile's value."""
+    if name == "samplers":
+        value: Any = text.replace(",", " ").split()
+    else:
+        try:
+            value = tomllib.loads(f"v = {text}")["v"]
+        except tomllib.TOMLDecodeError:
+            value = text
+    return check_setting(name, value, where)
 
 
 # --- profiles ---------------------------------------------------------------------------
@@ -226,6 +253,7 @@ class Profile:
     raw_settings: dict[str, Any] = field(default_factory=dict)  # the [settings] table, checked
     use_recommended: bool = False  # fill unset settings from the model's generation_config.json
     device: str | None = None  # Transformers backend only: mps (default), cpu or cuda
+    ctx_size: int | None = None  # None: server.toml's ctx-size
     # chat mode
     system: str | None = None
     priming_messages: list[dict[str, str]] = field(default_factory=list)
@@ -253,21 +281,42 @@ class Profile:
 
 
 def profile_path(root: Path, name_or_path: str) -> Path:
+    """A path to a .toml file, else NAME in profiles/ (shipped) or local/profiles/ (yours).
+    A name in both is an error: a name must say which file it means."""
     candidate = Path(name_or_path)
     if candidate.suffix == ".toml" and candidate.is_file():
         return candidate
-    return root / "profiles" / f"{name_or_path}.toml"
+    shipped = root / "profiles" / f"{name_or_path}.toml"
+    own = root / "local" / "profiles" / f"{name_or_path}.toml"
+    if shipped.is_file() and own.is_file():
+        raise ConfigError(
+            f"Profile {name_or_path!r} is both {shipped} and {own}. Rename one of them."
+        )
+    return own if own.is_file() else shipped
 
 
-def _text_or_file(value: object, key: str, base: Path, files: dict[str, str], where: str) -> str:
-    """A string used verbatim, or `{ file = "..." }` read byte for byte, relative to the profile."""
+def _text_or_file(
+    value: object,
+    key: str,
+    base: Path,
+    files: dict[str, str],
+    where: str,
+    logged: dict[str, str] | None,
+) -> str:
+    """A string used verbatim, or `{ file = "..." }` read byte for byte, relative to the
+    profile (or, for a profile from a log, the file's text as logged)."""
     if isinstance(value, str):
         return value
     if isinstance(value, dict) and set(value) == {"file"} and isinstance(value["file"], str):
-        path = base / value["file"]
-        if not path.is_file():
-            raise ConfigError(f"{where}: {key} file {value['file']!r} not found ({path}).")
-        text = read_text(path)
+        if logged is not None:
+            if value["file"] not in logged:
+                raise ConfigError(f"{where}: the log doesn't hold {key} file {value['file']!r}.")
+            text = logged[value["file"]]
+        else:
+            path = base / value["file"]
+            if not path.is_file():
+                raise ConfigError(f"{where}: {key} file {value['file']!r} not found ({path}).")
+            text = read_text(path)
         files[value["file"]] = text
         return text
     raise ConfigError(f'{where}: {key} must be a string or {{ file = "..." }}, got {value!r}.')
@@ -292,12 +341,22 @@ def _messages(value: object, where: str) -> list[dict[str, str]]:
     return messages
 
 
-def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Profile:
-    path = profile_path(root, name_or_path)
-    where = str(path)
-    if not path.is_file():
-        raise ConfigError(f"Profile {name_or_path!r} not found ({path}).")
-    toml_text = read_text(path)
+def load_profile(
+    root: Path, name_or_path: str, defaults: dict[str, Any], logged: dict[str, Any] | None = None
+) -> Profile:
+    """Load a profile from its file, or, with `logged` (a log's `profile` field: path, toml
+    and files), from the text a conversation was logged with."""
+    if logged is not None:
+        path, toml_text = Path(logged["path"]), logged["toml"]
+        where = f"{path} (as logged)"
+    else:
+        path = profile_path(root, name_or_path)
+        where = str(path)
+        if not path.is_file():
+            raise ConfigError(
+                f"Profile {name_or_path!r} not found in profiles/ or local/profiles/ ({root})."
+            )
+        toml_text = read_text(path)
     try:
         data = tomllib.loads(toml_text)
     except tomllib.TOMLDecodeError as e:
@@ -327,6 +386,9 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
         raise ConfigError(f'{where}: device applies only to backend = "transformers".')
 
     raw_settings = check_settings_table(data.get("settings", {}), where)
+    ctx_size = data.get("ctx_size")
+    if ctx_size is not None and (_integer(ctx_size) is None or ctx_size <= 0):
+        raise ConfigError(f"{where}: ctx_size must be a positive integer, got {ctx_size!r}.")
     use_recommended = data.get("use_recommended", False)
     if not isinstance(use_recommended, bool):
         raise ConfigError(f"{where}: use_recommended must be true or false.")
@@ -334,6 +396,7 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
     settings = resolve_settings(raw_settings, defaults, where)
     files: dict[str, str] = {}
     base = path.parent
+    logged_files = logged["files"] if logged is not None else None
     profile = Profile(
         name=path.stem,
         path=path,
@@ -346,15 +409,18 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
         raw_settings=raw_settings,
         use_recommended=use_recommended,
         device=device,
+        ctx_size=ctx_size,
     )
 
     if mode == "chat":
         if "system" in data:
-            profile.system = _text_or_file(data["system"], "system", base, files, where)
+            profile.system = _text_or_file(
+                data["system"], "system", base, files, where, logged_files
+            )
         if "priming" in data:
             priming = data["priming"]
             if isinstance(priming, dict):
-                text = _text_or_file(priming, "priming", base, files, where)
+                text = _text_or_file(priming, "priming", base, files, where, logged_files)
                 try:
                     priming_data = tomllib.loads(text)
                 except tomllib.TOMLDecodeError as e:
@@ -391,8 +457,12 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
                     f"{where}: {key} is required: a non-empty name without outer spaces."
                 )
         profile.user_name, profile.assistant_name = data["user_name"], data["assistant_name"]
-        profile.header = _text_or_file(data.get("header", ""), "header", base, files, where)
-        profile.priming_text = _text_or_file(data.get("priming", ""), "priming", base, files, where)
+        profile.header = _text_or_file(
+            data.get("header", ""), "header", base, files, where, logged_files
+        )
+        profile.priming_text = _text_or_file(
+            data.get("priming", ""), "priming", base, files, where, logged_files
+        )
     return profile
 
 
@@ -486,7 +556,8 @@ REQUIRED_VALUES = {
     "cache-reuse": 0,
     "no-cache-idle-slots": True,
 }
-# Set by the client, or never wanted (another model, overrides, router mode, a draft model).
+# Set by the client (including the per-start key, --no-slots and --no-webui), or never wanted
+# (another model, overrides, router mode, a draft model).
 FORBIDDEN_FLAGS = {
     "model",
     "host",
@@ -501,8 +572,15 @@ FORBIDDEN_FLAGS = {
     "spec-type",
     "backend-sampling",
     "api-key",
+    "api-key-file",
+    "slots",
+    "no-slots",
+    "ui",
+    "no-ui",
+    "webui",
+    "no-webui",
 }
-FORBIDDEN_PREFIXES = ("hf-", "models-", "spec-")
+FORBIDDEN_PREFIXES = ("hf-", "models-", "spec-", "ui-", "webui-")
 
 
 @dataclass(frozen=True)
