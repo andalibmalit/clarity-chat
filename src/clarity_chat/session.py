@@ -108,6 +108,7 @@ class Conversation:
     started_server: dict[str, Any] | None = None  # the server_start, if this one started it
     last_call: dict[str, Any] | None = None  # the call of the reply at head (for /prompt)
     calls: dict[str, dict[str, Any]] = field(default_factory=dict)  # call records by ID
+    warnings: list[str] = field(default_factory=list)  # shown when it starts, and logged
 
     def path_to(self, turn_id: str | None) -> list[Turn]:
         """Turns from the root to `turn_id`, in order."""
@@ -306,6 +307,12 @@ class Session:
         conversation = Conversation(
             conversation_id, prepared.profile, log, run=run, started_server=started
         )
+        unread = (prepared.template or {}).get("unread_kwargs")
+        if unread:
+            conversation.warnings.append(
+                f"The chat template never reads template_kwargs {unread}, so they change "
+                "nothing. Check their names against the template (/prompt shows its output)."
+            )
         log.append(
             {
                 "type": "conversation",
@@ -316,6 +323,7 @@ class Session:
                 "model": model.to_json(),
                 "client": client_git(),
                 "machine": machine(),
+                "warnings": conversation.warnings,
             }
         )
         self.conversation = conversation

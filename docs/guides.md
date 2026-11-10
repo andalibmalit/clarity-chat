@@ -37,7 +37,7 @@ assistant_name = "Assistant"
 The model sees the header, the priming text, one line per turn, and a final `Assistant:`. Generation stops at a new line starting with `User:`. [Profile keys](reference.md#profile-keys) gives the exact format.
 
 Tips:
-- Unknown keys and setting names are errors, so most typos stop the profile from loading. Keys inside `template_kwargs` aren't checked, because the chat template defines them, so a misspelled one is silently ignored.
+- Unknown keys and setting names are errors, so most typos stop the profile from loading. Keys inside `template_kwargs` can't be checked against a fixed list, because the chat template defines them. Instead, Clarity warns when a conversation starts if the template never reads one of them.
 - File paths are relative to the profile, and files are read byte for byte. A trailing newline your editor added is part of the prompt; `/prompt repr` shows it.
 - A priming file holds only `[[messages]]` tables, each with `role` (`"user"` or `"assistant"`) and `content`. See `prompts/priming.toml`.
 - Template options such as `enable_thinking` go in a `[template_kwargs]` table.
