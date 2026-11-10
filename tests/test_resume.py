@@ -131,6 +131,7 @@ def test_the_v0_1_0_golden_log_resumes(new_session, tmp_path):
     assert record["head_guessed"] is True
     # The log ends with a failed call on "Are you there?": it continues before that message.
     assert record["head"] == "turn-04fa9a616f6a"
+    assert record["unanswered"] == {"turn_id": "turn-5240b0f5bec7", "text": "Are you there?"}
     # Logged at /project/profiles/text.toml; this project's "text" profile has the same text.
     assert record["profile_file"] == "same"
     assert record["render"] == {"call_id": "call-78a5a5886108", "identical": True}
@@ -146,6 +147,9 @@ def test_the_terminal_resumes_and_says_what_differs(new_session, fetched_root, t
     text = "".join(output)
     assert "Resumed 20261110-154328-2b2bb5 with profile text" in text
     assert "This log is from v0.1.0" in text
+    assert (
+        "Your last message got no reply (its call failed or was cut off): 'Are you there?'" in text
+    )
     assert "Changed since its last call (call-78a5a5886108)" in text
     assert "renders to the same token IDs today" in text
 

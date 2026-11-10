@@ -118,6 +118,7 @@ class Conversation:
     conversation_id: str
     profile: Profile
     log: LogFile
+    ctx_size: Setting  # the context size it runs at
     turns: dict[str, Turn] = field(default_factory=dict)
     head: str | None = None
     run: dict[str, Any] | None = None  # set for a batch run's conversations
@@ -126,7 +127,6 @@ class Conversation:
     calls: dict[str, dict[str, Any]] = field(default_factory=dict)  # call records by ID
     warnings: list[str] = field(default_factory=list)  # shown when it starts, and logged
     chat_settings: dict[str, Any] = field(default_factory=dict)  # set with /set
-    ctx_size: Setting | None = None  # the context size it runs at
     resumed: bool = False  # rebuilt from its log: /switch checks the prompt renders the same
 
     @property
@@ -455,8 +455,7 @@ class Session:
             self.backend.close()
             self.backend = previous
         try:
-            ctx_size = self.conversation.ctx_size or self.ctx_size_for(self.conversation.profile)
-            previous.start(self.model, self.weights, ctx_size.value)
+            previous.start(self.model, self.weights, self.conversation.ctx_size.value)
         except (ConfigError, BackendError) as again:
             self.conversation = None
             raise BackendError(
@@ -924,7 +923,7 @@ class Session:
         now: the profile file, settings today's files would give, the machine and
         libraries, and whether the current reply's prompt still renders to the same IDs."""
         if not path.is_file():
-            raise ConfigError(f"Log file {path} not found.")
+            raise ConfigError(f"No conversation or log file {path}. /chats lists them.")
         try:
             return self._resume(path)
         except (KeyError, TypeError, AttributeError) as e:  # a log Clarity didn't write
@@ -987,6 +986,7 @@ class Session:
                 "conversation_id": conversation.conversation_id,
                 "head": state.head,
                 "head_guessed": state.head_guessed,
+                "unanswered": state.unanswered,
                 "ctx_size": ctx_size.to_json(),
                 "profile_file": profile_file,
                 "model_entry": deep_diff(start["model"], prepared.model.to_json()),
@@ -1016,12 +1016,12 @@ class Session:
         same = (now.profile.toml_text, now.profile.files) == (logged["toml"], logged["files"])
         return "same" if same else "changed", now
 
-    def check_render(self, conversation: Conversation, reply: Turn | None) -> dict[str, Any]:
+    def check_render(self, conversation: Conversation, reply: Turn | None) -> dict[str, Any] | None:
         """Render the prompt of `reply`'s call again, with today's template and libraries,
-        and compare the token IDs with the logged ones."""
+        and compare the token IDs with the logged ones. None if there's no reply."""
         call = conversation.calls.get(reply.call_id or "") if reply else None
         if reply is None or call is None:
-            return {"skipped": "no reply to check"}
+            return None
         assert reply.parent_id is not None
         try:
             ids = self.build_prompt(conversation.turns[reply.parent_id], conversation).ids
