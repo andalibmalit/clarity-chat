@@ -243,3 +243,14 @@ def test_logged_flags_only_for_llama_server_calls(fetched_root, capsys):
     argv = ["--root", str(fetched_root), "replay", str(log), "call-1", "--logged-flags"]
     assert cli.main(argv) == 1
     assert "only to calls made with llama-server" in capsys.readouterr().err
+
+
+def test_llama_cpp_calls_compare_graph_splits():
+    from clarity_chat.replay import facts_from_call
+
+    call = {"model": {"gguf_sha256": "a"}, "client": {}}
+    server = {"backend": "llama.cpp", "graph_splits": {"prompt": 1, "reply": 1}}
+    now = {**server, "graph_splits": {"prompt": 2, "reply": 2}}
+    diffs = environment_diff(facts_from_call(call, server), facts_from_call(call, now))
+    assert set(diffs) == {"graph_splits"}
+    assert not unexplained(False, diffs)  # work moved to another device can change a reply

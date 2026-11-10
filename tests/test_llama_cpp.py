@@ -11,6 +11,7 @@ from clarity_chat.backends.llama_cpp import (
     check_generation_settings,
     device_placement,
     eog_tokens,
+    graph_splits,
     llama_config_files,
     parse_sse_line,
     placement_problem,
@@ -317,6 +318,17 @@ def started_server(monkeypatch, root, startup):
     monkeypatch.setattr(server, "check_props", lambda p: [])
     record = server.start()
     return server, launched, json.dumps(record)
+
+
+def test_graph_splits_are_read_from_startup_output():
+    same = "llama_context: graph: nodes = 1131, splits = 2, input objects = 3, input tensors = 4"
+    assert graph_splits(same) == {"prompt": 2, "reply": 2}
+    differ = (
+        "llama_context: graph (pp bs=512, tg bs=1): nodes = 1131 / 1100, splits = 2 / 3, "
+        "input objects = 3, input tensors = 4"
+    )
+    assert graph_splits(differ) == {"prompt": 2, "reply": 3}
+    assert graph_splits("no such line") is None
 
 
 def test_end_of_reply_tokens_are_logged(monkeypatch, root):
