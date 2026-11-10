@@ -53,12 +53,14 @@ class ContextError(Exception):
     """The prompt plus max_tokens doesn't fit the context; nothing was sent."""
 
 
-def fits_context(n_prompt: int, max_tokens: int, n_ctx: int) -> bool:
-    """With context shift off, llama-server returns at most n_ctx - n_prompt tokens and marks
+def room_left(n_ctx: int, n_prompt: int, max_tokens: int) -> int:
+    """How many more prompt tokens fit; a call is allowed only at 0 or more.
+
+    With context shift off, llama-server returns at most n_ctx - n_prompt tokens and marks
     the reply truncated once prompt + generated reaches n_ctx, even when that last token was
-    also the max_tokens-th. So a call is allowed only if n_prompt + max_tokens < n_ctx; then
-    the server never marks it truncated. A live test checks both sides of the boundary."""
-    return n_prompt + max_tokens < n_ctx
+    also the max_tokens-th. So a call needs n_prompt + max_tokens < n_ctx; then the server
+    never marks it truncated. A live test checks both sides of the boundary."""
+    return n_ctx - n_prompt - max_tokens - 1
 
 
 @dataclass
@@ -519,7 +521,7 @@ class Session:
                     "tokens, not text. /prompt shows the IDs."
                 )
             n_ctx, max_tokens = self.backend.n_ctx, values["max_tokens"]
-            if not fits_context(len(prompt.ids), max_tokens, n_ctx):
+            if room_left(n_ctx, len(prompt.ids), max_tokens) < 0:
                 raise ContextError(
                     f"The prompt is {len(prompt.ids)} tokens; with max_tokens {max_tokens} it "
                     f"needs more than the context of {n_ctx} tokens. Nothing was sent. Start a "

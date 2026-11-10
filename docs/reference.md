@@ -43,7 +43,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/quit` | Stop the server and exit. `/exit`, `/q` and Ctrl-D also work. |
 | `//text` | Send a message that starts with `/`. |
 
-After each reply, a status line shows the stop reason, the reply length in tokens, the time, the seed (with its origin unless it came from the profile) and the call ID. Warnings and [call flags](#call-flags) appear above it, marked `!`. A warning appears when the prompt uses more than 80% of the context.
+After each reply, a status line shows the stop reason, the reply length in tokens, the time, the seed (with its origin unless it came from the profile), the context used (prompt plus reply tokens, of the context size) and the call ID. Warnings and [call flags](#call-flags) appear above it, marked `!`. A warning appears when the prompt uses more than 80% of the context.
 
 ## Profile keys
 

@@ -4,7 +4,7 @@ import pytest
 
 from clarity_chat.logs import read_records
 from clarity_chat.profiles import ConfigError
-from clarity_chat.session import ContextError, Session, fits_context
+from clarity_chat.session import ContextError, Session, room_left
 from tests.fakes import FakeBackend
 
 
@@ -116,9 +116,9 @@ def test_context_guard_warns_above_80_percent(make_session):
     assert any("82 of 100 context tokens" in w for w in outcome.warnings)
 
 
-def test_fits_context_matches_llama_server_limit():
-    assert fits_context(100, 27, 128)
-    assert not fits_context(100, 28, 128)
+def test_room_left_matches_llama_server_limit():
+    assert room_left(128, 100, 27) == 0
+    assert room_left(128, 100, 28) == -1
 
 
 def test_random_seed_is_drawn_and_logged(make_session, fetched_root):

@@ -30,7 +30,7 @@ from clarity_chat.logs import LogFile, client_git, machine
 from clarity_chat.models import portable_path
 from clarity_chat.profiles import SEED_MAX, ConfigError, Setting
 from clarity_chat.render import build_prompt
-from clarity_chat.session import ContextError, Prepared, Session, fits_context
+from clarity_chat.session import ContextError, Prepared, Session, room_left
 
 FIRST_SEED = 333  # the user's choice: a run's seeds are 333, 334, …
 SPLIT_RULE = (
@@ -123,7 +123,7 @@ def check_run(
         limit = p.profile.settings["max_tokens"].value
         for i, opening in enumerate(openings, 1):
             prompt = build_prompt(p.tokenizer, p.profile, [("user", opening)], p.template_tokenizer)
-            if not fits_context(len(prompt.ids), limit, n_ctx):
+            if room_left(n_ctx, len(prompt.ids), limit) < 0:
                 raise ConfigError(
                     f"Opening {i} with profile {name} is {len(prompt.ids)} tokens; with "
                     f"max_tokens {limit} it doesn't fit the context of {n_ctx} tokens."
