@@ -8,6 +8,7 @@ Every command, key and record field a user sees. For task-based instructions, se
 |---|---|
 | `clarity chat --profile NAME` | Chat with `profiles/NAME.toml` or `local/profiles/NAME.toml`. NAME can also be a path to a `.toml` file. |
 | `clarity chat --resume ID` | Continue a logged conversation, as it was logged, and say what differs today. ID is a conversation ID from `clarity chats`, or a log file. See `/resume`. |
+| `clarity chat --json [--profile NAME \| --resume ID]` | Chat from a script or another program: commands in as JSON lines, events out as JSON lines. See [Scripting with --json](#scripting-with---json). |
 | `clarity chats` | List your conversations in `logs/`, newest first: conversation ID (it starts with the local date and time), profile and title. |
 | `clarity run --openings FILE --profiles A B … [--seeds N]` | Collect replies for a blind test into `runs/RUN_ID/`. FILE holds openings separated by lines that are exactly `---`. `--seeds N` (default 1) gives N replies per opening and profile, with seeds 333, 334 and so on. |
 | `clarity replay LOG CALL_ID [--logged-flags]` | Re-send a logged call and compare the output. `--logged-flags` starts llama-server with the call's logged flags instead of `server.toml`'s. |
@@ -55,6 +56,22 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `//text` | Send a message that starts with `/`. |
 
 After each reply, a status line shows the stop reason, the reply length in tokens, the time, the seed (with its origin unless it came from the profile), the context used (prompt plus reply tokens, of the context size) and the call ID. Warnings and [call flags](#call-flags) appear above it, marked `!`. A warning appears when the prompt uses more than 80% of the context.
+
+## Scripting with --json
+
+`clarity chat --json` reads one command per line on stdin and writes one event per line on stdout, both as JSON. It runs every chat command in the table above. With `--profile` or `--resume` it starts with that; without either, send a `profile` or `resume` command first.
+
+A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat command's name without the slash, `args` is the text that would follow it, and `id` (optional, any JSON value) is copied into the command's `result` or `error`.
+
+| `event` | Sent when | Other fields |
+|---|---|---|
+| `text` | reply text streams in | `text` |
+| `status` | a model is starting or ready | `status`, and `profile`, `log` or `conversation_id` |
+| `record` | a record is appended to the log | `record`: exactly what was written. Record events are the log, in order. |
+| `result` | a command finished | `command`, `id`, and `result`: what the command returns. It may repeat records already sent as `record` events. |
+| `error` | a command failed, or a line wasn't a command | `command` and `id` (for a command), `type` (`ConfigError`, `ContextError`, `BackendError`, `CancelledBeforeReply` or `InputError`) and `message` |
+
+Commands run one at a time, in order. `cancel` runs as soon as it's read, so it can stop a reply that's being written. End of input quits, like `quit`. Output is ASCII: other characters are written as `\u` escapes.
 
 ## Profile keys
 

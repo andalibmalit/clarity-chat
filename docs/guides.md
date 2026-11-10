@@ -176,6 +176,17 @@ It then lists every recorded fact that differs from the original call, such as t
 
 Replay uses the current `server.toml`. Add `--logged-flags` to start llama-server with the flags the call was made with. `clarity replay` exits with status 1 when the output differs. Failed and cancelled calls can't be replayed.
 
+## Script a chat
+
+`clarity chat --json` takes commands as JSON lines and answers with JSON lines, so a script, a test or another program can drive a chat:
+
+```
+printf '%s\n' '{"command": "say", "args": "Hello", "id": 1}' '{"command": "quit"}' \
+  | uv run clarity chat --json --profile smol-chat
+```
+
+Each command's `result` carries its `id`. Every record written to the log also arrives as a `record` event, so a script sees exactly what was logged. [Scripting with --json](reference.md#scripting-with---json) lists the events.
+
 ## Use the Transformers backend
 
 The Transformers backend runs the official weights in-process with PyTorch. It is given the same prompt token IDs as llama-server, but its output can still differ, because the arithmetic and the sampler code differ.
