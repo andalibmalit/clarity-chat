@@ -148,7 +148,7 @@ Unless `n-gpu-layers` is 0, Clarity stops if llama.cpp puts the model on the CPU
 | `runs/RUN_ID/blind.md` | Openings and shuffled, labelled replies, for raters. Written only if the whole run succeeds. |
 | `runs/RUN_ID/key.json` | Which label is which profile, seed and call, and the shuffle seed. |
 | `local/clarity.lock` | Locked while `chat`, `run` or `replay` runs, so only one of them runs in a project at a time. Empty. |
-| `local/clarity.json` | Who holds the lock: process ID, command and start time, and the running llama-server's port, process ID and key. Readable only by you. Removed on a normal exit; one left behind means Clarity didn't exit normally, and the next start uses it to stop that server. |
+| `local/clarity.json` | Who holds the lock: process ID, command and start time, and the running llama-server's port, process ID and key. Readable only by you on Linux and macOS (mode 0600); on Windows it gets your folder's permissions. Removed on a normal exit; one left behind means Clarity didn't exit normally, and the next start uses it to stop that server. |
 
 `logs/`, `runs/`, `models/` and `local/` are gitignored. Logs are append-only: a line is never rewritten.
 

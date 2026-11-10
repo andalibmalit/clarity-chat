@@ -175,3 +175,11 @@ def test_a_server_still_loading_gets_time_to_answer(tmp_path, orphan, monkeypatc
     monkeypatch.setattr("time.sleep", lambda s: None)
     message = instance.stop_orphan(instance.read_info(tmp_path)["server"])
     assert message.startswith("Stopped llama-server")
+
+
+@pytest.mark.parametrize("content", ['{"server": {"port": 1}}', '{"server": 5}', "[1, 2]"])
+def test_a_malformed_record_is_reported_not_a_crash(tmp_path, content):
+    (tmp_path / "local").mkdir()
+    (tmp_path / "local" / "clarity.json").write_text(content, encoding="utf-8")
+    with instance.hold(tmp_path, "chat") as held:
+        assert held.orphan is None or "can't be read; nothing was stopped" in held.orphan
