@@ -67,34 +67,24 @@ class LogFile:
 
     def append(self, record: dict[str, Any]) -> dict[str, Any]:
         full = {"schema_version": SCHEMA_VERSION, "time": now_utc(), **record}
-        self._write(full)
-        return full
-
-    def mend(self) -> dict[str, Any] | None:
-        """End a torn last line with its `torn_line` record, for writers that read the log
-        before they append. Returns that record, or None if there was nothing to mend."""
-        if not self.path.is_file():
-            return None
-        return self._write(None)
-
-    def _write(self, record: dict[str, Any] | None) -> dict[str, Any] | None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         flags = os.O_RDWR | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0)
         with _append_lock:
             fd = os.open(self.path, flags, 0o644)
             try:
                 torn = _torn_tail(fd)
-                lines = [_line(r) for r in (torn, record) if r is not None]
-                data = memoryview((b"\n" if torn else b"") + b"".join(lines))
+                lines = (b"\n" + _line(torn) if torn else b"") + _line(full)
+                data = memoryview(lines)
                 while data:  # a short write (a full disk) is rare; finish the line
                     data = data[os.write(fd, data) :]
                 os.fsync(fd)
             finally:
                 os.close(fd)
-        for written in (torn, record):
-            if written is not None and self.on_append:
-                self.on_append(written)
-        return torn
+        if self.on_append:
+            if torn:
+                self.on_append(torn)
+            self.on_append(full)
+        return full
 
 
 def _line(record: dict[str, Any]) -> bytes:
@@ -135,12 +125,14 @@ def torn_message(record: dict[str, Any], where: str) -> str:
 
 
 def read_records(path: Path) -> Iterator[dict[str, Any]]:
-    """Records in file order. Splits only on "\\n" (never on U+2028 and friends). Lines
-    that aren't records are skipped only if the next record is a `torn_line` naming the
-    last of them."""
+    """Records in file order. Splits only on "\\n" (never on U+2028 and friends). A last
+    line with no line end isn't a record yet. Lines that aren't records are skipped only if
+    the next record is a `torn_line` naming the last of them."""
     bad: list[int] = []  # malformed lines in a row, until the next record explains them
     with path.open("rb") as f:  # bytes split only on b"\n"; a broken UTF-8 line is malformed
         for number, line in enumerate(f, 1):
+            if not line.endswith(b"\n"):
+                break  # not finished: still being written, or cut off (the next append says)
             if not line.strip():
                 continue
             try:
