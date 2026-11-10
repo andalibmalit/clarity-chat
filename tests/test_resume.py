@@ -246,3 +246,38 @@ def test_a_resume_that_fails_late_leaves_the_running_chat_on_its_model(new_sessi
     finally:
         os.chmod(path, 0o644)
     assert session.conversation is running and backend.ctx_sizes == [8192]
+
+
+@pytest.mark.xfail(strict=True, reason="checkpoint 3: resume forgets a failed message's call")
+def test_after_a_failed_message_resume_shows_the_same_call_as_the_live_chat(new_session):
+    from clarity_chat.backends import BackendError
+
+    session, backend = new_session([" one"])
+    session.new_conversation("text")
+    session.say("a")
+    backend.fail_with = "server gone"
+    with pytest.raises(BackendError):
+        session.say("c")
+    live = session.conversation.last_call["call_id"]
+    resumed, _ = new_session()
+    resumed.resume(session.conversation.log.path)
+    assert resumed.conversation.last_call["call_id"] == live
+
+
+@pytest.mark.xfail(strict=True, reason="checkpoint 3: resume drops the conversation's warnings")
+def test_resume_shows_the_conversations_warnings(new_session, fetched_root):
+    from clarity_chat.commands import Commands
+
+    session, _ = new_session([" one"])
+    session.new_conversation("text")
+    session.say("a")
+    resumed, backend = new_session()
+    backend.start_warnings = []
+    resumed.prepare = lambda name, logged=None, _p=resumed.prepare: _with_unread(_p(name, logged))
+    result = Commands(resumed).run("resume", str(session.conversation.log.path), lambda e: None)
+    assert any("never reads template_kwargs" in w for w in result["warnings"])
+
+
+def _with_unread(prepared):
+    prepared.unread_kwargs = ["made_up_kwarg"]
+    return prepared
