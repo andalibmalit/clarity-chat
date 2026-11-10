@@ -12,6 +12,7 @@ Follow [Getting started](docs/getting-started.md) to install Clarity and build l
 | `uv run pytest -m live` | the built llama-server and the fetched SmolLM2; downloads a 145 MB GGUF once | real calls, the context boundary, replay, determinism and batch runs |
 | `uv run pytest -m olmo` | both OLMo 3 models fetched (about 58 GB) | chat templates, end tokens and determinism on OLMo 3 |
 | `uv run pytest -m hf` | the `hf` extra and the fetched SmolLM2 (one test also uses OLMo 3 Instruct, if fetched) | the Transformers backend on MPS and CPU, and that both backends get the same prompt token IDs |
+| `uv run pytest -m measure -v -s` | the built llama-server and OLMo 3 Instruct fetched | prints timings and memory figures that design choices rest on (cancel, the memory check); asserts almost nothing |
 
 Before every commit, run the checks CI runs:
 
