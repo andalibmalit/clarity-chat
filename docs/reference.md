@@ -71,7 +71,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `result` | a command finished | `command`, `id`, and `result`: what the command returns. It may repeat records already sent as `record` events. |
 | `error` | a command failed, or a line wasn't a command | `command` and `id` (for a command), `type` (`ConfigError`, `ContextError`, `BackendError`, `CancelledBeforeReply` or `InputError`) and `message` |
 
-Commands run one at a time, in order. `cancel` runs as soon as it's read, so it can stop a reply that's being written. End of input quits, like `quit`. Output is ASCII: other characters are written as `\u` escapes.
+Commands run one at a time, in order. `cancel` runs as soon as it's read, so it can stop a reply that's being written. End of input quits, like `quit`. Input is UTF-8, whatever the console's encoding; a line that isn't is an `InputError`. Output is ASCII: other characters are written as `\u` escapes.
 
 ## Profile keys
 

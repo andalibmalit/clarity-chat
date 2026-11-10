@@ -354,7 +354,6 @@ def test_chats_lists_a_log_it_cant_read_and_never_writes(fetched_root):
     assert {p.name: p.read_bytes() for p in logs.iterdir()} == before
 
 
-@pytest.mark.xfail(strict=True, reason="checkpoint 3: a cancel during rendering isn't marked")
 def test_a_cancel_while_the_prompt_is_built_is_logged_like_any_early_cancel(make_session):
     from clarity_chat.session import CancelledBeforeReply
 
