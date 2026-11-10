@@ -107,7 +107,8 @@ def format_settings(session: Session) -> str:
     not_applied = last.get("not_applied") or []
     lines.append("not applied:" + ("" if not_applied else " none"))
     lines += [f"  {n['name']}: {n.get('reason', 'no reason given')}" for n in not_applied]
-    lines.append(f"context {session.backend.n_ctx} tokens; stop {profile.stop!r}")
+    ctx_size = session.ctx_size_for(profile)
+    lines.append(f"context {ctx_size.value} tokens ({ctx_size.origin}); stop {profile.stop!r}")
     return "\n".join(lines)
 
 

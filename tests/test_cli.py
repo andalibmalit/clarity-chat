@@ -25,7 +25,7 @@ def test_message_streams_the_reply_and_a_status_line(loop):
     assert " Hello!" in text
     assert "stop eos" in text
     assert "seed 42" in text
-    assert "context 43 of 512" in text  # 36 prompt tokens (one per byte) + 7 reply tokens
+    assert "context 43 of 8,192" in text  # 36 prompt tokens (one per byte) + 7 reply tokens
 
 
 def test_prompt_shows_text_ids_and_count(loop):

@@ -14,13 +14,14 @@ class FakeBackend:
     name = "fake"
 
     def __init__(
-        self, replies: list[str] | None = None, n_ctx: int = 512, tokenizer: Any = None
+        self, replies: list[str] | None = None, n_ctx: int | None = None, tokenizer: Any = None
     ) -> None:
         self.replies = list(replies or [])
         self.tokenizer = tokenizer  # gives replies real output token IDs
         self.calls: list[dict[str, Any]] = []
         self.started: list[str] = []
-        self._n_ctx = n_ctx
+        self.ctx_sizes: list[int] = []  # the ctx_size of each start
+        self._n_ctx = n_ctx  # if given, it overrides the started size (to test small contexts)
         self.record: dict[str, Any] | None = None
         self.fail_with: str | None = None
         self.cancel_after: int | None = None  # characters streamed before a simulated Ctrl-C
@@ -30,16 +31,17 @@ class FakeBackend:
 
     @property
     def n_ctx(self) -> int:
-        return self._n_ctx
+        return self._n_ctx or (self.ctx_sizes[-1] if self.ctx_sizes else 512)
 
     @property
     def server_record(self) -> dict[str, Any] | None:
         return self.record
 
-    def start(self, model: ModelEntry, weights: Path) -> dict[str, Any] | None:
-        if self.started and self.started[-1] == model.name:
+    def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
+        if self.started and (self.started[-1], self.ctx_sizes[-1]) == (model.name, ctx_size):
             return None
         self.started.append(model.name)
+        self.ctx_sizes.append(ctx_size)
         self.record = {
             "type": "server_start",
             "server_id": f"server-fake{len(self.started)}",

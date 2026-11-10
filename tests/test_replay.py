@@ -254,3 +254,21 @@ def test_llama_cpp_calls_compare_graph_splits():
     diffs = environment_diff(facts_from_call(call, server), facts_from_call(call, now))
     assert set(diffs) == {"graph_splits"}
     assert not unexplained(False, diffs)  # work moved to another device can change a reply
+
+
+def test_replay_uses_the_calls_logged_context_size(make_session, fetched_root, tmp_path):
+    text = (fetched_root / "profiles" / "text.toml").read_text(encoding="utf-8")
+    (fetched_root / "profiles" / "big.toml").write_text(f"ctx_size = 16384\n{text}", "utf-8")
+    first, _ = make_session([" Hello!"], logs_dir=tmp_path)
+    conversation = first.new_conversation("big")
+    call_id = first.say("Hi").record["call_id"]
+
+    in_chat, _ = make_session()  # a chat at server.toml's 8192 can't replay a 16384 call
+    in_chat.new_conversation("text")
+    with pytest.raises(ConfigError, match="context of 16384 tokens, but this conversation"):
+        in_chat.replay(conversation.log.path, call_id)
+
+    alone, backend = make_session([" Hello!"])  # `clarity replay`: no conversation running
+    record = alone.replay(conversation.log.path, call_id)
+    assert backend.ctx_sizes == [16384]
+    assert record["identical"] and record["n_ctx_from"] == "the call's log"

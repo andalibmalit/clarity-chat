@@ -84,7 +84,7 @@ def test_replay_after_a_long_call_and_after_a_restart(session):
     assert backend.complete(ids, settings, stop).token_ids == first["output_ids"]
     assert session.model is not None
     backend.close()
-    backend.start(session.model, check_weights_quick(REPO, session.model_lock))
+    backend.start(session.model, check_weights_quick(REPO, session.model_lock), backend.n_ctx)
     assert backend.complete(ids, settings, stop).token_ids == first["output_ids"]
 
 

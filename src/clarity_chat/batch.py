@@ -118,8 +118,8 @@ def check_run(
             f"The profiles' max_tokens differ ({max_tokens}); reply length would give the "
             "setup away. Give them the same max_tokens."
         )
-    n_ctx = session.backend.n_ctx
     for name, p in zip(profile_names, prepared, strict=True):
+        n_ctx = session.ctx_size_for(p.profile).value
         limit = p.profile.settings["max_tokens"].value
         for i, opening in enumerate(openings, 1):
             prompt = build_prompt(p.tokenizer, p.profile, [("user", opening)], p.template_tokenizer)

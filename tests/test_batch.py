@@ -188,6 +188,8 @@ def test_a_profile_listed_twice_is_refused(batch):
 
 
 def test_an_opening_too_long_for_the_context_is_refused_before_any_call(batch, fetched_root):
+    profile = fetched_root / "profiles" / "text.toml"
+    profile.write_text("ctx_size = 40\n" + profile.read_text(encoding="utf-8"), encoding="utf-8")
     with pytest.raises(ConfigError, match="Opening 1 with profile text"):
         batch(n_ctx=40)
     assert not (fetched_root / "runs").exists()
@@ -309,10 +311,10 @@ def test_a_server_restart_mid_run_stops_it(batch, fetched_root):
     def setup(backend):
         start = backend.start
 
-        def restart_after_first_call(model, weights):
+        def restart_after_first_call(model, weights, ctx_size):
             if backend.calls:
                 backend.started.clear()  # as if the server had died
-            return start(model, weights)
+            return start(model, weights, ctx_size)
 
         backend.start = restart_after_first_call
 
@@ -325,10 +327,10 @@ def test_ctrl_c_between_calls_says_where_the_run_stopped(batch):
     def setup(backend):
         start = backend.start
 
-        def interrupt_after_first_call(model, weights):
+        def interrupt_after_first_call(model, weights, ctx_size):
             if backend.calls:
                 raise KeyboardInterrupt
-            return start(model, weights)
+            return start(model, weights, ctx_size)
 
         backend.start = interrupt_after_first_call
 
