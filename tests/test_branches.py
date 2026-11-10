@@ -647,3 +647,26 @@ def test_forks_carry_the_turn_they_branch_at(make_session):
     session.regen()
     (fork,) = session.conversation.forks()
     assert fork["at_role"] == "user" and fork["at_text"] == "a"
+
+
+def test_history_is_the_current_branch_with_marks_and_notes(make_session):
+    session, _ = make_session([" one", " two", " three"])
+    session.say("a")
+    session.regen()  # " two" replaces " one" on this branch
+    session.annotate("mark", "landed")
+    session.annotate("note", "made-up note")
+    session.annotate("note", "made-up better note")
+    session.say("b")
+    turns = session.history()
+    assert [(t["role"], t["text"]) for t in turns] == [
+        ("user", "a"),
+        ("assistant", " two"),
+        ("user", "b"),
+        ("assistant", " three"),
+    ]
+    assert [m["label"] for m in turns[1]["marks"]] == ["landed"]
+    assert [n["text"] for n in turns[1]["notes"]] == ["made-up better note"]
+    assert turns[1]["regen_of"] == records(session, "call")[0]["call_id"]
+    output: list[str] = []
+    ChatLoop(session, "text", read=lambda d: "", write=output.append).handle("/history")
+    assert "model: two\n  marked: landed\n  note: made-up better note\nyou: b" in "".join(output)

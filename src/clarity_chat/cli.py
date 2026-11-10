@@ -104,6 +104,21 @@ def format_settings(view: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_history(result: dict[str, Any]) -> str:
+    """The conversation on the current branch, one block per turn, marks and notes under
+    each reply."""
+    if not result["turns"]:
+        return "Nothing yet: this conversation starts with your next message."
+    lines = []
+    for turn in result["turns"]:
+        who = "you" if turn["role"] == "user" else "model"
+        lines.append(f"{who}: {turn['text'].strip()}")
+        if turn["marks"]:
+            lines.append("  marked: " + ", ".join(m["label"] for m in turn["marks"]))
+        lines += [f"  note: {n['text']}" for n in turn["notes"]]
+    return "\n".join(lines)
+
+
 def format_branches(result: dict[str, Any]) -> str:
     """Each fork on the current path, its options numbered "2 of 3", the current one starred."""
     if not result["forks"]:
@@ -162,7 +177,8 @@ def format_resume(result: dict[str, Any]) -> str:
     where = f"after: {result['head_text'][:60]!r}" if result["head_text"] else "at the start"
     lines = [
         f"Resumed {record['conversation_id']} with profile {result['profile']} "
-        f"({result['model']}, {result['mode']} mode), as logged. It continues {where}."
+        f"({result['model']}, {result['mode']} mode), as logged. It continues {where}. "
+        "/history shows the conversation so far."
     ]
     lines += [f"! {warning}" for warning in result["warnings"]]
     if record["unanswered"]:
@@ -411,6 +427,8 @@ class ChatLoop:
             self.write(f"Titled {result['record']['title']!r}.\n")
         elif name == "chats":
             self.write(format_chats(result["chats"]) + "\n")
+        elif name == "history":
+            self.write(format_history(result) + "\n")
         elif name == "branches":
             self.write(format_branches(result) + "\n")
         elif name == "switch":

@@ -583,6 +583,32 @@ class Session:
             }
         )
 
+    def history(self) -> list[dict[str, Any]]:
+        """The conversation from its start to `head`: each turn with its current marks and
+        notes. What a front end needs to draw the chat, without reading the log."""
+        conversation = self._require_conversation()
+        notes = marks_and_notes(read_records(conversation.log.path))
+        return [
+            {
+                "turn_id": t.turn_id,
+                "role": t.role,
+                "origin": t.origin,
+                "text": t.text,
+                "call_id": t.call_id,
+                "regen_of": t.regen_of,
+                "edit_of": t.edit_of,
+                "marks": [
+                    {"mark_id": m.get("mark_id"), "label": m["label"]}
+                    for m in notes.get(t.turn_id, {}).get("marks", [])
+                ],
+                "notes": [
+                    {"note_id": n.get("note_id"), "text": n["text"]}
+                    for n in notes.get(t.turn_id, {}).get("notes", [])
+                ],
+            }
+            for t in conversation.path_to(conversation.head)
+        ]
+
     def set_title(self, title: str) -> dict[str, Any]:
         """Name this conversation in the chat list. Without one, the list shows the first
         words of the first message; no model is ever asked for a title."""
