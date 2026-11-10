@@ -495,3 +495,91 @@ def test_a_review_mark_mends_a_torn_line_first(make_session, monkeypatch, capsys
     assert "was never finished" in capsys.readouterr().err
     kinds = [r["type"] for r in read_records(log)]
     assert kinds[-2:] == ["torn_line", "mark"]
+
+
+# --- head records, /branches, /switch -----------------------------------------------------
+
+
+def test_undo_and_failed_calls_log_where_head_went(make_session):
+    session, backend = make_session([" one", " two"])
+    first = session.say("a")
+    session.say("b")
+    session.undo()
+    backend.fail_with = "server gone"
+    with pytest.raises(BackendError):
+        session.say("c")
+    with pytest.raises(BackendError):
+        session.regen()
+    heads = [(h["turn_id"], h["reason"]) for h in records(session, "head")]
+    assert heads == [(first.turn.turn_id, r) for r in ("undo", "failed", "failed")]
+
+
+def test_a_new_reply_writes_no_head_record(make_session):
+    session, _ = make_session([" one"])
+    session.say("a")
+    session.regen()
+    assert records(session, "head") == []
+
+
+def test_switch_goes_to_the_newest_reply_on_a_branch(make_session):
+    session, _ = make_session([" one", " two", " three", " four"])
+    first = session.say("a")
+    session.say("b")
+    regen = session.regen()  # " three"
+    session.say("c")  # " four", after the regenerated reply
+    conversation = session.conversation
+    head = session.switch(regen.turn.turn_id)  # the branch continues past it
+    assert head.text == " four"
+    second = records(session, "turn")[3]  # the reply " two"
+    assert session.switch(second["turn_id"]).text == " two"
+    assert conversation.last_call["call_id"] == second["call_id"]
+    assert records(session, "head")[-1] == {**records(session, "head")[-1], "reason": "switch"}
+    assert session.switch(first.turn.parent_id).text == " four"  # the newest under "a"
+    with pytest.raises(ConfigError, match="no turn turn-nope"):
+        session.switch("turn-nope")
+
+
+def test_a_failed_message_is_not_a_branch_to_switch_to(make_session):
+    session, backend = make_session([" one"])
+    session.say("a")
+    backend.fail_with = "server gone"
+    with pytest.raises(BackendError):
+        session.say("b")
+    dead = records(session, "turn")[-1]
+    assert dead["text"] == "b"
+    with pytest.raises(ConfigError, match="has no reply"):
+        session.switch(dead["turn_id"])
+    assert session.conversation.forks() == []
+
+
+def test_forks_list_regens_edits_and_what_undo_left(make_session):
+    session, _ = make_session([" one", " two", " three"])
+    first = session.say("a")
+    session.regen()
+    session.edit("a2")
+    forks = session.conversation.forks()
+    assert [len(f["options"]) for f in forks] == [2]  # "a" and "a2" at the start
+    assert [o["current"] for o in forks[0]["options"]] == [False, True]
+    session.switch(first.turn.turn_id)
+    forks = session.conversation.forks()
+    assert [len(f["options"]) for f in forks] == [2, 2]  # and the two replies to "a"
+    session.undo()  # back to the start: both messages are branches to go back to
+    (fork,) = session.conversation.forks()
+    assert fork["at"] is None and not any(o["current"] for o in fork["options"])
+
+
+def test_the_terminal_lists_branches_and_switches(make_session):
+    session, _ = make_session([" one", " two"])
+    output: list[str] = []
+    chat = ChatLoop(session, "text", read=lambda default: "", write=output.append)
+    chat.handle("/branches")
+    assert "no branches yet" in "".join(output)
+    chat.handle("a")
+    chat.handle("/regen")
+    output.clear()
+    chat.handle("/branches")
+    text = "".join(output)
+    assert "Your message 'a':" in text and "reply 2 of 2" in text
+    first_reply = records(session, "turn")[1]["turn_id"]
+    chat.handle(f"/switch {first_reply}")
+    assert "Switched. The next message continues after: ' one'" in "".join(output)

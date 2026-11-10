@@ -105,6 +105,33 @@ def format_settings(view: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_branches(result: dict[str, Any], session: Session) -> str:
+    """Each fork on the current path, its options numbered "2 of 3", the current one starred."""
+    if not result["forks"]:
+        return "This conversation has no branches yet. /regen, /edit and /undo make them."
+    conversation = session.conversation
+    assert conversation is not None
+    lines = ["/switch TURN_ID goes to the newest reply on a branch."]
+    for fork in result["forks"]:
+        at = conversation.turns[fork["at"]] if fork["at"] else None
+        options = fork["options"]
+        if at is None:
+            where = "At the start"
+        elif at.role == "user":
+            where = f"Your message {short(at.text, 50)}"
+        else:
+            where = f"After the reply {short(at.text, 50)}"
+        if fork["at"] == result["head"]:
+            where += ", where you are now (branches you went back from)"
+        lines.append(f"{where}:")
+        for i, option in enumerate(options, 1):
+            star = "*" if option["current"] else " "
+            who = "reply" if option["role"] == "assistant" else "message"
+            text = short(option["text"], 50)
+            lines.append(f" {star} {option['turn_id']}  {who} {i} of {len(options)}: {text}")
+    return "\n".join(lines)
+
+
 def format_status(record: dict[str, Any]) -> str:
     timings = record.get("timings") or {}
     seconds = (timings.get("prompt_ms", 0) + timings.get("predicted_ms", 0)) / 1000
@@ -277,6 +304,11 @@ class ChatLoop:
             text = result["head_text"]
             where = f"after: {text[:60]!r}" if result["head"] else "at the start"
             self.write(f"Undone. The next message continues {where}.\n")
+        elif name == "branches":
+            self.write(format_branches(result, self.session) + "\n")
+        elif name == "switch":
+            text = result["head_text"]
+            self.write(f"Switched. The next message continues after: {text[:60]!r}.\n")
         elif name in ("mark", "unmark", "note"):
             self.write(annotated(result["records"]) + ".\n")
         elif name == "replay":

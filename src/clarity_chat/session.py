@@ -159,6 +159,50 @@ class Conversation:
             t for t in self.turns.values() if t.parent_id == user_turn_id and t.role == "assistant"
         ]
 
+    def move_head(self, turn_id: str | None, reason: str) -> Turn | None:
+        """Move `head` where a new reply doesn't: `undo`, `switch` or a `failed` call. Logged
+        as a `head` record, so a resumed conversation continues from the same place."""
+        self.head = turn_id
+        head = self.turns.get(turn_id) if turn_id else None
+        self.last_call = self.calls.get(head.call_id or "") if head else None
+        self.log.append(
+            {
+                "type": "head",
+                "conversation_id": self.conversation_id,
+                "turn_id": turn_id,
+                "reason": reason,
+            }
+        )
+        return head
+
+    def newest_reply_under(self, turn_id: str) -> Turn | None:
+        """The most recent reply on the branch that starts at `turn_id` (itself included)."""
+        replies = [t for t in self.turns.values() if t.role == "assistant"]
+        on_branch = [t for t in replies if turn_id in {p.turn_id for p in self.path_to(t.turn_id)}]
+        return on_branch[-1] if on_branch else None
+
+    def forks(self) -> list[dict[str, Any]]:
+        """Each place on the path to `head` where the conversation branches (or, at `head`
+        itself, continues: a branch you went back from with /undo). Options without a
+        reply (a message whose call failed) are left out."""
+        on_path = [t.turn_id for t in self.path_to(self.head)]
+        out = []
+        for at in [None, *on_path]:
+            options = [
+                {
+                    "turn_id": t.turn_id,
+                    "role": t.role,
+                    "text": t.text,
+                    "current": t.turn_id in on_path,
+                    "goes_to": reply.turn_id,
+                }
+                for t in self.turns.values()
+                if t.parent_id == at and (reply := self.newest_reply_under(t.turn_id))
+            ]
+            if len(options) > 1 or (options and at == self.head):
+                out.append({"at": at, "options": options})
+        return out
+
     def current_reply(self, action: str) -> Turn:
         """The reply at `head`; an error naming `action` if there isn't one."""
         turn = self.turns.get(self.head) if self.head else None
@@ -426,18 +470,14 @@ class Session:
                 f"The next regeneration seed, {seed}, is above {SEED_MAX}. Edit the message or "
                 "start a new conversation instead."
             )
-        try:
-            return self.call(
-                user,
-                seed=Setting(seed, "regen"),
-                regen_of=first.call_id,
-                on_text=on_text,
-                cancel=cancel,
-            )
-        except (ContextError, BackendError, ConfigError):
-            conversation.head = reply.turn_id  # a failed regeneration leaves you where you were
-            conversation.last_call = conversation.calls.get(reply.call_id or "")
-            raise
+        return self.call(
+            user,
+            seed=Setting(seed, "regen"),
+            regen_of=first.call_id,
+            on_text=on_text,
+            cancel=cancel,
+            back_to=reply.turn_id,  # a failed regeneration leaves you where you were
+        )
 
     def edit(
         self,
@@ -454,12 +494,8 @@ class Session:
             "user", "edit", text, original.parent_id, edit_of=original.turn_id
         )
         conversation.head = user.turn_id
-        try:
-            return self.call(user, on_text=on_text, cancel=cancel)
-        except (ContextError, BackendError, ConfigError):
-            conversation.head = reply.turn_id  # a failed edit leaves you where you were
-            conversation.last_call = conversation.calls.get(reply.call_id or "")
-            raise
+        # A failed edit leaves you where you were.
+        return self.call(user, on_text=on_text, cancel=cancel, back_to=reply.turn_id)
 
     def undo(self) -> Turn | None:
         """Move back past the last exchange. Returns the new head (None at the start). The
@@ -467,9 +503,19 @@ class Session:
         conversation = self._require_conversation()
         reply = conversation.current_reply("undo")
         assert reply.parent_id is not None
-        conversation.head = conversation.turns[reply.parent_id].parent_id
-        head = conversation.turns.get(conversation.head) if conversation.head else None
-        conversation.last_call = conversation.calls.get(head.call_id or "") if head else None
+        return conversation.move_head(conversation.turns[reply.parent_id].parent_id, "undo")
+
+    def switch(self, turn_id: str) -> Turn:
+        """Go to another branch: the newest reply on the branch that starts at `turn_id`
+        (a turn ID from /branches). Nothing is sent."""
+        conversation = self._require_conversation()
+        if turn_id not in conversation.turns:
+            raise ConfigError(f"This conversation has no turn {turn_id}. /branches lists them.")
+        reply = conversation.newest_reply_under(turn_id)
+        if reply is None:
+            raise ConfigError(f"Turn {turn_id} has no reply to go to.")
+        head = conversation.move_head(reply.turn_id, "switch")
+        assert head is not None
         return head
 
     def annotate(self, kind: str, text: str) -> list[dict[str, Any]]:
@@ -511,7 +557,10 @@ class Session:
         regen_of: str | None = None,
         on_text: Callable[[str], None] | None = None,
         cancel: threading.Event | None = None,
+        back_to: str | None = None,
     ) -> CallOutcome:
+        """Get the reply to `user_turn`. If the call fails, `head` goes to `back_to`
+        (default: before the message, which becomes a dead branch)."""
         conversation = self._require_conversation()
         profile = conversation.profile
         assert self.model is not None and self.tokenizer is not None
@@ -593,8 +642,9 @@ class Session:
             record["error"] = f"{type(e).__name__}: {e}"
             record["warnings"] = warnings
             conversation.log.append(record)
-            conversation.last_call = record
-            conversation.head = user_turn.parent_id  # the failed message becomes a dead branch
+            conversation.move_head(back_to or user_turn.parent_id, "failed")
+            if back_to is None:
+                conversation.last_call = record  # /prompt shows the failed message's call
             raise
         fields, server_prompt = result_fields(result)
         record.update(fields)
