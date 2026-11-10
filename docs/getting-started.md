@@ -191,7 +191,7 @@ A blind test sends the same openings to several profiles and gives you the repli
 
 ## How the files fit together
 
-Clarity reads the files you write and never edits them. What it resolves and records goes into files of its own:
+Clarity reads the files you write and never edits the ones it ships; your own profiles go in `local/profiles/`. What it resolves and records goes into files of its own:
 
 ```mermaid
 flowchart LR

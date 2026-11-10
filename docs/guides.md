@@ -4,7 +4,7 @@ Short recipes for common tasks. [Getting started](getting-started.md) covers ins
 
 ## Write a profile
 
-A profile is one experimental setup: a model, a mode, the prompt pieces and the settings. Save it as `profiles/NAME.toml` and start it with `uv run clarity chat --profile NAME`.
+A profile is one experimental setup: a model, a mode, the prompt pieces and the settings. Save it as `local/profiles/NAME.toml` (create the folder the first time) and start it with `uv run clarity chat --profile NAME`. The profiles in `profiles/` ship with Clarity; copy one into `local/profiles/` under a new name to change it.
 
 A chat-mode profile uses the model's chat template:
 

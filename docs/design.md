@@ -71,7 +71,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 - The full sha256 is computed at fetch. A server start checks only size and modification time, which is fast; `clarity verify` re-hashes on demand.
 - A ready-made GGUF takes its tokenizer from the model it was made from, and the check after each call shows whether the two agree.
 
-**Hand-written and generated files stay apart.** Clarity never edits `models.toml`, profiles, `defaults.toml` or `server.toml`.
+**Shipped files stay read-only, and your files live in `local/`.** Clarity never edits `models.toml`, `profiles/`, `defaults.toml` or `server.toml`. Your own profiles go in `local/profiles/`, which git ignores, so a `git pull` never touches them. A profile name that exists in both folders is an error, because the name must say which file it means. Clarity writes only into `local/`, `logs/`, `runs/`, `models/`, `models.lock` and the Hugging Face cache, and a new kind of write must be visible to you when it happens.
 
 **Logs are append-only JSONL,** one file per chat conversation and one `calls.jsonl` per batch run, with a schema version. Every call writes a record, including failed and cancelled ones. Readers ignore keys they don't know, so later additions need no format change. `logs/` and `runs/` are private and gitignored.
 
@@ -122,9 +122,18 @@ There is no general "results may vary" notice. Replay flags the one case that ne
 
 ## Not in scope
 
-Left out from the start: a GUI or web UI; tools, retrieval or agents; metrics or LLM judges; multi-user features; an Ollama backend; llama-server's router mode; MLflow export.
+Left out from the start: tools or agents; metrics or LLM judges; multi-user features; an Ollama backend; llama-server's router mode; MLflow export.
 
 Also left out:
 - Running two models side by side. Two 7B models in bf16 need about 29 GB, more than a 32 GB laptop can spare.
 - Speculative decoding, LoRA and control vectors, which `server.toml` refuses.
 - Live tests on Windows and Linux. Offline CI covers them; the live tests have run on macOS (Metal) only.
+
+## Changed decisions
+
+When a choice above changes, the old one, the new one and the reason go here, newest first.
+
+| Date | Was | Now | Why |
+|---|---|---|---|
+| 2026-11-10 | Clarity never edits any file you write. | Shipped files stay read-only; your own files live in `local/`, and Clarity writes there only visibly. | The web interface needs to save profiles and settings you make in it. Keeping them in `local/` keeps a `git pull` from touching them, and keeps the shipped files a fixed reference. |
+| 2026-11-10 | A web interface and retrieval from documents were out of scope. | Both are planned: the web interface in v0.3.0, documents in v0.3.1 to v0.3.3 ([Roadmap](../ROADMAP.md)). | Making local models easy to use for people who don't use a terminal, without giving up exactness. Every feature still works from the terminal. |

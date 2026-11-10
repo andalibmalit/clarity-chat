@@ -6,7 +6,7 @@ Every command, key and record field a user sees. For task-based instructions, se
 
 | Command | What it does |
 |---|---|
-| `clarity chat --profile NAME` | Chat with `profiles/NAME.toml`. NAME can also be a path to a `.toml` file. |
+| `clarity chat --profile NAME` | Chat with `profiles/NAME.toml` or `local/profiles/NAME.toml`. NAME can also be a path to a `.toml` file. |
 | `clarity run --openings FILE --profiles A B … [--seeds N]` | Collect replies for a blind test into `runs/RUN_ID/`. FILE holds openings separated by lines that are exactly `---`. `--seeds N` (default 1) gives N replies per opening and profile, with seeds 333, 334 and so on. |
 | `clarity replay LOG CALL_ID [--logged-flags]` | Re-send a logged call and compare the output. `--logged-flags` starts llama-server with the call's logged flags instead of `server.toml`'s. |
 | `clarity mark LOG CALL_ID LABEL` | Label a logged call's reply while reviewing, in `logs/` or a run's `calls.jsonl`. Appends one record and starts no server. |
@@ -47,7 +47,7 @@ After each reply, a status line shows the stop reason, the reply length in token
 
 ## Profile keys
 
-A profile is a TOML file in `profiles/`. Its name is the file name without `.toml`. Unknown keys are errors, and the allowed keys depend on `mode`.
+A profile is a TOML file in `profiles/` (shipped with Clarity) or `local/profiles/` (yours; git ignores it). Its name is the file name without `.toml`, and a name in both folders is an error. Unknown keys are errors, and the allowed keys depend on `mode`.
 
 All profiles:
 

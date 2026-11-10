@@ -3,6 +3,8 @@ logs/
 runs/
 # Local-only notes: the spec, the build plan and research (see CLAUDE.md)
 notes/
+# Your own files: profiles and, later, Clarity's own state (docs/design.md)
+local/
 # Model weights (sources live in the Hugging Face cache)
 models/
 # llama.cpp checkout and build (path and commit in server.toml)
