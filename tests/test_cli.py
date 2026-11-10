@@ -55,6 +55,13 @@ def test_settings_lists_values_and_origins(loop):
     assert "mirostat = 0" in text
 
 
+def test_settings_lists_the_end_of_reply_tokens(loop):
+    chat, output, backend = loop
+    backend.record = {**backend.record, "model_file": {"eog_tokens": [{"id": 2, "text": "</s>"}]}}
+    chat.handle("/settings")
+    assert "end-of-reply tokens (from the model file): 2 '</s>'" in "".join(output)
+
+
 def test_settings_gives_the_reason_a_setting_was_not_applied(loop):
     chat, output, backend = loop
     backend.not_applied = [

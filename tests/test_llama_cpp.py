@@ -10,6 +10,7 @@ from clarity_chat.backends.llama_cpp import (
     build_request,
     check_generation_settings,
     device_placement,
+    eog_tokens,
     llama_config_files,
     parse_sse_line,
     placement_problem,
@@ -177,6 +178,8 @@ def test_config_files_are_found(monkeypatch, tmp_path):
 
 STARTUP_GPU = """\
 llama_model_load_from_file_impl: using device MTL0 (Apple M2 Max) (unknown id) - 25558 MiB free
+print_info: EOG token             = 100257 '<|endoftext|>'
+print_info: EOG token             = 100265 '<|im_end|>'
 load_tensors: offloaded 31/31 layers to GPU
 load_tensors:   CPU_Mapped model buffer size =    56.25 MiB
 load_tensors:  MTL0_Mapped model buffer size =   256.50 MiB
@@ -314,6 +317,13 @@ def started_server(monkeypatch, root, startup):
     monkeypatch.setattr(server, "check_props", lambda p: [])
     record = server.start()
     return server, launched, json.dumps(record)
+
+
+def test_end_of_reply_tokens_are_logged(monkeypatch, root):
+    _, _, record = started_server(monkeypatch, root, STARTUP_GPU)
+    assert '"eog_tokens": [{"id": 100257, "text": "<|endoftext|>"}, {"id": 100265' in record
+    windows = STARTUP_GPU.replace("\n", "\r\n")
+    assert [t["id"] for t in eog_tokens(windows)] == [100257, 100265]
 
 
 def test_the_server_key_goes_in_the_environment_and_is_never_logged(monkeypatch, root):
