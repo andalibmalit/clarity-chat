@@ -323,3 +323,31 @@ def test_the_gguf_download_route_end_to_end(tmp_path, monkeypatch):
         session.close()
     all_checks_ok(outcome.record)  # includes the echo check: tokenizer and GGUF agree
     assert outcome.record["model"]["gguf_sha256"] == entry["gguf"]["sha256"]
+
+
+def test_the_next_start_stops_a_server_a_killed_clarity_left(tmp_path):
+    """A2 against a real llama-server: a Clarity that dies without stopping its server
+    leaves it recorded; the next start proves it's that server (its key and model) and
+    stops it."""
+    from clarity_chat import instance
+
+    project = tmp_path / "project"  # holds only local/ (the lock and clarity.json)
+    project.mkdir()
+    with instance.hold(project, "chat") as held:
+        session = Session(REPO, logs_dir=tmp_path / "logs", on_server=held.record_server)
+        session.new_conversation("smol-text")
+        assert isinstance(session.backend, LlamaCppBackend)
+        server = session.backend.server
+        assert server is not None and server.proc is not None
+        proc, port = server.proc, server.port
+        # A crash: the block ends without session.close(), so the server keeps running.
+    try:
+        assert proc.poll() is None, "the abandoned server should still be running"
+        assert instance.read_info(project)["server"]["port"] == port  # still recorded
+        with instance.hold(project, "chat") as again:
+            assert again.orphan is not None and "Stopped llama-server" in again.orphan
+        proc.wait(timeout=20)  # it exits on the SIGTERM the next start sent
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=20)
