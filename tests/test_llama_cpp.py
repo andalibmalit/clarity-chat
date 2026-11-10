@@ -220,6 +220,7 @@ class FakeStream:
 
 class PropsFail:
     url = "http://127.0.0.1:1"
+    headers = {"Authorization": "Bearer test-key"}
 
     def get_props(self):
         import httpx
@@ -268,3 +269,67 @@ def test_a_malformed_stream_chunk_is_a_backend_error_with_the_partial_reply(monk
     with pytest.raises(BackendError, match="malformed") as caught:
         backend.complete([1, 2], SETTINGS, [])
     assert caught.value.partial is not None and caught.value.partial.text == "Hi"
+
+
+def started_server(monkeypatch, root, startup):
+    """A LlamaServer.start() with every outside step faked: what it launched, and the record."""
+    import json
+    from pathlib import Path
+
+    from clarity_chat.backends import llama_cpp
+    from clarity_chat.profiles import load_server_config
+
+    config = load_server_config(root)
+    server = llama_cpp.LlamaServer(config, root / "model.gguf", root / "logs")
+    launched = {}
+
+    def launch(argv, env):
+        launched.update(argv=argv, env=env)
+        server.output = [startup]
+        return None
+
+    monkeypatch.setattr(llama_cpp, "llama_config_files", lambda: [])
+    monkeypatch.setattr(llama_cpp, "git_state", lambda d: {"commit": config.llama_cpp_commit})
+    monkeypatch.setattr(llama_cpp, "server_binary", lambda d: Path("llama-server"))
+    monkeypatch.setattr(server, "_launch", launch)
+    props = {
+        "model_path": str(root / "model.gguf"),
+        "default_generation_settings": {"n_ctx": config.ctx_size},
+        "build_info": "b1-" + config.llama_cpp_commit[:7],
+    }
+    monkeypatch.setattr(server, "get_props", lambda: props)
+    monkeypatch.setattr(server, "check_props", lambda p: [])
+    record = server.start()
+    return server, launched, json.dumps(record)
+
+
+def test_the_server_key_goes_in_the_environment_and_is_never_logged(monkeypatch, root):
+    server, launched, record = started_server(monkeypatch, root, STARTUP_GPU)
+    assert launched["env"]["LLAMA_API_KEY"] == server.api_key
+    assert server.api_key not in " ".join(launched["argv"])
+    assert server.api_key not in record
+    assert '"api_key": "random per start; value not logged"' in record
+    assert {"--no-slots", "--no-webui"} <= set(launched["argv"])
+    assert server.headers == {"Authorization": f"Bearer {server.api_key}"}
+
+
+def test_each_start_draws_a_new_key(monkeypatch, root):
+    first, _, _ = started_server(monkeypatch, root, STARTUP_GPU)
+    second, _, _ = started_server(monkeypatch, root, STARTUP_GPU)
+    assert first.api_key != second.api_key
+
+
+def test_the_key_suffix_line_is_redacted_in_the_output_and_the_server_log(root):
+    import io
+
+    from clarity_chat.backends.llama_cpp import LlamaServer
+    from clarity_chat.profiles import load_server_config
+
+    server = LlamaServer(load_server_config(root), root / "model.gguf", root / "logs")
+    server.log_path.parent.mkdir(parents=True)
+    lines = b"main: loading model\nsrv          init: api_keys: ****Wx9z\nmain: ready\n"
+    server._drain(io.BytesIO(lines))
+    for text in (server.output_text(), server.log_path.read_text(encoding="utf-8")):
+        assert "Wx9z" not in text
+        assert "api_keys: (redacted by Clarity)" in text
+        assert "main: ready" in text

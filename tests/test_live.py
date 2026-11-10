@@ -65,6 +65,18 @@ def test_server_start_is_logged_with_props_and_gpu_placement(session):
     assert "--no-context-shift" in record["argv"]
 
 
+def test_the_server_refuses_requests_without_its_key(session):
+    import httpx
+
+    url = session.backend.server.url
+    assert httpx.get(f"{url}/health", trust_env=False).status_code == 200  # public
+    assert httpx.get(f"{url}/props", trust_env=False).status_code == 401
+    body = {"prompt": [1, 2], "n_predict": 1}
+    assert httpx.post(f"{url}/completion", json=body, trust_env=False).status_code == 401
+    assert httpx.get(f"{url}/", trust_env=False).status_code != 200  # --no-webui
+    assert "api_keys: (redacted by Clarity)" in session.backend.server.output_text()
+
+
 def test_text_mode_reply_stops_before_the_next_user_line(session):
     session.new_conversation("smol-text")
     session.say("What is the capital of France?")

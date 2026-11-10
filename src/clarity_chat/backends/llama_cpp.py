@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import secrets
 import socket
 import struct
 import subprocess
@@ -232,6 +233,11 @@ ENV_REMOVED = {"LLAMA_API_KEY", "HF_TOKEN", "MTMD_BACKEND_DEVICE"}
 SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASS|AUTH|CREDENTIAL", re.IGNORECASE)
 REDACTED = "(value not logged: the name looks like a secret)"
 
+# At log-verbosity 4 llama-server prints the API key's last four characters
+# (tools/server/server-http.cpp); Clarity replaces the line in its output and log.
+API_KEY_LINE = re.compile(r"api_keys: \*\*\*\*\S*")
+API_KEY_REDACTED = "api_keys: (redacted by Clarity)"
+
 
 def server_env() -> tuple[dict[str, str], list[str], dict[str, str]]:
     """The environment for llama-server, the names removed, and the LLAMA_*/GGML_* variables
@@ -308,10 +314,17 @@ class LlamaServer:
         self.output: list[str] = []
         self._output_lock = threading.Lock()
         self.record: dict[str, Any] = {}
+        # A new key per start, so a web page in a browser can't use the server (only /health
+        # is public). It goes in the child's environment, not argv, which is logged.
+        self.api_key = secrets.token_urlsafe(32)
 
     @property
     def url(self) -> str:
         return f"http://127.0.0.1:{self.port}"
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.api_key}"}
 
     def output_text(self) -> str:
         with self._output_lock:
@@ -320,7 +333,7 @@ class LlamaServer:
     def _drain(self, stream: Any) -> None:
         with self.log_path.open("a", encoding="utf-8", newline="") as log:
             for raw in iter(stream.readline, b""):
-                line = raw.decode("utf-8", errors="replace")
+                line = API_KEY_LINE.sub(API_KEY_REDACTED, raw.decode("utf-8", errors="replace"))
                 with self._output_lock:
                     self.output.append(line)
                 log.write(line)
@@ -341,6 +354,7 @@ class LlamaServer:
             )
         binary = server_binary(self.config.llama_cpp_dir)
         env, removed, kept = server_env()
+        env = {**env, "LLAMA_API_KEY": self.api_key}  # after server_env: not "inherited"
         self.log_path.parent.mkdir(parents=True, exist_ok=True)
         attempts = []
         for _ in range(3):  # a free port can be taken between choosing it and binding it
@@ -353,6 +367,8 @@ class LlamaServer:
                 "127.0.0.1",
                 "--port",
                 str(self.port),
+                "--no-slots",  # /slots would show prompts to anyone holding the key
+                "--no-webui",  # the built-in web UI is public even with a key
                 *self.config.flag_argv(),
             ]
             error = self._launch(argv, env)
@@ -393,6 +409,7 @@ class LlamaServer:
             "argv": argv,
             "flags": self.config.flags,
             "port_attempts": attempts,
+            "api_key": "random per start; value not logged",
             "env_removed": removed,
             "env_llama_ggml_kept": kept,
             "llama_cpp": {"dir": self.config.llama_cpp_dir.as_posix(), **checkout},
@@ -446,7 +463,9 @@ class LlamaServer:
         return f"no healthy response within {self.config.startup_timeout_s} s"
 
     def get_props(self) -> dict[str, Any]:
-        r = httpx.get(f"{self.url}/props", timeout=10, trust_env=False, verify=False)
+        r = httpx.get(
+            f"{self.url}/props", headers=self.headers, timeout=10, trust_env=False, verify=False
+        )
         r.raise_for_status()
         return r.json()
 
@@ -553,6 +572,7 @@ class LlamaCppBackend:
             with httpx.stream(
                 "POST",
                 f"{self.server.url}/completion",
+                headers=self.server.headers,
                 json=request,
                 timeout=timeout,
                 trust_env=False,

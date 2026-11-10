@@ -153,6 +153,10 @@ def test_server_config_builds_flags(root):
         ('model = "x.gguf"', "not allowed"),
         ('hf-repo = "a/b"', "not allowed"),
         ("context-shift = true", "not allowed"),
+        ('api-key-file = "keys.txt"', "not allowed"),
+        ("webui = true", "not allowed"),
+        ('ui-config = "{}"', "not allowed"),
+        ("slots = true", "not allowed"),
         ("-c = 4096", "long name"),
     ],
 )
