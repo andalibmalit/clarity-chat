@@ -116,7 +116,7 @@ def test_m1_cancel_during_prompt_processing(tmp_path):
 
 
 MEMORY_LINE = re.compile(
-    r"(model buffer size|KV buffer size|compute buffer size|graph splits|graph nodes"
+    r"(model buffer size|KV buffer size|compute buffer size|splits = "
     r"|recommendedMaxWorkingSetSize|MiB free|n_ctx|flash_attn|n_swa)",
 )
 
