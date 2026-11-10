@@ -30,6 +30,7 @@ Two headings are Clarity's own, used when they apply:
 - A call can be cancelled from any thread, which the web interface and `clarity chat --json` will use. Each cancelled call logs `cancelled_during`: `prompt` or `reply`.
 - `clarity mark LOG CALL_ID LABEL` and `clarity note LOG CALL_ID TEXT` label or annotate any logged reply after the chat, without starting a model. Marks and notes now record whether they were made live or in review.
 - The Transformers backend sets `attn_implementation = "sdpa"` explicitly, checks it after loading, and logs it.
+- `uv run pytest -m embed` tests whether llama-server's embeddings of bge-small, a new entry in `models.toml`, come back bit-identical.
 - User docs: getting started, guides, reference and contributing.
 - `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTORS.md`, `CODE_OF_CONDUCT.md` and `ROADMAP.md`; a release checklist and a Credit section in `CONTRIBUTING.md`.
 
