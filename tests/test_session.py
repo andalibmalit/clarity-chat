@@ -348,6 +348,7 @@ def test_chats_lists_a_log_it_cant_read_and_never_writes(fetched_root):
     (logs / "20200101-000001-cut.jsonl").write_bytes(b'{"type": "conversation", "ti')
     before = {p.name: p.read_bytes() for p in logs.iterdir()}
     chats = {c["conversation_id"]: c for c in list_chats(logs)}
-    assert "error" in chats["20200101-000000-bad"]
+    assert chats["20200101-000000-bad"]["error"]
+    assert chats["20200101-000000-bad"].keys() == chats["20200101-000001-cut"].keys()
     assert chats["20200101-000001-cut"]["title"] is None  # only an unfinished line so far
     assert {p.name: p.read_bytes() for p in logs.iterdir()} == before

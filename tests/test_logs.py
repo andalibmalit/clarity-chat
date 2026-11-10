@@ -174,4 +174,4 @@ def test_the_chat_list_skips_a_cut_off_title_a_torn_line_names(tmp_path):
         f.write(b'{"schema_version": 1, "time": "t", "type": "title", "ti')
     log.append({"type": "note"})  # ends the cut line with a torn_line
     (chat,) = list_chats(tmp_path)
-    assert "error" not in chat and chat["title"] == "kept"
+    assert chat["error"] is None and chat["title"] == "kept"

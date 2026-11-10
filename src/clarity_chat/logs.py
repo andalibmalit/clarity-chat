@@ -164,15 +164,28 @@ def list_chats(logs_dir: Path) -> list[dict[str, Any]]:
         try:
             chats.append(chat_summary(path))
         except (OSError, ValueError) as e:
-            chats.append({"conversation_id": path.stem, "path": path.as_posix(), "error": str(e)})
+            chats.append({**_blank_summary(path), "error": str(e)})
     return chats
+
+
+def _blank_summary(path: Path) -> dict[str, Any]:
+    """Every chat-list entry has these keys, readable or not, so clients needn't branch."""
+    return {
+        "conversation_id": path.stem,
+        "path": path.as_posix(),
+        "profile": None,
+        "model": None,
+        "started": None,
+        "title": None,
+        "title_set": False,
+        "error": None,
+    }
 
 
 def chat_summary(path: Path) -> dict[str, Any]:
     """A conversation's ID, profile, model, start time and title. Reads the log as far as
     its first message; after that, only lines that may be `title` records (`/title`)."""
-    summary: dict[str, Any] = {"conversation_id": path.stem, "path": path.as_posix()}
-    summary.update(profile=None, model=None, started=None, title=None, title_set=False)
+    summary = _blank_summary(path)
     first_message, bad = False, None
     with path.open("rb") as f:
         for number, line in enumerate(f, 1):

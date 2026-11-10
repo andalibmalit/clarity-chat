@@ -135,7 +135,7 @@ def format_chats(chats: list[dict[str, Any]]) -> str:
         return "No conversations in logs/ yet."
     lines = []
     for chat in chats:
-        if "error" in chat:
+        if chat["error"]:
             lines.append(f"{chat['conversation_id']}  can't be read: {chat['error']}")
             continue
         title = chat["title"] if chat["title"] is not None else "(no messages)"
