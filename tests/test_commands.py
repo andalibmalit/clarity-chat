@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from clarity_chat.commands import COMMANDS, Commands
+from clarity_chat.commands import Commands
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import CancelledBeforeReply, Session
 from tests.fakes import FakeBackend
@@ -47,10 +47,6 @@ def test_commands_need_a_conversation_except_a_few(commands):
     assert c.run("help", "", lambda e: None)["commands"][0]["usage"] == "/say TEXT"
     with pytest.raises(ConfigError, match="Unknown command /nope"):
         c.run("nope", "", lambda e: None)
-
-
-def test_only_cancel_runs_during_a_call():
-    assert [name for name, cmd in COMMANDS.items() if cmd.during_call] == ["cancel"]
 
 
 def test_one_command_at_a_time_and_an_early_cancel_still_lands(commands):

@@ -2,9 +2,10 @@
 
 Two at once would load two models (more memory than a laptop has) and could append to the
 same log. The lock is `local/clarity.lock`, held with the operating system's file lock, so
-the kernel releases it however the process ends. What a second process needs to know (who
-holds it, since when) is in `local/clarity.json`, a separate file, because on Windows a
-locked file can't be read by anyone else.
+the system releases it however the process ends (on Windows, possibly after a short
+delay). What a second process needs to know (who holds it, since when) is in
+`local/clarity.json`, a separate file, because on Windows a locked file can't be read by
+anyone else.
 """
 
 from __future__ import annotations
@@ -42,9 +43,10 @@ def _try_lock(fd: int) -> bool:
 def read_info(root: Path) -> dict[str, Any]:
     """What the last holder wrote; empty if nothing (or nothing readable) is there."""
     try:
-        return json.loads((root / "local" / "clarity.json").read_text(encoding="utf-8"))
+        info = json.loads((root / "local" / "clarity.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    return info if isinstance(info, dict) else {}
 
 
 def write_info(root: Path, info: dict[str, Any]) -> None:
@@ -78,9 +80,12 @@ def stop_orphan(server: dict[str, Any], wait_s: float = 120) -> str:
 
     import httpx
 
-    port = server["port"]
+    try:
+        port, pid, key, model = (server[k] for k in ("port", "pid", "api_key", "model_path"))
+    except (KeyError, TypeError):
+        return "An earlier Clarity left a server record that can't be read; nothing was stopped."
     url = f"http://127.0.0.1:{port}/props"
-    headers = {"Authorization": f"Bearer {server['api_key']}"}
+    headers = {"Authorization": f"Bearer {key}"}
     deadline = time.monotonic() + wait_s
     while True:
         try:
@@ -97,11 +102,11 @@ def stop_orphan(server: dict[str, Any], wait_s: float = 120) -> str:
         props = r.json() if r.status_code == 200 else {}
     except ValueError:
         props = {}
-    if Path(props.get("model_path", "")) != Path(server["model_path"]):
+    if Path(props.get("model_path", "")) != Path(model):
         return f"Port {port} answers, but not as the server an earlier Clarity left: left alone."
-    os.kill(server["pid"], signal.SIGTERM)
+    os.kill(pid, signal.SIGTERM)
     return (
-        f"Stopped llama-server (pid {server['pid']}, port {port}), left running "
+        f"Stopped llama-server (pid {pid}, port {port}), left running "
         "by an earlier Clarity that didn't exit normally."
     )
 
@@ -147,4 +152,9 @@ def hold(root: Path, command: str) -> Generator[Held]:
             if not held.info.get("server"):  # a server that didn't stop stays recorded
                 (local / "clarity.json").unlink(missing_ok=True)
     finally:
-        os.close(fd)  # closing the descriptor releases the lock
+        if sys.platform == "win32":  # Microsoft asks for an unlock before the close
+            try:
+                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+            except OSError:
+                pass  # not locked: another instance holds it
+        os.close(fd)  # on Linux and macOS, closing the descriptor releases the lock

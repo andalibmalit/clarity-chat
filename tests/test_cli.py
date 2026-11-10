@@ -162,3 +162,9 @@ def test_an_edit_of_only_whitespace_is_cancelled(loop, line):
     chat.handle(line)
     assert "Edit cancelled." in "".join(output)
     assert len(backend.calls) == 1
+
+
+def test_cancel_between_calls_says_there_is_nothing_to_cancel(loop):
+    chat, output, _ = loop
+    chat.handle("/cancel")
+    assert "Nothing to cancel." in "".join(output)
