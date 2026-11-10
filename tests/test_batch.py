@@ -338,9 +338,7 @@ def test_ctrl_c_between_calls_says_where_the_run_stopped(batch):
         batch(setup=setup)
 
 
-def test_profiles_on_one_model_with_different_context_sizes_each_start_once(
-    batch, fetched_root
-):
+def test_profiles_on_one_model_with_different_context_sizes_each_start_once(batch, fetched_root):
     profile = fetched_root / "profiles" / "text2.toml"
     profile.write_text("ctx_size = 4096\n" + profile.read_text(encoding="utf-8"), "utf-8")
     _, _, backend, _ = batch(seeds=2)
