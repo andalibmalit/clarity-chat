@@ -97,3 +97,63 @@ def test_two_processes_appending_to_one_log_never_split_a_line(tmp_path):
     assert other.wait() == 0
     rows = list(read_records(path))
     assert sorted(r["type"] for r in rows) == ["call"] * 40 + ["mark"] * 40
+
+
+def torn_log(tmp_path):
+    """A log whose last line was cut off mid-write (a crash or a full disk)."""
+    path = tmp_path / "c.jsonl"
+    LogFile(path).append({"type": "note", "text": "kept"})
+    with path.open("ab") as f:
+        f.write(b'{"type": "call", "output_te')
+    return path
+
+
+def test_an_append_after_a_torn_line_ends_it_and_says_so(tmp_path):
+    path = torn_log(tmp_path)
+    before = path.read_bytes()
+    seen = []
+    log = LogFile(path)
+    log.on_append = seen.append
+    log.append({"type": "note", "text": "next"})
+    assert path.read_bytes().startswith(before)  # nothing rewritten
+    rows = list(read_records(path))
+    assert [r["type"] for r in rows] == ["note", "torn_line", "note"]
+    assert rows[1]["line"] == 2 and rows[1]["bytes"] == len(b'{"type": "call", "output_te')
+    assert [r["type"] for r in seen] == ["torn_line", "note"]
+
+
+def test_mend_ends_a_torn_line_without_another_record(tmp_path):
+    path = torn_log(tmp_path)
+    torn = LogFile(path).mend()
+    assert torn is not None and torn["line"] == 2
+    assert [r["type"] for r in read_records(path)] == ["note", "torn_line"]
+    assert LogFile(path).mend() is None  # once is enough
+    assert LogFile(tmp_path / "missing.jsonl").mend() is None
+    assert not (tmp_path / "missing.jsonl").exists()
+
+
+def test_a_malformed_line_no_torn_line_names_is_an_error(tmp_path):
+    from clarity_chat.profiles import ConfigError
+
+    path = torn_log(tmp_path)
+    with pytest.raises(ConfigError, match="Line 2 of c.jsonl"):
+        list(read_records(path))
+    with path.open("ab") as f:  # ended, but not by Clarity: still unexplained
+        f.write(b"\n")
+    LogFile(path).append({"type": "note"})
+    with pytest.raises(ConfigError, match="Line 2 of c.jsonl"):
+        list(read_records(path))
+
+
+def test_a_torn_line_that_parses_is_kept(tmp_path):
+    path = tmp_path / "c.jsonl"
+    path.write_bytes(b'{"type": "note", "text": "no line end"}')
+    LogFile(path).append({"type": "note"})
+    assert [r["type"] for r in read_records(path)] == ["note", "torn_line", "note"]
+
+
+def test_a_line_cut_inside_a_character_is_torn_too(tmp_path):
+    path = tmp_path / "c.jsonl"
+    path.write_bytes('{"type": "note", "text": "é'.encode()[:-1])  # half of "é"
+    LogFile(path).append({"type": "note"})
+    assert [r["type"] for r in read_records(path)] == ["torn_line", "note"]

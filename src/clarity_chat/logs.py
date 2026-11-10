@@ -1,8 +1,9 @@
 """Log records: one append-only JSONL file per conversation.
 
-Every record has `schema_version`, `type` and `time`, and all but `run` have
-`conversation_id`. Record types: `run` (the first record of a batch run's `calls.jsonl`),
-`conversation`, `server_start`, `turn`, `call`, `mark`, `note`, `replay`. Readers ignore
+Every record has `schema_version`, `type` and `time`, and all but `run` and `torn_line`
+have `conversation_id`. Record types: `run` (the first record of a batch run's
+`calls.jsonl`), `conversation`, `server_start`, `turn`, `call`, `mark`, `note`, `replay`,
+`torn_line` (the line before it was cut off). Readers ignore
 keys they don't know, so new fields (token probabilities, reasoning splits, exports) need
 no format change. A line is never rewritten; a correction is a new record pointing at the
 old one.
@@ -30,6 +31,8 @@ from functools import cache
 from pathlib import Path
 from typing import Any
 
+from clarity_chat.profiles import ConfigError
+
 SCHEMA_VERSION = 1
 _append_lock = threading.Lock()
 
@@ -51,7 +54,11 @@ class LogFile:
     One os.write on an O_APPEND descriptor, so another process appending to the same file
     (`clarity mark` on a live chat's log) adds its line after this one, not inside it, on
     local file systems. Windows only emulates O_APPEND; the instance lock keeps a second
-    chat away there, and mark and note write one short line."""
+    chat away there, and mark and note write one short line.
+
+    A last line with no line end was cut off (a crash or a full disk while it was written).
+    The next append ends it and adds a `torn_line` record naming it, in the same write.
+    Nothing is rewritten."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -60,28 +67,97 @@ class LogFile:
 
     def append(self, record: dict[str, Any]) -> dict[str, Any]:
         full = {"schema_version": SCHEMA_VERSION, "time": now_utc(), **record}
-        data = memoryview((json.dumps(full, ensure_ascii=False) + "\n").encode("utf-8"))
+        self._write(full)
+        return full
+
+    def mend(self) -> dict[str, Any] | None:
+        """End a torn last line with its `torn_line` record, for writers that read the log
+        before they append. Returns that record, or None if there was nothing to mend."""
+        if not self.path.is_file():
+            return None
+        return self._write(None)
+
+    def _write(self, record: dict[str, Any] | None) -> dict[str, Any] | None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0)
+        flags = os.O_RDWR | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0)
         with _append_lock:
             fd = os.open(self.path, flags, 0o644)
             try:
+                torn = _torn_tail(fd)
+                lines = [_line(r) for r in (torn, record) if r is not None]
+                data = memoryview((b"\n" if torn else b"") + b"".join(lines))
                 while data:  # a short write (a full disk) is rare; finish the line
                     data = data[os.write(fd, data) :]
                 os.fsync(fd)
             finally:
                 os.close(fd)
-        if self.on_append:
-            self.on_append(full)
-        return full
+        for written in (torn, record):
+            if written is not None and self.on_append:
+                self.on_append(written)
+        return torn
+
+
+def _line(record: dict[str, Any]) -> bytes:
+    return (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _torn_tail(fd: int) -> dict[str, Any] | None:
+    """A `torn_line` record if the file's last line has no line end, else None."""
+    size = os.lseek(fd, 0, os.SEEK_END)
+    if size == 0:
+        return None
+    os.lseek(fd, -1, os.SEEK_END)
+    if os.read(fd, 1) == b"\n":
+        return None
+    os.lseek(fd, 0, os.SEEK_SET)
+    newlines, last_newline, read = 0, -1, 0
+    while chunk := os.read(fd, 1 << 20):
+        newlines += chunk.count(b"\n")
+        if (i := chunk.rfind(b"\n")) >= 0:
+            last_newline = read + i
+        read += len(chunk)
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "type": "torn_line",
+        "time": now_utc(),
+        "line": newlines + 1,
+        "bytes": size - last_newline - 1,
+    }
+
+
+def torn_message(record: dict[str, Any], path: Path) -> str:
+    return (
+        f"Line {record['line']} of {path.name} was never finished (Clarity stopped while "
+        f"writing it: a crash or a full disk). It stays as it was, and a torn_line record "
+        f"after it says so."
+    )
 
 
 def read_records(path: Path) -> Iterator[dict[str, Any]]:
-    """Records in file order. Splits only on "\\n" (never on U+2028 and friends)."""
-    with path.open(encoding="utf-8", newline="\n") as f:
-        for line in f:
-            if line.strip():
-                yield json.loads(line)
+    """Records in file order. Splits only on "\\n" (never on U+2028 and friends). A line
+    that isn't a record is skipped only if the next record is a `torn_line` naming it."""
+    bad: int | None = None  # a malformed line, until the next record explains it
+    with path.open("rb") as f:  # bytes split only on b"\n"; a broken UTF-8 line is malformed
+        for number, line in enumerate(f, 1):
+            if not line.strip():
+                continue
+            try:
+                record = json.loads(line)
+            except ValueError:  # includes UnicodeDecodeError
+                if bad is not None:
+                    break
+                bad = number
+                continue
+            if bad is not None:
+                if record.get("type") != "torn_line" or record.get("line") != bad:
+                    break
+                bad = None
+            yield record
+    if bad is not None:
+        raise ConfigError(
+            f"Line {bad} of {path.name} isn't a complete record, and no torn_line record "
+            f"says it was cut off. Clarity won't guess what it held; the file is at {path}."
+        )
 
 
 # --- environment facts -----------------------------------------------------------------
