@@ -143,10 +143,8 @@ def format_chats(chats: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def render_line(render: dict[str, Any]) -> str:
+def render_line(render: dict[str, Any]) -> str:  # a check of a reply (not None)
     """The re-render check of a resumed conversation's current reply, in one line."""
-    if "skipped" in render:
-        return "No reply yet, so no prompt to check."
     if render["identical"]:
         return "The current reply's prompt renders to the same token IDs today."
     if "error" in render:
@@ -168,6 +166,11 @@ def format_resume(result: dict[str, Any]) -> str:
         f"({result['model']}, {result['mode']} mode), as logged. It continues {where}."
     ]
     lines += [f"! {warning}" for warning in result["warnings"]]
+    if record["unanswered"]:
+        lines.append(
+            f"! Your last message got no reply (its call failed or was cut off): "
+            f"{record['unanswered']['text'][:60]!r}. Send it again to get one."
+        )
     if record["head_guessed"]:
         lines.append(
             "! This log is from v0.1.0, which didn't record /undo or failed calls, so it "
@@ -211,10 +214,9 @@ def format_resume(result: dict[str, Any]) -> str:
             + ", ".join(record["not_recorded"])
             + "."
         )
-    lines.append(
-        ("! " if not record["render"].get("identical", True) else "")
-        + render_line(record["render"])
-    )
+    render = record["render"]
+    if render is not None:
+        lines.append(("" if render["identical"] else "! ") + render_line(render))
     return "\n".join(lines)
 
 

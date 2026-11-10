@@ -133,6 +133,7 @@ def _resume(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     head = conversation.turns.get(record["head"]) if record["head"] else None
     return {
         "resume": record,
+        "conversation_id": conversation.conversation_id,
         "profile": conversation.profile.name,
         "model": conversation.profile.model,
         "mode": conversation.profile.mode,
@@ -217,7 +218,7 @@ def settings_view(session: Session) -> dict[str, Any]:
         "eog_tokens": model_file.get("eog_tokens"),
         "recommended": recommended and {**recommended, "used": profile.use_recommended},
         "not_applied": last.get("not_applied") or [],
-        "ctx_size": (conversation.ctx_size or session.ctx_size_for(profile)).to_json(),
+        "ctx_size": conversation.ctx_size.to_json(),
         "stop": profile.stop,
     }
 

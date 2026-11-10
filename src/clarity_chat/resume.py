@@ -25,6 +25,7 @@ class Rebuilt:
     chat_settings: dict[str, Any] = field(default_factory=dict)
     servers: dict[str, dict[str, Any]] = field(default_factory=dict)  # server_start by ID
     last_call: dict[str, Any] | None = None  # the last call that has a reply
+    unanswered: dict[str, Any] | None = None  # the last message, if it got no reply
 
 
 def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
@@ -53,6 +54,9 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
             out.chat_settings = record["chat_settings"]
         elif kind == "server_start":
             out.servers.setdefault(record["server_id"], record)
+    last = out.turns[-1] if out.turns else None
+    if last and last["role"] == "user":  # its call failed, or Clarity stopped during it
+        out.unanswered = {"turn_id": last["turn_id"], "text": last["text"]}
     if out.head is not None and roles[out.head]["role"] == "user":
         out.head = roles[out.head]["parent_id"]
     # v0.1.0 logged neither /undo nor a failed call's move back: the head is a guess.
