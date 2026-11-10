@@ -17,6 +17,9 @@ Two headings are Clarity's own, used when they apply:
 - User docs: getting started, guides, reference and contributing.
 - `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTORS.md`, `CODE_OF_CONDUCT.md` and `ROADMAP.md`; a release checklist and a Credit section in `CONTRIBUTING.md`.
 
+### Fixed
+- On CUDA and Vulkan, a model whose weights went only to pinned system memory (`CUDA_Host`, `Vulkan_Host`) passed the GPU placement check. It's now an error, like any model that lands on the CPU.
+
 ## [0.1.0] - 2026-11-09
 
 The first release.

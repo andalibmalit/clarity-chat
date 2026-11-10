@@ -196,7 +196,6 @@ def test_gpu_placement_is_read_from_startup_output():
     assert placement_problem({"n-gpu-layers": "all"}, placement) is None
 
 
-@pytest.mark.xfail(strict=True, reason="A7: _Host buffers are counted as GPU memory")
 @pytest.mark.parametrize("host_buffer", ["CUDA_Host", "Vulkan_Host"])
 def test_pinned_host_buffers_count_as_cpu(host_buffer):
     # CUDA and Vulkan name pinned system-memory buffers "<backend>_Host": not on the GPU.
