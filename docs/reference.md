@@ -136,7 +136,7 @@ The Transformers backend applies its samplers in a fixed order: penalties, tempe
 
 ## models.toml
 
-Each table is one model. Every revision is a full 40-character commit hash.
+Each table is one model, and its name is the model's name in profiles and `clarity fetch`. Quote a name with a dot in it, such as `["bge-small-en-v1.5"]`: in TOML, a bare dot starts a nested table. Every revision is a full 40-character commit hash.
 
 | Key | Routes | Value |
 |---|---|---|
