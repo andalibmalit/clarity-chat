@@ -11,7 +11,13 @@ from typing import Any
 
 from clarity_chat.backends import BackendError
 from clarity_chat.profiles import ConfigError, find_root, load_models, load_server_config
-from clarity_chat.session import CallOutcome, ContextError, Conversation, Session
+from clarity_chat.session import (
+    CallOutcome,
+    CancelledBeforeReply,
+    ContextError,
+    Conversation,
+    Session,
+)
 
 HELP = """\
 Enter sends; Alt+Enter (or Esc then Enter) starts a new line. Pasted text keeps its newlines.
@@ -193,6 +199,7 @@ class ChatLoop:
         self.profile_name = profile_name
         self.read = read
         self.write = write
+        self.draft = ""  # prefilled in the next input
 
     def start(self) -> None:
         self.write(f"Starting profile {self.profile_name} …\n")
@@ -206,8 +213,9 @@ class ChatLoop:
     def run(self) -> None:
         self.start()
         while True:
+            draft, self.draft = self.draft, ""
             try:
-                line = self.read("")
+                line = self.read(draft)
             except KeyboardInterrupt:
                 continue
             except EOFError:
@@ -312,7 +320,7 @@ class ChatLoop:
         if not text.strip():
             self.write("Edit cancelled.\n")
             return
-        self.run_call(lambda: self.session.edit(text, on_text=self.write))
+        self.run_call(lambda: self.session.edit(text, on_text=self.write), message=text)
 
     def replay(self) -> None:
         try:
@@ -331,15 +339,27 @@ class ChatLoop:
             self.write(f"! {warning}\n")
 
     def send(self, text: str) -> bool:
-        self.run_call(lambda: self.session.say(text, on_text=self.write))
+        self.run_call(lambda: self.session.say(text, on_text=self.write), message=text)
         return True
 
-    def run_call(self, call: Callable[[], CallOutcome]) -> None:
-        """Make a call, streaming its reply, then show warnings, flags and a status line."""
+    def run_call(self, call: Callable[[], CallOutcome], message: str = "") -> None:
+        """Make a call, streaming its reply, then show warnings, flags and a status line.
+        `message`, the text sent, is offered back if the call is cancelled before a reply."""
         try:
             outcome = call()
         except (ContextError, ConfigError) as e:
             self.write(f"! {e}\n")
+            return
+        except CancelledBeforeReply as e:
+            self.write(
+                f"\n! {e} No reply was added."
+                + (
+                    " Your message is back in the input to edit or send again.\n"
+                    if message
+                    else "\n"
+                )
+            )
+            self.draft = message
             return
         except BackendError as e:
             self.write(f"\n! Call failed: {e}\n")

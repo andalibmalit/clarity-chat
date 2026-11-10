@@ -10,6 +10,7 @@ record, whether it succeeded, failed or was cancelled.
 from __future__ import annotations
 
 import secrets
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -51,6 +52,10 @@ CONTEXT_WARN_FRACTION = 0.8
 
 class ContextError(Exception):
     """The prompt plus max_tokens doesn't fit the context; nothing was sent."""
+
+
+class CancelledBeforeReply(BackendError):
+    """The call was cancelled before its first token: logged like a failed call, no reply."""
 
 
 def room_left(n_ctx: int, n_prompt: int, max_tokens: int) -> int:
@@ -186,6 +191,7 @@ class Session:
         self.tokenizer: Tokenizer | None = None
         self.template_tokenizer: Tokenizer | None = None
         self.template: dict[str, Any] | None = None
+        self._cancel: threading.Event | None = None  # the running call's, if any
         self.weights: Path | None = None  # what the current model was started from
         self._tokenizers: dict[tuple[str, str], Tokenizer] = {}
 
@@ -365,6 +371,14 @@ class Session:
         if record["server_id"] not in conversation.log.servers_logged:
             conversation.log.append({**record, "conversation_id": conversation.conversation_id})
             conversation.log.servers_logged.add(record["server_id"])
+
+    def cancel(self) -> bool:
+        """Stop the running call, from any thread. Returns False if no call is running."""
+        event = self._cancel
+        if event is None:
+            return False
+        event.set()
+        return True
 
     def close(self) -> None:
         self.backend.close()
@@ -549,7 +563,15 @@ class Session:
                     f"The prompt uses {len(prompt.ids)} of {n_ctx} context tokens "
                     f"({len(prompt.ids) / n_ctx:.0%})."
                 )
-            result = self.backend.complete(prompt.ids, values, profile.stop, on_text=on_text)
+            self._cancel = cancel = threading.Event()  # one per call, so none is left set
+            try:
+                result = self.backend.complete(
+                    prompt.ids, values, profile.stop, on_text=on_text, cancel=cancel
+                )
+            finally:
+                self._cancel = None
+            if result.stop_type == "cancelled" and not result.token_ids:
+                raise CancelledBeforeReply("Cancelled before the reply started.", result)
         except (ContextError, BackendError, ConfigError) as e:
             partial = e.partial if isinstance(e, BackendError) else None
             if partial is not None:
@@ -783,6 +805,7 @@ def result_fields(result: Result) -> tuple[dict[str, Any], str | None]:
         "output_text": result.text,
         "output_ids": result.token_ids,
         "stop_type": result.stop_type,
+        **({"cancelled_during": result.cancelled_during} if result.cancelled_during else {}),
         "stopping_word": result.stopping_word,
         "tokens_evaluated": result.n_prompt,
         "tokens_predicted": result.n_predicted,

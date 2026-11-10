@@ -212,3 +212,40 @@ def test_ctx_size_must_be_a_positive_integer(make_session, fetched_root, value):
     with_ctx_size(fetched_root, "bad", value)
     with pytest.raises(ConfigError, match="ctx_size must be a positive integer"):
         session.new_conversation("bad")
+
+
+def test_a_cancel_before_the_first_token_is_a_failed_call_with_no_reply(make_session):
+    from clarity_chat.session import CancelledBeforeReply
+
+    session, backend = make_session([" one", " two", " three"])
+    first = session.say("a")
+    backend.on_call = session.cancel  # as if another thread cancelled mid-call
+    with pytest.raises(CancelledBeforeReply):
+        session.say("b")
+    call = records(session, "call")[-1]
+    assert call["stop_type"] == "cancelled" and call["cancelled_during"] == "prompt"
+    assert "Cancelled before the reply started" in call["error"]
+    assert "turn_id" not in call
+    assert session.conversation.head == first.turn.turn_id  # the message is a dead branch
+    backend.on_call = None
+    assert session.say("c").turn.text == " three"  # the next call isn't cancelled
+    assert session.cancel() is False  # no call running
+
+
+def test_a_cancel_after_some_text_keeps_the_partial_reply(make_session):
+    session, backend = make_session([" Hello there"])
+    backend.cancel_after = 3
+    outcome = session.say("a")
+    assert outcome.turn.text == " He"
+    assert outcome.record["cancelled_during"] == "reply"
+
+
+def test_an_early_cancel_on_regen_leaves_you_on_the_reply_you_had(make_session):
+    from clarity_chat.session import CancelledBeforeReply
+
+    session, backend = make_session([" one"])
+    first = session.say("a")
+    backend.on_call = session.cancel
+    with pytest.raises(CancelledBeforeReply):
+        session.regen()
+    assert session.conversation.head == first.turn.turn_id

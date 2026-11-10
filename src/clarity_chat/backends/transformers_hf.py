@@ -19,6 +19,7 @@ frequency_penalty and repeat_last_n have no Transformers equivalent: not applied
 from __future__ import annotations
 
 import os
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -230,6 +231,10 @@ def held_back(text: str, stop: list[str]) -> int:
     return longest
 
 
+class Cancelled(Exception):
+    """Raised from the streamer to stop generate() when the call's cancel event is set."""
+
+
 class TransformersBackend:
     name = NAME
 
@@ -356,7 +361,10 @@ class TransformersBackend:
         stop: list[str],
         on_text: Callable[[str], None] | None = None,
         request: dict[str, Any] | None = None,
+        cancel: threading.Event | None = None,
     ) -> Result:
+        """`cancel` is checked as each token arrives, so it can't stop the prompt pass: a
+        cancel during it takes effect at the first token."""
         if self.model is None:
             raise BackendError("No model loaded.")
         import torch
@@ -405,6 +413,8 @@ class TransformersBackend:
                     return
                 if not first_token_at:
                     first_token_at.append(time.perf_counter())
+                if cancel is not None and cancel.is_set():
+                    raise Cancelled
                 ids.extend(int(t) for t in value.reshape(-1).tolist())
                 if on_text:
                     text = visible()
@@ -430,7 +440,7 @@ class TransformersBackend:
                     tokenizer=self.tokenizer,
                     streamer=Collect(),
                 )
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, Cancelled):
             cancelled = True
         except Exception as e:
             raise BackendError(
@@ -469,6 +479,7 @@ class TransformersBackend:
             text=text,
             token_ids=ids,
             stop_type=stop_type,
+            cancelled_during=("reply" if ids else "prompt") if cancelled else None,
             stopping_word=word,
             n_prompt=len(token_ids),
             n_predicted=len(ids),

@@ -142,3 +142,13 @@ def test_server_warnings_show_once_per_server(fetched_root, tiny_tokenizer):
     output.clear()
     chat.handle("/new")  # same model, same server: no repeat
     assert "inherits" not in "".join(output)
+
+
+def test_an_early_cancel_offers_the_message_back(loop):
+    chat, output, backend = loop
+    backend.on_call = chat.session.cancel
+    chat.handle("Hi there")
+    text = "".join(output)
+    assert "Cancelled before the reply started. No reply was added." in text
+    assert "Your message is back in the input" in text
+    assert chat.draft == "Hi there"

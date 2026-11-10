@@ -401,3 +401,22 @@ def test_a_size_above_the_training_context_names_the_limit(monkeypatch, root):
     )
     with pytest.raises(ConfigError, match=r"trained on \(32768 tokens\).*32768 or less"):
         started_server(monkeypatch, root, STARTUP_GPU + warning, props_ok=False)
+
+
+def test_a_cancel_is_checked_between_stream_lines(monkeypatch, root):
+    import threading
+
+    cancel = threading.Event()
+    cancel.set()  # set while llama-server is still reading the prompt: only pings so far
+    backend = fake_backend(monkeypatch, root, [": ping", {"content": "Hi", "tokens": [5]}, FINAL])
+    result = backend.complete([1, 2], SETTINGS, [], cancel=cancel)
+    assert (result.stop_type, result.cancelled_during, result.text) == ("cancelled", "prompt", "")
+
+    cancel = threading.Event()
+    lines = [{"content": "Hi", "tokens": [5]}, {"content": "!", "tokens": [6]}, FINAL]
+    backend = fake_backend(monkeypatch, root, lines)
+    result = backend.complete(
+        [1, 2], SETTINGS, [], on_text=lambda text: cancel.set(), cancel=cancel
+    )
+    assert (result.stop_type, result.cancelled_during, result.text) == ("cancelled", "reply", "Hi")
+    assert result.flags == ["cancelled"]

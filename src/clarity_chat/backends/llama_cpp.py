@@ -583,9 +583,12 @@ class LlamaCppBackend:
         stop: list[str],
         on_text: Callable[[str], None] | None = None,
         request: dict[str, Any] | None = None,
+        cancel: threading.Event | None = None,
     ) -> Result:
         """`request`: a logged request body (prompt left out) to send exactly as it was,
-        for replay; otherwise it is built from `settings` and `stop`."""
+        for replay; otherwise it is built from `settings` and `stop`. `cancel` is checked
+        between stream lines; llama-server sends a ping each second while it reads the
+        prompt, so a cancel lands within about a second even then."""
         if self.server is None:
             raise BackendError("No model loaded.")
         if request is None:
@@ -605,6 +608,9 @@ class LlamaCppBackend:
                 text="".join(texts),
                 token_ids=list(ids),
                 stop_type=stop_type,
+                cancelled_during=(
+                    ("reply" if ids else "prompt") if stop_type == "cancelled" else None
+                ),
                 request=logged_request,
                 backend_settings=backend_settings,
                 flags=flags,
@@ -631,6 +637,9 @@ class LlamaCppBackend:
                         partial("none", []),
                     )
                 for line in response.iter_lines():
+                    if cancel is not None and cancel.is_set():
+                        # Leaving the stream closes it, which tells llama-server to stop.
+                        return partial("cancelled", ["cancelled"])
                     try:
                         chunk = parse_sse_line(line)
                     except ValueError as e:
