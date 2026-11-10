@@ -105,22 +105,19 @@ def format_settings(view: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def format_branches(result: dict[str, Any], session: Session) -> str:
+def format_branches(result: dict[str, Any]) -> str:
     """Each fork on the current path, its options numbered "2 of 3", the current one starred."""
     if not result["forks"]:
         return "This conversation has no branches yet. /regen, /edit and /undo make them."
-    conversation = session.conversation
-    assert conversation is not None
     lines = ["/switch TURN_ID goes to the newest reply on a branch."]
     for fork in result["forks"]:
-        at = conversation.turns[fork["at"]] if fork["at"] else None
         options = fork["options"]
-        if at is None:
+        if fork["at"] is None:
             where = "At the start"
-        elif at.role == "user":
-            where = f"Your message {short(at.text, 50)}"
+        elif fork["at_role"] == "user":
+            where = f"Your message {short(fork['at_text'], 50)}"
         else:
-            where = f"After the reply {short(at.text, 50)}"
+            where = f"After the reply {short(fork['at_text'], 50)}"
         if fork["at"] == result["head"]:
             where += ", where you are now (branches you went back from)"
         lines.append(f"{where}:")
@@ -305,7 +302,7 @@ class ChatLoop:
             where = f"after: {text[:60]!r}" if result["head"] else "at the start"
             self.write(f"Undone. The next message continues {where}.\n")
         elif name == "branches":
-            self.write(format_branches(result, self.session) + "\n")
+            self.write(format_branches(result) + "\n")
         elif name == "switch":
             text = result["head_text"]
             self.write(f"Switched. The next message continues after: {text[:60]!r}.\n")
@@ -448,7 +445,7 @@ def annotated(records: list[dict[str, Any]]) -> str:
     if first["type"] == "note":
         done = "Replaced the note on" if first.get("replaces") else "Noted"
         return f"{done} {first['call_id']}"
-    labels = ", ".join(r["label"] for r in records)
+    labels = ", ".join(dict.fromkeys(r["label"] for r in records))
     return f"{'Marked' if first['type'] == 'mark' else 'Unmarked'} {first['call_id']} {labels}"
 
 
@@ -515,10 +512,11 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="start llama-server with the call's logged flags instead of server.toml's",
     )
-    for kind, what in (("mark", "label"), ("note", "add a note to (replacing its note)")):
-        annotate = commands.add_parser(
-            kind, help=f"{what} a logged call's reply while reviewing (appends to the log)"
-        )
+    for kind, what in (
+        ("mark", "label a logged call's reply while reviewing (appends to the log)"),
+        ("note", "add a note to a logged call's reply, replacing its note (appends to the log)"),
+    ):
+        annotate = commands.add_parser(kind, help=what)
         annotate.add_argument("log", type=Path, help="a log file (logs/… or runs/<id>/calls.jsonl)")
         annotate.add_argument("call_id")
         if kind == "mark":

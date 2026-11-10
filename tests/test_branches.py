@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
 
@@ -583,3 +584,65 @@ def test_the_terminal_lists_branches_and_switches(make_session):
     first_reply = records(session, "turn")[1]["turn_id"]
     chat.handle(f"/switch {first_reply}")
     assert "Switched. The next message continues after: ' one'" in "".join(output)
+
+
+def test_a_failed_edit_or_regen_logs_head_back_on_the_reply(make_session):
+    session, backend = make_session([" one"])
+    first = session.say("a")
+    backend.fail_with = "server gone"
+    for attempt in (lambda: session.edit("a2"), session.regen):
+        with pytest.raises(BackendError):
+            attempt()
+        assert records(session, "head")[-1]["turn_id"] == first.turn.turn_id
+        assert session.conversation.last_call["call_id"] == first.record["call_id"]
+
+
+def test_an_early_cancel_logs_where_head_went(make_session):
+    from clarity_chat.session import CancelledBeforeReply
+
+    session, backend = make_session([" one", " two"])
+    first = session.say("a")
+    cancel = threading.Event()
+    backend.on_call = cancel.set
+    with pytest.raises(CancelledBeforeReply):
+        session.say("b", cancel=cancel)
+    assert records(session, "head")[-1] == {
+        **records(session, "head")[-1],
+        "turn_id": first.turn.turn_id,
+        "reason": "failed",
+    }
+
+
+def test_undo_to_the_start_logs_a_null_head(make_session):
+    session, _ = make_session([" one", " two"])
+    session.say("a")
+    session.undo()
+    assert records(session, "head")[-1]["turn_id"] is None
+    assert session.say("b").turn.parent_id == records(session, "turn")[-2]["turn_id"]
+
+
+def test_unmark_of_old_duplicate_marks_writes_one_record(make_session):
+    session, _ = make_session()
+    reply = session.say("a").turn
+    log = session.conversation.log
+    for _ in range(2):  # pre-0.2 marks: no mark_id
+        log.append(
+            {
+                "type": "mark",
+                "conversation_id": "c",
+                "call_id": reply.call_id,
+                "turn_id": reply.turn_id,
+                "label": "landed",
+                "origin": "live",
+            }
+        )
+    (unmark,) = session.annotate("unmark", "")
+    assert unmark["mark_id"] is None and current(session)["marks"] == []
+
+
+def test_forks_carry_the_turn_they_branch_at(make_session):
+    session, _ = make_session([" one", " two"])
+    session.say("a")
+    session.regen()
+    (fork,) = session.conversation.forks()
+    assert fork["at_role"] == "user" and fork["at_text"] == "a"

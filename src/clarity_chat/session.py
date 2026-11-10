@@ -175,17 +175,22 @@ class Conversation:
         )
         return head
 
-    def newest_reply_under(self, turn_id: str) -> Turn | None:
-        """The most recent reply on the branch that starts at `turn_id` (itself included)."""
-        replies = [t for t in self.turns.values() if t.role == "assistant"]
-        on_branch = [t for t in replies if turn_id in {p.turn_id for p in self.path_to(t.turn_id)}]
-        return on_branch[-1] if on_branch else None
+    def newest_replies(self) -> dict[str, Turn]:
+        """For each turn, the most recent reply on the branch that starts there (itself
+        included). One pass over the replies, oldest first, so newer ones win."""
+        newest: dict[str, Turn] = {}
+        for turn in self.turns.values():
+            if turn.role == "assistant":
+                for on_path in self.path_to(turn.turn_id):
+                    newest[on_path.turn_id] = turn
+        return newest
 
     def forks(self) -> list[dict[str, Any]]:
         """Each place on the path to `head` where the conversation branches (or, at `head`
         itself, continues: a branch you went back from with /undo). Options without a
         reply (a message whose call failed) are left out."""
         on_path = [t.turn_id for t in self.path_to(self.head)]
+        newest = self.newest_replies()
         out = []
         for at in [None, *on_path]:
             options = [
@@ -194,13 +199,21 @@ class Conversation:
                     "role": t.role,
                     "text": t.text,
                     "current": t.turn_id in on_path,
-                    "goes_to": reply.turn_id,
+                    "goes_to": newest[t.turn_id].turn_id,
                 }
                 for t in self.turns.values()
-                if t.parent_id == at and (reply := self.newest_reply_under(t.turn_id))
+                if t.parent_id == at and t.turn_id in newest
             ]
             if len(options) > 1 or (options and at == self.head):
-                out.append({"at": at, "options": options})
+                turn = self.turns[at] if at else None
+                out.append(
+                    {
+                        "at": at,
+                        "at_role": turn.role if turn else None,
+                        "at_text": turn.text if turn else None,
+                        "options": options,
+                    }
+                )
         return out
 
     def current_reply(self, action: str) -> Turn:
@@ -511,7 +524,7 @@ class Session:
         conversation = self._require_conversation()
         if turn_id not in conversation.turns:
             raise ConfigError(f"This conversation has no turn {turn_id}. /branches lists them.")
-        reply = conversation.newest_reply_under(turn_id)
+        reply = conversation.newest_replies().get(turn_id)
         if reply is None:
             raise ConfigError(f"Turn {turn_id} has no reply to go to.")
         head = conversation.move_head(reply.turn_id, "switch")
@@ -891,7 +904,11 @@ def annotate_call(
         raise ConfigError(f"This reply has marks {', '.join(labels)}. Name the one to remove.")
     if not marks:
         raise ConfigError(f"This reply has no mark {text}." if text else "This reply has no mark.")
-    return [log.append({**base, "mark_id": m.get("mark_id"), "label": m["label"]}) for m in marks]
+    # One unmark per mark; for marks from before mark IDs, one per label covers them all.
+    removals = {m.get("mark_id") or f"label:{m['label']}": m for m in marks}.values()
+    return [
+        log.append({**base, "mark_id": m.get("mark_id"), "label": m["label"]}) for m in removals
+    ]
 
 
 def annotate_log(path: Path, kind: str, call_id: str, text: str) -> list[dict[str, Any]]:
