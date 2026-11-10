@@ -300,9 +300,9 @@ class ChatLoop:
                 arg = self.read(conversation.turns[reply.parent_id].text)
             except (KeyboardInterrupt, EOFError):
                 arg = ""
-            if not arg.strip():
-                self.write("Edit cancelled.\n")
-                return True
+        if conversation is not None and not arg.strip():
+            self.write("Edit cancelled.\n")
+            return True
         return self.command("edit", arg)
 
     def show_server_warnings(self, conversation: Conversation) -> None:
