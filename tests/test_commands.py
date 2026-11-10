@@ -37,7 +37,29 @@ def test_cancel_runs_during_a_call_and_stops_it(commands):
     backend.on_call = lambda: c.run("cancel", "", lambda e: None)  # from another thread, say
     with pytest.raises(CancelledBeforeReply):
         c.run("say", "Hi", lambda e: None)
-    assert c.run("cancel", "", lambda e: None) == {"cancelled": False}  # nothing running now
+    nothing = {"cancelled": False, "reason": "Nothing is running."}
+    assert c.run("cancel", "", lambda e: None) == nothing
+
+
+def test_cancel_says_when_the_running_command_cant_be_stopped(commands, fetched_root):
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    answers = []
+    backend.start_warnings = []
+    # A model start can't be cancelled: /profile to another context size restarts it.
+    (fetched_root / "profiles" / "big.toml").write_text(
+        "ctx_size = 4096\n" + (fetched_root / "profiles" / "text.toml").read_text("utf-8"),
+        encoding="utf-8",
+    )
+    original = backend.start
+
+    def start(*args):
+        answers.append(c.run("cancel", "", lambda e: None))
+        return original(*args)
+
+    backend.start = start
+    c.run("profile", "big", lambda e: None)
+    assert answers == [{"cancelled": False, "reason": "/profile can't be cancelled."}]
 
 
 def test_commands_need_a_conversation_except_a_few(commands):

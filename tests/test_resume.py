@@ -217,7 +217,6 @@ def test_resume_lists_what_it_takes_from_today(new_session, fetched_root):
     assert record["not_recorded"] is not None
 
 
-@pytest.mark.xfail(strict=True, reason="checkpoint 3: a failed resume switched the model")
 def test_a_resume_that_fails_late_leaves_the_running_chat_on_its_model(new_session, tmp_path):
     import os
 
@@ -229,7 +228,8 @@ def test_a_resume_that_fails_late_leaves_the_running_chat_on_its_model(new_sessi
     other.new_conversation("text")
     other.say("b")
     path = other.conversation.log.path
-    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    original = path.read_text(encoding="utf-8")
+    rows = [json.loads(line) for line in original.splitlines()]
     for row in rows:
         if row["type"] == "call":
             row["n_ctx"] = 4096  # another size, so a restart would show
@@ -238,8 +238,8 @@ def test_a_resume_that_fails_late_leaves_the_running_chat_on_its_model(new_sessi
     with pytest.raises(ConfigError):
         session.resume(path)
     assert session.conversation is running and backend.ctx_sizes == [8192]
-    path.write_text("".join(json.dumps(r) + "\n" for r in rows[:5]), encoding="utf-8")
-    os.chmod(path, 0o444)
+    path.write_text(original, encoding="utf-8")
+    os.chmod(path, 0o444)  # a log you can't write to
     try:
         with pytest.raises(ConfigError, match="can't write"):
             session.resume(path)

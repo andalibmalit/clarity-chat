@@ -9,6 +9,7 @@ record, whether it succeeded, failed or was cancelled.
 
 from __future__ import annotations
 
+import os
 import secrets
 import threading
 from collections.abc import Callable, Iterable
@@ -612,12 +613,21 @@ class Session:
         }
         return annotate_call(conversation.log, about, kind, text, "live")
 
-    def build_prompt(self, user_turn: Turn, conversation: Conversation | None = None) -> Prompt:
+    def build_prompt(
+        self,
+        user_turn: Turn,
+        conversation: Conversation | None = None,
+        prepared: Prepared | None = None,
+    ) -> Prompt:
+        """The prompt for `user_turn`, with the running model's tokenizers, or `prepared`'s
+        (to check a conversation before its model starts)."""
         conversation = conversation or self._require_conversation()
-        assert self.tokenizer is not None
+        tokenizer = prepared.tokenizer if prepared else self.tokenizer
+        template_tokenizer = prepared.template_tokenizer if prepared else self.template_tokenizer
+        assert tokenizer is not None
         path = conversation.path_to(user_turn.turn_id)
         turns = [(t.role, t.text) for t in path if t.origin != "priming"]
-        return build_prompt(self.tokenizer, conversation.profile, turns, self.template_tokenizer)
+        return build_prompt(tokenizer, conversation.profile, turns, template_tokenizer)
 
     @staticmethod
     def resolve_settings(
@@ -799,12 +809,12 @@ class Session:
 
     # --- replay ---------------------------------------------------------------------------
 
-    def replay_current(self) -> dict[str, Any]:
+    def replay_current(self, cancel: threading.Event | None = None) -> dict[str, Any]:
         """Replay the current reply's call on the running server."""
         conversation = self._require_conversation()
         reply = conversation.current_reply("replay")
         assert reply.call_id is not None
-        return self.replay(conversation.log.path, reply.call_id, conversation.log)
+        return self.replay(conversation.log.path, reply.call_id, conversation.log, cancel=cancel)
 
     def replay(
         self,
@@ -813,10 +823,12 @@ class Session:
         log: LogFile | None = None,
         flags_from: str = "",
         found: tuple[dict[str, Any], dict[str, Any] | None] | None = None,
+        cancel: threading.Event | None = None,
     ) -> dict[str, Any]:
         """Re-send a logged call's token IDs and request, compare the output, list what
         differs from the logged facts, and append a `replay` record to the same log.
-        `found`: the call and server records, if the caller already read them."""
+        `found`: the call and server records, if the caller already read them. A cancelled
+        replay compares and logs nothing."""
         call, server = found or find_call(log_path, call_id)
         name = call["model"]["name"]
         if name not in self.models:
@@ -846,10 +858,10 @@ class Session:
         )
         values = {k: v["value"] for k, v in call["settings"].items()}
         result = self.backend.complete(
-            call["prompt_ids"], values, call["stop"], request=call["request"]
+            call["prompt_ids"], values, call["stop"], request=call["request"], cancel=cancel
         )
         if result.stop_type == "cancelled":
-            raise ConfigError("Replay cancelled (Ctrl-C): nothing was compared or logged.")
+            raise ConfigError("Replay cancelled: nothing was compared or logged.")
         fields, server_prompt = result_fields(result)
         self._check_output(call["prompt_ids"], result, server_prompt, fields, tokenizer)
         now_server = self.backend.server_record
@@ -975,6 +987,11 @@ class Session:
         conversation.head = state.head
         head = conversation.turns.get(state.head) if state.head else None
         conversation.last_call = state.calls.get(head.call_id or "") if head else None
+        # Checks that read the log or the disk run before the model starts: a failure
+        # after it would leave the running conversation on another model or size.
+        render = self.check_render(conversation, head, prepared)
+        if not os.access(path, os.W_OK):
+            raise ConfigError(f"Clarity can't write to {path}, so it can't continue it there.")
         conversation.started_server = self.start_model(prepared, ctx_size)
         environment = missing = None
         if last:
@@ -982,7 +999,6 @@ class Session:
             then = facts_from_call(last, server)
             now = self._facts_now(prepared.model, prepared.lock)
             environment, missing = environment_diff(then, now), not_recorded(then, now)
-        render = self.check_render(conversation, head)
         log.on_append = self._appended
         log.servers_logged = set(state.servers)
         self.conversation = conversation
@@ -1022,7 +1038,9 @@ class Session:
         same = (now.profile.toml_text, now.profile.files) == (logged["toml"], logged["files"])
         return "same" if same else "changed", now
 
-    def check_render(self, conversation: Conversation, reply: Turn | None) -> dict[str, Any] | None:
+    def check_render(
+        self, conversation: Conversation, reply: Turn | None, prepared: Prepared | None = None
+    ) -> dict[str, Any] | None:
         """Render the prompt of `reply`'s call again, with today's template and libraries,
         and compare the token IDs with the logged ones. None if there's no reply."""
         call = conversation.calls.get(reply.call_id or "") if reply else None
@@ -1030,7 +1048,8 @@ class Session:
             return None
         assert reply.parent_id is not None
         try:
-            ids = self.build_prompt(conversation.turns[reply.parent_id], conversation).ids
+            user_turn = conversation.turns[reply.parent_id]
+            ids = self.build_prompt(user_turn, conversation, prepared).ids
         except ConfigError as e:
             return {"call_id": call["call_id"], "identical": False, "error": str(e)}
         logged = call["prompt_ids"]
