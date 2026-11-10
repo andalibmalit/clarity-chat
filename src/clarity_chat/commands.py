@@ -95,6 +95,17 @@ def _undo(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return {"head": head.turn_id if head else None, "head_text": head.text if head else None}
 
 
+def _branches(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    conversation = c.session.conversation
+    assert conversation is not None
+    return {"head": conversation.head, "forks": conversation.forks()}
+
+
+def _switch(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    head = c.session.switch(needs(args, "/switch TURN_ID"))
+    return {"head": head.turn_id, "head_text": head.text}
+
+
 def _annotate(kind: str) -> Callable[[Commands, str, Emit], dict[str, Any]]:
     """mark and unmark take an optional label; note needs its text."""
     return lambda c, args, emit: {
@@ -191,6 +202,12 @@ COMMANDS: dict[str, Command] = {
     ),
     "undo": Command(
         "/undo", "go back past the last exchange; your next message starts a branch", _undo
+    ),
+    "branches": Command(
+        "/branches", "where this conversation branches, with the turn IDs to /switch to", _branches
+    ),
+    "switch": Command(
+        "/switch TURN_ID", "go to another branch: its newest reply (nothing is sent)", _switch
     ),
     "mark": Command(
         "/mark [LABEL]",

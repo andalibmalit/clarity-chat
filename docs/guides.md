@@ -129,6 +129,10 @@ Before any model loads, Clarity checks every profile and renders every opening. 
 
 Each call is its own conversation. Profiles are read once, at the start, so editing one during a run changes nothing. `blind.md` strips the whitespace around each reply; `calls.jsonl` keeps replies exactly as generated.
 
+## Follow branches
+
+`/regen` and `/edit` add a branch next to the reply or message they replace, and `/undo` steps back so your next message starts one. Nothing is overwritten. `/branches` lists every place on the current path where the conversation branches, with each option's turn ID, and `/switch TURN_ID` goes to that branch's newest reply. Switching sends nothing; your next message continues from there.
+
 ## Label replies after the fact
 
 `/mark` and `/note` label the current reply during a chat. To label any logged reply later, for example while reading a blind run's results, use:
@@ -196,8 +200,8 @@ jq 'select(.call_id == "CALL_ID" and .type == "call") | .settings' logs/CONVERSA
 # calls with flags
 jq -c 'select(.type == "call" and (.flags | length) > 0) | {call_id, flags}' logs/CONVERSATION_ID.jsonl
 
-# marks and notes
-jq -c 'select(.type == "mark" or .type == "note")' logs/CONVERSATION_ID.jsonl
+# marks, removed marks and notes
+jq -c 'select(.type == "mark" or .type == "unmark" or .type == "note")' logs/CONVERSATION_ID.jsonl
 ```
 
 [Log records](reference.md#log-records) in the reference lists the record types and their fields.
