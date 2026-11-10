@@ -76,6 +76,11 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 **One running Clarity per project.** `chat`, `run` and `replay` hold a lock on `local/clarity.lock` while they run; a second one stops and says which process holds it. Two would load two models, more memory than a laptop has, and could write to the same log. The operating system releases the lock however the process ends, so a crash never leaves it stuck. `clarity mark` and `clarity note` only append a line, so they don't take it.
 - Who holds the lock is in a separate file, `local/clarity.json`, because on Windows a locked file can't be read by another process.
 
+**A crash doesn't leave a model in memory.** llama-server runs in its own process group, so it outlives a Clarity that is killed or crashes, holding 14 GB or more. Two things prevent that:
+- SIGTERM, and SIGHUP from a closed terminal, exit Clarity through its normal cleanup, which stops the server.
+- While a server runs, its port, process ID and key are in `local/clarity.json`. If Clarity dies anyway (`kill -9`, a power cut), the next `chat`, `run` or `replay` finds them there and asks that port's `/props`, with that key. Only an answer naming the same model proves it's the server that was left, and only then is it stopped; Clarity says so. Anything else is reported and left alone. No process list is read, so this works the same in a sandbox and on Windows.
+- Cost: a per-start key sits on disk while the server runs, readable only by you. It guards the server against web pages, not against your own programs.
+
 **Logs are append-only JSONL,** one file per chat conversation and one `calls.jsonl` per batch run, with a schema version. Every call writes a record, including failed and cancelled ones. Readers ignore keys they don't know, so later additions need no format change. `logs/` and `runs/` are private and gitignored.
 
 **Failure policy.** Configuration problems are errors before anything is sent. A failed check after a call is a flag on the record and a warning in the terminal; in a batch run, it stops the run.
