@@ -95,6 +95,11 @@ def _undo(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return {"head": head.turn_id if head else None, "head_text": head.text if head else None}
 
 
+def _set(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    name, _, value = needs(args, "/set NAME [VALUE]").partition(" ")
+    return {"record": c.session.set_setting(name, value.strip())}
+
+
 def _branches(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     conversation = c.session.conversation
     assert conversation is not None
@@ -175,7 +180,7 @@ def settings_view(session: Session) -> dict[str, Any]:
     model_file = (session.backend.server_record or {}).get("model_file") or {}
     return {
         "profile": {"name": profile.name, "mode": profile.mode, "model": profile.model},
-        "settings": {name: s.to_json() for name, s in profile.settings.items()},
+        "settings": {name: s.to_json() for name, s in conversation.settings.items()},
         "backend": session.backend.name,
         "backend_settings": backend_settings,
         "eog_tokens": model_file.get("eog_tokens"),
@@ -194,6 +199,11 @@ COMMANDS: dict[str, Command] = {
         _prompt,
     ),
     "settings": Command("/settings", "every setting, its value and where it came from", _settings),
+    "set": Command(
+        "/set NAME [VALUE]",
+        "change a setting for this chat (no value: back to the profile's)",
+        _set,
+    ),
     "regen": Command(
         "/regen", "another reply to your last message (seed + 1, + 2, …), as a new branch", _regen
     ),

@@ -264,3 +264,57 @@ def test_an_early_cancel_on_regen_leaves_you_on_the_reply_you_had(make_session):
     with pytest.raises(CancelledBeforeReply):
         session.regen(cancel=cancel)
     assert session.conversation.head == first.turn.turn_id
+
+
+def test_set_changes_a_setting_for_this_chat_and_logs_it(make_session):
+    session, backend = make_session()
+    record = session.set_setting("temperature", "0.9")
+    assert record["chat_settings"] == {"temperature": 0.9}
+    call = session.say("a").record
+    assert call["settings"]["temperature"] == {"value": 0.9, "origin": "chat"}
+    assert backend.calls[0]["settings"]["temperature"] == 0.9
+    session.set_setting("temperature", "")  # back to the profile's
+    assert session.say("b").record["settings"]["temperature"]["origin"] == "profile"
+    rows = records(session, "settings")
+    assert [(r["name"], r["value"], r["chat_settings"]) for r in rows] == [
+        ("temperature", 0.9, {"temperature": 0.9}),
+        ("temperature", None, {}),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("name", "text", "message"),
+    [
+        ("temperature", "hot", "temperature must be"),
+        ("ctx_size", "4096", "unknown setting 'ctx_size'"),
+        ("samplers", "top_k bogus", "unknown sampler names"),
+        ("top_p", "", "isn't set in this chat"),
+    ],
+)
+def test_set_checks_values_like_a_profile(make_session, name, text, message):
+    session, _ = make_session()
+    with pytest.raises(ConfigError, match=message):
+        session.set_setting(name, text)
+    assert session.conversation.chat_settings == {}
+    assert records(session, "settings") == []
+
+
+def test_set_keeps_the_sampler_rule(make_session):
+    session, _ = make_session()
+    with pytest.raises(ConfigError, match="top_p = 0.95 \\(from profile\\) has no effect"):
+        session.set_setting("samplers", "temperature")  # the profile's top_p would be ignored
+    session.set_setting("samplers", "top_p temperature")
+    with pytest.raises(ConfigError, match="has no effect, because 'top_k' is not in samplers"):
+        session.set_setting("top_k", "40")
+    assert session.conversation.chat_settings == {"samplers": ["top_p", "temperature"]}
+
+
+def test_set_seed_random_and_sampler_lists(make_session):
+    session, _ = make_session()
+    session.set_setting("seed", "random")
+    session.set_setting("samplers", "top_k, top_p temperature")
+    assert session.conversation.chat_settings == {
+        "seed": "random",
+        "samplers": ["top_k", "top_p", "temperature"],
+    }
+    assert session.say("a").record["seed_drawn"] is True

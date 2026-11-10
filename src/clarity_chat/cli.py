@@ -301,6 +301,12 @@ class ChatLoop:
             text = result["head_text"]
             where = f"after: {text[:60]!r}" if result["head"] else "at the start"
             self.write(f"Undone. The next message continues {where}.\n")
+        elif name == "set":
+            record = result["record"]
+            if record["value"] is None:
+                self.write(f"{record['name']} is back to the profile's value.\n")
+            else:
+                self.write(f"{record['name']} = {record['value']!r} for this chat.\n")
         elif name == "branches":
             self.write(format_branches(result) + "\n")
         elif name == "switch":
