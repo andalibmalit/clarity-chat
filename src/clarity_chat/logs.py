@@ -46,7 +46,12 @@ def new_id(kind: str) -> str:
 
 
 class LogFile:
-    """Append-only JSONL. Each record is one line, flushed and synced when written."""
+    """Append-only JSONL. Each record is one line, written in one append and synced.
+
+    One os.write on an O_APPEND descriptor, so another process appending to the same file
+    (`clarity mark` on a live chat's log) adds its line after this one, not inside it, on
+    local file systems. Windows only emulates O_APPEND; the instance lock keeps a second
+    chat away there, and mark and note write one short line."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -54,12 +59,17 @@ class LogFile:
 
     def append(self, record: dict[str, Any]) -> dict[str, Any]:
         full = {"schema_version": SCHEMA_VERSION, "time": now_utc(), **record}
-        line = json.dumps(full, ensure_ascii=False)
+        data = memoryview((json.dumps(full, ensure_ascii=False) + "\n").encode("utf-8"))
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with _append_lock, self.path.open("a", encoding="utf-8", newline="\n") as f:
-            f.write(line + "\n")
-            f.flush()
-            os.fsync(f.fileno())
+        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0)
+        with _append_lock:
+            fd = os.open(self.path, flags, 0o644)
+            try:
+                while data:  # a short write (a full disk) is rare; finish the line
+                    data = data[os.write(fd, data) :]
+                os.fsync(fd)
+            finally:
+                os.close(fd)
         return full
 
 
