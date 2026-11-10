@@ -63,7 +63,8 @@ uv run clarity note logs/CONVERSATION_ID.jsonl CALL_ID "TEXT"      # add a note 
 - [Guides](docs/guides.md): write a profile, add a model, run a blind test, replay a call, read the logs, and fix common errors.
 - [Reference](docs/reference.md): every command, profile key, setting, log record and flag.
 - [Design](docs/design.md): the choices, their tradeoffs, and what is out of scope.
-- [Contributing](CONTRIBUTING.md): tests, checks, and how to add a backend.
+- [Contributing](CONTRIBUTING.md): tests, checks, how to add a backend, credit, and the release checklist.
+- [Changelog](CHANGELOG.md) and [Roadmap](ROADMAP.md): what changed in each release, and what's next.
 
 ## Configuration
 

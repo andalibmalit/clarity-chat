@@ -32,10 +32,24 @@ cmake --build vendor/llama.cpp/build --config Release -j 8 --target llama-server
 What you see is exactly what the model got, and every call can be replayed.
 No silent fallbacks: if something can't be done exactly as configured, stop with a clear error.
 Clarity should get out of the way: being exact must not make common experiments awkward. Prefer a small, explicit, logged shortcut (like `use_recommended = true`) to extra ceremony.
+The backend does what the UI leads people to expect. A difference between them is a silent fallback: show it.
+No terminal commands in the UI. Command-line usage belongs in the docs and `help`.
+Teaching text, anything that explains how models or settings work, is checked against authoritative sources before it ships. Each explanation lives in one place, the settings table, which the UI, `help` and the docs reuse.
+Clarity writes files only visibly. Shipped files stay read-only; the user's own files live in `local/`.
 
 ## How to work
 - State your assumptions in each step report. Ask before decisions that are hard to undo.
 - A step is done when its tests pass. Write tests with the change, and run ruff, ty and pytest before every commit.
+  Show the command and its output in the step report.
+- A bug fix starts with a failing test, committed before the fix.
+- Each release follows its approved plan in `notes/plans/`. If the build departs from the plan, update the plan in the same step and say so.
+- A release is done when `CONTRIBUTING.md`'s release checklist is complete. The owner runs the live tests, pushes and tags.
+- A change to the llama.cpp commit, `tokenizers`, `transformers` or `jinja2` can change output: give it its own commit and a changelog line, and ask the owner to run the live tests.
+- Add user-visible changes to `CHANGELOG.md` under Unreleased in the same commit.
+- If you make a mistake that an earlier session also made, propose one line for this file.
+- One commit does one plan item, with its tests and docs. A release is a closed list the owner can use and judge in a day; scope sets its size, not a line count.
+- The plan names review checkpoints: after each group that later items build on, and the whole branch before the day of use. Stop for an extra review if the diff since the last one passes about 400 source lines, or an item lands at over 1.5 times its estimate. These are triggers, not budgets.
+- Reviews check the diff against the plan and look for bloat: code no item asked for, abstractions with one user, unrequested options, tests for cases that can't happen. Skip style. Prefer findings that delete code.
 - Keep the docs current as you go: update the docs in the same commit as a change to a choice, tradeoff, scope or usage: `docs/design.md` for choices and tradeoffs, `docs/reference.md` for keys, commands and record fields, `docs/guides.md` and `docs/getting-started.md` for usage, and the README. `tests/test_docs.py` catches some drift, not all. Write for human readers, in Google developer-docs style: lead with the point, use short sentences and plain words, and use lists only for parallel items. Say each thing once. Keep caveats and sources; cut padding.
 - Use the same names everywhere: profile, conversation, turn, call, mark and note mean the same thing in code, profiles, logs and commands.
 - Never open files in `logs/` or `runs/` unless I ask; they hold private conversations. Tests use made-up text.

@@ -1,0 +1,31 @@
+# Changelog
+
+All notable changes to Clarity are listed here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
+
+Two headings are Clarity's own, used when they apply:
+- **Migration:** files on disk or the log format changed, and what to do about it.
+- **Output may change:** a pinned version or a default moved, so the same call can give a different reply. Replay lists such differences.
+
+## [Unreleased]
+
+### Added
+- `clarity mark LOG CALL_ID LABEL` and `clarity note LOG CALL_ID TEXT` label or annotate any logged reply after the chat, without starting a model. Marks and notes now record whether they were made live or in review.
+- The Transformers backend sets `attn_implementation = "sdpa"` explicitly, checks it after loading, and logs it.
+- User docs: getting started, guides, reference and contributing.
+- `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTORS.md`, `CODE_OF_CONDUCT.md` and `ROADMAP.md`; a release checklist and a Credit section in `CONTRIBUTING.md`.
+
+## [0.1.0] - 2026-11-09
+
+The first release.
+
+### Added
+- Chat mode, through the model's chat template, and text mode, where the model continues a plain document. Clarity renders the prompt and builds the token IDs itself.
+- Every sampling value is sent on every call, and the server's echo is checked.
+- Branches in a chat (`/regen`, `/edit`, `/undo`), and marks and notes on replies.
+- An append-only JSONL log per conversation, and replay of any logged call with a list of what changed since.
+- Blind batch runs for comparing profiles.
+- Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
+- A llama-server that Clarity starts and checks itself, and a Transformers backend for the same weights.
+
+[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/andalibmalit/clarity-chat/releases/tag/v0.1.0
