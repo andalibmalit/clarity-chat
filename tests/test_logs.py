@@ -140,11 +140,16 @@ def test_a_malformed_line_no_torn_line_names_is_an_error(tmp_path):
         list(read_records(path))
 
 
-def test_a_torn_line_that_parses_is_kept(tmp_path):
+@pytest.mark.xfail(strict=True, reason="checkpoint 3: a parsable torn line flips to a record")
+def test_a_torn_line_reads_the_same_before_and_after_it_is_named(tmp_path):
     path = tmp_path / "c.jsonl"
-    path.write_bytes(b'{"type": "note", "text": "no line end"}')
-    LogFile(path).append({"type": "note"})
-    assert [r["type"] for r in read_records(path)] == ["note", "torn_line", "note"]
+    LogFile(path).append({"type": "note", "text": "kept"})
+    with path.open("ab") as f:  # a whole record but its line end: still not a record
+        f.write(b'{"type": "note", "text": "no line end"}')
+    before = [r.get("text") for r in read_records(path)]
+    LogFile(path).append({"type": "note", "text": "after"})
+    after = [r.get("text") for r in read_records(path) if r["type"] != "torn_line"]
+    assert before == ["kept"] and after == ["kept", "after"]
 
 
 def test_a_line_cut_inside_a_character_is_torn_too(tmp_path):
