@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -25,6 +26,7 @@ class FakeBackend:
         self.record: dict[str, Any] | None = None
         self.fail_with: str | None = None
         self.cancel_after: int | None = None  # characters streamed before a simulated Ctrl-C
+        self.on_call: Callable[[], None] | None = None  # runs mid-call, e.g. a cancel
         self.start_warnings: list[str] = []
         self.result_flags: list[str] = []  # e.g. "check_failed:echo", added to every reply
         self.not_applied: list[dict[str, Any]] = []  # reported with every reply
@@ -64,6 +66,7 @@ class FakeBackend:
         stop: list[str],
         on_text: Callable[[str], None] | None = None,
         request: dict[str, Any] | None = None,
+        cancel: threading.Event | None = None,
     ) -> Result:
         self.calls.append(
             {
@@ -76,14 +79,20 @@ class FakeBackend:
         if self.fail_with:
             raise BackendError(self.fail_with, Result(text="", token_ids=[], stop_type="none"))
         reply = self.replies.pop(0) if self.replies else " ok"
-        if self.cancel_after is not None:
-            text = reply[: self.cancel_after]
+        if self.on_call:
+            self.on_call()
+        cancel_after = self.cancel_after
+        if cancel is not None and cancel.is_set() and cancel_after is None:
+            cancel_after = 0  # as a backend checks between tokens: nothing arrived yet
+        if cancel_after is not None:
+            text = reply[:cancel_after]
             if on_text:
                 on_text(text)
             return Result(
                 text=text,
                 token_ids=list(range(len(text))),
                 stop_type="cancelled",
+                cancelled_during="reply" if text else "prompt",
                 flags=["cancelled"],
             )
         stop_type, stopping_word = "eos", ""

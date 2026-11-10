@@ -17,10 +17,14 @@ Two headings are Clarity's own, used when they apply:
 - The status line after each reply shows how much of the context the conversation now uses, such as "context 12,400 of 32,768".
 - A `template_kwargs` key that the chat template never reads, such as a misspelt one, is now a warning when the conversation starts, and is logged. Before, it changed nothing silently.
 - `ctx_size` in a profile sets its context size; profiles without it keep `ctx-size` from `server.toml`. Replay runs a call at the size it was logged with, and a size above the model's training context is refused instead of quietly capped.
+- A call can be cancelled from any thread, which the web interface and `clarity chat --json` will use. Each cancelled call logs `cancelled_during`: `prompt` or `reply`.
 - `clarity mark LOG CALL_ID LABEL` and `clarity note LOG CALL_ID TEXT` label or annotate any logged reply after the chat, without starting a model. Marks and notes now record whether they were made live or in review.
 - The Transformers backend sets `attn_implementation = "sdpa"` explicitly, checks it after loading, and logs it.
 - User docs: getting started, guides, reference and contributing.
 - `CHANGELOG.md`, `SECURITY.md`, `CONTRIBUTORS.md`, `CODE_OF_CONDUCT.md` and `ROADMAP.md`; a release checklist and a Credit section in `CONTRIBUTING.md`.
+
+### Changed
+- A call cancelled before its first token no longer adds an empty reply. It's logged like a failed call, and your message comes back in the input.
 
 ### Fixed
 - On CUDA and Vulkan, a model whose weights went only to pinned system memory (`CUDA_Host`, `Vulkan_Host`) passed the GPU placement check. It's now an error, like any model that lands on the CPU.

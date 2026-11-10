@@ -24,7 +24,7 @@ Exit status:
 
 ## Chat commands
 
-Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted text keeps its newlines. Ctrl-C while the model writes cancels the reply; the partial reply is kept and logged.
+Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted text keeps its newlines. Ctrl-C while the model works cancels the call. If part of the reply has arrived, it's kept and logged. If nothing has, no reply is added: the call is logged like a failed one, and your message comes back in the input to edit or send again.
 
 | Command | What it does |
 |---|---|
@@ -168,7 +168,7 @@ A `call` record holds:
 - **Backend:** `backend`, with its name and server ID. llama.cpp adds `build_info` and `llama_cpp_commit`; Transformers adds `device`, `dtype`, `attn_implementation`, `torch` and `transformers`.
 - **Prompt:** `prompt_text`, `prompt_ids`, `n_prompt_client`, `bos` (whether BOS was prepended and why), `special_tokens_in_content` (where any control-token text was found).
 - **Request and response:** `request` (what was sent, except the prompt IDs, which are in `prompt_ids`), `backend_settings`, `not_applied`, `generation_settings`, `response`, `timings`, `tokens_evaluated`, `tokens_predicted`.
-- **Output:** `output_text`, `output_ids`, `stop_type` (`eos`, `word`, `limit`, `cancelled` or `none`), `stopping_word`, `turn_id`.
+- **Output:** `output_text`, `output_ids`, `stop_type` (`eos`, `word`, `limit`, `cancelled` or `none`), `cancelled_during` (`prompt` or `reply`, for a cancelled call), `stopping_word`, `turn_id`.
 - **Checks:** `checks`, `flags`, `warnings`, and `error` if the call failed.
 
 `output_ids` include the tokens of a stop string and the end-of-sequence token; `output_text` leaves out the stop string.
@@ -188,7 +188,7 @@ A call's `flags` list marks anything to look at. The terminal shows them after t
 |---|---|
 | `length` | The reply stopped at `max_tokens`. |
 | `context_full` | The reply stopped because the context was full. |
-| `cancelled` | You pressed Ctrl-C during the reply. |
+| `cancelled` | The call was cancelled, with Ctrl-C or from another program, after part of the reply arrived. |
 | `empty_reply` | The reply is empty or only whitespace. |
 | `not_applied` | The backend couldn't apply a setting as set, and it could change the reply. `/settings` gives the reason. |
 | `special_tokens_in_content` | Some prompt text (a message, the system prompt, priming or header) contains text the tokenizer reads as a control token, such as `<\|im_end\|>`. |
