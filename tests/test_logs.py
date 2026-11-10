@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -74,3 +76,24 @@ def test_machine_records_the_macos_build_and_chip_on_a_mac():
         return
     assert set(record["macos"]) == {"version", "build", "chip"}
     assert record["macos"]["version"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows only emulates O_APPEND")
+def test_two_processes_appending_to_one_log_never_split_a_line(tmp_path):
+    import subprocess
+    import sys
+
+    path = tmp_path / "log.jsonl"
+    big = "x" * 200_000  # a call record with long prompt and output IDs
+    code = (
+        "import sys; from pathlib import Path; from clarity_chat.logs import LogFile\n"
+        "log = LogFile(Path(sys.argv[1]))\n"
+        "for i in range(40): log.append({'type': 'mark', 'i': i})\n"
+    )
+    other = subprocess.Popen([sys.executable, "-c", code, str(path)])
+    log = LogFile(path)
+    for i in range(40):
+        log.append({"type": "call", "i": i, "big": big})
+    assert other.wait() == 0
+    rows = list(read_records(path))
+    assert sorted(r["type"] for r in rows) == ["call"] * 40 + ["mark"] * 40
