@@ -492,7 +492,7 @@ def test_a_review_mark_mends_a_torn_line_first(make_session, monkeypatch, capsys
         f.write(b'{"type": "no')
     monkeypatch.setattr("clarity_chat.session.Session.__init__", None)
     assert cli.main(["mark", str(log), call["call_id"], "landed"]) == 0
-    assert "was never finished" in capsys.readouterr().err
+    assert "has no line end, so it was cut off" in capsys.readouterr().err
     kinds = [r["type"] for r in read_records(log)]
     assert kinds[-2:] == ["torn_line", "mark"]
 

@@ -159,7 +159,6 @@ def test_a_line_cut_inside_a_character_is_torn_too(tmp_path):
     assert [r["type"] for r in read_records(path)] == ["torn_line", "note"]
 
 
-@pytest.mark.xfail(strict=True, reason="B5 review: a tear during the mending write")
 def test_a_torn_line_whose_mending_write_is_torn_too_stays_readable(tmp_path):
     path = tmp_path / "c.jsonl"
     LogFile(path).append({"type": "note", "text": "kept"})

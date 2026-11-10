@@ -111,7 +111,8 @@ def _torn_tail(fd: int) -> dict[str, Any] | None:
         return None
     os.lseek(fd, 0, os.SEEK_SET)
     newlines, last_newline, read = 0, -1, 0
-    while chunk := os.read(fd, 1 << 20):
+    # Only up to `size`: another process may be appending meanwhile.
+    while read < size and (chunk := os.read(fd, min(1 << 20, size - read))):
         newlines += chunk.count(b"\n")
         if (i := chunk.rfind(b"\n")) >= 0:
             last_newline = read + i
@@ -125,18 +126,19 @@ def _torn_tail(fd: int) -> dict[str, Any] | None:
     }
 
 
-def torn_message(record: dict[str, Any], path: Path) -> str:
+def torn_message(record: dict[str, Any], where: str) -> str:
     return (
-        f"Line {record['line']} of {path.name} was never finished (Clarity stopped while "
-        f"writing it: a crash or a full disk). It stays as it was, and a torn_line record "
-        f"after it says so."
+        f"Line {record['line']} of {where} has no line end, so it was cut off (a crash, a "
+        "full disk, or another program). It stays as it was; a torn_line record after it "
+        "says so."
     )
 
 
 def read_records(path: Path) -> Iterator[dict[str, Any]]:
-    """Records in file order. Splits only on "\\n" (never on U+2028 and friends). A line
-    that isn't a record is skipped only if the next record is a `torn_line` naming it."""
-    bad: int | None = None  # a malformed line, until the next record explains it
+    """Records in file order. Splits only on "\\n" (never on U+2028 and friends). Lines
+    that aren't records are skipped only if the next record is a `torn_line` naming the
+    last of them."""
+    bad: list[int] = []  # malformed lines in a row, until the next record explains them
     with path.open("rb") as f:  # bytes split only on b"\n"; a broken UTF-8 line is malformed
         for number, line in enumerate(f, 1):
             if not line.strip():
@@ -144,18 +146,17 @@ def read_records(path: Path) -> Iterator[dict[str, Any]]:
             try:
                 record = json.loads(line)
             except ValueError:  # includes UnicodeDecodeError
-                if bad is not None:
-                    break
-                bad = number
+                bad.append(number)
                 continue
-            if bad is not None:
-                if record.get("type") != "torn_line" or record.get("line") != bad:
+            if bad:
+                # A torn_line names the last of them: a mending write can be cut off too.
+                if record.get("type") != "torn_line" or record.get("line") != bad[-1]:
                     break
-                bad = None
+                bad = []
             yield record
-    if bad is not None:
+    if bad:
         raise ConfigError(
-            f"Line {bad} of {path.name} isn't a complete record, and no torn_line record "
+            f"Line {bad[0]} of {path.name} isn't a complete record, and no torn_line record "
             f"says it was cut off. Clarity won't guess what it held; the file is at {path}."
         )
 
