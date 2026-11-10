@@ -19,9 +19,10 @@ from clarity_chat.profiles import ConfigError
 # Differences that can't change a replay's output: it sends the logged IDs and request.
 CANNOT_CHANGE_OUTPUT = {"client", "libraries"}
 MAX_DIFFS = 50  # per fact; a /props diff can be long
-# /props fields that change with every server start and can't affect output: media_marker
-# is a random string that marks images in a text prompt (checked live; Clarity sends IDs).
-VOLATILE_PROPS = {"media_marker"}
+# /props fields that can't affect output, so they aren't compared: media_marker is a random
+# string per start that marks images in a text prompt (checked live; Clarity sends IDs);
+# endpoint_slots and ui report --no-slots and --no-webui, which Clarity sets since v0.2.0.
+PROPS_NOT_COMPARED = {"media_marker", "endpoint_slots", "ui"}
 
 
 def find_call(path: Path, call_id: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
@@ -66,11 +67,19 @@ def deep_diff(old: Any, new: Any, path: str = "") -> list[dict[str, Any]]:
     return [] if old == new else [{"path": path or "(value)", "logged": old, "now": new}]
 
 
+def not_recorded(logged: dict[str, Any], now: dict[str, Any]) -> list[str]:
+    """Facts the logged call didn't record (an older version of Clarity), so they can't be
+    compared. Listed in the replay record, so the gap is visible."""
+    return sorted(name for name in now if logged.get(name) is None and now[name] is not None)
+
+
 def environment_diff(logged: dict[str, Any], now: dict[str, Any]) -> dict[str, list[dict]]:
     """Each fact that differs, with its differing paths. `logged` and `now` map fact names
-    (build_info, flags, props, machine, env, gguf_sha256, client, libraries) to values."""
+    (build_info, flags, props, machine, env, gguf_sha256, client, libraries) to values.
+    Facts the log didn't record are left out (see not_recorded)."""
     diffs = {}
-    for name in sorted(set(logged) | set(now)):
+    skipped = set(not_recorded(logged, now))
+    for name in sorted((set(logged) | set(now)) - skipped):
         found = deep_diff(logged.get(name), now.get(name))
         if found:
             diffs[name] = found[:MAX_DIFFS] + (
@@ -104,7 +113,9 @@ def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict
         "llama_cpp": {k: v for k, v in (server.get("llama_cpp") or {}).items() if k != "dir"},
         "flags": server.get("flags"),
         "graph_splits": server.get("graph_splits"),
-        "props": {k: v for k, v in (server.get("props") or {}).items() if k not in VOLATILE_PROPS},
+        "props": {
+            k: v for k, v in (server.get("props") or {}).items() if k not in PROPS_NOT_COMPARED
+        },
         "env": server.get("env_llama_ggml_kept"),
         "machine": server.get("machine"),
         "gguf_sha256": call["model"].get("gguf_sha256"),

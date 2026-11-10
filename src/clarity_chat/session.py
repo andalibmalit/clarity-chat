@@ -44,6 +44,7 @@ from clarity_chat.replay import (
     environment_diff,
     facts_from_call,
     find_call,
+    not_recorded,
     unexplained,
 )
 
@@ -714,6 +715,7 @@ class Session:
             now_server,
         )
         diffs = environment_diff(logged_facts, now_facts)
+        missing = not_recorded(logged_facts, now_facts)
         comparison = compare_output(call, fields)
         record: dict[str, Any] = {
             "type": "replay",
@@ -727,6 +729,7 @@ class Session:
             **comparison,
             "unexplained_difference": unexplained(comparison["identical"], diffs),
             "differences": diffs,
+            **({"not_recorded": missing} if missing else {}),
             "backend": self.backend.describe(),
             **{
                 k: fields[k]
