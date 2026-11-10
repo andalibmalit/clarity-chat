@@ -15,6 +15,7 @@ Two headings are Clarity's own, used when they apply:
 - The tokens that end a reply, as llama.cpp read them from the model file, are logged with each server start and shown in `/settings`.
 - Each server start logs how many pieces llama.cpp split the compute graph into, and replay compares it. More than one piece can mean part of the work runs on the CPU.
 - The status line after each reply shows how much of the context the conversation now uses, such as "context 12,400 of 32,768".
+- A `template_kwargs` key that the chat template never reads, such as a misspelt one, is now a warning when the conversation starts, and is logged. Before, it changed nothing silently.
 - `clarity mark LOG CALL_ID LABEL` and `clarity note LOG CALL_ID TEXT` label or annotate any logged reply after the chat, without starting a model. Marks and notes now record whether they were made live or in review.
 - The Transformers backend sets `attn_implementation = "sdpa"` explicitly, checks it after loading, and logs it.
 - User docs: getting started, guides, reference and contributing.

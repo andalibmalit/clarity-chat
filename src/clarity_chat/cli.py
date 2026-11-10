@@ -322,8 +322,11 @@ class ChatLoop:
         self.write(format_replay(record) + "\n")
 
     def show_server_warnings(self, conversation: Conversation) -> None:
-        """The warnings of a server this conversation started (once per server)."""
+        """The warnings of a server this conversation started (once per server), then the
+        conversation's own."""
         for warning in (conversation.started_server or {}).get("warnings", []):
+            self.write(f"! {warning}\n")
+        for warning in conversation.warnings:
             self.write(f"! {warning}\n")
 
     def send(self, text: str) -> bool:
