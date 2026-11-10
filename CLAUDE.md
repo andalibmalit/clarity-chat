@@ -11,13 +11,18 @@ When you prompt a local model through a server or chat app, much of what shapes 
 uv sync                                   # install (add --extra hf for the Transformers backend)
 uv run clarity fetch NAME                 # download a model from models.toml, convert it, write models.lock
 uv run clarity verify [NAME]              # re-hash GGUF files against models.lock
-uv run clarity chat --profile NAME        # chat with a profile from profiles/
+uv run clarity chat --profile NAME        # chat with a profile from profiles/ or local/profiles/
+uv run clarity chat --resume ID           # continue a conversation (IDs from `clarity chats`)
+uv run clarity chat --json [--profile NAME]  # commands as JSON lines on stdin, events out
+uv run clarity chats                      # list conversations in logs/
 uv run clarity run --openings FILE --profiles A B [--seeds N]   # blind test into runs/RUN_ID/
 uv run clarity replay LOG CALL_ID [--logged-flags]                # re-send a call and compare
-uv run clarity mark LOG CALL_ID LABEL                             # label a logged reply (note: TEXT)
+uv run clarity mark LOG CALL_ID [LABEL] [--remove]                # label a logged reply, or remove a label (note: TEXT)
 uv run pytest                             # offline tests (no network, model or server)
 uv run pytest -m live                     # SmolLM2 via the managed llama-server
 uv run pytest -m olmo                     # OLMo 3 (needs both OLMo models fetched)
+uv run pytest -m measure -v -s            # timings and memory figures behind design choices
+uv run pytest -m embed -v -s              # embedding determinism on bge-small (decides v0.3.3)
 uv run ruff check && uv run ruff format --check && uv run ty check
 ```
 
