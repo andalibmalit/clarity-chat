@@ -318,3 +318,35 @@ def test_set_seed_random_and_sampler_lists(make_session):
         "samplers": ["top_k", "top_p", "temperature"],
     }
     assert session.say("a").record["seed_drawn"] is True
+
+
+def test_chats_lists_conversations_newest_first_with_titles(make_session, fetched_root):
+    from clarity_chat.logs import list_chats
+
+    session, _ = make_session()
+    session.say("Tell me a made-up story about a lighthouse keeper and a crow, please")
+    first = session.conversation.conversation_id
+    session.new_conversation("text")
+    second = session.conversation.conversation_id
+    session.say("b")
+    session.set_title("A made-up title")
+    chats = list_chats(fetched_root / "logs")
+    by_id = {c["conversation_id"]: c for c in chats}
+    assert [c["conversation_id"] for c in chats][:2] == sorted([first, second], reverse=True)
+    assert by_id[first]["title"] == "Tell me a made-up story about a lighthouse"  # 8 words
+    assert by_id[first]["title_set"] is False and by_id[first]["profile"] == "text"
+    assert by_id[second]["title"] == "A made-up title" and by_id[second]["title_set"]
+
+
+def test_chats_lists_a_log_it_cant_read_and_never_writes(fetched_root):
+    from clarity_chat.logs import list_chats
+
+    logs = fetched_root / "logs"
+    logs.mkdir(exist_ok=True)
+    (logs / "20200101-000000-bad.jsonl").write_bytes(b"not json\n")
+    (logs / "20200101-000001-cut.jsonl").write_bytes(b'{"type": "conversation", "ti')
+    before = {p.name: p.read_bytes() for p in logs.iterdir()}
+    chats = {c["conversation_id"]: c for c in list_chats(logs)}
+    assert "error" in chats["20200101-000000-bad"]
+    assert chats["20200101-000001-cut"]["title"] is None  # only an unfinished line so far
+    assert {p.name: p.read_bytes() for p in logs.iterdir()} == before

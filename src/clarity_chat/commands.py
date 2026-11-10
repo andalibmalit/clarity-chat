@@ -15,6 +15,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from clarity_chat.logs import list_chats
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import CallOutcome, Session
 
@@ -98,6 +99,14 @@ def _undo(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 def _set(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     name, _, value = needs(args, "/set NAME [VALUE]").partition(" ")
     return {"record": c.session.set_setting(name, value.strip())}
+
+
+def _title(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    return {"record": c.session.set_title(needs(args, "/title TEXT"))}
+
+
+def _chats(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    return {"chats": list_chats(c.session.logs_dir)}
 
 
 def _branches(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -234,6 +243,13 @@ COMMANDS: dict[str, Command] = {
     ),
     "replay": Command(
         "/replay", "re-send the current reply's call and compare the output", _replay
+    ),
+    "title": Command("/title TEXT", "name this conversation in the chat list", _title),
+    "chats": Command(
+        "/chats",
+        "your conversations in logs/, newest first, with their titles",
+        _chats,
+        needs_conversation=False,
     ),
     "new": Command("/new", "start a new conversation with the same profile", _new),
     "profile": Command(

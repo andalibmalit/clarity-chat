@@ -189,3 +189,17 @@ def test_set_in_the_terminal_and_in_settings(loop):
     assert "temperature = 0.9 for this chat." in text
     assert "temperature is back to the profile's value." in text
     assert any("temperature" in line and "chat" in line for line in text.splitlines())
+
+
+def test_title_and_chats_in_the_terminal(loop, fetched_root, capsys):
+    from clarity_chat import cli
+
+    chat, output, _ = loop
+    chat.handle("Hi")
+    chat.handle("/title Made-up greeting")
+    chat.handle("/chats")
+    text = "".join(output)
+    assert "Titled 'Made-up greeting'." in text
+    assert f"{chat.session.conversation.conversation_id}  text  Made-up greeting" in text
+    assert cli.main(["--root", str(fetched_root), "chats"]) == 0
+    assert "Made-up greeting" in capsys.readouterr().out

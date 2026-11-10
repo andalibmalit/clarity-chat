@@ -552,6 +552,14 @@ class Session:
             }
         )
 
+    def set_title(self, title: str) -> dict[str, Any]:
+        """Name this conversation in the chat list. Without one, the list shows the first
+        words of the first message; no model is ever asked for a title."""
+        conversation = self._require_conversation()
+        return conversation.log.append(
+            {"type": "title", "conversation_id": conversation.conversation_id, "title": title}
+        )
+
     def switch(self, turn_id: str) -> Turn:
         """Go to another branch: the newest reply on the branch that starts at `turn_id`
         (a turn ID from /branches). Nothing is sent."""
