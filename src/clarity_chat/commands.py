@@ -119,10 +119,7 @@ def _branches(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _switch(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    head = c.session.switch(needs(args, "/switch TURN_ID"))
-    conversation = c.session.conversation
-    assert conversation is not None
-    render = conversation.render if conversation.resumed else None
+    head, render = c.session.switch(needs(args, "/switch TURN_ID"))
     return {"head": head.turn_id, "head_text": head.text, "render": render}
 
 
