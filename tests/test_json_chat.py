@@ -171,3 +171,23 @@ def test_every_command_works_as_a_slash_command_and_as_json(make):
         chat.execute({"command": name, "args": args(session)})
         last = json.loads(chat.stdout.getvalue().splitlines()[-1])
         assert last["event"] == "result", (name, last)
+
+
+@pytest.mark.xfail(strict=True, reason="checkpoint 3: stdin is decoded by the console")
+def test_clarity_chat_json_reads_utf8_and_survives_a_bad_byte(fetched_root, monkeypatch, capsys):
+    from clarity_chat import cli
+
+    raw = b'\xff\n{"command": "help", "args": "caf\xc3\xa9"}\n'
+    # A console that decodes pipes as cp1252, as Windows does.
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(raw), encoding="cp1252"))
+    done = []
+    thread = threading.Thread(
+        target=lambda: done.append(cli.main(["--root", str(fetched_root), "chat", "--json"])),
+        daemon=True,
+    )
+    thread.start()
+    thread.join(10)
+    assert done == [0], "clarity chat --json hung or failed"
+    events = [json.loads(x) for x in capsys.readouterr().out.splitlines()]
+    assert events[0]["type"] == "InputError" and "UTF-8" in events[0]["message"]
+    assert events[1]["command"] == "help" and events[1]["event"] == "result"
