@@ -16,6 +16,7 @@ Two headings are Clarity's own, used when they apply:
 - Each server start logs how many pieces llama.cpp split the compute graph into, and replay compares it. More than one piece can mean part of the work runs on the CPU.
 - The status line after each reply shows how much of the context the conversation now uses, such as "context 12,400 of 32,768".
 - A `template_kwargs` key that the chat template never reads, such as a misspelt one, is now a warning when the conversation starts, and is logged. Before, it changed nothing silently.
+- `/say TEXT` and `/cancel` chat commands, for scripts. All chat commands now come from one table, which `/help` lists.
 - If Clarity is killed or crashes, the next start stops the llama-server it left running, after checking that the server's port answers with its key and model. SIGTERM and a closed terminal now stop the server too.
 - Only one `chat`, `run` or `replay` runs in a project at a time; a second one stops and says which process is running.
 - Your own profiles go in `local/profiles/`, which git ignores, next to the shipped ones in `profiles/`. A name in both folders is an error.

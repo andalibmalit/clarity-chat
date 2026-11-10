@@ -73,6 +73,8 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 
 **Shipped files stay read-only, and your files live in `local/`.** Clarity never edits `models.toml`, `profiles/`, `defaults.toml` or `server.toml`. Your own profiles go in `local/profiles/`, which git ignores, so a `git pull` never touches them. A profile name that exists in both folders is an error, because the name must say which file it means. Clarity writes only into `local/`, `logs/`, `runs/`, `models/`, `models.lock` and the Hugging Face cache, and a new kind of write must be visible to you when it happens.
 
+**Every chat command is in one table,** which the terminal, `clarity chat --json` and the web interface all run. Each command returns its result as data and reports what happens while it runs as events: reply text as it streams, a model starting, and every record written to the log. So a script or another program can do anything you can do in the terminal, and see what you'd see.
+
 **One running Clarity per project.** `chat`, `run` and `replay` hold a lock on `local/clarity.lock` while they run; a second one stops and says which process holds it. Two would load two models, more memory than a laptop has, and could write to the same log. The operating system releases the lock however the process ends, so a crash never leaves it stuck. `clarity mark` and `clarity note` only append a line, so they don't take it.
 - Who holds the lock is in a separate file, `local/clarity.json`, because on Windows a locked file can't be read by another process.
 

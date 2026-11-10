@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from clarity_chat.cli import HELP, main
+from clarity_chat.cli import HELP_TAIL, main
+from clarity_chat.commands import COMMANDS
 from clarity_chat.profiles import (
     PROFILE_KEYS_CHAT,
     PROFILE_KEYS_COMMON,
@@ -38,8 +39,9 @@ def test_reference_names_every_cli_command(capsys):
 
 
 def test_reference_names_every_chat_command():
-    commands = sorted(set(re.findall(r"^  (/{1,2}\w+)", HELP, flags=re.MULTILINE)))
-    assert "/prompt" in commands
+    extra = re.findall(r"^  (/{1,2}\w+)", HELP_TAIL, flags=re.MULTILINE)
+    commands = sorted({f"/{name}" for name in COMMANDS} | set(extra))
+    assert "/prompt" in commands and "//text" in commands
     missing = [c for c in commands if f"`{c}" not in REFERENCE]
     assert not missing, f"docs/reference.md doesn't describe: {missing}"
 

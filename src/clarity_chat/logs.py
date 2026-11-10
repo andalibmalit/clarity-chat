@@ -24,7 +24,7 @@ import platform
 import secrets
 import subprocess
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
@@ -56,6 +56,7 @@ class LogFile:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.servers_logged: set[str] = set()  # each server_start is written once per file
+        self.on_append: Callable[[dict[str, Any]], None] | None = None  # sees each record
 
     def append(self, record: dict[str, Any]) -> dict[str, Any]:
         full = {"schema_version": SCHEMA_VERSION, "time": now_utc(), **record}
@@ -70,6 +71,8 @@ class LogFile:
                 os.fsync(fd)
             finally:
                 os.close(fd)
+        if self.on_append:
+            self.on_append(full)
         return full
 
 

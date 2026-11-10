@@ -1,0 +1,216 @@
+"""Every chat command in one table, for the terminal, `clarity chat --json` and the web UI.
+
+`Commands(session).run(name, args, emit)` runs one command and returns a JSON-able result.
+`emit` receives events while it runs: `text` (reply text as it streams), `status` (a model
+starting, ready) and `record` (every record appended to the log). Errors are raised
+(ConfigError, ContextError, BackendError); each front end shows them its own way.
+
+Commands run one at a time, except `cancel`, which runs during a call.
+"""
+
+from __future__ import annotations
+
+import threading
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
+
+from clarity_chat.profiles import ConfigError
+from clarity_chat.session import CallOutcome, Session
+
+Emit = Callable[[dict[str, Any]], None]
+
+
+@dataclass(frozen=True)
+class Command:
+    usage: str  # "/mark LABEL"
+    help: str
+    run: Callable[[Commands, str, Emit], dict[str, Any]]
+    during_call: bool = False  # runs while a call is in progress (only cancel)
+    needs_conversation: bool = True
+
+
+class Commands:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+        self.cancel_event: threading.Event | None = None  # the running call's
+
+    def run(self, name: str, args: str, emit: Emit) -> dict[str, Any]:
+        command = COMMANDS.get(name)
+        if command is None:
+            raise ConfigError(f"Unknown command /{name}. /help lists them.")
+        if command.needs_conversation and self.session.conversation is None:
+            raise ConfigError("No conversation is running. Start one with /profile NAME.")
+        if command.during_call:
+            return command.run(self, args, emit)
+        self.session.on_record = lambda record: emit({"event": "record", "record": record})
+        try:
+            return command.run(self, args, emit)
+        finally:
+            self.session.on_record = None
+
+    def call(self, emit: Emit, start: Callable[..., CallOutcome]) -> dict[str, Any]:
+        """A call with its own cancel event, which `cancel` sets from another thread."""
+        self.cancel_event = cancel = threading.Event()
+        try:
+            outcome = start(
+                on_text=lambda text: emit({"event": "text", "text": text}), cancel=cancel
+            )
+        finally:
+            self.cancel_event = None
+        return {"call": outcome.record, "warnings": outcome.warnings}
+
+
+def needs(args: str, usage: str) -> str:
+    if not args:
+        raise ConfigError(f"Usage: {usage}")
+    return args
+
+
+def _say(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    text = needs(args, "/say TEXT")
+    return c.call(emit, lambda **kw: c.session.say(text, **kw))
+
+
+def _regen(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    return c.call(emit, c.session.regen)
+
+
+def _edit(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    text = needs(args, "/edit TEXT")
+    return c.call(emit, lambda **kw: c.session.edit(text, **kw))
+
+
+def _cancel(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    event = c.cancel_event
+    if event is not None:
+        event.set()
+    return {"cancelled": event is not None}
+
+
+def _undo(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    head = c.session.undo()
+    return {"head": head.turn_id if head else None, "head_text": head.text if head else None}
+
+
+def _annotate(kind: str) -> Callable[[Commands, str, Emit], dict[str, Any]]:
+    usage = "/mark LABEL" if kind == "mark" else "/note TEXT"
+    return lambda c, args, emit: {"record": c.session.annotate(kind, needs(args, usage))}
+
+
+def _prompt(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    assert c.session.conversation is not None
+    return {"call": c.session.conversation.last_call}
+
+
+def _settings(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    return settings_view(c.session)
+
+
+def _replay(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    return {"replay": c.session.replay_current()}
+
+
+def _new(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    conversation = c.session.conversation
+    assert conversation is not None
+    return _start(c, str(conversation.profile.path), emit)  # its file, so a path works too
+
+
+def _profile(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    return _start(c, needs(args, "/profile NAME"), emit)
+
+
+def _start(c: Commands, profile: str, emit: Emit) -> dict[str, Any]:
+    emit({"event": "status", "status": "starting", "profile": profile})
+    new = c.session.new_conversation(profile)
+    emit({"event": "status", "status": "ready", "conversation_id": new.conversation_id})
+    return {
+        "conversation_id": new.conversation_id,
+        "profile": new.profile.name,
+        "model": new.profile.model,
+        "mode": new.profile.mode,
+        "warnings": [*(new.started_server or {}).get("warnings", []), *new.warnings],
+    }
+
+
+def _help(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    return {"commands": [{"usage": cmd.usage, "help": cmd.help} for cmd in COMMANDS.values()]}
+
+
+def _quit(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    return {"quit": True}
+
+
+def settings_view(session: Session) -> dict[str, Any]:
+    """Everything /settings shows, as data: each value with its origin."""
+    conversation = session.conversation
+    assert conversation is not None
+    profile = conversation.profile
+    last = conversation.last_call or {}
+    backend_settings = last.get("backend_settings")
+    if backend_settings is None:
+        if session.backend.name == "transformers":
+            from clarity_chat.backends.transformers_hf import NEUTRAL_CONFIG as neutral
+        else:
+            from clarity_chat.backends.llama_cpp import NEUTRAL_REQUEST as neutral
+
+        backend_settings = {k: {"value": v, "origin": "backend"} for k, v in neutral.items()}
+    recommended = session.model_lock.get("recommended")
+    model_file = (session.backend.server_record or {}).get("model_file") or {}
+    return {
+        "profile": {"name": profile.name, "mode": profile.mode, "model": profile.model},
+        "settings": {name: s.to_json() for name, s in profile.settings.items()},
+        "backend": session.backend.name,
+        "backend_settings": backend_settings,
+        "eog_tokens": model_file.get("eog_tokens"),
+        "recommended": recommended and {**recommended, "used": profile.use_recommended},
+        "not_applied": last.get("not_applied") or [],
+        "ctx_size": session.ctx_size_for(profile).to_json(),
+        "stop": profile.stop,
+    }
+
+
+COMMANDS: dict[str, Command] = {
+    "say": Command("/say TEXT", "send a message (plain text without / does the same)", _say),
+    "prompt": Command(
+        "/prompt",
+        "the exact prompt text of the last call, its token IDs and their count",
+        _prompt,
+    ),
+    "settings": Command("/settings", "every setting, its value and where it came from", _settings),
+    "regen": Command(
+        "/regen", "another reply to your last message (seed + 1, + 2, …), as a new branch", _regen
+    ),
+    "edit": Command(
+        "/edit [TEXT]", "replace your last message (prefilled to edit) and get a new reply", _edit
+    ),
+    "undo": Command(
+        "/undo", "go back past the last exchange; your next message starts a branch", _undo
+    ),
+    "mark": Command(
+        "/mark LABEL", "label the current reply (for example landed, dropped)", _annotate("mark")
+    ),
+    "note": Command("/note TEXT", "add a note to the current reply", _annotate("note")),
+    "replay": Command(
+        "/replay", "re-send the current reply's call and compare the output", _replay
+    ),
+    "new": Command("/new", "start a new conversation with the same profile", _new),
+    "profile": Command(
+        "/profile NAME",
+        "start a new conversation with another profile",
+        _profile,
+        needs_conversation=False,
+    ),
+    "cancel": Command(
+        "/cancel",
+        "stop the reply being written (Ctrl-C does this in the terminal)",
+        _cancel,
+        during_call=True,
+        needs_conversation=False,
+    ),
+    "help": Command("/help", "this list", _help, needs_conversation=False),
+    "quit": Command(
+        "/quit", "stop the server and exit (also Ctrl-D)", _quit, needs_conversation=False
+    ),
+}
