@@ -16,7 +16,6 @@ from clarity_chat.profiles import ConfigError, find_root, load_models, load_serv
 from clarity_chat.session import (
     CancelledBeforeReply,
     ContextError,
-    Conversation,
     Session,
 )
 
@@ -317,11 +316,12 @@ class ChatLoop:
             self.write(format_resume(result) + "\n")
             return
         self.write(f"Starting profile {self.profile_name} …\n")
-        conversation = self.session.new_conversation(self.profile_name)
-        self.show_server_warnings(conversation)
+        result = self.commands.run("profile", self.profile_name, self.on_event)
+        for warning in result["warnings"]:
+            self.write(f"! {warning}\n")
         self.write(
-            f"Ready: {conversation.profile.model} ({conversation.profile.mode} mode), "
-            f"conversation {conversation.conversation_id}. /help for commands.\n"
+            f"Ready: {result['model']} ({result['mode']} mode), "
+            f"conversation {result['conversation_id']}. /help for commands.\n"
         )
 
     def run(self) -> None:
@@ -452,14 +452,6 @@ class ChatLoop:
             self.write("Edit cancelled.\n")
             return True
         return self.command("edit", arg)
-
-    def show_server_warnings(self, conversation: Conversation) -> None:
-        """The warnings of a server this conversation started (once per server), then the
-        conversation's own."""
-        for warning in (conversation.started_server or {}).get("warnings", []):
-            self.write(f"! {warning}\n")
-        for warning in conversation.warnings:
-            self.write(f"! {warning}\n")
 
 
 def prompt_reader() -> Callable[[str], str]:

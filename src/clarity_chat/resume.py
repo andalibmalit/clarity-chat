@@ -26,6 +26,7 @@ class Rebuilt:
     servers: dict[str, dict[str, Any]] = field(default_factory=dict)  # server_start by ID
     last_call: dict[str, Any] | None = None  # the last call that has a reply
     unanswered: dict[str, Any] | None = None  # the last message, if it got no reply
+    failed_call: dict[str, Any] | None = None  # that message's failed call, if logged
 
 
 def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
@@ -38,6 +39,7 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
         raise ConfigError(f"{where} starts with {first}, not a conversation record.{hint}")
     out = Rebuilt(records[0])
     roles: dict[str, dict[str, Any]] = {}
+    failed: dict[str, dict[str, Any]] = {}  # calls with no reply, by ID
     for record in records:
         kind = record.get("type")
         if kind == "conversation" and record is not records[0]:
@@ -45,11 +47,14 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
         if kind == "turn":
             out.turns.append(record)
             roles[record["turn_id"]] = record
-            out.head = record["turn_id"]
+            out.head, out.failed_call = record["turn_id"], None
         elif kind == "head":
             out.head = record["turn_id"]
+            out.failed_call = failed.get(record.get("call_id") or "")
         elif kind == "call" and record.get("turn_id"):
             out.calls[record["call_id"]] = out.last_call = record
+        elif kind == "call":
+            failed[record["call_id"]] = record
         elif kind == "settings":
             out.chat_settings = record["chat_settings"]
         elif kind == "server_start":

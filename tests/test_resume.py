@@ -248,7 +248,6 @@ def test_a_resume_that_fails_late_leaves_the_running_chat_on_its_model(new_sessi
     assert session.conversation is running and backend.ctx_sizes == [8192]
 
 
-@pytest.mark.xfail(strict=True, reason="checkpoint 3: resume forgets a failed message's call")
 def test_after_a_failed_message_resume_shows_the_same_call_as_the_live_chat(new_session):
     from clarity_chat.backends import BackendError
 
@@ -264,7 +263,6 @@ def test_after_a_failed_message_resume_shows_the_same_call_as_the_live_chat(new_
     assert resumed.conversation.last_call["call_id"] == live
 
 
-@pytest.mark.xfail(strict=True, reason="checkpoint 3: resume drops the conversation's warnings")
 def test_resume_shows_the_conversations_warnings(new_session, fetched_root):
     from clarity_chat.commands import Commands
 

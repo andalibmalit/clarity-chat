@@ -146,7 +146,10 @@ def _resume(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "model": conversation.profile.model,
         "mode": conversation.profile.mode,
         "head_text": head.text if head else None,
-        "warnings": [*(conversation.started_server or {}).get("warnings", [])],
+        "warnings": [
+            *(conversation.started_server or {}).get("warnings", []),
+            *conversation.warnings,
+        ],
     }
 
 
