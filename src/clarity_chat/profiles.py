@@ -58,8 +58,9 @@ NEUTRAL = {
 }
 
 SEED_MAX = 2**32 - 2  # llama.cpp reads 0xFFFFFFFF (2**32 - 1) as "pick a random seed"
-# "model": its recommended value; "run": a batch run's seed; "server.toml": ctx_size only
-ORIGINS = ("profile", "model", "default", "backend", "regen", "run", "server.toml")
+# "model": its recommended value; "run": a batch run's seed; "server.toml": ctx_size only;
+# "chat": set with /set for one conversation
+ORIGINS = ("profile", "model", "default", "backend", "regen", "run", "server.toml", "chat")
 
 PROFILE_KEYS_COMMON = {
     "backend",
@@ -206,6 +207,12 @@ def resolve_settings(
     for name in SETTING_NAMES:
         origin, values = next((o, v) for o, v in layers if name in v)
         resolved[name] = Setting(values[name], origin)
+    check_samplers(resolved, where)
+    return resolved
+
+
+def check_samplers(resolved: dict[str, Setting], where: str) -> None:
+    """Reject a non-neutral setting whose sampler isn't in `samplers`: it would do nothing."""
     samplers = resolved["samplers"].value
     for name, sampler in SAMPLER_OF.items():
         setting = resolved[name]
@@ -215,7 +222,19 @@ def resolve_settings(
                 f"because {sampler!r} is not in samplers {samplers}. Add {sampler!r} to "
                 f"samplers or set {name} = {NEUTRAL[name]!r}."
             )
-    return resolved
+
+
+def parse_setting(name: str, text: str, where: str) -> Any:
+    """A setting typed as text (`/set`): a number, `random` for seed, or sampler names
+    separated by spaces or commas. Checked like a profile's value."""
+    if name == "samplers":
+        value: Any = text.replace(",", " ").split()
+    else:
+        try:
+            value = tomllib.loads(f"v = {text}")["v"]
+        except tomllib.TOMLDecodeError:
+            value = text
+    return check_setting(name, value, where)
 
 
 # --- profiles ---------------------------------------------------------------------------

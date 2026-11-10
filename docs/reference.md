@@ -33,6 +33,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/prompt` | The exact prompt text of the current reply's call (or of your last message, if its call failed), the BOS decision, and the token IDs. |
 | `/prompt repr` | The same, with each line shown as a Python string, so spaces, tabs and newlines are visible. |
 | `/settings` | Every setting, its value and origin; the fixed values sent for the backend's other fields; the model's recommended values; what wasn't applied; the context size and stop strings; the end-of-reply tokens llama.cpp read from the model file. |
+| `/set NAME [VALUE]` | Change a setting for this chat only, for example `/set temperature 0.7`, `/set seed random` or `/set samplers top_k temperature`. It's checked like a profile's value, its origin is `chat`, and it's logged. With no value, the setting goes back to the profile's. |
 | `/regen` | Another reply to your last message, as a new branch. The k-th regeneration uses the first reply's seed plus k. |
 | `/edit [TEXT]` | Replace your last message and get a new reply, as a new branch. With no text, the input is prefilled with your last message. The new message uses the profile's seed. |
 | `/undo` | Go back past the last exchange; your next message starts a new branch. Nothing is deleted. |
@@ -90,7 +91,7 @@ File paths are relative to the profile file. Files are read byte for byte, so li
 
 ## Settings
 
-Settings use the same names on every backend. Each resolved value records its origin: `profile`, `model` (from `use_recommended`), `default` (from `defaults.toml`), `regen` (a `/regen` seed) or `run` (a batch-run seed). Fixed values Clarity sends for a backend's other fields have origin `backend`.
+Settings use the same names on every backend. Each resolved value records its origin: `profile`, `model` (from `use_recommended`), `default` (from `defaults.toml`), `chat` (set with `/set` for one conversation), `regen` (a `/regen` seed) or `run` (a batch-run seed). Fixed values Clarity sends for a backend's other fields have origin `backend`.
 
 | Setting | Value | Neutral (`defaults.toml`) | Needs sampler |
 |---|---|---|---|
@@ -164,6 +165,7 @@ Each line is one JSON record with `schema_version` (currently 1), `type` and `ti
 | `conversation` | at the start of each conversation | `profile` (name, path, full TOML text and every file it read), `settings`, `model`, `client` (commit and dirty flag), `machine`, `warnings`, `ctx_size` (value and origin: `profile` or `server.toml`) |
 | `server_start` | once per server per log file, before its first call | `server_id`, `argv`, `flags`, `api_key` (always "random per start; value not logged"), `env_removed`, `env_llama_ggml_kept`, `llama_cpp` (commit, dirty), `build_info`, `placement`, `model_file` (`eog_tokens`: the tokens that end a reply, read from the GGUF), `memory` (per GPU: its limit in MiB, and the model, context cache and compute buffers on it), `graph_splits` (how many pieces llama.cpp cut the compute graph into, for the prompt and the reply), `props`, `startup_output`, `warnings`, `machine`. Transformers: `device`, `dtype`, `attn_implementation`, `torch`, `transformers`, `eos_token_id` and similar. |
 | `turn` | for each message and reply | `turn_id`, `parent_id`, `role`, `origin` (`user`, `model` or `edit`), `text`, `call_id`, and `regen_of` or `edit_of` for branches |
+| `settings` | for each `/set` | `name`, `value` (null: back to the profile's) and `chat_settings`: every value set in this chat so far. |
 | `call` | for every call, including failed and cancelled ones | see below |
 | `head` | when the current turn moves other than to a new reply: `/undo`, `/switch`, or a call that failed or was cancelled before any reply | `turn_id` (null: the start) and `reason`: `undo`, `switch` or `failed`. The latest `turn` or `head` record says where the conversation continues; if that is a message with no reply (Clarity stopped during its call), it continues before that message. |
 | `mark`, `unmark`, `note` | for `/mark`, `/unmark`, `/note`, `clarity mark` and `clarity note` | `call_id`, `turn_id`, `label` or `text`, and `origin`: `live` (in a chat) or `review` (afterwards). A `mark` has a `mark_id`; an `unmark` names the `mark_id` it removes (null for a mark from before v0.2.0, which removes that reply's ID-less marks with its `label`). A `note` has a `note_id` and `replaces`: the `note_id` of the note it replaces, or null. Notes from before v0.2.0 have no ID, so they all still show. |

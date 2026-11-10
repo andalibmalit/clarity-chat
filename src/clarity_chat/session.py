@@ -26,10 +26,12 @@ from clarity_chat.profiles import (
     Profile,
     ServerConfig,
     Setting,
+    check_samplers,
     load_defaults,
     load_models,
     load_profile,
     load_server_config,
+    parse_setting,
     resolve_settings,
 )
 from clarity_chat.render import (
@@ -117,6 +119,13 @@ class Conversation:
     last_call: dict[str, Any] | None = None  # the call of the reply at head (for /prompt)
     calls: dict[str, dict[str, Any]] = field(default_factory=dict)  # call records by ID
     warnings: list[str] = field(default_factory=list)  # shown when it starts, and logged
+    chat_settings: dict[str, Any] = field(default_factory=dict)  # set with /set
+
+    @property
+    def settings(self) -> dict[str, Setting]:
+        """The profile's settings, with this conversation's /set values over them."""
+        chat = {name: Setting(value, "chat") for name, value in self.chat_settings.items()}
+        return {**self.profile.settings, **chat}
 
     def path_to(self, turn_id: str | None) -> list[Turn]:
         """Turns from the root to `turn_id`, in order."""
@@ -518,6 +527,31 @@ class Session:
         assert reply.parent_id is not None
         return conversation.move_head(conversation.turns[reply.parent_id].parent_id, "undo")
 
+    def set_setting(self, name: str, text: str) -> dict[str, Any]:
+        """Change a setting for this conversation (`text` empty: back to the profile's value).
+        Checked like a profile, and logged as a `settings` record with every /set value."""
+        conversation = self._require_conversation()
+        chat = dict(conversation.chat_settings)
+        if text:
+            chat[name] = parse_setting(name, text, "/set")
+        elif name in chat:
+            del chat[name]
+        else:
+            raise ConfigError(f"{name} isn't set in this chat. Usage: /set NAME VALUE")
+        trial = {**conversation.profile.settings}
+        trial.update({k: Setting(v, "chat") for k, v in chat.items()})
+        check_samplers(trial, "/set")
+        conversation.chat_settings = chat
+        return conversation.log.append(
+            {
+                "type": "settings",
+                "conversation_id": conversation.conversation_id,
+                "name": name,
+                "value": chat.get(name),
+                "chat_settings": chat,
+            }
+        )
+
     def switch(self, turn_id: str) -> Turn:
         """Go to another branch: the newest reply on the branch that starts at `turn_id`
         (a turn ID from /branches). Nothing is sent."""
@@ -551,10 +585,10 @@ class Session:
 
     @staticmethod
     def resolve_settings(
-        profile: Profile, seed: Setting | None = None
+        settings: dict[str, Setting], seed: Setting | None = None
     ) -> tuple[dict[str, Setting], bool]:
-        """The profile's settings for one call with a concrete seed, and whether it was drawn."""
-        settings = dict(profile.settings)
+        """Settings for one call with a concrete seed, and whether it was drawn."""
+        settings = dict(settings)
         if seed is not None:
             settings["seed"] = seed
             return settings, False
@@ -579,7 +613,7 @@ class Session:
         assert self.model is not None and self.tokenizer is not None
         self._log_server_start()
         call_id = new_id("call")
-        settings, seed_drawn = self.resolve_settings(profile, seed)
+        settings, seed_drawn = self.resolve_settings(conversation.settings, seed)
         values = {name: s.value for name, s in settings.items()}
         record: dict[str, Any] = {
             "type": "call",

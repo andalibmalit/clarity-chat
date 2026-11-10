@@ -57,6 +57,8 @@ uv run python -c "from huggingface_hub import snapshot_download; from clarity_ch
 
 Make two profiles that differ in one key, and keep everything else the same. Settings you don't set come from `defaults.toml` for both, so the only difference is the one you made.
 
+To try a value without writing a profile, use `/set` in a chat, for example `/set temperature 0.9`. The change lasts for that conversation, each call logs it with origin `chat`, and `/set temperature` with no value goes back to the profile's. For a comparison you'll report, put the value in a profile so it's written down.
+
 A fixed seed makes a reply replayable, not representative: at temperature 0.6, another seed gives another reply. Compare setups over several openings or seeds with a [blind test](#run-and-rate-a-blind-test).
 
 To see what a chat template contributes, compare a text profile with a chat profile on the same instruct model. `4-raw-instruct` sends OLMo 3 Instruct a plain document; `1a-stock` sends it the same conversation through its chat template.
