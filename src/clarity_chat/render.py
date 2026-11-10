@@ -191,6 +191,19 @@ def chat_template_source(template: Tokenizer, profile: Profile) -> dict[str, Any
     return {**template.source, "kwargs": profile.template_kwargs, "sha256": sha256_text(text)}
 
 
+def unread_kwargs(template_text: str, kwargs: dict[str, Any]) -> list[str]:
+    """The template_kwargs the chat template never reads: a misspelt name changes nothing,
+    silently. Parsed with the Jinja environment Transformers renders with."""
+    if not kwargs:
+        return []
+    from jinja2 import meta
+    from transformers.utils.chat_template_utils import _compile_jinja_template
+
+    environment = _compile_jinja_template(template_text).environment
+    read = meta.find_undeclared_variables(environment.parse(template_text))
+    return sorted(k for k in kwargs if k not in read)
+
+
 def chat_messages(profile: Profile, turns: list[tuple[str, str]]) -> list[dict[str, str]]:
     """System (if set), then priming, then the conversation, in that order."""
     messages = []

@@ -4,7 +4,7 @@ Short recipes for common tasks. [Getting started](getting-started.md) covers ins
 
 ## Write a profile
 
-A profile is one experimental setup: a model, a mode, the prompt pieces and the settings. Save it as `profiles/NAME.toml` and start it with `uv run clarity chat --profile NAME`.
+A profile is one experimental setup: a model, a mode, the prompt pieces and the settings. Save it as `local/profiles/NAME.toml` (create the folder the first time) and start it with `uv run clarity chat --profile NAME`. The profiles in `profiles/` ship with Clarity; copy one into `local/profiles/` under a new name to change it.
 
 A chat-mode profile uses the model's chat template:
 
@@ -37,7 +37,7 @@ assistant_name = "Assistant"
 The model sees the header, the priming text, one line per turn, and a final `Assistant:`. Generation stops at a new line starting with `User:`. [Profile keys](reference.md#profile-keys) gives the exact format.
 
 Tips:
-- Unknown keys and setting names are errors, so most typos stop the profile from loading. Keys inside `template_kwargs` aren't checked, because the chat template defines them, so a misspelled one is silently ignored.
+- Unknown keys and setting names are errors, so most typos stop the profile from loading. Keys inside `template_kwargs` can't be checked against a fixed list, because the chat template defines them. Instead, Clarity warns when a conversation starts if the template never reads one of them.
 - File paths are relative to the profile, and files are read byte for byte. A trailing newline your editor added is part of the prompt; `/prompt repr` shows it.
 - A priming file holds only `[[messages]]` tables, each with `role` (`"user"` or `"assistant"`) and `content`. See `prompts/priming.toml`.
 - Template options such as `enable_thinking` go in a `[template_kwargs]` table.
@@ -56,6 +56,8 @@ uv run python -c "from huggingface_hub import snapshot_download; from clarity_ch
 ## Compare two setups
 
 Make two profiles that differ in one key, and keep everything else the same. Settings you don't set come from `defaults.toml` for both, so the only difference is the one you made.
+
+To try a value without writing a profile, use `/set` in a chat, for example `/set temperature 0.9`. The change lasts for that conversation, each call logs it with origin `chat`, and `/set temperature` with no value goes back to the profile's. For a comparison you'll report, put the value in a profile so it's written down.
 
 A fixed seed makes a reply replayable, not representative: at temperature 0.6, another seed gives another reply. Compare setups over several openings or seeds with a [blind test](#run-and-rate-a-blind-test).
 
@@ -129,6 +131,20 @@ Before any model loads, Clarity checks every profile and renders every opening. 
 
 Each call is its own conversation. Profiles are read once, at the start, so editing one during a run changes nothing. `blind.md` strips the whitespace around each reply; `calls.jsonl` keeps replies exactly as generated.
 
+## Follow branches
+
+`/regen` and `/edit` add a branch next to the reply or message they replace, and `/undo` steps back so your next message starts one. Nothing is overwritten. `/branches` lists every place on the current path where the conversation branches, with each option's turn ID, and `/switch TURN_ID` goes to that branch's newest reply. Switching sends nothing; your next message continues from there.
+
+## Resume a conversation
+
+`clarity chats` lists your conversations. To continue one, pass its ID:
+
+```
+uv run clarity chat --resume CONVERSATION_ID
+```
+
+A path to its log file works too. In a chat, `/resume ID` does the same. The conversation continues where it left off, with its profile, settings, `/set` values and context size as they were logged, and new records go to the same log. Clarity lists what differs today, such as an edited profile file or a new llama.cpp build, and checks that the current reply's prompt still renders to the same token IDs. `/history` shows the conversation so far. To pick up today's profile instead, start a new conversation with `/new`.
+
 ## Label replies after the fact
 
 `/mark` and `/note` label the current reply during a chat. To label any logged reply later, for example while reading a blind run's results, use:
@@ -138,7 +154,9 @@ uv run clarity mark runs/RUN_ID/calls.jsonl CALL_ID landed
 uv run clarity note runs/RUN_ID/calls.jsonl CALL_ID "Drifts off topic after the first line."
 ```
 
-These append one record to the log, with `origin` `review` (in-chat ones say `live`), and start no server. A failed call has no reply, so it can't be marked.
+These append to the log, with `origin` `review` (in-chat ones say `live`), and start no server. A failed call has no reply, so it can't be marked.
+
+A mark without a label is `interesting`. To take a mark back, use `/unmark` in a chat or `clarity mark --remove LOG CALL_ID [LABEL]`; name the label if the reply has marks with different labels. A reply has one note: a new note replaces the old one, and Clarity says so (notes from before v0.2.0 have no ID, so they all stay). Nothing is deleted. The log keeps every mark and note, and records each removal and replacement.
 
 ## Replay a call
 
@@ -158,6 +176,17 @@ It then lists every recorded fact that differs from the original call, such as t
 
 Replay uses the current `server.toml`. Add `--logged-flags` to start llama-server with the flags the call was made with. `clarity replay` exits with status 1 when the output differs. Failed and cancelled calls can't be replayed.
 
+## Script a chat
+
+`clarity chat --json` takes commands as JSON lines and answers with JSON lines, so a script, a test or another program can drive a chat:
+
+```
+printf '%s\n' '{"command": "say", "args": "Hello", "id": 1}' '{"command": "quit"}' \
+  | uv run clarity chat --json --profile smol-chat
+```
+
+Each command's `result` carries its `id`. Every record written to the log also arrives as a `record` event, so a script sees exactly what was logged. [Scripting with --json](reference.md#scripting-with---json) lists the events.
+
 ## Use the Transformers backend
 
 The Transformers backend runs the official weights in-process with PyTorch. It is given the same prompt token IDs as llama-server, but its output can still differ, because the arithmetic and the sampler code differ.
@@ -168,17 +197,21 @@ The Transformers backend runs the official weights in-process with PyTorch. It i
 
 Some settings can't run on Transformers exactly as written; [Settings](reference.md#settings) lists which. When that can change the reply, the call is flagged `not_applied`, and `/settings` gives the reason. The most common case is sampler order: `defaults.toml` and most profiles, including `smol-chat`, list temperature last, so with temperature ≠ 1 and `top_p` < 1, every Transformers call is flagged.
 
-The context size is `ctx-size` from `server.toml` here too, so the context guard is the same on both backends. A model with fewer positions than that won't start.
+The context size comes from the profile's `ctx_size` or `server.toml` here too, so the context guard is the same on both backends. A model with fewer positions than that won't start.
 
 ## Change the context size or a server flag
 
-Edit `[flags]` in `server.toml`. The context size is `ctx-size`. The next `clarity` command uses the new values, and every call logs them. A chat that is already running keeps the flags it started with, even if `/profile` restarts its server, so quit and start it again.
+For one profile, set `ctx_size = 32768` at the top of the profile. Other profiles keep `ctx-size` from `server.toml`. Starting a conversation with a profile of another size restarts llama-server at that size, and `/settings` shows the size and where it came from.
+
+For every profile, edit `[flags]` in `server.toml`. The next `clarity` command uses the new values, and every call logs them. A chat that is already running keeps the flags it started with, even if `/profile` restarts its server, so quit and start it again.
+
+`clarity replay` runs a call at the context size it was logged with. `/replay` in a chat refuses a call logged at another size, because it would restart the chat's server at that size.
 
 Some flags are required, some values are fixed, and some flags are refused; see [server.toml](reference.md#servertoml) in the reference.
 
 ## Read your logs
 
-Each chat conversation is one JSONL file in `logs/`, one record per line. These [jq](https://jqlang.org/) queries are a starting point:
+Each chat conversation is one JSONL file in `logs/`, one record per line. `clarity chats`, or `/chats` in a chat, lists them newest first with their titles; `/title TEXT` names the current one. These [jq](https://jqlang.org/) queries are a starting point:
 
 ```
 # each reply: call ID, stop reason, text
@@ -190,8 +223,8 @@ jq 'select(.call_id == "CALL_ID" and .type == "call") | .settings' logs/CONVERSA
 # calls with flags
 jq -c 'select(.type == "call" and (.flags | length) > 0) | {call_id, flags}' logs/CONVERSATION_ID.jsonl
 
-# marks and notes
-jq -c 'select(.type == "mark" or .type == "note")' logs/CONVERSATION_ID.jsonl
+# marks, removed marks and notes
+jq -c 'select(.type == "mark" or .type == "unmark" or .type == "note")' logs/CONVERSATION_ID.jsonl
 ```
 
 [Log records](reference.md#log-records) in the reference lists the record types and their fields.
@@ -224,6 +257,6 @@ Clarity's errors say what to do. These entries add context where a message can't
 
 **`Tokenizer … is not in the Hugging Face cache.`** `clarity fetch` downloads a model's own tokenizer, but not a `template_repo`'s; see [Use another repo's chat template](#use-another-repos-chat-template).
 
-**`The prompt is N tokens; with max_tokens M it needs more than the context …`** Besides a new conversation or a lower `max_tokens`, you can raise `ctx-size` in `server.toml` and restart the chat.
+**`The prompt is N tokens; with max_tokens M it needs more than the context …`** Besides a new conversation or a lower `max_tokens`, you can raise the profile's `ctx_size` (or `ctx-size` in `server.toml`) and restart the chat.
 
 **`! flags: check_failed:…`** After the call, the server reported something other than what was sent. The reply is logged with the failed check; see [Call flags](reference.md#call-flags).

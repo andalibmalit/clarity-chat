@@ -10,26 +10,30 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends import BackendError
+from clarity_chat.commands import Commands
+from clarity_chat.logs import torn_message
 from clarity_chat.profiles import ConfigError, find_root, load_models, load_server_config
-from clarity_chat.session import CallOutcome, ContextError, Conversation, Session
+from clarity_chat.session import (
+    CancelledBeforeReply,
+    ContextError,
+    Session,
+)
 
-HELP = """\
-Enter sends; Alt+Enter (or Esc then Enter) starts a new line. Pasted text keeps its newlines.
-Commands:
-  /prompt         the exact prompt text of the last call, its token IDs and their count
-  /prompt repr    the same, with whitespace and newlines made visible
-  /settings       every setting, its value and where it came from
-  /regen          another reply to your last message (seed + 1, + 2, …), as a new branch
-  /edit [TEXT]    replace your last message (prefilled to edit) and get a new reply
-  /undo           go back past the last exchange; your next message starts a branch
-  /mark LABEL     label the current reply (for example landed, dropped)
-  /note TEXT      add a note to the current reply
-  /replay         re-send the current reply's call and compare the output
-  /new            start a new conversation with the same profile
-  /profile NAME   start a new conversation with another profile
-  /quit           stop the server and exit (also Ctrl-D)
+OnServer = Callable[[dict[str, Any] | None], None]  # told each llama-server's port, PID, key
+
+HELP_HEAD = (
+    "Enter sends; Alt+Enter (or Esc then Enter) starts a new line. Pasted text keeps its "
+    "newlines.\nCommands:"
+)
+HELP_TAIL = """\
+  /prompt repr    the same as /prompt, with whitespace and newlines made visible
   //text          send a message that starts with "/"
-Ctrl-C while the model writes cancels the reply (the partial reply is kept and logged)."""
+Ctrl-C while the model works cancels the call; any partial reply is kept and logged."""
+
+
+def format_help(result: dict[str, Any]) -> str:
+    lines = [f"  {c['usage']:<15} {c['help']}" for c in result["commands"]]
+    return "\n".join([HELP_HEAD, *lines, HELP_TAIL])
 
 
 def split_command(line: str) -> tuple[str, str]:
@@ -68,42 +72,166 @@ def format_prompt(record: dict[str, Any] | None, as_repr: bool) -> str:
     return "\n".join(lines)
 
 
-def format_settings(session: Session) -> str:
-    conversation = session.conversation
-    assert conversation is not None
-    profile = conversation.profile
-    lines = [f"profile {profile.name} ({profile.mode} mode, model {profile.model})"]
-    width = max(len(name) for name in profile.settings)
-    for name, setting in profile.settings.items():
-        value = setting.value
+def format_settings(view: dict[str, Any]) -> str:
+    profile = view["profile"]
+    lines = [f"profile {profile['name']} ({profile['mode']} mode, model {profile['model']})"]
+    width = max(len(name) for name in view["settings"])
+    for name, setting in view["settings"].items():
+        value = setting["value"]
         note = "  (a new seed is drawn and logged for every call)" if value == "random" else ""
-        lines.append(f"  {name:<{width}}  {value!r:<44} {setting.origin}{note}")
-    last = conversation.last_call or {}
-    backend_settings = last.get("backend_settings")
-    if backend_settings is None:
-        if session.backend.name == "transformers":
-            from clarity_chat.backends.transformers_hf import NEUTRAL_CONFIG as neutral
-        else:
-            from clarity_chat.backends.llama_cpp import NEUTRAL_REQUEST as neutral
-
-        backend_settings = {k: {"value": v, "origin": "backend"} for k, v in neutral.items()}
-    lines.append(f"backend {session.backend.name}: fixed values for its other sampling fields")
-    for name, entry in backend_settings.items():
+        lines.append(f"  {name:<{width}}  {value!r:<44} {setting['origin']}{note}")
+    lines.append(f"backend {view['backend']}: fixed values for its other sampling fields")
+    for name, entry in view["backend_settings"].items():
         lines.append(f"  {name} = {entry['value']!r}")
-    recommended = session.model_lock.get("recommended")
+    if view["eog_tokens"]:
+        listed = ", ".join(f"{t['id']} {t['text']!r}" for t in view["eog_tokens"])
+        lines.append(f"end-of-reply tokens (from the model file): {listed}")
+    recommended = view["recommended"]
     if recommended:
         source = recommended["source"]
-        used = "used" if profile.use_recommended else "not used: set use_recommended = true"
+        used = "used" if recommended["used"] else "not used: set use_recommended = true"
         values = ", ".join(f"{k} {v!r}" for k, v in recommended["values"].items()) or "none"
         lines.append(
             f"model recommends ({source['file']}@{source['revision'][:7]}; {used}): {values}"
         )
         if recommended["not_applied"]:
             lines.append(f"  not applied: {recommended['not_applied']}")
-    not_applied = last.get("not_applied") or []
+    not_applied = view["not_applied"]
     lines.append("not applied:" + ("" if not_applied else " none"))
     lines += [f"  {n['name']}: {n.get('reason', 'no reason given')}" for n in not_applied]
-    lines.append(f"context {session.backend.n_ctx} tokens; stop {profile.stop!r}")
+    ctx = view["ctx_size"]
+    lines.append(f"context {ctx['value']} tokens ({ctx['origin']}); stop {view['stop']!r}")
+    return "\n".join(lines)
+
+
+def format_history(result: dict[str, Any]) -> str:
+    """The conversation on the current branch, one block per turn, marks and notes under
+    each reply."""
+    if not result["turns"]:
+        return "Nothing yet: this conversation starts with your next message."
+    lines = []
+    for turn in result["turns"]:
+        who = "you" if turn["role"] == "user" else "model"
+        lines.append(f"{who}: {turn['text'].strip()}")
+        if turn["marks"]:
+            lines.append("  marked: " + ", ".join(m["label"] for m in turn["marks"]))
+        lines += [f"  note: {n['text']}" for n in turn["notes"]]
+    return "\n".join(lines)
+
+
+def format_branches(result: dict[str, Any]) -> str:
+    """Each fork on the current path, its options numbered "2 of 3", the current one starred."""
+    if not result["forks"]:
+        return "This conversation has no branches yet. /regen, /edit and /undo make them."
+    lines = ["/switch TURN_ID goes to the newest reply on a branch."]
+    for fork in result["forks"]:
+        options = fork["options"]
+        if fork["at"] is None:
+            where = "At the start"
+        elif fork["at_role"] == "user":
+            where = f"Your message {short(fork['at_text'], 50)}"
+        else:
+            where = f"After the reply {short(fork['at_text'], 50)}"
+        if fork["at"] == result["head"]:
+            where += ", where you are now (branches you went back from)"
+        lines.append(f"{where}:")
+        for i, option in enumerate(options, 1):
+            star = "*" if option["current"] else " "
+            who = "reply" if option["role"] == "assistant" else "message"
+            text = short(option["text"], 50)
+            lines.append(f" {star} {option['turn_id']}  {who} {i} of {len(options)}: {text}")
+    return "\n".join(lines)
+
+
+def format_chats(chats: list[dict[str, Any]]) -> str:
+    """One line per conversation: ID (it starts with the local start time), profile, title."""
+    if not chats:
+        return "No conversations in logs/ yet."
+    lines = []
+    for chat in chats:
+        if chat["error"]:
+            lines.append(f"{chat['conversation_id']}  can't be read: {chat['error']}")
+            continue
+        title = chat["title"] if chat["title"] is not None else "(no messages)"
+        lines.append(f"{chat['conversation_id']}  {chat['profile']}  {title}")
+    return "\n".join(lines)
+
+
+def render_line(render: dict[str, Any]) -> str:  # a check of a reply (not None)
+    """The re-render check of a resumed conversation's current reply, in one line."""
+    if render["identical"]:
+        return "The current reply's prompt renders to the same token IDs today."
+    if "error" in render:
+        return f"The current reply's prompt no longer renders: {render['error']}"
+    n = render["n_ids"]
+    return (
+        f"The current reply's prompt renders differently today ({n['logged']} token IDs "
+        f"logged, {n['now']} now; first difference at token {render['first_different_token']}). "
+        "Your next message is rendered today's way."
+    )
+
+
+def format_resume(result: dict[str, Any]) -> str:
+    """What a resume restored and what differs today."""
+    record = result["resume"]
+    where = f"after: {result['head_text'][:60]!r}" if result["head_text"] else "at the start"
+    lines = [
+        f"Resumed {record['conversation_id']} with profile {result['profile']} "
+        f"({result['model']}, {result['mode']} mode), as logged. It continues {where}. "
+        "/history shows the conversation so far."
+    ]
+    lines += [f"! {warning}" for warning in result["warnings"]]
+    if record["unanswered"]:
+        lines.append(
+            f"! Your last message got no reply (its call failed or was cut off): "
+            f"{record['unanswered']['text'][:60]!r}. Send it again to get one."
+        )
+    if record["head_guessed"]:
+        lines.append(
+            "! This log is from v0.1.0, which didn't record /undo or failed calls, so it "
+            "continues after the last reply. /branches shows the others."
+        )
+    if record["profile_file"] != "same":
+        state = "has changed" if record["profile_file"] == "changed" else "is gone"
+        lines.append(f"! The profile's file {state} since; this chat uses the profile as logged.")
+    if record["ctx_size"]["origin"] != "log":
+        lines.append(
+            f"! The log doesn't say its context size: using {record['ctx_size']['value']} "
+            f"({record['ctx_size']['origin']})."
+        )
+    if record["model_entry"]:
+        changed = ", ".join(d["path"] for d in record["model_entry"])
+        lines.append(f"! The model's models.toml entry has changed since: {changed}.")
+    for d in record["settings_differ_today"]:
+        if d["logged"] is None:
+            lines.append(
+                f"! The log has no {d['name']}: this chat uses {d['today']['value']!r} "
+                f"({d['today']['origin']})."
+            )
+            continue
+        today = d["today"] or {"value": "(none)", "origin": "-"}
+        lines.append(
+            f"! Today's files would set {d['name']} = {today['value']!r} ({today['origin']}); "
+            f"this chat keeps {d['logged']['value']!r} ({d['logged']['origin']})."
+        )
+    if record["chat_settings"]:
+        values = ", ".join(f"{k} = {v!r}" for k, v in record["chat_settings"].items())
+        lines.append(f"Restored /set values: {values}.")
+    if record["differences"]:
+        lines.append(
+            f"Changed since its last call ({record['compared_with_call']}): "
+            + ", ".join(record["differences"])
+            + ". The resume record lists each difference."
+        )
+    if record["not_recorded"]:
+        lines.append(
+            "Not compared, because the log doesn't record them: "
+            + ", ".join(record["not_recorded"])
+            + "."
+        )
+    render = record["render"]
+    if render is not None:
+        lines.append(("" if render["identical"] else "! ") + render_line(render))
     return "\n".join(lines)
 
 
@@ -116,6 +244,8 @@ def format_status(record: dict[str, Any]) -> str:
         f"{len(record.get('output_ids', []))} tokens",
         f"{seconds:.1f} s",
         f"seed {seed['value']}" + (f" ({seed['origin']})" if seed["origin"] != "profile" else ""),
+        f"context {record['n_prompt_client'] + len(record.get('output_ids', [])):,} of "
+        f"{record['n_ctx']:,}",
         record["call_id"],
     ]
     return "[" + " · ".join(parts) + "]"
@@ -161,6 +291,9 @@ def format_replay(record: dict[str, Any]) -> str:
             "Nothing recorded differs: build, flags, /props, environment, machine, model file, "
             "client."
         )
+    if record.get("not_recorded"):
+        missing = ", ".join(record["not_recorded"])
+        lines.append(f"Not compared, because the log doesn't record them: {missing}.")
     if record["unexplained_difference"]:
         lines.append(
             "! The output differs, but nothing that could change it does. That is the "
@@ -180,27 +313,39 @@ class ChatLoop:
         profile_name: str,
         read: Callable[[str], str],
         write: Callable[[str], None],
+        resume: str | None = None,
     ) -> None:
-        """`read(default)` returns one input, prefilled with `default` (for /edit)."""
+        """`read(default)` returns one input, prefilled with `default` (for /edit).
+        `resume`: a log to continue instead of starting with `profile_name`."""
         self.session = session
         self.profile_name = profile_name
+        self.resume = resume
         self.read = read
         self.write = write
+        self.draft = ""  # prefilled in the next input
+        self.commands = Commands(session)
 
     def start(self) -> None:
+        if self.resume is not None:
+            self.write(f"Resuming {self.resume} …\n")
+            result = self.commands.run("resume", self.resume, self.on_event)
+            self.write(format_resume(result) + "\n")
+            return
         self.write(f"Starting profile {self.profile_name} …\n")
-        conversation = self.session.new_conversation(self.profile_name)
-        self.show_server_warnings(conversation)
+        result = self.commands.run("profile", self.profile_name, self.on_event)
+        for warning in result["warnings"]:
+            self.write(f"! {warning}\n")
         self.write(
-            f"Ready: {conversation.profile.model} ({conversation.profile.mode} mode), "
-            f"conversation {conversation.conversation_id}. /help for commands.\n"
+            f"Ready: {result['model']} ({result['mode']} mode), "
+            f"conversation {result['conversation_id']}. /help for commands.\n"
         )
 
     def run(self) -> None:
         self.start()
         while True:
+            draft, self.draft = self.draft, ""
             try:
-                line = self.read("")
+                line = self.read(draft)
             except KeyboardInterrupt:
                 continue
             except EOFError:
@@ -211,136 +356,120 @@ class ChatLoop:
     def handle(self, line: str) -> bool:
         """Run one input. Returns False to quit."""
         if line.startswith("//"):
-            return self.send(line[1:])
+            return self.command("say", line[1:])
         if line.startswith("/"):
-            command, raw = split_command(line)
-            if command == "edit":
-                return self.command(command, raw)  # the new message exactly as typed
-            return self.command(command, raw.strip())
+            name, raw = split_command(line)
+            name = {"exit": "quit", "q": "quit"}.get(name, name)
+            if name == "edit":
+                return self.edit(raw)  # the new message exactly as typed
+            return self.command(name, raw.strip())
         if not line.strip():
             return True
-        return self.send(line)
+        return self.command("say", line)
 
-    def command(self, command: str, arg: str) -> bool:
-        session = self.session
-        conversation = session.conversation
-        if command in ("quit", "exit", "q"):
-            return False
-        if conversation is None and command not in ("help", "profile"):
-            self.write("No conversation is running. Start one with /profile NAME.\n")
-            return True
-        if command == "help":
-            self.write(HELP + "\n")
-        elif command == "prompt":
-            assert conversation is not None
-            self.write(format_prompt(conversation.last_call, as_repr=arg == "repr") + "\n")
-        elif command == "settings":
-            self.write(format_settings(session) + "\n")
-        elif command in ("new", "profile"):
-            if command == "profile" and not arg:
-                self.write("Usage: /profile NAME\n")
-                return True
-            # /new reloads the profile's own file, so a profile given as a path is found again.
-            if command == "new":
-                assert conversation is not None
-            target = (
-                arg
-                if conversation is None or command == "profile"
-                else str(conversation.profile.path)
-            )
-            try:
-                new = session.new_conversation(target)
-            except (ConfigError, BackendError) as e:
-                self.write(f"! {e}\n")
-                return True
+    def command(self, name: str, args: str) -> bool:
+        """Run a registry command and show its result. Returns False to quit."""
+        try:
+            result = self.commands.run(name, args, self.on_event)
+        except CancelledBeforeReply as e:
+            offered = name in ("say", "edit")
             self.write(
-                f"New conversation {new.conversation_id} with profile {new.profile.name} "
-                f"({new.profile.model}, {new.profile.mode} mode).\n"
+                f"\n! {e} No reply was added."
+                + (
+                    " Your message is back in the input to edit or send again.\n"
+                    if offered
+                    else "\n"
+                )
             )
-            self.show_server_warnings(new)
-        elif command == "regen":
-            self.run_call(lambda: session.regen(on_text=self.write))
-        elif command == "edit":
-            self.edit(arg)
-        elif command == "undo":
-            try:
-                head = session.undo()
-            except ConfigError as e:
-                self.write(f"! {e}\n")
-                return True
-            where = f"after: {head.text[:60]!r}" if head else "at the start"
-            self.write(f"Undone. The next message continues {where}.\n")
-        elif command in ("mark", "note"):
-            if not arg:
-                self.write(f"Usage: /{command} {'LABEL' if command == 'mark' else 'TEXT'}\n")
-                return True
-            try:
-                record = session.annotate(command, arg)
-            except ConfigError as e:
-                self.write(f"! {e}\n")
-                return True
-            done = "Marked" if command == "mark" else "Noted"
-            self.write(f"{done} {record['call_id']}.\n")
-        elif command == "replay":
-            self.replay()
-        else:
-            self.write(f"Unknown command /{command}. /help lists them.\n")
-        return True
-
-    def edit(self, arg: str) -> None:
-        conversation = self.session.conversation
-        assert conversation is not None
-        try:
-            reply = conversation.current_reply("edit the message of")
-        except ConfigError as e:
-            self.write(f"! {e}\n")
-            return
-        assert reply.parent_id is not None
-        text = arg
-        if not text:
-            try:
-                text = self.read(conversation.turns[reply.parent_id].text)
-            except (KeyboardInterrupt, EOFError):
-                text = ""
-        if not text.strip():
-            self.write("Edit cancelled.\n")
-            return
-        self.run_call(lambda: self.session.edit(text, on_text=self.write))
-
-    def replay(self) -> None:
-        try:
-            record = self.session.replay_current()
-        except (ConfigError, BackendError) as e:
-            self.write(f"! {e}\n")
-            return
-        self.write(format_replay(record) + "\n")
-
-    def show_server_warnings(self, conversation: Conversation) -> None:
-        """The warnings of a server this conversation started (once per server)."""
-        for warning in (conversation.started_server or {}).get("warnings", []):
-            self.write(f"! {warning}\n")
-
-    def send(self, text: str) -> bool:
-        self.run_call(lambda: self.session.say(text, on_text=self.write))
-        return True
-
-    def run_call(self, call: Callable[[], CallOutcome]) -> None:
-        """Make a call, streaming its reply, then show warnings, flags and a status line."""
-        try:
-            outcome = call()
+            self.draft = args if offered else ""
+            return True
+        except BackendError as e:
+            calling = name in ("say", "regen", "edit")
+            self.write(f"\n! Call failed: {e}\n" if calling else f"! {e}\n")
+            return True
         except (ContextError, ConfigError) as e:
             self.write(f"! {e}\n")
-            return
-        except BackendError as e:
-            self.write(f"\n! Call failed: {e}\n")
-            return
-        self.write("\n")
-        record = outcome.record
-        for warning in outcome.warnings:
-            self.write(f"! {warning}\n")
-        if record.get("flags"):
-            self.write("! flags: " + ", ".join(record["flags"]) + "\n")
-        self.write(format_status(record) + "\n")
+            return True
+        if name in ("say", "regen", "edit"):
+            self.write("\n")
+            for warning in result["warnings"]:
+                self.write(f"! {warning}\n")
+            if result["call"].get("flags"):
+                self.write("! flags: " + ", ".join(result["call"]["flags"]) + "\n")
+            self.write(format_status(result["call"]) + "\n")
+        elif name == "quit":
+            return False
+        elif name == "help":
+            self.write(format_help(result) + "\n")
+        elif name == "prompt":
+            self.write(format_prompt(result["call"], as_repr=args == "repr") + "\n")
+        elif name == "settings":
+            self.write(format_settings(result) + "\n")
+        elif name in ("new", "profile"):
+            self.write(
+                f"New conversation {result['conversation_id']} with profile "
+                f"{result['profile']} ({result['model']}, {result['mode']} mode).\n"
+            )
+            for warning in result["warnings"]:
+                self.write(f"! {warning}\n")
+        elif name == "undo":
+            text = result["head_text"]
+            where = f"after: {text[:60]!r}" if result["head"] else "at the start"
+            self.write(f"Undone. The next message continues {where}.\n")
+        elif name == "set":
+            record = result["record"]
+            now = result["setting"]
+            if record["value"] is None:
+                self.write(f"{record['name']} is back to {now['value']!r} ({now['origin']}).\n")
+            else:
+                self.write(f"{record['name']} = {record['value']!r} for this chat.\n")
+        elif name == "title":
+            self.write(f"Titled {result['record']['title']!r}.\n")
+        elif name == "chats":
+            self.write(format_chats(result["chats"]) + "\n")
+        elif name == "history":
+            self.write(format_history(result) + "\n")
+        elif name == "branches":
+            self.write(format_branches(result) + "\n")
+        elif name == "switch":
+            text = result["head_text"]
+            self.write(f"Switched. The next message continues after: {text[:60]!r}.\n")
+            if result["render"] and not result["render"].get("identical", True):
+                self.write(f"! {render_line(result['render'])}\n")
+        elif name == "resume":
+            self.write(format_resume(result) + "\n")
+        elif name in ("mark", "unmark", "note"):
+            self.write(annotated(result["records"]) + ".\n")
+        elif name == "replay":
+            self.write(format_replay(result["replay"]) + "\n")
+        elif name == "cancel":  # in the terminal, Ctrl-C cancels; between calls, nothing runs
+            self.write("Cancelled.\n" if result["cancelled"] else "Nothing to cancel.\n")
+        return True
+
+    def on_event(self, event: dict[str, Any]) -> None:
+        if event["event"] == "text":
+            self.write(event["text"])
+        elif event["event"] == "record" and event["record"]["type"] == "torn_line":
+            self.write(f"\n! {torn_message(event['record'], "this conversation's log")}\n")
+
+    def edit(self, arg: str) -> bool:
+        """/edit with no text prefills your last message to edit, then runs the command."""
+        conversation = self.session.conversation
+        if not arg and conversation is not None:
+            try:
+                reply = conversation.current_reply("edit the message of")
+            except ConfigError as e:
+                self.write(f"! {e}\n")
+                return True
+            assert reply.parent_id is not None
+            try:
+                arg = self.read(conversation.turns[reply.parent_id].text)
+            except (KeyboardInterrupt, EOFError):
+                arg = ""
+        if conversation is not None and not arg.strip():
+            self.write("Edit cancelled.\n")
+            return True
+        return self.command("edit", arg)
 
 
 def prompt_reader() -> Callable[[str], str]:
@@ -366,23 +495,40 @@ def write_stdout(text: str) -> None:
     sys.stdout.flush()
 
 
-def cmd_chat(root: Path, profile: str) -> int:
-    session = Session(root)
+def cmd_chat(root: Path, profile: str, on_server: OnServer, resume: str | None) -> int:
+    session = Session(root, on_server=on_server)
     atexit.register(session.close)  # also covers exits the finally below doesn't see
     try:
-        ChatLoop(session, profile, prompt_reader(), write_stdout).run()
+        ChatLoop(session, profile, prompt_reader(), write_stdout, resume).run()
     finally:
         session.close()
     return 0
 
 
-def cmd_run(root: Path, openings: Path, profiles: list[str], seeds: int) -> int:
+def cmd_chat_json(root: Path, profile: str | None, resume: str | None, on_server: OnServer) -> int:
+    from clarity_chat.json_chat import JsonChat
+
+    session = Session(root, on_server=on_server)
+    atexit.register(session.close)
+    first = [{"command": "profile", "args": profile}] if profile else []
+    first += [{"command": "resume", "args": resume}] if resume else []
+    try:
+        JsonChat(session, sys.stdin.buffer, sys.stdout).run(first)  # bytes: UTF-8 always
+    finally:
+        session.close()
+    return 0
+
+
+def cmd_run(
+    root: Path, openings: Path, profiles: list[str], seeds: int, on_server: OnServer
+) -> int:
     from clarity_chat.batch import RunError, run_batch
     from clarity_chat.logs import new_id
 
     run_id = new_id("run")
     run_dir = root / "runs" / run_id
-    session = Session(root, logs_dir=run_dir)  # the server's output log stays with the run
+    # The server's output log stays with the run.
+    session = Session(root, logs_dir=run_dir, on_server=on_server)
     atexit.register(session.close)
     try:
         blind = run_batch(session, run_id, run_dir, openings, profiles, seeds, write_stdout)
@@ -396,13 +542,27 @@ def cmd_run(root: Path, openings: Path, profiles: list[str], seeds: int) -> int:
     return 0
 
 
-def cmd_replay(root: Path, log_path: Path, call_id: str, logged_flags: bool) -> int:
+def say_if_torn(log_path: Path) -> Callable[[dict[str, Any]], None]:
+    """An on_record callback: says so when an append ends a cut-off line of `log_path`."""
+
+    def check(record: dict[str, Any]) -> None:
+        if record["type"] == "torn_line":
+            print(f"clarity: {torn_message(record, str(log_path))}", file=sys.stderr)
+
+    return check
+
+
+def cmd_replay(
+    root: Path, log_path: Path, call_id: str, logged_flags: bool, on_server: OnServer
+) -> int:
     """Exit status 0 if the output is identical, 1 if it differs (or on an error)."""
     from clarity_chat.replay import find_call
 
-    session = Session(root, logs_dir=log_path.parent)  # the server's output log goes alongside
+    # The server's output log goes alongside.
+    session = Session(root, logs_dir=log_path.parent, on_server=on_server)
     atexit.register(session.close)
     flags_from = ""
+    session.on_record = say_if_torn(log_path)
     found = find_call(log_path, call_id)
     if logged_flags:
         server = found[1]
@@ -420,13 +580,22 @@ def cmd_replay(root: Path, log_path: Path, call_id: str, logged_flags: bool) -> 
     return 0 if record["identical"] else 1
 
 
+def annotated(records: list[dict[str, Any]]) -> str:
+    """What a mark, unmark or note did: "Marked call-… landed", "Replaced the note on call-…"."""
+    first = records[0]
+    if first["type"] == "note":
+        done = "Replaced the note on" if first.get("replaces") else "Noted"
+        return f"{done} {first['call_id']}"
+    labels = ", ".join(dict.fromkeys(r["label"] for r in records))
+    return f"{'Marked' if first['type'] == 'mark' else 'Unmarked'} {first['call_id']} {labels}"
+
+
 def cmd_annotate(log_path: Path, kind: str, call_id: str, text: str) -> int:
-    """A review-time mark or note: appends one record to the log, starts nothing."""
+    """A review-time mark, unmark or note: appends to the log, starts nothing."""
     from clarity_chat.session import annotate_log
 
-    record = annotate_log(log_path, kind, call_id, text)
-    done = "Marked" if kind == "mark" else "Noted"
-    print(f"{done} {call_id} ({record['turn_id']}) in {log_path}.")
+    records = annotate_log(log_path, kind, call_id, text, say_if_torn(log_path))
+    print(f"{annotated(records)} ({records[0]['turn_id']}) in {log_path}.")
     return 0
 
 
@@ -456,13 +625,21 @@ def cmd_verify(root: Path, names: list[str]) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="clarity",
-        description="Clarity: what you see is exactly what the model got, and every call "
-        "can be replayed.",
+        description="Clarity: what you see is exactly what the model got.",
     )
     parser.add_argument("--root", type=Path, help="project folder (default: found from here)")
     commands = parser.add_subparsers(dest="command", required=True)
     chat = commands.add_parser("chat", help="chat with a profile")
-    chat.add_argument("--profile", required=True, help="a profile name from profiles/")
+    start = chat.add_mutually_exclusive_group()
+    start.add_argument("--profile", help="a profile name from profiles/ or local/profiles/")
+    start.add_argument(
+        "--resume", help="a conversation to continue: its ID (from `clarity chats`) or log file"
+    )
+    chat.add_argument(
+        "--json",
+        action="store_true",
+        help="read commands as JSON lines on stdin, write events as JSON lines (for scripts)",
+    )
     run = commands.add_parser(
         "run", help="collect replies for a blind test (writes runs/<run-id>/blind.md)"
     )
@@ -484,30 +661,57 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="start llama-server with the call's logged flags instead of server.toml's",
     )
-    for kind, field_name, what in (("mark", "label", "label"), ("note", "text", "add a note to")):
-        annotate = commands.add_parser(
-            kind, help=f"{what} a logged call's reply while reviewing (appends to the log)"
-        )
+    for kind, what in (
+        ("mark", "label a logged call's reply while reviewing (appends to the log)"),
+        ("note", "add a note to a logged call's reply, replacing its note (appends to the log)"),
+    ):
+        annotate = commands.add_parser(kind, help=what)
         annotate.add_argument("log", type=Path, help="a log file (logs/… or runs/<id>/calls.jsonl)")
         annotate.add_argument("call_id")
-        annotate.add_argument(field_name, help="one argument: quote it if it has spaces")
+        if kind == "mark":
+            annotate.add_argument("label", nargs="?", default="", help="default: interesting")
+            annotate.add_argument(
+                "--remove", action="store_true", help="remove the mark (name it if several)"
+            )
+        else:
+            annotate.add_argument("text", help="one argument: quote it if it has spaces")
+    commands.add_parser("chats", help="list your conversations in logs/, newest first")
     fetch = commands.add_parser("fetch", help="download (and convert) a model from models.toml")
     fetch.add_argument("name")
     verify = commands.add_parser("verify", help="re-hash fetched models against models.lock")
     verify.add_argument("names", nargs="*")
     args = parser.parse_args(argv)
+    if args.command == "chat" and not (args.json or args.profile or args.resume):
+        chat.error("one of --profile or --resume is required (or --json, to start by command)")
     try:
         if args.command == "mark":  # a log file is all these need: no project root
-            return cmd_annotate(args.log, "mark", args.call_id, args.label)
+            kind = "unmark" if args.remove else "mark"
+            return cmd_annotate(args.log, kind, args.call_id, args.label)
         if args.command == "note":
             return cmd_annotate(args.log, "note", args.call_id, args.text)
         root = args.root.resolve() if args.root else find_root()
-        if args.command == "chat":
-            return cmd_chat(root, args.profile)
-        if args.command == "run":
-            return cmd_run(root, args.openings, args.profiles, args.seeds)
-        if args.command == "replay":
-            return cmd_replay(root, args.log, args.call_id, args.logged_flags)
+        if args.command in ("chat", "run", "replay"):
+            from clarity_chat import instance
+
+            with instance.hold(root, args.command) as held:  # these start a model: one at a time
+                if held.orphan:
+                    print(f"clarity: {held.orphan}", file=sys.stderr)
+                if args.command == "chat" and args.json:
+                    return cmd_chat_json(root, args.profile, args.resume, held.record_server)
+                if args.command == "chat":
+                    return cmd_chat(root, args.profile, held.record_server, args.resume)
+                if args.command == "run":
+                    return cmd_run(
+                        root, args.openings, args.profiles, args.seeds, held.record_server
+                    )
+                return cmd_replay(
+                    root, args.log, args.call_id, args.logged_flags, held.record_server
+                )
+        if args.command == "chats":
+            from clarity_chat.logs import list_chats
+
+            print(format_chats(list_chats(root / "logs")))
+            return 0
         if args.command == "fetch":
             return cmd_fetch(root, args.name)
         if args.command == "verify":

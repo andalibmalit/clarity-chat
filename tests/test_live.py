@@ -5,7 +5,6 @@ Run with `uv run pytest -m live`. Skipped if llama-server isn't built or SmolLM2
 
 from __future__ import annotations
 
-import dataclasses
 import sys
 from pathlib import Path
 
@@ -65,6 +64,18 @@ def test_server_start_is_logged_with_props_and_gpu_placement(session):
     assert "--no-context-shift" in record["argv"]
 
 
+def test_the_server_refuses_requests_without_its_key(session):
+    import httpx
+
+    url = session.backend.server.url
+    assert httpx.get(f"{url}/health", trust_env=False).status_code == 200  # public
+    assert httpx.get(f"{url}/props", trust_env=False).status_code == 401
+    body = {"prompt": [1, 2], "n_predict": 1}
+    assert httpx.post(f"{url}/completion", json=body, trust_env=False).status_code == 401
+    assert httpx.get(f"{url}/", trust_env=False).status_code != 200  # --no-webui
+    assert "api_keys: (redacted by Clarity)" in session.backend.server.output_text()
+
+
 def test_text_mode_reply_stops_before_the_next_user_line(session):
     session.new_conversation("smol-text")
     session.say("What is the capital of France?")
@@ -117,7 +128,7 @@ def test_replay_after_a_longer_call_and_after_a_restart(session):
     assert backend.complete(ids, settings, stop).token_ids == first["output_ids"]
     assert session.model is not None
     backend.close()
-    backend.start(session.model, check_weights_quick(REPO, session.model_lock))
+    backend.start(session.model, check_weights_quick(REPO, session.model_lock), backend.n_ctx)
     assert backend.complete(ids, settings, stop).token_ids == first["output_ids"]
 
 
@@ -146,10 +157,9 @@ def test_ctrl_c_cancels_the_reply_and_the_server_keeps_working(session):
 def small_context_backend(tmp_path_factory):
     """A second server with a 256-token context, to find llama-server's exact limit."""
     config = load_server_config(REPO)
-    config = dataclasses.replace(config, flags={**config.flags, "ctx-size": 256})
     backend = LlamaCppBackend(config, tmp_path_factory.mktemp("logs-small"))
     model = load_models(REPO)[MODEL]
-    backend.start(model, check_weights_quick(REPO, lock_entry(REPO, model)))
+    backend.start(model, check_weights_quick(REPO, lock_entry(REPO, model)), 256)
     yield backend
     backend.close()
 
@@ -180,12 +190,12 @@ SETTINGS = {
 
 
 def test_context_guard_matches_llama_servers_limit(small_context_backend):
-    from clarity_chat.session import fits_context
+    from clarity_chat.session import room_left
 
     n_ctx, max_tokens = 256, MAX_TOKENS
     fitting = n_ctx - max_tokens - 1  # the largest prompt the client allows
-    assert fits_context(fitting, max_tokens, n_ctx)
-    assert not fits_context(fitting + 1, max_tokens, n_ctx)
+    assert room_left(n_ctx, fitting, max_tokens) == 0
+    assert room_left(n_ctx, fitting + 1, max_tokens) == -1
 
     full = small_context_backend.complete(counting_ids(fitting), SETTINGS, [])
     assert full.stop_type == "limit"
@@ -210,7 +220,7 @@ def test_llama_arg_variables_are_removed(monkeypatch, tmp_path):
     backend = LlamaCppBackend(load_server_config(REPO), tmp_path)
     model = load_models(REPO)[MODEL]
     try:
-        record = backend.start(model, check_weights_quick(REPO, lock_entry(REPO, model)))
+        record = backend.start(model, check_weights_quick(REPO, lock_entry(REPO, model)), 8192)
         assert record is not None
         assert "LLAMA_ARG_CTX_SIZE" in record["env_removed"]
         assert record["props"]["default_generation_settings"]["n_ctx"] == 8192
@@ -313,3 +323,31 @@ def test_the_gguf_download_route_end_to_end(tmp_path, monkeypatch):
         session.close()
     all_checks_ok(outcome.record)  # includes the echo check: tokenizer and GGUF agree
     assert outcome.record["model"]["gguf_sha256"] == entry["gguf"]["sha256"]
+
+
+def test_the_next_start_stops_a_server_a_killed_clarity_left(tmp_path):
+    """A2 against a real llama-server: a Clarity that dies without stopping its server
+    leaves it recorded; the next start proves it's that server (its key and model) and
+    stops it."""
+    from clarity_chat import instance
+
+    project = tmp_path / "project"  # holds only local/ (the lock and clarity.json)
+    project.mkdir()
+    with instance.hold(project, "chat") as held:
+        session = Session(REPO, logs_dir=tmp_path / "logs", on_server=held.record_server)
+        session.new_conversation("smol-text")
+        assert isinstance(session.backend, LlamaCppBackend)
+        server = session.backend.server
+        assert server is not None and server.proc is not None
+        proc, port = server.proc, server.port
+        # A crash: the block ends without session.close(), so the server keeps running.
+    try:
+        assert proc.poll() is None, "the abandoned server should still be running"
+        assert instance.read_info(project)["server"]["port"] == port  # still recorded
+        with instance.hold(project, "chat") as again:
+            assert again.orphan is not None and "Stopped llama-server" in again.orphan
+        proc.wait(timeout=20)  # it exits on the SIGTERM the next start sent
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=20)

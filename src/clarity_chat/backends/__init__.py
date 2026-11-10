@@ -7,6 +7,7 @@ backend's own, report any setting it can't apply in `not_applied`, and return a 
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -28,6 +29,7 @@ class Result:
     text: str  # the output exactly as the backend returned it
     token_ids: list[int]  # output token IDs (include stop-string and end-of-sequence tokens)
     stop_type: str  # eos | word | limit | cancelled | none
+    cancelled_during: str | None = None  # "prompt" (before the first token) or "reply"
     stopping_word: str = ""
     n_prompt: int | None = None  # the backend's own prompt token count
     n_predicted: int | None = None  # the backend's own count of generated tokens
@@ -43,8 +45,9 @@ class Result:
 class Backend(Protocol):
     name: str
 
-    def start(self, model: ModelEntry, weights: Path) -> dict[str, Any] | None:
-        """Load `model` (restarting if another is loaded). Returns a server_start record, if any."""
+    def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
+        """Load `model` with a context of `ctx_size` tokens (restarting if another model or
+        size is loaded). Returns a server_start record, if any."""
         ...
 
     @property
@@ -60,9 +63,11 @@ class Backend(Protocol):
         stop: list[str],
         on_text: Callable[[str], None] | None = None,
         request: dict[str, Any] | None = None,
+        cancel: threading.Event | None = None,
     ) -> Result:
         """Generate a reply. `request`, for replay, is a logged request body: send it
-        exactly as logged, or raise BackendError; never rebuild it from `settings`."""
+        exactly as logged, or raise BackendError; never rebuild it from `settings`.
+        `cancel`, set from any thread, stops the call and returns what arrived so far."""
         ...
 
     def describe(self) -> dict[str, Any]:

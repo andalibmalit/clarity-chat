@@ -153,6 +153,10 @@ def test_server_config_builds_flags(root):
         ('model = "x.gguf"', "not allowed"),
         ('hf-repo = "a/b"', "not allowed"),
         ("context-shift = true", "not allowed"),
+        ('api-key-file = "keys.txt"', "not allowed"),
+        ("webui = true", "not allowed"),
+        ('ui-config = "{}"', "not allowed"),
+        ("slots = true", "not allowed"),
         ("-c = 4096", "long name"),
     ],
 )
@@ -196,3 +200,21 @@ def test_template_kwargs_cannot_override_what_clarity_sets(root, key):
     write_profile(root, "p", chat + f'[template_kwargs]\n{key} = "x"\n')
     with pytest.raises(ConfigError, match="can't set"):
         load_profile(root, "p", load_defaults(root))
+
+
+def test_your_own_profiles_live_in_local_profiles(root):
+    own = root / "local" / "profiles"
+    own.mkdir(parents=True)
+    text = (root / "profiles" / "text.toml").read_text(encoding="utf-8")
+    (own / "mine.toml").write_text(text, encoding="utf-8")
+    profile = load_profile(root, "mine", load_defaults(root))
+    assert profile.path == own / "mine.toml"
+    assert load_profile(root, "text", load_defaults(root)).path == root / "profiles" / "text.toml"
+
+
+def test_a_name_in_both_profile_folders_is_an_error(root):
+    own = root / "local" / "profiles"
+    own.mkdir(parents=True)
+    (own / "text.toml").write_text("", encoding="utf-8")
+    with pytest.raises(ConfigError, match="Rename one of them"):
+        load_profile(root, "text", load_defaults(root))
