@@ -386,8 +386,15 @@ def free_port() -> int:
 class LlamaServer:
     """One llama-server process, started and stopped by the client."""
 
-    def __init__(self, config: ServerConfig, gguf: Path, logs_dir: Path) -> None:
+    def __init__(
+        self,
+        config: ServerConfig,
+        gguf: Path,
+        logs_dir: Path,
+        on_change: Callable[[dict[str, Any] | None], None] | None = None,
+    ) -> None:
         self.config = config
+        self.on_change = on_change  # told the port, PID and key on start, None on stop
         # Not resolved: a Hugging Face cache symlink keeps the GGUF's file name for the server.
         self.gguf = gguf.absolute()
         self.server_id = new_id("server")
@@ -515,6 +522,15 @@ class LlamaServer:
             "warnings": warnings,
             "machine": machine(),
         }
+        if self.on_change and self.proc:
+            self.on_change(
+                {
+                    "port": self.port,
+                    "pid": self.proc.pid,
+                    "api_key": self.api_key,
+                    "model_path": str(self.gguf),
+                }
+            )
         return self.record
 
     def _launch(self, argv: list[str], env: dict[str, str]) -> str | None:
@@ -578,6 +594,8 @@ class LlamaServer:
         return problems
 
     def stop(self) -> None:
+        if self.on_change:
+            self.on_change(None)
         if self.proc is None or self.proc.poll() is not None:
             return
         self.proc.terminate()
@@ -591,9 +609,15 @@ class LlamaServer:
 class LlamaCppBackend:
     name = NAME
 
-    def __init__(self, config: ServerConfig, logs_dir: Path) -> None:
+    def __init__(
+        self,
+        config: ServerConfig,
+        logs_dir: Path,
+        on_server: Callable[[dict[str, Any] | None], None] | None = None,
+    ) -> None:
         self.config = config
         self.logs_dir = logs_dir
+        self.on_server = on_server
         self.server: LlamaServer | None = None
         self.model: ModelEntry | None = None
 
@@ -617,7 +641,7 @@ class LlamaCppBackend:
         self.model = model
         # The size goes into the flags, so argv, the /props check and the log all agree.
         config = dataclasses.replace(self.config, flags={**self.config.flags, "ctx-size": ctx_size})
-        self.server = LlamaServer(config, weights, self.logs_dir)
+        self.server = LlamaServer(config, weights, self.logs_dir, self.on_server)
         return self.server.start()
 
     def describe(self) -> dict[str, Any]:

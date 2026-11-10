@@ -150,7 +150,7 @@ def test_replay_command_exit_status(make_session, fetched_root, monkeypatch, cap
     call_id = first.say("Hi").record["call_id"]
     replies = iter([[" Hello!"], [" Bye"]])
 
-    def session(root, logs_dir):
+    def session(root, logs_dir, on_server=None):
         return make_session(next(replies), logs_dir=logs_dir)[0]
 
     monkeypatch.setattr(cli, "Session", session)

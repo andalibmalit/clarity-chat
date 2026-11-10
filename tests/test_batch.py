@@ -225,7 +225,7 @@ def test_server_warnings_are_shown_once(batch):
 def test_run_command_reports_where_blind_md_is(fetched_root, tiny_tokenizer, monkeypatch, capsys):
     (fetched_root / "openings.txt").write_text(OPENINGS, encoding="utf-8")
 
-    def session(root, logs_dir):
+    def session(root, logs_dir, on_server=None):
         return Session(
             root,
             backend=FakeBackend(tokenizer=tiny_tokenizer),
@@ -247,7 +247,7 @@ def test_run_command_explains_a_stopped_run(fetched_root, tiny_tokenizer, monkey
     backend = FakeBackend(tokenizer=tiny_tokenizer)
     backend.fail_with = "server gone"
 
-    def session(root, logs_dir):
+    def session(root, logs_dir, on_server=None):
         return Session(
             root, backend=backend, logs_dir=logs_dir, tokenizer_loader=lambda r, v: tiny_tokenizer
         )

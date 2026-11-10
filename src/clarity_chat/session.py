@@ -176,8 +176,12 @@ class Session:
         backend: Backend | None = None,
         logs_dir: Path | None = None,
         tokenizer_loader: Callable[[str, str], Tokenizer] = Tokenizer.from_hub,
+        on_server: Callable[[dict[str, Any] | None], None] | None = None,
     ) -> None:
+        """`on_server` hears each llama-server's port, PID and key when it starts, and None
+        when it stops (the instance lock keeps them, to clean up after a crash)."""
         self.root = root
+        self.on_server = on_server
         self.defaults = load_defaults(root)
         self.models = load_models(root)
         self.server_config: ServerConfig = load_server_config(root)
@@ -214,7 +218,7 @@ class Session:
             else:
                 from clarity_chat.backends.llama_cpp import LlamaCppBackend
 
-                backend = LlamaCppBackend(self.server_config, self.logs_dir)
+                backend = LlamaCppBackend(self.server_config, self.logs_dir, self.on_server)
             self.backends[name, device] = backend
         return self.backends[name, device]
 
@@ -226,7 +230,7 @@ class Session:
 
         self.close()
         self.server_config = dataclasses.replace(self.server_config, flags=flags)
-        backend = LlamaCppBackend(self.server_config, self.logs_dir)
+        backend = LlamaCppBackend(self.server_config, self.logs_dir, self.on_server)
         self.backends["llama.cpp", None] = self.backend = backend
 
     def use_backend(self, name: str, device: str | None) -> Backend:

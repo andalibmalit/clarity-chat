@@ -288,7 +288,7 @@ def test_a_malformed_stream_chunk_is_a_backend_error_with_the_partial_reply(monk
     assert caught.value.partial is not None and caught.value.partial.text == "Hi"
 
 
-def started_server(monkeypatch, root, startup, props_ok=True):
+def started_server(monkeypatch, root, startup, props_ok=True, on_change=None):
     """A LlamaServer.start() with every outside step faked: what it launched, and the record."""
     import json
     from pathlib import Path
@@ -297,12 +297,14 @@ def started_server(monkeypatch, root, startup, props_ok=True):
     from clarity_chat.profiles import load_server_config
 
     config = load_server_config(root)
-    server = llama_cpp.LlamaServer(config, root / "model.gguf", root / "logs")
+    server = llama_cpp.LlamaServer(config, root / "model.gguf", root / "logs", on_change)
     launched = {}
 
     def launch(argv, env):
         launched.update(argv=argv, env=env)
         server.output = [startup]
+        exited = type("Exited", (), {"pid": 4242, "poll": lambda self: 0})()
+        monkeypatch.setattr(server, "proc", exited)
         return None
 
     monkeypatch.setattr(llama_cpp, "llama_config_files", lambda: [])
@@ -471,3 +473,18 @@ def test_the_memory_figures_are_logged_and_an_overflow_stops_the_server(monkeypa
     tight = STARTUP_OLMO_32K.replace("25558 MiB free", "20000 MiB free")
     with pytest.raises(ConfigError, match="the GPU had 20,000 MiB free"):
         started_server(monkeypatch, root, tight)
+
+
+def test_the_server_reports_its_port_pid_and_key_on_start_and_none_on_stop(monkeypatch, root):
+    heard = []
+    server, _, _ = started_server(monkeypatch, root, STARTUP_GPU, on_change=heard.append)
+    assert heard == [
+        {
+            "port": server.port,
+            "pid": 4242,
+            "api_key": server.api_key,
+            "model_path": str(root / "model.gguf"),
+        }
+    ]
+    server.stop()
+    assert heard[-1] is None

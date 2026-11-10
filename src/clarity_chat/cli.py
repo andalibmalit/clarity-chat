@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends import BackendError
+from clarity_chat.instance import Held
 from clarity_chat.profiles import ConfigError, find_root, load_models, load_server_config
 from clarity_chat.session import (
     CallOutcome,
@@ -399,8 +400,8 @@ def write_stdout(text: str) -> None:
     sys.stdout.flush()
 
 
-def cmd_chat(root: Path, profile: str) -> int:
-    session = Session(root)
+def cmd_chat(root: Path, profile: str, held: Held) -> int:
+    session = Session(root, on_server=held.record_server)
     atexit.register(session.close)  # also covers exits the finally below doesn't see
     try:
         ChatLoop(session, profile, prompt_reader(), write_stdout).run()
@@ -409,13 +410,14 @@ def cmd_chat(root: Path, profile: str) -> int:
     return 0
 
 
-def cmd_run(root: Path, openings: Path, profiles: list[str], seeds: int) -> int:
+def cmd_run(root: Path, openings: Path, profiles: list[str], seeds: int, held: Held) -> int:
     from clarity_chat.batch import RunError, run_batch
     from clarity_chat.logs import new_id
 
     run_id = new_id("run")
     run_dir = root / "runs" / run_id
-    session = Session(root, logs_dir=run_dir)  # the server's output log stays with the run
+    # The server's output log stays with the run.
+    session = Session(root, logs_dir=run_dir, on_server=held.record_server)
     atexit.register(session.close)
     try:
         blind = run_batch(session, run_id, run_dir, openings, profiles, seeds, write_stdout)
@@ -429,11 +431,12 @@ def cmd_run(root: Path, openings: Path, profiles: list[str], seeds: int) -> int:
     return 0
 
 
-def cmd_replay(root: Path, log_path: Path, call_id: str, logged_flags: bool) -> int:
+def cmd_replay(root: Path, log_path: Path, call_id: str, logged_flags: bool, held: Held) -> int:
     """Exit status 0 if the output is identical, 1 if it differs (or on an error)."""
     from clarity_chat.replay import find_call
 
-    session = Session(root, logs_dir=log_path.parent)  # the server's output log goes alongside
+    # The server's output log goes alongside.
+    session = Session(root, logs_dir=log_path.parent, on_server=held.record_server)
     atexit.register(session.close)
     flags_from = ""
     found = find_call(log_path, call_id)
@@ -537,12 +540,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.command in ("chat", "run", "replay"):
             from clarity_chat import instance
 
-            with instance.hold(root, args.command):  # these start a model: one at a time
+            with instance.hold(root, args.command) as held:  # these start a model: one at a time
+                if held.orphan:
+                    print(f"clarity: {held.orphan}", file=sys.stderr)
                 if args.command == "chat":
-                    return cmd_chat(root, args.profile)
+                    return cmd_chat(root, args.profile, held)
                 if args.command == "run":
-                    return cmd_run(root, args.openings, args.profiles, args.seeds)
-                return cmd_replay(root, args.log, args.call_id, args.logged_flags)
+                    return cmd_run(root, args.openings, args.profiles, args.seeds, held)
+                return cmd_replay(root, args.log, args.call_id, args.logged_flags, held)
         if args.command == "fetch":
             return cmd_fetch(root, args.name)
         if args.command == "verify":
