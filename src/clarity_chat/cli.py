@@ -321,8 +321,7 @@ class ChatLoop:
         if event["event"] == "text":
             self.write(event["text"])
         elif event["event"] == "record" and event["record"]["type"] == "torn_line":
-            log = self.session.conversation.log.path if self.session.conversation else None
-            self.write(f"\n! {torn_message(event['record'], log or Path('the log'))}\n")
+            self.write(f"\n! {torn_message(event['record'], "this conversation's log")}\n")
 
     def edit(self, arg: str) -> bool:
         """/edit with no text prefills your last message to edit, then runs the command."""
@@ -412,7 +411,7 @@ def mend(log_path: Path) -> None:
     """End a log's torn last line before reading it, and say so."""
     torn = LogFile(log_path).mend()
     if torn:
-        print(f"clarity: {torn_message(torn, log_path)}", file=sys.stderr)
+        print(f"clarity: {torn_message(torn, str(log_path))}", file=sys.stderr)
 
 
 def cmd_replay(

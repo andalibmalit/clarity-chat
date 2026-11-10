@@ -176,4 +176,5 @@ def test_the_chat_says_when_it_ends_a_torn_line(loop):
     with chat.session.conversation.log.path.open("ab") as f:
         f.write(b'{"type": "no')
     chat.handle("b")
-    assert "Line 6 of" in "".join(output) and "was never finished" in "".join(output)
+    text = "".join(output)
+    assert "Line 6 of this conversation's log has no line end, so it was cut off" in text
