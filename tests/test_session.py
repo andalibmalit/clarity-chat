@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from clarity_chat.logs import read_records
@@ -219,17 +221,29 @@ def test_a_cancel_before_the_first_token_is_a_failed_call_with_no_reply(make_ses
 
     session, backend = make_session([" one", " two", " three"])
     first = session.say("a")
-    backend.on_call = session.cancel  # as if another thread cancelled mid-call
+    cancel = threading.Event()
+    backend.on_call = cancel.set  # as if another thread cancelled mid-call
     with pytest.raises(CancelledBeforeReply):
-        session.say("b")
+        session.say("b", cancel=cancel)
     call = records(session, "call")[-1]
     assert call["stop_type"] == "cancelled" and call["cancelled_during"] == "prompt"
     assert "Cancelled before the reply started" in call["error"]
     assert "turn_id" not in call
     assert session.conversation.head == first.turn.turn_id  # the message is a dead branch
     backend.on_call = None
-    assert session.say("c").turn.text == " three"  # the next call isn't cancelled
-    assert session.cancel() is False  # no call running
+    assert session.say("c", cancel=threading.Event()).turn.text == " three"
+
+
+def test_a_cancel_while_the_prompt_is_built_sends_nothing(make_session):
+    from clarity_chat.session import CancelledBeforeReply
+
+    session, backend = make_session()
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(CancelledBeforeReply):
+        session.say("a", cancel=cancel)
+    assert backend.calls == []
+    assert records(session, "call")[-1]["stop_type"] == "cancelled"
 
 
 def test_a_cancel_after_some_text_keeps_the_partial_reply(make_session):
@@ -245,7 +259,8 @@ def test_an_early_cancel_on_regen_leaves_you_on_the_reply_you_had(make_session):
 
     session, backend = make_session([" one"])
     first = session.say("a")
-    backend.on_call = session.cancel
+    cancel = threading.Event()
+    backend.on_call = cancel.set
     with pytest.raises(CancelledBeforeReply):
-        session.regen()
+        session.regen(cancel=cancel)
     assert session.conversation.head == first.turn.turn_id

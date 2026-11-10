@@ -54,7 +54,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 - Replay runs a call at its logged size, so the size is never a hidden difference between a call and its replay.
 - llama-server quietly caps a size above the model's training context; Clarity refuses it instead, naming the limit.
 
-**A cancel works from any thread, and never adds an empty reply.** Each call gets its own cancel signal, so a cancel from a web page or a script can't leak into the next call. The llama.cpp backend checks it between stream lines; llama-server sends a ping each second while it reads the prompt, so a cancel lands within about a second even then. Closing the stream tells llama-server to stop.
+**A cancel works from any thread, and never adds an empty reply.** Whatever starts a call, such as the web page or a script, makes a cancel signal for that call alone, so a late cancel can't stop the next call, and one sent while the prompt is still being built stops the call before anything is sent. The llama.cpp backend checks it between stream lines; llama-server sends a ping each second while it reads the prompt, so a cancel lands within about a second even then. Closing the stream tells llama-server to stop.
 - A cancel before the first token is logged like a failed call, with `cancelled_during: "prompt"`, and your message is offered back. A reply with no text would be a turn nobody wrote.
 - Cost: the Transformers backend checks only as each token arrives, so a cancel during its prompt pass takes effect at the first token.
 

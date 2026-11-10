@@ -192,7 +192,6 @@ class Session:
         self.tokenizer: Tokenizer | None = None
         self.template_tokenizer: Tokenizer | None = None
         self.template: dict[str, Any] | None = None
-        self._cancel: threading.Event | None = None  # the running call's, if any
         self.weights: Path | None = None  # what the current model was started from
         self._tokenizers: dict[tuple[str, str], Tokenizer] = {}
 
@@ -373,14 +372,6 @@ class Session:
             conversation.log.append({**record, "conversation_id": conversation.conversation_id})
             conversation.log.servers_logged.add(record["server_id"])
 
-    def cancel(self) -> bool:
-        """Stop the running call, from any thread. Returns False if no call is running."""
-        event = self._cancel
-        if event is None:
-            return False
-        event.set()
-        return True
-
     def close(self) -> None:
         self.backend.close()
         for backend in self.backends.values():
@@ -393,15 +384,19 @@ class Session:
         text: str,
         on_text: Callable[[str], None] | None = None,
         seed: Setting | None = None,
+        cancel: threading.Event | None = None,
     ) -> CallOutcome:
         """Add a user turn after `head` and get the model's reply. `seed` replaces the
-        profile's seed for this call (a batch run's seeds)."""
+        profile's seed for this call (a batch run's seeds). `cancel`: an event the caller
+        makes for this call and may set from any thread to stop it."""
         conversation = self._require_conversation()
         user = conversation.add_turn("user", "user", text, conversation.head)
         conversation.head = user.turn_id
-        return self.call(user, seed=seed, on_text=on_text)
+        return self.call(user, seed=seed, on_text=on_text, cancel=cancel)
 
-    def regen(self, on_text: Callable[[str], None] | None = None) -> CallOutcome:
+    def regen(
+        self, on_text: Callable[[str], None] | None = None, cancel: threading.Event | None = None
+    ) -> CallOutcome:
         """Another reply to the current message, as a new branch. Its seed is the first
         reply's seed plus k, where k counts this and earlier regenerations of that message."""
         conversation = self._require_conversation()
@@ -420,14 +415,23 @@ class Session:
             )
         try:
             return self.call(
-                user, seed=Setting(seed, "regen"), regen_of=first.call_id, on_text=on_text
+                user,
+                seed=Setting(seed, "regen"),
+                regen_of=first.call_id,
+                on_text=on_text,
+                cancel=cancel,
             )
         except (ContextError, BackendError, ConfigError):
             conversation.head = reply.turn_id  # a failed regeneration leaves you where you were
             conversation.last_call = conversation.calls.get(reply.call_id or "")
             raise
 
-    def edit(self, text: str, on_text: Callable[[str], None] | None = None) -> CallOutcome:
+    def edit(
+        self,
+        text: str,
+        on_text: Callable[[str], None] | None = None,
+        cancel: threading.Event | None = None,
+    ) -> CallOutcome:
         """Replace the current message with `text`, as a new branch, and get a reply."""
         conversation = self._require_conversation()
         reply = conversation.current_reply("edit the message of")
@@ -438,7 +442,7 @@ class Session:
         )
         conversation.head = user.turn_id
         try:
-            return self.call(user, on_text=on_text)
+            return self.call(user, on_text=on_text, cancel=cancel)
         except (ContextError, BackendError, ConfigError):
             conversation.head = reply.turn_id  # a failed edit leaves you where you were
             conversation.last_call = conversation.calls.get(reply.call_id or "")
@@ -497,6 +501,7 @@ class Session:
         seed: Setting | None = None,
         regen_of: str | None = None,
         on_text: Callable[[str], None] | None = None,
+        cancel: threading.Event | None = None,
     ) -> CallOutcome:
         conversation = self._require_conversation()
         profile = conversation.profile
@@ -564,13 +569,12 @@ class Session:
                     f"The prompt uses {len(prompt.ids)} of {n_ctx} context tokens "
                     f"({len(prompt.ids) / n_ctx:.0%})."
                 )
-            self._cancel = cancel = threading.Event()  # one per call, so none is left set
-            try:
+            if cancel is not None and cancel.is_set():  # cancelled while the prompt was built
+                result = Result(text="", token_ids=[], stop_type="cancelled")
+            else:
                 result = self.backend.complete(
                     prompt.ids, values, profile.stop, on_text=on_text, cancel=cancel
                 )
-            finally:
-                self._cancel = None
             if result.stop_type == "cancelled" and not result.token_ids:
                 raise CancelledBeforeReply("Cancelled before the reply started.", result)
         except (ContextError, BackendError, ConfigError) as e:
