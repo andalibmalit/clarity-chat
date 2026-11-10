@@ -13,6 +13,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from clarity_chat.logs import list_chats
@@ -117,7 +118,28 @@ def _branches(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 def _switch(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     head = c.session.switch(needs(args, "/switch TURN_ID"))
-    return {"head": head.turn_id, "head_text": head.text}
+    conversation = c.session.conversation
+    assert conversation is not None
+    render = conversation.render if conversation.resumed else None
+    return {"head": head.turn_id, "head_text": head.text, "render": render}
+
+
+def _resume(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    log = needs(args, "/resume LOG")
+    emit({"event": "status", "status": "starting", "log": log})
+    record = c.session.resume(Path(log))
+    conversation = c.session.conversation
+    assert conversation is not None
+    emit({"event": "status", "status": "ready", "conversation_id": conversation.conversation_id})
+    head = conversation.turns.get(record["head"]) if record["head"] else None
+    return {
+        "resume": record,
+        "profile": conversation.profile.name,
+        "model": conversation.profile.model,
+        "mode": conversation.profile.mode,
+        "head_text": head.text if head else None,
+        "warnings": [*(conversation.started_server or {}).get("warnings", [])],
+    }
 
 
 def _annotate(kind: str) -> Callable[[Commands, str, Emit], dict[str, Any]]:
@@ -143,7 +165,8 @@ def _replay(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 def _new(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     conversation = c.session.conversation
     assert conversation is not None
-    return _start(c, str(conversation.profile.path), emit)  # its file, so a path works too
+    profile = conversation.profile  # its file, so a path works too; else (resumed) its name
+    return _start(c, str(profile.path) if profile.path.is_file() else profile.name, emit)
 
 
 def _profile(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -195,7 +218,7 @@ def settings_view(session: Session) -> dict[str, Any]:
         "eog_tokens": model_file.get("eog_tokens"),
         "recommended": recommended and {**recommended, "used": profile.use_recommended},
         "not_applied": last.get("not_applied") or [],
-        "ctx_size": session.ctx_size_for(profile).to_json(),
+        "ctx_size": (conversation.ctx_size or session.ctx_size_for(profile)).to_json(),
         "stop": profile.stop,
     }
 
@@ -249,6 +272,12 @@ COMMANDS: dict[str, Command] = {
         "/chats",
         "your conversations in logs/, newest first, with their titles",
         _chats,
+        needs_conversation=False,
+    ),
+    "resume": Command(
+        "/resume LOG",
+        "continue a logged conversation, as it was logged; says what differs today",
+        _resume,
         needs_conversation=False,
     ),
     "new": Command("/new", "start a new conversation with the same profile", _new),

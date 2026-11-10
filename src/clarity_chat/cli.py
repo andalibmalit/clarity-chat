@@ -144,6 +144,61 @@ def format_chats(chats: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def render_line(render: dict[str, Any]) -> str:
+    """The re-render check of a resumed conversation's current reply, in one line."""
+    if "skipped" in render:
+        return "No reply yet, so no prompt to check."
+    if render["identical"]:
+        return "The current reply's prompt renders to the same token IDs today."
+    if "error" in render:
+        return f"The current reply's prompt no longer renders: {render['error']}"
+    n = render["n_ids"]
+    return (
+        f"The current reply's prompt renders differently today ({n['logged']} token IDs "
+        f"logged, {n['now']} now; first difference at token {render['first_different_token']}). "
+        "Your next message is rendered today's way."
+    )
+
+
+def format_resume(result: dict[str, Any]) -> str:
+    """What a resume restored and what differs today."""
+    record = result["resume"]
+    where = f"after: {result['head_text'][:60]!r}" if result["head_text"] else "at the start"
+    lines = [
+        f"Resumed {record['conversation_id']} with profile {result['profile']} "
+        f"({result['model']}, {result['mode']} mode), as logged. It continues {where}."
+    ]
+    lines += [f"! {warning}" for warning in result["warnings"]]
+    if record["head_guessed"]:
+        lines.append(
+            "! This log is from v0.1.0, which didn't record /undo or failed calls, so it "
+            "continues after the last reply. /branches shows the others."
+        )
+    if record["profile_file"] != "same":
+        state = "has changed" if record["profile_file"] == "changed" else "is gone"
+        lines.append(f"! The profile's file {state} since; this chat uses the profile as logged.")
+    for d in record["settings_differ_today"]:
+        today = d["today"] or {"value": "(none)", "origin": "-"}
+        lines.append(
+            f"! Today's files would set {d['name']} = {today['value']!r} ({today['origin']}); "
+            f"this chat keeps {d['logged']['value']!r} ({d['logged']['origin']})."
+        )
+    if record["chat_settings"]:
+        values = ", ".join(f"{k} = {v!r}" for k, v in record["chat_settings"].items())
+        lines.append(f"Restored /set values: {values}.")
+    if record["differences"]:
+        lines.append(
+            f"Changed since its last call ({record['compared_with_call']}): "
+            + ", ".join(record["differences"])
+            + ". The resume record lists each difference."
+        )
+    lines.append(
+        ("! " if not record["render"].get("identical", True) else "")
+        + render_line(record["render"])
+    )
+    return "\n".join(lines)
+
+
 def format_status(record: dict[str, Any]) -> str:
     timings = record.get("timings") or {}
     seconds = (timings.get("prompt_ms", 0) + timings.get("predicted_ms", 0)) / 1000
@@ -222,16 +277,24 @@ class ChatLoop:
         profile_name: str,
         read: Callable[[str], str],
         write: Callable[[str], None],
+        resume: Path | None = None,
     ) -> None:
-        """`read(default)` returns one input, prefilled with `default` (for /edit)."""
+        """`read(default)` returns one input, prefilled with `default` (for /edit).
+        `resume`: a log to continue instead of starting with `profile_name`."""
         self.session = session
         self.profile_name = profile_name
+        self.resume = resume
         self.read = read
         self.write = write
         self.draft = ""  # prefilled in the next input
         self.commands = Commands(session)
 
     def start(self) -> None:
+        if self.resume is not None:
+            self.write(f"Resuming {self.resume} …\n")
+            result = self.commands.run("resume", str(self.resume), self.on_event)
+            self.write(format_resume(result) + "\n")
+            return
         self.write(f"Starting profile {self.profile_name} …\n")
         conversation = self.session.new_conversation(self.profile_name)
         self.show_server_warnings(conversation)
@@ -331,6 +394,10 @@ class ChatLoop:
         elif name == "switch":
             text = result["head_text"]
             self.write(f"Switched. The next message continues after: {text[:60]!r}.\n")
+            if result["render"] and not result["render"].get("identical", True):
+                self.write(f"! {render_line(result['render'])}\n")
+        elif name == "resume":
+            self.write(format_resume(result) + "\n")
         elif name in ("mark", "unmark", "note"):
             self.write(annotated(result["records"]) + ".\n")
         elif name == "replay":
@@ -396,11 +463,11 @@ def write_stdout(text: str) -> None:
     sys.stdout.flush()
 
 
-def cmd_chat(root: Path, profile: str, on_server: OnServer) -> int:
+def cmd_chat(root: Path, profile: str, on_server: OnServer, resume: Path | None) -> int:
     session = Session(root, on_server=on_server)
     atexit.register(session.close)  # also covers exits the finally below doesn't see
     try:
-        ChatLoop(session, profile, prompt_reader(), write_stdout).run()
+        ChatLoop(session, profile, prompt_reader(), write_stdout, resume).run()
     finally:
         session.close()
     return 0
@@ -517,7 +584,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, help="project folder (default: found from here)")
     commands = parser.add_subparsers(dest="command", required=True)
     chat = commands.add_parser("chat", help="chat with a profile")
-    chat.add_argument("--profile", required=True, help="a profile name from profiles/")
+    start = chat.add_mutually_exclusive_group(required=True)
+    start.add_argument("--profile", help="a profile name from profiles/ or local/profiles/")
+    start.add_argument("--resume", type=Path, help="a log in logs/ to continue")
     run = commands.add_parser(
         "run", help="collect replies for a blind test (writes runs/<run-id>/blind.md)"
     )
@@ -573,7 +642,7 @@ def main(argv: list[str] | None = None) -> int:
                 if held.orphan:
                     print(f"clarity: {held.orphan}", file=sys.stderr)
                 if args.command == "chat":
-                    return cmd_chat(root, args.profile, held.record_server)
+                    return cmd_chat(root, args.profile, held.record_server, args.resume)
                 if args.command == "run":
                     return cmd_run(
                         root, args.openings, args.profiles, args.seeds, held.record_server

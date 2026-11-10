@@ -104,6 +104,11 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 **Replay re-sends the logged request, not a rebuilt one.** It sends the logged token IDs and request body, so a later change to how Clarity builds requests can't change a replay. It then lists every recorded fact that differs from the original call, so a different output comes with its likely causes.
 - Cost: replay can't show whether a later fix to how requests are built changes a reply; that takes a new call.
 
+**Resume continues a conversation as it was logged.** `clarity chat --resume LOG` uses the profile's logged text and files, its resolved settings, its `/set` values and the context size of its last call, not today's files. Then it says what differs: a changed profile file, settings today's files would resolve differently, the facts replay compares (server build, flags, machine, libraries), and whether the current reply's prompt still renders to the same token IDs with today's template and libraries. `/switch` runs that last check again for the reply it goes to.
+- The conversation continues where the latest `turn` or `head` record says; a message whose call never finished means the turn before it. v0.1.0 logged neither `/undo` nor a failed call's move back, so for its logs that place is a guess, and Clarity says so.
+- Cost: a resumed chat keeps old values even when you'd rather use today's. `/set` or a new conversation changes them, visibly.
+- A batch run's `calls.jsonl` can't be resumed: each of its calls is a conversation of its own.
+
 **Batch runs are blind, checked first and kept apart.**
 - Before any model loads, every opening is rendered against every profile. Unequal `max_tokens` stops the run, because reply length would give a setup away. The cost: all profiles in a run share one `max_tokens`.
 - Seeds come from the run, starting at 333, so two runs with the same profiles are comparable, and `--seeds N` shows a setup's spread rather than one sample.

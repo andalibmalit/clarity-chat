@@ -32,6 +32,7 @@ from clarity_chat.profiles import (
     load_profile,
     load_server_config,
     parse_setting,
+    profile_path,
     resolve_settings,
 )
 from clarity_chat.render import (
@@ -47,9 +48,11 @@ from clarity_chat.replay import (
     environment_diff,
     facts_from_call,
     find_call,
+    first_difference,
     not_recorded,
     unexplained,
 )
+from clarity_chat.resume import rebuild, settings_diff
 
 CONTEXT_WARN_FRACTION = 0.8
 
@@ -120,6 +123,9 @@ class Conversation:
     calls: dict[str, dict[str, Any]] = field(default_factory=dict)  # call records by ID
     warnings: list[str] = field(default_factory=list)  # shown when it starts, and logged
     chat_settings: dict[str, Any] = field(default_factory=dict)  # set with /set
+    ctx_size: Setting | None = None  # the context size it runs at
+    resumed: bool = False  # rebuilt from its log: /switch checks the prompt renders the same
+    render: dict[str, Any] | None = None  # that check, after the latest /switch
 
     @property
     def settings(self) -> dict[str, Setting]:
@@ -321,10 +327,11 @@ class Session:
             return tokenizer, self._load_tokenizer(profile.template_repo, profile.template_revision)
         return tokenizer, tokenizer
 
-    def prepare(self, profile_name: str) -> Prepared:
+    def prepare(self, profile_name: str, logged: dict[str, Any] | None = None) -> Prepared:
         """Load a profile and everything it needs short of starting the model: its model
-        entry and lock, the weights (size and time only), tokenizers and chat template."""
-        profile = self.load_profile(profile_name)
+        entry and lock, the weights (size and time only), tokenizers and chat template.
+        `logged`: a log's `profile` field, to use the profile as it was logged."""
+        profile = load_profile(self.root, profile_name, self.defaults, logged)
         if profile.model not in self.models:
             raise ConfigError(
                 f"Profile {profile.name}: model {profile.model!r} is not in models.toml."
@@ -381,23 +388,18 @@ class Session:
         # session changes, so a bad /new leaves the current conversation usable.
         prepared = profile if isinstance(profile, Prepared) else self.prepare(profile)
         model = prepared.model
-        previous = self.backend
         ctx_size = self.ctx_size_for(prepared.profile)
-        try:
-            backend = self.use_backend(prepared.profile.backend, prepared.profile.device)
-            started = backend.start(model, prepared.weights, ctx_size.value)
-        except (ConfigError, BackendError) as e:
-            self._restore(previous, e)
-            raise
-        self.model, self.model_lock, self.weights = model, prepared.lock, prepared.weights
-        self.tokenizer = prepared.tokenizer
-        self.template_tokenizer = prepared.template_tokenizer
-        self.template = prepared.template
+        started = self.start_model(prepared, ctx_size)
         conversation_id = new_id("conversation")
         log = log or LogFile(self.logs_dir / f"{conversation_id}.jsonl")
         log.on_append = self._appended
         conversation = Conversation(
-            conversation_id, prepared.profile, log, run=run, started_server=started
+            conversation_id,
+            prepared.profile,
+            log,
+            run=run,
+            started_server=started,
+            ctx_size=ctx_size,
         )
         unread = prepared.unread_kwargs
         if unread:
@@ -423,6 +425,23 @@ class Session:
         self._log_server_start()
         return conversation
 
+    def start_model(self, prepared: Prepared, ctx_size: Setting) -> dict[str, Any] | None:
+        """Start (or keep) the model a prepared profile needs, at `ctx_size`. Returns the
+        server_start record if a server started. On failure the current conversation's
+        model is restarted, so it stays usable."""
+        previous = self.backend
+        try:
+            backend = self.use_backend(prepared.profile.backend, prepared.profile.device)
+            started = backend.start(prepared.model, prepared.weights, ctx_size.value)
+        except (ConfigError, BackendError) as e:
+            self._restore(previous, e)
+            raise
+        self.model, self.model_lock, self.weights = prepared.model, prepared.lock, prepared.weights
+        self.tokenizer = prepared.tokenizer
+        self.template_tokenizer = prepared.template_tokenizer
+        self.template = prepared.template
+        return started
+
     def _restore(self, previous: Backend, error: Exception) -> None:
         """After a failed switch, restart the current conversation's model, so a bad /new or
         /profile leaves that conversation usable. If that fails too, no conversation runs."""
@@ -432,8 +451,8 @@ class Session:
             self.backend.close()
             self.backend = previous
         try:
-            ctx_size = self.ctx_size_for(self.conversation.profile).value
-            previous.start(self.model, self.weights, ctx_size)
+            ctx_size = self.conversation.ctx_size or self.ctx_size_for(self.conversation.profile)
+            previous.start(self.model, self.weights, ctx_size.value)
         except (ConfigError, BackendError) as again:
             self.conversation = None
             raise BackendError(
@@ -571,6 +590,8 @@ class Session:
             raise ConfigError(f"Turn {turn_id} has no reply to go to.")
         head = conversation.move_head(reply.turn_id, "switch")
         assert head is not None
+        if conversation.resumed:  # today's template and libraries may render it differently
+            conversation.render = self.check_render(head)
         return head
 
     def annotate(self, kind: str, text: str) -> list[dict[str, Any]]:
@@ -820,18 +841,7 @@ class Session:
         self._check_output(call["prompt_ids"], result, server_prompt, fields, tokenizer)
         now_server = self.backend.server_record
         logged_facts = facts_from_call(call, server)
-        now_facts = facts_from_call(
-            {
-                "model": {
-                    "gguf_sha256": entry["gguf"]["sha256"],
-                    "repo": model.repo,
-                    "revision": model.revision,
-                },
-                "client": client_git(),
-                "libraries": library_versions(),
-            },
-            now_server,
-        )
+        now_facts = self._facts_now(model, entry)
         diffs = environment_diff(logged_facts, now_facts)
         missing = not_recorded(logged_facts, now_facts)
         comparison = compare_output(call, fields)
@@ -875,6 +885,122 @@ class Session:
             log.append({**now_server, "conversation_id": call["conversation_id"]})
             log.servers_logged.add(now_server["server_id"])
         return log.append(record)
+
+    def _facts_now(self, model: ModelEntry, entry: dict[str, Any]) -> dict[str, Any]:
+        """The facts a replay or resume compares, as they are now."""
+        return facts_from_call(
+            {
+                "model": {
+                    "gguf_sha256": entry["gguf"]["sha256"],
+                    "repo": model.repo,
+                    "revision": model.revision,
+                },
+                "client": client_git(),
+                "libraries": library_versions(),
+            },
+            self.backend.server_record,
+        )
+
+    # --- resume ---------------------------------------------------------------------------
+
+    def resume(self, path: Path) -> dict[str, Any]:
+        """Continue a logged conversation, appending to its log. It uses the profile, the
+        resolved settings and the context size as logged, not today's files, and starts
+        where the log says it was. Returns the `resume` record, which says what differs
+        now: the profile file, settings today's files would give, the machine and
+        libraries, and whether the current reply's prompt still renders to the same IDs."""
+        if not path.is_file():
+            raise ConfigError(f"Log file {path} not found.")
+        state = rebuild(list(read_records(path)), str(path))
+        start = state.start
+        prepared = self.prepare(start["profile"]["name"], logged=start["profile"])
+        profile_file, now = self._profile_now(start["profile"])
+        today = {k: s.to_json() for k, s in (now or prepared).profile.settings.items()}
+        logged = {**today, **start["settings"]}
+        prepared.profile.settings = {k: Setting(v["value"], v["origin"]) for k, v in logged.items()}
+        last = state.last_call
+        n_ctx = last["n_ctx"] if last else (start.get("ctx_size") or {}).get("value")
+        ctx_size = Setting(n_ctx, "log") if n_ctx else self.ctx_size_for(prepared.profile)
+        started = self.start_model(prepared, ctx_size)
+        log = LogFile(path)
+        log.on_append = self._appended
+        log.servers_logged = set(state.servers)
+        conversation = Conversation(
+            start["conversation_id"],
+            prepared.profile,
+            log,
+            started_server=started,
+            calls=state.calls,
+            chat_settings=state.chat_settings,
+            ctx_size=ctx_size,
+            resumed=True,
+        )
+        for t in state.turns:
+            call = state.calls.get(t.get("call_id") or "")
+            seed = call["settings"]["seed"]["value"] if call else None
+            conversation.turns[t["turn_id"]] = Turn(
+                t["turn_id"], t["parent_id"], t["role"], t["origin"], t["text"],
+                t.get("call_id"), seed, t.get("regen_of"), t.get("edit_of"),
+            )  # fmt: skip
+        conversation.head = state.head
+        head = conversation.turns.get(state.head) if state.head else None
+        conversation.last_call = state.calls.get(head.call_id or "") if head else None
+        self.conversation = conversation
+        environment = None
+        if last:
+            server = state.servers.get((last.get("backend") or {}).get("server_id", ""))
+            now = self._facts_now(prepared.model, prepared.lock)
+            environment = environment_diff(facts_from_call(last, server), now)
+        record = log.append(
+            {
+                "type": "resume",
+                "conversation_id": conversation.conversation_id,
+                "head": state.head,
+                "head_guessed": state.head_guessed,
+                "ctx_size": ctx_size.to_json(),
+                "profile_file": profile_file,
+                "settings_differ_today": settings_diff(start["settings"], today),
+                "chat_settings": state.chat_settings,
+                "compared_with_call": last["call_id"] if last else None,
+                "differences": environment,
+                "render": self.check_render(head),
+            }
+        )
+        self._log_server_start()
+        return record
+
+    def _profile_now(self, logged: dict[str, Any]) -> tuple[str, Prepared | None]:
+        """The profile's file today (at its logged path, else by name in this project),
+        prepared, and whether it matches the logged text: same, changed or missing."""
+        path = Path(logged["path"])
+        name = str(path) if path.is_file() else logged["name"]
+        try:
+            now = self.prepare(name)
+        except ConfigError:  # gone, or no longer loads
+            return ("changed" if profile_path(self.root, name).is_file() else "missing"), None
+        same = (now.profile.toml_text, now.profile.files) == (logged["toml"], logged["files"])
+        return "same" if same else "changed", now
+
+    def check_render(self, reply: Turn | None) -> dict[str, Any]:
+        """Render the prompt of `reply`'s call again, with today's template and libraries,
+        and compare the token IDs with the logged ones."""
+        conversation = self._require_conversation()
+        call = conversation.calls.get(reply.call_id or "") if reply else None
+        if reply is None or call is None:
+            return {"skipped": "no reply to check"}
+        assert reply.parent_id is not None
+        try:
+            ids = self.build_prompt(conversation.turns[reply.parent_id]).ids
+        except ConfigError as e:
+            return {"call_id": call["call_id"], "identical": False, "error": str(e)}
+        logged = call["prompt_ids"]
+        result: dict[str, Any] = {"call_id": call["call_id"], "identical": ids == logged}
+        if ids != logged:
+            result.update(
+                n_ids={"logged": len(logged), "now": len(ids)},
+                first_different_token=first_difference(logged, ids),
+            )
+        return result
 
     def _appended(self, record: dict[str, Any]) -> None:
         if self.on_record:
