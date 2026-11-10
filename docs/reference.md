@@ -129,7 +129,7 @@ Each table is one model. Every revision is a full 40-character commit hash.
 
 Every flag that affects output must be set explicitly. The shipped `server.toml` sets them all, with comments, and Clarity names any that is missing or has the wrong value. These values are fixed: one slot (`parallel = 1`), no prompt cache, no context shift, and `fit = "off"`.
 
-Refused: `auto` and `-1` as values; the flags `model`, `host`, `port` (Clarity sets these), `context-shift`, `override-kv`, `lora`, `control-vector`, `model-draft`, `backend-sampling`, `api-key`; and any flag starting with `hf-`, `models-` or `spec-`.
+Refused: `auto` and `-1` as values; the flags `model`, `host`, `port`, `api-key`, `api-key-file`, `slots`, `no-slots`, `ui`, `no-ui`, `webui` and `no-webui` (Clarity sets these), `context-shift`, `override-kv`, `lora`, `control-vector`, `model-draft`, `backend-sampling`; and any flag starting with `hf-`, `models-`, `spec-`, `ui-` or `webui-`.
 
 Unless `n-gpu-layers` is 0, Clarity stops if llama.cpp puts the model on the CPU.
 
@@ -154,7 +154,7 @@ Each line is one JSON record with `schema_version` (currently 1), `type` and `ti
 | `type` | Written | Main fields |
 |---|---|---|
 | `conversation` | at the start of each conversation | `profile` (name, path, full TOML text and every file it read), `settings`, `model`, `client` (commit and dirty flag), `machine` |
-| `server_start` | once per server per log file, before its first call | `server_id`, `argv`, `flags`, `env_removed`, `env_llama_ggml_kept`, `llama_cpp` (commit, dirty), `build_info`, `placement`, `props`, `startup_output`, `warnings`, `machine`. Transformers: `device`, `dtype`, `attn_implementation`, `torch`, `transformers`, `eos_token_id` and similar. |
+| `server_start` | once per server per log file, before its first call | `server_id`, `argv`, `flags`, `api_key` (always "random per start; value not logged"), `env_removed`, `env_llama_ggml_kept`, `llama_cpp` (commit, dirty), `build_info`, `placement`, `props`, `startup_output`, `warnings`, `machine`. Transformers: `device`, `dtype`, `attn_implementation`, `torch`, `transformers`, `eos_token_id` and similar. |
 | `turn` | for each message and reply | `turn_id`, `parent_id`, `role`, `origin` (`user`, `model` or `edit`), `text`, `call_id`, and `regen_of` or `edit_of` for branches |
 | `call` | for every call, including failed and cancelled ones | see below |
 | `mark`, `note` | for `/mark`, `/note`, `clarity mark` and `clarity note` | `call_id`, `turn_id`, `label` or `text`, and `origin`: `live` (in a chat) or `review` (afterwards). |

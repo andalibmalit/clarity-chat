@@ -12,7 +12,7 @@ Once a fix is released, the report is credited in `CHANGELOG.md` unless you'd ra
 
 ## What Clarity exposes
 
-- **llama-server.** Clarity starts it on `127.0.0.1` only. It listens on a local port that other programs on the same machine can reach.
+- **llama-server.** Clarity starts it on `127.0.0.1` only, with a new random key at each start, so web pages in your browser can't use it. Other programs running as you can read the key from the server's environment.
 - **Logs.** `logs/` and `runs/` hold your conversations in plain text. Clarity never sends them anywhere, and git ignores both folders.
 - **Downloads.** `clarity fetch` downloads model files from Hugging Face at a pinned commit and records their sha256 in `models.lock`; `clarity verify` re-checks them.
 

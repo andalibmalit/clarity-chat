@@ -45,6 +45,10 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 - The server never parses the model's chat template (`no-jinja`). Clarity doesn't use it, and OLMo 3's fails to parse in llama.cpp, which would stop the server from starting.
 - With GPU layers requested, a model that lands on the CPU is an error. Clarity reads where the weights went from llama.cpp's startup output, which reports it only at `log-verbosity` 4.
 
+**Each server start gets a new random key.** llama-server answers any program that can reach its port, including a web page open in your browser: by default its CORS headers let any site read the replies. Clarity passes a new key in the server's environment at each start (`LLAMA_API_KEY`), sends it with every request, and turns off the `/slots` endpoint and the built-in web UI, which would show prompts or stay public. Only `/health` answers without the key.
+- The key is never logged. At `log-verbosity` 4, llama-server prints its last four characters; Clarity replaces that line in the startup output and the server log.
+- Cost: the key is in the server process's environment, which other programs running as you can read. The key keeps out web pages, not your own programs.
+
 **No prompt cache, no context shift.** A cached prefix can change results, and context shift drops tokens without saying so.
 - Cost: every call processes its whole prompt, which is slower in long conversations.
 

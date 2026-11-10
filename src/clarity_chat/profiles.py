@@ -486,7 +486,8 @@ REQUIRED_VALUES = {
     "cache-reuse": 0,
     "no-cache-idle-slots": True,
 }
-# Set by the client, or never wanted (another model, overrides, router mode, a draft model).
+# Set by the client (including the per-start key, --no-slots and --no-webui), or never wanted
+# (another model, overrides, router mode, a draft model).
 FORBIDDEN_FLAGS = {
     "model",
     "host",
@@ -501,8 +502,15 @@ FORBIDDEN_FLAGS = {
     "spec-type",
     "backend-sampling",
     "api-key",
+    "api-key-file",
+    "slots",
+    "no-slots",
+    "ui",
+    "no-ui",
+    "webui",
+    "no-webui",
 }
-FORBIDDEN_PREFIXES = ("hf-", "models-", "spec-")
+FORBIDDEN_PREFIXES = ("hf-", "models-", "spec-", "ui-", "webui-")
 
 
 @dataclass(frozen=True)
