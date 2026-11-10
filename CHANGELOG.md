@@ -8,6 +8,10 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-10
+
+Live tests (`-m live`, `-m olmo`, `-m hf`, `-m embed`): results to be added by the maintainer before tagging.
+
 ### Security
 - llama-server now needs a random key, new at each start, so a web page in your browser can't send it requests. Its `/slots` endpoint and built-in web UI are off. The key is never logged.
 
@@ -62,5 +66,6 @@ The first release.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - A llama-server that Clarity starts and checks itself, and a Transformers backend for the same weights.
 
-[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/andalibmalit/clarity-chat/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/andalibmalit/clarity-chat/releases/tag/v0.1.0
