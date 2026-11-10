@@ -109,11 +109,11 @@ def test_a_changed_rendering_is_shown_and_checked_again_on_switch(new_session, t
     resumed, _ = new_session()
     render = resumed.resume(path)["render"]
     assert render["identical"] is False and render["n_ids"]["now"] == render["n_ids"]["logged"] + 1
-    resumed.switch(first.turn.turn_id)  # goes to the newest reply on that branch: " two"
-    assert resumed.conversation.render["identical"] is False
+    _, render = resumed.switch(first.turn.turn_id)  # the newest reply on that branch: " two"
+    assert render["identical"] is False
+    assert kinds(path, "head")[-1]["render"] == render  # logged, too
     resumed.undo()
-    resumed.switch(first.turn.parent_id)
-    assert resumed.conversation.render["call_id"] == second.record["call_id"]
+    assert resumed.switch(first.turn.parent_id)[1]["call_id"] == second.record["call_id"]
 
 
 def test_a_batch_runs_calls_file_is_refused(new_session, tmp_path):
@@ -172,3 +172,42 @@ def test_resume_checks_restored_set_values(new_session):
     with pytest.raises(ConfigError, match="top_k must be"):
         resumed.resume(session.conversation.log.path)
     assert backend.ctx_sizes == []  # refused before any model started
+
+
+def test_a_log_that_cant_be_rebuilt_leaves_the_running_chat_alone(new_session, tmp_path):
+    session, backend = new_session([" one", " two"])
+    session.new_conversation("text")
+    session.say("a")
+    running = session.conversation
+    other, _ = new_session([" x"])
+    other.new_conversation("text")
+    other.say("b")
+    path = other.conversation.log.path
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        if row["type"] == "call":
+            del row["settings"]["seed"]  # a log Clarity didn't write
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    with pytest.raises(ConfigError, match="can't be resumed: a record lacks or mangles 'seed'"):
+        session.resume(path)
+    assert session.conversation is running and backend.ctx_sizes == [8192]  # not restarted
+
+
+def test_resume_lists_what_it_takes_from_today(new_session, fetched_root):
+    session, _ = new_session([" one"])
+    session.new_conversation("text")
+    session.say("a")
+    path = session.conversation.log.path
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    del rows[0]["settings"]["repeat_last_n"]  # as if the setting were added after this log
+    rows[0]["model"]["tokenizer_revision"] = "f" * 40  # as if models.toml changed since
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    resumed, _ = new_session()
+    record = resumed.resume(path)
+    assert {
+        "name": "repeat_last_n",
+        "logged": None,
+        "today": {"value": 64, "origin": "default"},
+    } in record["settings_differ_today"]
+    assert [d["path"] for d in record["model_entry"]] == ["tokenizer_revision"]
+    assert record["not_recorded"] is not None

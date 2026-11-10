@@ -176,7 +176,21 @@ def format_resume(result: dict[str, Any]) -> str:
     if record["profile_file"] != "same":
         state = "has changed" if record["profile_file"] == "changed" else "is gone"
         lines.append(f"! The profile's file {state} since; this chat uses the profile as logged.")
+    if record["ctx_size"]["origin"] != "log":
+        lines.append(
+            f"! The log doesn't say its context size: using {record['ctx_size']['value']} "
+            f"({record['ctx_size']['origin']})."
+        )
+    if record["model_entry"]:
+        changed = ", ".join(d["path"] for d in record["model_entry"])
+        lines.append(f"! The model's models.toml entry has changed since: {changed}.")
     for d in record["settings_differ_today"]:
+        if d["logged"] is None:
+            lines.append(
+                f"! The log has no {d['name']}: this chat uses {d['today']['value']!r} "
+                f"({d['today']['origin']})."
+            )
+            continue
         today = d["today"] or {"value": "(none)", "origin": "-"}
         lines.append(
             f"! Today's files would set {d['name']} = {today['value']!r} ({today['origin']}); "
@@ -190,6 +204,12 @@ def format_resume(result: dict[str, Any]) -> str:
             f"Changed since its last call ({record['compared_with_call']}): "
             + ", ".join(record["differences"])
             + ". The resume record lists each difference."
+        )
+    if record["not_recorded"]:
+        lines.append(
+            "Not compared, because the log doesn't record them: "
+            + ", ".join(record["not_recorded"])
+            + "."
         )
     lines.append(
         ("! " if not record["render"].get("identical", True) else "")

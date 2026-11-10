@@ -529,13 +529,14 @@ def test_switch_goes_to_the_newest_reply_on_a_branch(make_session):
     regen = session.regen()  # " three"
     session.say("c")  # " four", after the regenerated reply
     conversation = session.conversation
-    head = session.switch(regen.turn.turn_id)  # the branch continues past it
+    head, render = session.switch(regen.turn.turn_id)  # the branch continues past it
+    assert render is None  # checked only in a resumed conversation
     assert head.text == " four"
     second = records(session, "turn")[3]  # the reply " two"
-    assert session.switch(second["turn_id"]).text == " two"
+    assert session.switch(second["turn_id"])[0].text == " two"
     assert conversation.last_call["call_id"] == second["call_id"]
     assert records(session, "head")[-1] == {**records(session, "head")[-1], "reason": "switch"}
-    assert session.switch(first.turn.parent_id).text == " four"  # the newest under "a"
+    assert session.switch(first.turn.parent_id)[0].text == " four"  # the newest under "a"
     with pytest.raises(ConfigError, match="no turn turn-nope"):
         session.switch("turn-nope")
 

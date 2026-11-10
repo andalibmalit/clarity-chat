@@ -47,6 +47,7 @@ from clarity_chat.render import (
 )
 from clarity_chat.replay import (
     compare_output,
+    deep_diff,
     environment_diff,
     facts_from_call,
     find_call,
@@ -127,7 +128,6 @@ class Conversation:
     chat_settings: dict[str, Any] = field(default_factory=dict)  # set with /set
     ctx_size: Setting | None = None  # the context size it runs at
     resumed: bool = False  # rebuilt from its log: /switch checks the prompt renders the same
-    render: dict[str, Any] | None = None  # that check, after the latest /switch
 
     @property
     def settings(self) -> dict[str, Setting]:
@@ -176,9 +176,10 @@ class Conversation:
             t for t in self.turns.values() if t.parent_id == user_turn_id and t.role == "assistant"
         ]
 
-    def move_head(self, turn_id: str | None, reason: str) -> Turn | None:
+    def move_head(self, turn_id: str | None, reason: str, **extra: Any) -> Turn | None:
         """Move `head` where a new reply doesn't: `undo`, `switch` or a `failed` call. Logged
-        as a `head` record, so a resumed conversation continues from the same place."""
+        as a `head` record (with `extra` fields), so a resumed conversation continues from
+        the same place."""
         self.head = turn_id
         head = self.turns.get(turn_id) if turn_id else None
         self.last_call = self.calls.get(head.call_id or "") if head else None
@@ -188,6 +189,7 @@ class Conversation:
                 "conversation_id": self.conversation_id,
                 "turn_id": turn_id,
                 "reason": reason,
+                **extra,
             }
         )
         return head
@@ -583,20 +585,22 @@ class Session:
             {"type": "title", "conversation_id": conversation.conversation_id, "title": title}
         )
 
-    def switch(self, turn_id: str) -> Turn:
+    def switch(self, turn_id: str) -> tuple[Turn, dict[str, Any] | None]:
         """Go to another branch: the newest reply on the branch that starts at `turn_id`
-        (a turn ID from /branches). Nothing is sent."""
+        (a turn ID from /branches). Nothing is sent. In a resumed conversation, also
+        returns (and logs in the `head` record) whether that reply's prompt renders to the
+        same token IDs today."""
         conversation = self._require_conversation()
         if turn_id not in conversation.turns:
             raise ConfigError(f"This conversation has no turn {turn_id}. /branches lists them.")
         reply = conversation.newest_replies().get(turn_id)
         if reply is None:
             raise ConfigError(f"Turn {turn_id} has no reply to go to.")
-        head = conversation.move_head(reply.turn_id, "switch")
+        render = self.check_render(conversation, reply) if conversation.resumed else None
+        extra = {"render": render} if render else {}
+        head = conversation.move_head(reply.turn_id, "switch", **extra)
         assert head is not None
-        if conversation.resumed:  # today's template and libraries may render it differently
-            conversation.render = self.check_render(head)
-        return head
+        return head, render
 
     def annotate(self, kind: str, text: str) -> list[dict[str, Any]]:
         """A `mark`, `unmark` or `note` on the current reply. See `annotate_call`."""
@@ -609,8 +613,8 @@ class Session:
         }
         return annotate_call(conversation.log, about, kind, text, "live")
 
-    def build_prompt(self, user_turn: Turn) -> Prompt:
-        conversation = self._require_conversation()
+    def build_prompt(self, user_turn: Turn, conversation: Conversation | None = None) -> Prompt:
+        conversation = conversation or self._require_conversation()
         assert self.tokenizer is not None
         path = conversation.path_to(user_turn.turn_id)
         turns = [(t.role, t.text) for t in path if t.origin != "priming"]
@@ -921,12 +925,22 @@ class Session:
         libraries, and whether the current reply's prompt still renders to the same IDs."""
         if not path.is_file():
             raise ConfigError(f"Log file {path} not found.")
+        try:
+            return self._resume(path)
+        except (KeyError, TypeError, AttributeError) as e:  # a log Clarity didn't write
+            raise ConfigError(f"{path} can't be resumed: a record lacks or mangles {e}.") from e
+
+    def _resume(self, path: Path) -> dict[str, Any]:
         state = rebuild(list(read_records(path)), str(path))
         start = state.start
         prepared = self.prepare(start["profile"]["name"], logged=start["profile"])
         profile_file, now = self._profile_now(start["profile"])
         today = {k: s.to_json() for k, s in (now or prepared).profile.settings.items()}
-        logged = {**today, **start["settings"]}
+        # A setting the log doesn't have (one added since) comes from the logged profile
+        # resolved today, and is listed.
+        filled = {k: s.to_json() for k, s in prepared.profile.settings.items()}
+        filled = {k: v for k, v in filled.items() if k not in start["settings"]}
+        logged = {**filled, **start["settings"]}
         prepared.profile.settings = {k: Setting(v["value"], v["origin"]) for k, v in logged.items()}
         last = state.last_call
         n_ctx = last["n_ctx"] if last else (start.get("ctx_size") or {}).get("value")
@@ -934,15 +948,13 @@ class Session:
         chat = {k: check_setting(k, v, f"{path}: /set") for k, v in state.chat_settings.items()}
         merged = {**prepared.profile.settings, **{k: Setting(v, "chat") for k, v in chat.items()}}
         check_samplers(merged, f"{path}: /set")
-        started = self.start_model(prepared, ctx_size)
+        # Everything from the log is built before the model starts, so a log that can't be
+        # read leaves the current conversation and its model as they were.
         log = LogFile(path)
-        log.on_append = self._appended
-        log.servers_logged = set(state.servers)
         conversation = Conversation(
             start["conversation_id"],
             prepared.profile,
             log,
-            started_server=started,
             calls=state.calls,
             chat_settings=chat,
             ctx_size=ctx_size,
@@ -958,12 +970,17 @@ class Session:
         conversation.head = state.head
         head = conversation.turns.get(state.head) if state.head else None
         conversation.last_call = state.calls.get(head.call_id or "") if head else None
-        self.conversation = conversation
-        environment = None
+        conversation.started_server = self.start_model(prepared, ctx_size)
+        environment = missing = None
         if last:
             server = state.servers.get((last.get("backend") or {}).get("server_id", ""))
+            then = facts_from_call(last, server)
             now = self._facts_now(prepared.model, prepared.lock)
-            environment = environment_diff(facts_from_call(last, server), now)
+            environment, missing = environment_diff(then, now), not_recorded(then, now)
+        render = self.check_render(conversation, head)
+        log.on_append = self._appended
+        log.servers_logged = set(state.servers)
+        self.conversation = conversation
         record = log.append(
             {
                 "type": "resume",
@@ -972,11 +989,16 @@ class Session:
                 "head_guessed": state.head_guessed,
                 "ctx_size": ctx_size.to_json(),
                 "profile_file": profile_file,
-                "settings_differ_today": settings_diff(start["settings"], today),
-                "chat_settings": state.chat_settings,
+                "model_entry": deep_diff(start["model"], prepared.model.to_json()),
+                "settings_differ_today": [
+                    *settings_diff(start["settings"], today),
+                    *({"name": k, "logged": None, "today": v} for k, v in filled.items()),
+                ],
+                "chat_settings": chat,
                 "compared_with_call": last["call_id"] if last else None,
                 "differences": environment,
-                "render": self.check_render(head),
+                "not_recorded": missing,
+                "render": render,
             }
         )
         self._log_server_start()
@@ -994,16 +1016,15 @@ class Session:
         same = (now.profile.toml_text, now.profile.files) == (logged["toml"], logged["files"])
         return "same" if same else "changed", now
 
-    def check_render(self, reply: Turn | None) -> dict[str, Any]:
+    def check_render(self, conversation: Conversation, reply: Turn | None) -> dict[str, Any]:
         """Render the prompt of `reply`'s call again, with today's template and libraries,
         and compare the token IDs with the logged ones."""
-        conversation = self._require_conversation()
         call = conversation.calls.get(reply.call_id or "") if reply else None
         if reply is None or call is None:
             return {"skipped": "no reply to check"}
         assert reply.parent_id is not None
         try:
-            ids = self.build_prompt(conversation.turns[reply.parent_id]).ids
+            ids = self.build_prompt(conversation.turns[reply.parent_id], conversation).ids
         except ConfigError as e:
             return {"call_id": call["call_id"], "identical": False, "error": str(e)}
         logged = call["prompt_ids"]
