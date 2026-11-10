@@ -187,7 +187,7 @@ def test_set_in_the_terminal_and_in_settings(loop):
     chat.handle("/set temperature")
     text = "".join(output)
     assert "temperature = 0.9 for this chat." in text
-    assert "temperature is back to the profile's value." in text
+    assert "temperature is back to 0.6 (profile)." in text
     assert any("temperature" in line and "chat" in line for line in text.splitlines())
 
 

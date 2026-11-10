@@ -142,9 +142,33 @@ def test_the_terminal_resumes_and_says_what_differs(new_session, fetched_root, t
     path = Path(shutil.copy(GOLDEN, tmp_path / GOLDEN.name))
     session, _ = new_session()
     output: list[str] = []
-    ChatLoop(session, "", read=lambda d: "", write=output.append, resume=path).start()
+    ChatLoop(session, "", read=lambda d: "", write=output.append, resume=str(path)).start()
     text = "".join(output)
     assert "Resumed 20261110-154328-2b2bb5 with profile text" in text
     assert "This log is from v0.1.0" in text
     assert "Changed since its last call (call-78a5a5886108)" in text
     assert "renders to the same token IDs today" in text
+
+
+def test_resume_takes_a_conversation_id_from_the_chat_list(new_session):
+    session, _ = new_session([" one"])
+    session.new_conversation("text")
+    session.say("a")
+    conversation_id = session.conversation.conversation_id
+    resumed, _ = new_session()
+    assert resumed.log_for(conversation_id) == session.conversation.log.path
+    assert resumed.resume(resumed.log_for(conversation_id))["conversation_id"] == conversation_id
+
+
+def test_resume_checks_restored_set_values(new_session):
+    session, _ = new_session([" one"])
+    session.new_conversation("text")
+    session.say("a")
+    session.conversation.log.append(
+        {"type": "settings", "conversation_id": "c", "name": "top_k", "value": -1,
+         "chat_settings": {"top_k": -1}}
+    )  # fmt: skip
+    resumed, backend = new_session()
+    with pytest.raises(ConfigError, match="top_k must be"):
+        resumed.resume(session.conversation.log.path)
+    assert backend.ctx_sizes == []  # refused before any model started

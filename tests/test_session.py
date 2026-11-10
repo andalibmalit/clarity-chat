@@ -289,6 +289,7 @@ def test_set_changes_a_setting_for_this_chat_and_logs_it(make_session):
         ("ctx_size", "4096", "unknown setting 'ctx_size'"),
         ("samplers", "top_k bogus", "unknown sampler names"),
         ("top_p", "", "isn't set in this chat"),
+        ("foo", "", "unknown setting 'foo'"),
     ],
 )
 def test_set_checks_values_like_a_profile(make_session, name, text, message):

@@ -21,12 +21,14 @@ from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records
 from clarity_chat.models import check_weights_quick, lock_entry, source_weights
 from clarity_chat.profiles import (
     SEED_MAX,
+    SETTING_NAMES,
     ConfigError,
     ModelEntry,
     Profile,
     ServerConfig,
     Setting,
     check_samplers,
+    check_setting,
     load_defaults,
     load_models,
     load_profile,
@@ -550,6 +552,8 @@ class Session:
         """Change a setting for this conversation (`text` empty: back to the profile's value).
         Checked like a profile, and logged as a `settings` record with every /set value."""
         conversation = self._require_conversation()
+        if name not in SETTING_NAMES:
+            raise ConfigError(f"/set: unknown setting {name!r}. Known: {list(SETTING_NAMES)}.")
         chat = dict(conversation.chat_settings)
         if text:
             chat[name] = parse_setting(name, text, "/set")
@@ -903,6 +907,12 @@ class Session:
 
     # --- resume ---------------------------------------------------------------------------
 
+    def log_for(self, conversation: str) -> Path:
+        """A conversation's log: a path to a file, or its ID (from /chats) in logs/."""
+        path = Path(conversation)
+        by_id = self.logs_dir / f"{conversation}.jsonl"
+        return by_id if not path.is_file() and by_id.is_file() else path
+
     def resume(self, path: Path) -> dict[str, Any]:
         """Continue a logged conversation, appending to its log. It uses the profile, the
         resolved settings and the context size as logged, not today's files, and starts
@@ -921,6 +931,9 @@ class Session:
         last = state.last_call
         n_ctx = last["n_ctx"] if last else (start.get("ctx_size") or {}).get("value")
         ctx_size = Setting(n_ctx, "log") if n_ctx else self.ctx_size_for(prepared.profile)
+        chat = {k: check_setting(k, v, f"{path}: /set") for k, v in state.chat_settings.items()}
+        merged = {**prepared.profile.settings, **{k: Setting(v, "chat") for k, v in chat.items()}}
+        check_samplers(merged, f"{path}: /set")
         started = self.start_model(prepared, ctx_size)
         log = LogFile(path)
         log.on_append = self._appended
@@ -931,7 +944,7 @@ class Session:
             log,
             started_server=started,
             calls=state.calls,
-            chat_settings=state.chat_settings,
+            chat_settings=chat,
             ctx_size=ctx_size,
             resumed=True,
         )
