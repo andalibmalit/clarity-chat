@@ -31,7 +31,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/help` | List the commands. |
 | `/prompt` | The exact prompt text of the current reply's call (or of your last message, if its call failed), the BOS decision, and the token IDs. |
 | `/prompt repr` | The same, with each line shown as a Python string, so spaces, tabs and newlines are visible. |
-| `/settings` | Every setting, its value and origin; the fixed values sent for the backend's other fields; the model's recommended values; what wasn't applied; the context size and stop strings. |
+| `/settings` | Every setting, its value and origin; the fixed values sent for the backend's other fields; the model's recommended values; what wasn't applied; the context size and stop strings; the end-of-reply tokens llama.cpp read from the model file. |
 | `/regen` | Another reply to your last message, as a new branch. The k-th regeneration uses the first reply's seed plus k. |
 | `/edit [TEXT]` | Replace your last message and get a new reply, as a new branch. With no text, the input is prefilled with your last message. The new message uses the profile's seed. |
 | `/undo` | Go back past the last exchange; your next message starts a new branch. Nothing is deleted. |
@@ -154,7 +154,7 @@ Each line is one JSON record with `schema_version` (currently 1), `type` and `ti
 | `type` | Written | Main fields |
 |---|---|---|
 | `conversation` | at the start of each conversation | `profile` (name, path, full TOML text and every file it read), `settings`, `model`, `client` (commit and dirty flag), `machine` |
-| `server_start` | once per server per log file, before its first call | `server_id`, `argv`, `flags`, `api_key` (always "random per start; value not logged"), `env_removed`, `env_llama_ggml_kept`, `llama_cpp` (commit, dirty), `build_info`, `placement`, `props`, `startup_output`, `warnings`, `machine`. Transformers: `device`, `dtype`, `attn_implementation`, `torch`, `transformers`, `eos_token_id` and similar. |
+| `server_start` | once per server per log file, before its first call | `server_id`, `argv`, `flags`, `api_key` (always "random per start; value not logged"), `env_removed`, `env_llama_ggml_kept`, `llama_cpp` (commit, dirty), `build_info`, `placement`, `model_file` (`eog_tokens`: the tokens that end a reply, read from the GGUF), `props`, `startup_output`, `warnings`, `machine`. Transformers: `device`, `dtype`, `attn_implementation`, `torch`, `transformers`, `eos_token_id` and similar. |
 | `turn` | for each message and reply | `turn_id`, `parent_id`, `role`, `origin` (`user`, `model` or `edit`), `text`, `call_id`, and `regen_of` or `edit_of` for branches |
 | `call` | for every call, including failed and cancelled ones | see below |
 | `mark`, `note` | for `/mark`, `/note`, `clarity mark` and `clarity note` | `call_id`, `turn_id`, `label` or `text`, and `origin`: `live` (in a chat) or `review` (afterwards). |

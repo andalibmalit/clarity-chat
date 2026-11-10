@@ -12,6 +12,7 @@ Two headings are Clarity's own, used when they apply:
 - llama-server now needs a random key, new at each start, so a web page in your browser can't send it requests. Its `/slots` endpoint and built-in web UI are off. The key is never logged.
 
 ### Added
+- The tokens that end a reply, as llama.cpp read them from the model file, are logged with each server start and shown in `/settings`.
 - `clarity mark LOG CALL_ID LABEL` and `clarity note LOG CALL_ID TEXT` label or annotate any logged reply after the chat, without starting a model. Marks and notes now record whether they were made live or in review.
 - The Transformers backend sets `attn_implementation = "sdpa"` explicitly, checks it after loading, and logs it.
 - User docs: getting started, guides, reference and contributing.

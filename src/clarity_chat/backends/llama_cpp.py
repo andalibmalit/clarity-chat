@@ -182,6 +182,14 @@ DEVICE_RE = re.compile(r"using device (\S+) \((.*?)\) \(.*?\) - (\d+) MiB free")
 BUFFER_RE = re.compile(r"(\S+) model buffer size = +([\d.]+) MiB")
 
 
+EOG_RE = re.compile(r"EOG token += (\d+) '(.*)'\r?$", re.MULTILINE)
+
+
+def eog_tokens(startup_output: str) -> list[dict[str, Any]]:
+    """The tokens that end a reply, as llama.cpp read them from the GGUF (its startup log)."""
+    return [{"id": int(m[1]), "text": m[2]} for m in EOG_RE.finditer(startup_output)]
+
+
 def device_placement(startup_output: str) -> dict[str, Any]:
     """Which devices llama-server used and where the model's weights went (its startup log)."""
     devices = [
@@ -420,6 +428,7 @@ class LlamaServer:
             "llama_cpp": {"dir": self.config.llama_cpp_dir.as_posix(), **checkout},
             "build_info": build_info,
             "placement": placement,
+            "model_file": {"eog_tokens": eog_tokens(startup)},
             "props": props,
             "startup_output": startup,
             "warnings": warnings,

@@ -90,6 +90,10 @@ def format_settings(session: Session) -> str:
     lines.append(f"backend {session.backend.name}: fixed values for its other sampling fields")
     for name, entry in backend_settings.items():
         lines.append(f"  {name} = {entry['value']!r}")
+    eog = ((session.backend.server_record or {}).get("model_file") or {}).get("eog_tokens")
+    if eog:
+        listed = ", ".join(f"{t['id']} {t['text']!r}" for t in eog)
+        lines.append(f"end-of-reply tokens (from the model file): {listed}")
     recommended = session.model_lock.get("recommended")
     if recommended:
         source = recommended["source"]
