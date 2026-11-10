@@ -52,13 +52,24 @@ def server(tmp_path: Path, **flags) -> LlamaServer:
 
 
 def request(prompt: list[int], stream: bool) -> dict:
-    return {"prompt": prompt, "n_predict": 1, "stream": stream, "cache_prompt": False}
+    # The ping interval Clarity's own requests use (llama_cpp.PROTOCOL_REQUEST).
+    return {
+        "prompt": prompt,
+        "n_predict": 1,
+        "stream": stream,
+        "cache_prompt": False,
+        "sse_ping_interval": 1,
+    }
 
 
-def short_call_s(url: str) -> float:
+def short_call_s(s: LlamaServer) -> float:
     start = time.monotonic()
     r = httpx.post(
-        f"{url}/completion", json=request(SHORT_PROMPT, False), timeout=600, trust_env=False
+        f"{s.url}/completion",
+        headers=s.headers,
+        json=request(SHORT_PROMPT, False),
+        timeout=600,
+        trust_env=False,
     )
     r.raise_for_status()
     return round(time.monotonic() - start, 3)
@@ -67,7 +78,7 @@ def short_call_s(url: str) -> float:
 def test_m1_cancel_during_prompt_processing(tmp_path):
     s = server(tmp_path)
     try:
-        idle = short_call_s(s.url)
+        idle = short_call_s(s)
 
         # A full long call: when each stream line arrives (pings while the prompt is read?).
         lines: list[tuple[float, str]] = []
@@ -75,10 +86,12 @@ def test_m1_cancel_during_prompt_processing(tmp_path):
         with httpx.stream(
             "POST",
             f"{s.url}/completion",
+            headers=s.headers,
             json=request(LONG_PROMPT, True),
             timeout=600,
             trust_env=False,
         ) as r:
+            r.raise_for_status()
             for line in r.iter_lines():
                 if line.strip():
                     lines.append((round(time.monotonic() - start, 3), line[:60]))
@@ -89,13 +102,15 @@ def test_m1_cancel_during_prompt_processing(tmp_path):
         with httpx.stream(
             "POST",
             f"{s.url}/completion",
+            headers=s.headers,
             json=request(LONG_PROMPT, True),
             timeout=600,
             trust_env=False,
-        ):
+        ) as r:
+            r.raise_for_status()
             time.sleep(0.5)
         closed_after = round(time.monotonic() - start, 3)
-        after_cancel = short_call_s(s.url)
+        after_cancel = short_call_s(s)
     finally:
         s.stop()
     print(
