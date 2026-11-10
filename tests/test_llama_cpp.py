@@ -463,6 +463,8 @@ def test_more_than_the_gpu_had_free_is_refused_on_metal_only():
     assert "recommended limit for this GPU, 20,000 MiB. Lower ctx_size" in problem
     assert memory_problem(32768, [{**over, "device": "CUDA0"}]) is None  # logged only
     assert memory_problem(32768, [{**over, "limit_mib": 25558}]) is None
+    too_big = {**over, "limit_mib": 12000}  # the model alone is over the limit
+    assert "no ctx_size fits" in (memory_problem(8192, [too_big]) or "")
 
 
 def test_the_memory_figures_are_logged_and_an_overflow_stops_the_server(monkeypatch, root):

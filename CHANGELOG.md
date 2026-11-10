@@ -13,11 +13,11 @@ Two headings are Clarity's own, used when they apply:
 
 ### Added
 - The tokens that end a reply, as llama.cpp read them from the model file, are logged with each server start and shown in `/settings`.
-- Each server start logs how many pieces llama.cpp split the compute graph into, and replay compares it. More than one piece can mean part of the work runs on the CPU.
+- Each server start logs how many pieces llama.cpp split the compute graph into, and replay compares it. A change between a call and its replay can mean work moved between devices.
 - The status line after each reply shows how much of the context the conversation now uses, such as "context 12,400 of 32,768".
 - A `template_kwargs` key that the chat template never reads, such as a misspelt one, is now a warning when the conversation starts, and is logged. Before, it changed nothing silently.
 - `/say TEXT` and `/cancel` chat commands, for scripts. All chat commands now come from one table, which `/help` lists.
-- If Clarity is killed or crashes, the next start stops the llama-server it left running, after checking that the server's port answers with its key and model. SIGTERM and a closed terminal now stop the server too.
+- If Clarity is killed or crashes, the next start stops the llama-server it left running, after checking that the server's port answers with its key and model. On Linux and macOS, SIGTERM and a closed terminal now stop the server too.
 - `clarity chat --json` runs every chat command from a script or another program: commands in as JSON lines, and events out, including every log record as it's written. `cancel` works while a reply is being written.
 - `clarity chat --resume ID` and `/resume ID` continue a logged conversation with its profile, settings and context size as logged, and say what differs today, including whether the current prompt still renders to the same token IDs.
 - `clarity chats` and `/chats` list your conversations, newest first, with a title: the first words of the first message, or one you set with `/title`. No model is asked for a title.
@@ -38,6 +38,12 @@ Two headings are Clarity's own, used when they apply:
 
 ### Changed
 - A call cancelled before its first token no longer adds an empty reply. It's logged like a failed call, and your message comes back in the input.
+
+### Migration
+- `server.toml` can no longer set `api-key-file`, `slots`, `ui`, `webui` or their `no-` forms, or any `ui-` or `webui-` flag: Clarity sets the server key, `--no-slots` and `--no-webui` itself. A file that sets one stops with an error naming it.
+- Logs keep `schema_version` 1. They gain record types (`head`, `unmark`, `settings`, `title`, `resume`, `torn_line`) and fields, which readers that ignore unknown records and keys skip. Clarity 0.1.0 reading a 0.2.0 log shows removed marks as still there and every note, including replaced ones.
+- A profile name in both `profiles/` and `local/profiles/` is an error. Move your own profiles to `local/profiles/` so a `git pull` never touches them.
+- No change in this release is known to change a reply: the new server flags don't affect sampling, and replay compares the server's flags, not its command line. Replay lists any difference it finds.
 
 ### Fixed
 - On CUDA and Vulkan, a model whose weights went only to pinned system memory (`CUDA_Host`, `Vulkan_Host`) passed the GPU placement check. It's now an error, like any model that lands on the CPU.
