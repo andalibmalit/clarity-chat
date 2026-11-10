@@ -40,6 +40,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/regen` | Another reply to your last message, as a new branch. The k-th regeneration uses the first reply's seed plus k. |
 | `/edit [TEXT]` | Replace your last message and get a new reply, as a new branch. With no text, the input is prefilled with your last message. The new message uses the chat's seed: the profile's, unless you changed it with `/set`. |
 | `/undo` | Go back past the last exchange; your next message starts a new branch. Nothing is deleted. |
+| `/history` | The conversation so far on the current branch, from its start to where you are, with each reply's marks and notes. |
 | `/branches` | Where the conversation branches along the current path: each regenerated reply and edited message, numbered "reply 2 of 3", the current one starred, with its turn ID. Branches you went back from with `/undo` are listed too. |
 | `/switch TURN_ID` | Go to another branch, at its newest reply. Nothing is sent. In a resumed conversation, it also checks that reply's prompt still renders to the same token IDs. |
 | `/mark [LABEL]` | Label the current reply, for example `landed` or `dropped`. Without a label, the mark is `interesting`. |

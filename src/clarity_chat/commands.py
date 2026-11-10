@@ -120,6 +120,12 @@ def _chats(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return {"chats": list_chats(c.session.logs_dir)}
 
 
+def _history(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    conversation = c.session.conversation
+    assert conversation is not None
+    return {"head": conversation.head, "turns": c.session.history()}
+
+
 def _branches(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     conversation = c.session.conversation
     assert conversation is not None
@@ -266,6 +272,11 @@ COMMANDS: dict[str, Command] = {
     ),
     "undo": Command(
         "/undo", "go back past the last exchange; your next message starts a branch", _undo
+    ),
+    "history": Command(
+        "/history",
+        "the conversation so far, on the current branch, with marks and notes",
+        _history,
     ),
     "branches": Command(
         "/branches", "where this conversation branches, with the turn IDs to /switch to", _branches

@@ -22,6 +22,7 @@ Two headings are Clarity's own, used when they apply:
 - `clarity chat --resume ID` and `/resume ID` continue a logged conversation with its profile, settings and context size as logged, and say what differs today, including whether the current prompt still renders to the same token IDs.
 - `clarity chats` and `/chats` list your conversations, newest first, with a title: the first words of the first message, or one you set with `/title`. No model is asked for a title.
 - `/set NAME VALUE` changes a setting for one chat, checked like a profile's value and logged with origin `chat`. `/settings` shows it.
+- `/history` shows the conversation so far on the current branch, with each reply's marks and notes, so a script or the web interface can draw it without reading the log.
 - `/branches` lists where a conversation branches, and `/switch TURN_ID` goes to another branch. Every move of the current turn other than a new reply (undo, switch, a failed call) is logged as a `head` record.
 - `/unmark [LABEL]` and `clarity mark --remove` take a mark back. A new note on a reply replaces its note, and Clarity says so. `/mark` and `clarity mark` without a label mark the reply `interesting`. Marks and notes now have IDs; the log keeps every one and records removals and replacements.
 - A log line cut off by a crash or a full disk no longer makes the log unreadable. The next write ends it and adds a `torn_line` record naming it, and Clarity says so; the cut line is kept as it was.

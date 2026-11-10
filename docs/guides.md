@@ -143,7 +143,7 @@ Each call is its own conversation. Profiles are read once, at the start, so edit
 uv run clarity chat --resume CONVERSATION_ID
 ```
 
-A path to its log file works too. In a chat, `/resume ID` does the same. The conversation continues where it left off, with its profile, settings, `/set` values and context size as they were logged, and new records go to the same log. Clarity lists what differs today, such as an edited profile file or a new llama.cpp build, and checks that the current reply's prompt still renders to the same token IDs. To pick up today's profile instead, start a new conversation with `/new`.
+A path to its log file works too. In a chat, `/resume ID` does the same. The conversation continues where it left off, with its profile, settings, `/set` values and context size as they were logged, and new records go to the same log. Clarity lists what differs today, such as an edited profile file or a new llama.cpp build, and checks that the current reply's prompt still renders to the same token IDs. `/history` shows the conversation so far. To pick up today's profile instead, start a new conversation with `/new`.
 
 ## Label replies after the fact
 

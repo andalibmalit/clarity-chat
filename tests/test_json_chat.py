@@ -140,6 +140,7 @@ EVERY_COMMAND = [
     ("set", lambda s: "temperature 0.9"),
     ("regen", lambda s: ""),
     ("edit", lambda s: "Hi again"),
+    ("history", lambda s: ""),
     ("branches", lambda s: ""),
     ("switch", lambda s: s.conversation.head),
     ("mark", lambda s: ""),
