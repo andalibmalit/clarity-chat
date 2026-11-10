@@ -352,3 +352,16 @@ def test_chats_lists_a_log_it_cant_read_and_never_writes(fetched_root):
     assert chats["20200101-000000-bad"].keys() == chats["20200101-000001-cut"].keys()
     assert chats["20200101-000001-cut"]["title"] is None  # only an unfinished line so far
     assert {p.name: p.read_bytes() for p in logs.iterdir()} == before
+
+
+@pytest.mark.xfail(strict=True, reason="checkpoint 3: a cancel during rendering isn't marked")
+def test_a_cancel_while_the_prompt_is_built_is_logged_like_any_early_cancel(make_session):
+    from clarity_chat.session import CancelledBeforeReply
+
+    session, _ = make_session()
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(CancelledBeforeReply):
+        session.say("a", cancel=cancel)
+    call = records(session, "call")[-1]
+    assert call["cancelled_during"] == "prompt" and "cancelled" in call["flags"]
