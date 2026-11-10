@@ -161,3 +161,17 @@ def test_a_torn_line_whose_mending_write_is_torn_too_stays_readable(tmp_path):
         f.write(b'{"type": "call", "output_te\n{"schema_version": 1, "type": "torn_li')
     LogFile(path).append({"type": "note", "text": "after"})
     assert [r["type"] for r in read_records(path)] == ["note", "torn_line", "note"]
+
+
+def test_the_chat_list_skips_a_cut_off_title_a_torn_line_names(tmp_path):
+    from clarity_chat.logs import list_chats
+
+    log = LogFile(tmp_path / "20200101-000000-aaa.jsonl")
+    log.append({"type": "conversation", "conversation_id": "c", "profile": {"name": "p"}})
+    log.append({"type": "turn", "role": "user", "text": "made-up first message"})
+    log.append({"type": "title", "title": "kept"})
+    with log.path.open("ab") as f:
+        f.write(b'{"schema_version": 1, "time": "t", "type": "title", "ti')
+    log.append({"type": "note"})  # ends the cut line with a torn_line
+    (chat,) = list_chats(tmp_path)
+    assert "error" not in chat and chat["title"] == "kept"

@@ -7,8 +7,8 @@ Every command, key and record field a user sees. For task-based instructions, se
 | Command | What it does |
 |---|---|
 | `clarity chat --profile NAME` | Chat with `profiles/NAME.toml` or `local/profiles/NAME.toml`. NAME can also be a path to a `.toml` file. |
-| `clarity chat --resume LOG` | Continue a logged conversation, as it was logged, and say what differs today. See `/resume`. |
-| `clarity chats` | List your conversations in `logs/`, newest first: start time, conversation ID, profile and title. |
+| `clarity chat --resume ID` | Continue a logged conversation, as it was logged, and say what differs today. ID is a conversation ID from `clarity chats`, or a log file. See `/resume`. |
+| `clarity chats` | List your conversations in `logs/`, newest first: conversation ID (it starts with the local date and time), profile and title. |
 | `clarity run --openings FILE --profiles A B … [--seeds N]` | Collect replies for a blind test into `runs/RUN_ID/`. FILE holds openings separated by lines that are exactly `---`. `--seeds N` (default 1) gives N replies per opening and profile, with seeds 333, 334 and so on. |
 | `clarity replay LOG CALL_ID [--logged-flags]` | Re-send a logged call and compare the output. `--logged-flags` starts llama-server with the call's logged flags instead of `server.toml`'s. |
 | `clarity mark LOG CALL_ID [LABEL]` | Label a logged call's reply while reviewing, in `logs/` or a run's `calls.jsonl` (default label `interesting`). Appends one record and starts no server. With `--remove`, removes the mark instead. |
@@ -37,7 +37,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/settings` | Every setting, its value and origin; the fixed values sent for the backend's other fields; the model's recommended values; what wasn't applied; the context size and stop strings; the end-of-reply tokens llama.cpp read from the model file. |
 | `/set NAME [VALUE]` | Change a setting for this chat only, for example `/set temperature 0.7`, `/set seed random` or `/set samplers top_k temperature`. It's checked like a profile's value, its origin is `chat`, and it's logged. With no value, the setting goes back to the profile's. |
 | `/regen` | Another reply to your last message, as a new branch. The k-th regeneration uses the first reply's seed plus k. |
-| `/edit [TEXT]` | Replace your last message and get a new reply, as a new branch. With no text, the input is prefilled with your last message. The new message uses the profile's seed. |
+| `/edit [TEXT]` | Replace your last message and get a new reply, as a new branch. With no text, the input is prefilled with your last message. The new message uses the chat's seed: the profile's, unless you changed it with `/set`. |
 | `/undo` | Go back past the last exchange; your next message starts a new branch. Nothing is deleted. |
 | `/branches` | Where the conversation branches along the current path: each regenerated reply and edited message, numbered "reply 2 of 3", the current one starred, with its turn ID. Branches you went back from with `/undo` are listed too. |
 | `/switch TURN_ID` | Go to another branch, at its newest reply. Nothing is sent. In a resumed conversation, it also checks that reply's prompt still renders to the same token IDs. |
@@ -45,7 +45,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/unmark [LABEL]` | Remove the current reply's mark. If it has marks with different labels, name the one to remove. The log keeps the mark and records its removal. |
 | `/note TEXT` | Add a note to the current reply. A reply has one note: a new one replaces it, and the log keeps both. Notes from before v0.2.0 have no ID, so they all stay. |
 | `/replay` | Re-send the current reply's call on the running server and compare the output. |
-| `/resume LOG` | Continue a logged conversation from `logs/`: its profile, settings, `/set` values and context size as logged, starting where it left off. Clarity shows what differs today: a changed profile file, settings today's files would set differently, server, machine or library changes since its last call, and whether the current reply's prompt still renders to the same token IDs. |
+| `/resume ID` | Continue a logged conversation, by its ID from `/chats` or its log file: its profile, settings, `/set` values and context size as logged, starting where it left off. Clarity shows what differs today: a changed profile file, settings today's files would set differently, server, machine or library changes since its last call, and whether the current reply's prompt still renders to the same token IDs. |
 | `/title TEXT` | Name this conversation in the chat list. Without a title, the list shows the first eight words of its first message; Clarity never asks a model for one. |
 | `/chats` | Your conversations in `logs/`, newest first, with their titles. |
 | `/new` | Start a new conversation (and log file) with the same profile, re-read from its file. |

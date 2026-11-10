@@ -13,7 +13,6 @@ from __future__ import annotations
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from clarity_chat.logs import list_chats
@@ -99,7 +98,10 @@ def _undo(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 def _set(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     name, _, value = needs(args, "/set NAME [VALUE]").partition(" ")
-    return {"record": c.session.set_setting(name, value.strip())}
+    record = c.session.set_setting(name, value.strip())
+    conversation = c.session.conversation
+    assert conversation is not None
+    return {"record": record, "setting": conversation.settings[name].to_json()}
 
 
 def _title(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -125,9 +127,9 @@ def _switch(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _resume(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    log = needs(args, "/resume LOG")
+    log = needs(args, "/resume ID")
     emit({"event": "status", "status": "starting", "log": log})
-    record = c.session.resume(Path(log))
+    record = c.session.resume(c.session.log_for(log))
     conversation = c.session.conversation
     assert conversation is not None
     emit({"event": "status", "status": "ready", "conversation_id": conversation.conversation_id})
@@ -275,8 +277,8 @@ COMMANDS: dict[str, Command] = {
         needs_conversation=False,
     ),
     "resume": Command(
-        "/resume LOG",
-        "continue a logged conversation, as it was logged; says what differs today",
+        "/resume ID",
+        "continue a logged conversation (its ID or log file) as it was logged; says what differs",
         _resume,
         needs_conversation=False,
     ),

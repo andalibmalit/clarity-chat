@@ -130,7 +130,7 @@ def format_branches(result: dict[str, Any]) -> str:
 
 
 def format_chats(chats: list[dict[str, Any]]) -> str:
-    """One line per conversation: start time, ID, profile and title."""
+    """One line per conversation: ID (it starts with the local start time), profile, title."""
     if not chats:
         return "No conversations in logs/ yet."
     lines = []
@@ -138,9 +138,8 @@ def format_chats(chats: list[dict[str, Any]]) -> str:
         if "error" in chat:
             lines.append(f"{chat['conversation_id']}  can't be read: {chat['error']}")
             continue
-        started = (chat["started"] or "")[:16].replace("T", " ")
         title = chat["title"] if chat["title"] is not None else "(no messages)"
-        lines.append(f"{started}  {chat['conversation_id']}  {chat['profile']}  {title}")
+        lines.append(f"{chat['conversation_id']}  {chat['profile']}  {title}")
     return "\n".join(lines)
 
 
@@ -277,7 +276,7 @@ class ChatLoop:
         profile_name: str,
         read: Callable[[str], str],
         write: Callable[[str], None],
-        resume: Path | None = None,
+        resume: str | None = None,
     ) -> None:
         """`read(default)` returns one input, prefilled with `default` (for /edit).
         `resume`: a log to continue instead of starting with `profile_name`."""
@@ -292,7 +291,7 @@ class ChatLoop:
     def start(self) -> None:
         if self.resume is not None:
             self.write(f"Resuming {self.resume} …\n")
-            result = self.commands.run("resume", str(self.resume), self.on_event)
+            result = self.commands.run("resume", self.resume, self.on_event)
             self.write(format_resume(result) + "\n")
             return
         self.write(f"Starting profile {self.profile_name} …\n")
@@ -381,8 +380,9 @@ class ChatLoop:
             self.write(f"Undone. The next message continues {where}.\n")
         elif name == "set":
             record = result["record"]
+            now = result["setting"]
             if record["value"] is None:
-                self.write(f"{record['name']} is back to the profile's value.\n")
+                self.write(f"{record['name']} is back to {now['value']!r} ({now['origin']}).\n")
             else:
                 self.write(f"{record['name']} = {record['value']!r} for this chat.\n")
         elif name == "title":
@@ -463,7 +463,7 @@ def write_stdout(text: str) -> None:
     sys.stdout.flush()
 
 
-def cmd_chat(root: Path, profile: str, on_server: OnServer, resume: Path | None) -> int:
+def cmd_chat(root: Path, profile: str, on_server: OnServer, resume: str | None) -> int:
     session = Session(root, on_server=on_server)
     atexit.register(session.close)  # also covers exits the finally below doesn't see
     try:
@@ -586,7 +586,9 @@ def main(argv: list[str] | None = None) -> int:
     chat = commands.add_parser("chat", help="chat with a profile")
     start = chat.add_mutually_exclusive_group(required=True)
     start.add_argument("--profile", help="a profile name from profiles/ or local/profiles/")
-    start.add_argument("--resume", type=Path, help="a log in logs/ to continue")
+    start.add_argument(
+        "--resume", help="a conversation to continue: its ID (from `clarity chats`) or log file"
+    )
     run = commands.add_parser(
         "run", help="collect replies for a blind test (writes runs/<run-id>/blind.md)"
     )

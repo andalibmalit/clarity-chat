@@ -163,7 +163,7 @@ def list_chats(logs_dir: Path) -> list[dict[str, Any]]:
     for path in sorted(logs_dir.glob("*.jsonl"), reverse=True):
         try:
             chats.append(chat_summary(path))
-        except (OSError, ValueError, ConfigError) as e:
+        except (OSError, ValueError) as e:
             chats.append({"conversation_id": path.stem, "path": path.as_posix(), "error": str(e)})
     return chats
 
@@ -173,15 +173,23 @@ def chat_summary(path: Path) -> dict[str, Any]:
     its first message; after that, only lines that may be `title` records (`/title`)."""
     summary: dict[str, Any] = {"conversation_id": path.stem, "path": path.as_posix()}
     summary.update(profile=None, model=None, started=None, title=None, title_set=False)
-    first_message = False
+    first_message, bad = False, None
     with path.open("rb") as f:
-        for line in f:
+        for number, line in enumerate(f, 1):
             if not line.endswith(b"\n"):
                 break  # not finished (see read_records)
-            if first_message and b'"type": "title"' not in line:
+            maybe = b'"type": "title"' in line or (bad and b'"type": "torn_line"' in line)
+            if first_message and not maybe or not line.strip():
                 continue
-            record = json.loads(line)
+            try:
+                record = json.loads(line)
+            except ValueError:  # skipped only if a torn_line names it, as in read_records
+                bad = bad or number
+                continue
             kind = record.get("type")
+            if kind == "torn_line" and bad and record.get("line", 0) >= bad:
+                bad = None
+                continue
             if kind == "conversation":
                 summary["profile"] = (record.get("profile") or {}).get("name")
                 summary["model"] = (record.get("model") or {}).get("name")
@@ -192,6 +200,8 @@ def chat_summary(path: Path) -> dict[str, Any]:
                     summary["title"] = " ".join(record["text"].split()[:TITLE_WORDS])
             elif kind == "title":
                 summary["title"], summary["title_set"] = record["title"], True
+    if bad:
+        raise ValueError(f"line {bad} isn't a complete record, and no torn_line names it")
     return summary
 
 
