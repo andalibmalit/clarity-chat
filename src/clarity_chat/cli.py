@@ -10,33 +10,29 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends import BackendError
+from clarity_chat.commands import Commands
 from clarity_chat.instance import Held
 from clarity_chat.profiles import ConfigError, find_root, load_models, load_server_config
 from clarity_chat.session import (
-    CallOutcome,
     CancelledBeforeReply,
     ContextError,
     Conversation,
     Session,
 )
 
-HELP = """\
-Enter sends; Alt+Enter (or Esc then Enter) starts a new line. Pasted text keeps its newlines.
-Commands:
-  /prompt         the exact prompt text of the last call, its token IDs and their count
-  /prompt repr    the same, with whitespace and newlines made visible
-  /settings       every setting, its value and where it came from
-  /regen          another reply to your last message (seed + 1, + 2, …), as a new branch
-  /edit [TEXT]    replace your last message (prefilled to edit) and get a new reply
-  /undo           go back past the last exchange; your next message starts a branch
-  /mark LABEL     label the current reply (for example landed, dropped)
-  /note TEXT      add a note to the current reply
-  /replay         re-send the current reply's call and compare the output
-  /new            start a new conversation with the same profile
-  /profile NAME   start a new conversation with another profile
-  /quit           stop the server and exit (also Ctrl-D)
+HELP_HEAD = (
+    "Enter sends; Alt+Enter (or Esc then Enter) starts a new line. Pasted text keeps its "
+    "newlines.\nCommands:"
+)
+HELP_TAIL = """\
+  /prompt repr    the same as /prompt, with whitespace and newlines made visible
   //text          send a message that starts with "/"
-Ctrl-C while the model writes cancels the reply (the partial reply is kept and logged)."""
+Ctrl-C while the model works cancels the call; any partial reply is kept and logged."""
+
+
+def format_help(result: dict[str, Any]) -> str:
+    lines = [f"  {c['usage']:<15} {c['help']}" for c in result["commands"]]
+    return "\n".join([HELP_HEAD, *lines, HELP_TAIL])
 
 
 def split_command(line: str) -> tuple[str, str]:
@@ -75,47 +71,35 @@ def format_prompt(record: dict[str, Any] | None, as_repr: bool) -> str:
     return "\n".join(lines)
 
 
-def format_settings(session: Session) -> str:
-    conversation = session.conversation
-    assert conversation is not None
-    profile = conversation.profile
-    lines = [f"profile {profile.name} ({profile.mode} mode, model {profile.model})"]
-    width = max(len(name) for name in profile.settings)
-    for name, setting in profile.settings.items():
-        value = setting.value
+def format_settings(view: dict[str, Any]) -> str:
+    profile = view["profile"]
+    lines = [f"profile {profile['name']} ({profile['mode']} mode, model {profile['model']})"]
+    width = max(len(name) for name in view["settings"])
+    for name, setting in view["settings"].items():
+        value = setting["value"]
         note = "  (a new seed is drawn and logged for every call)" if value == "random" else ""
-        lines.append(f"  {name:<{width}}  {value!r:<44} {setting.origin}{note}")
-    last = conversation.last_call or {}
-    backend_settings = last.get("backend_settings")
-    if backend_settings is None:
-        if session.backend.name == "transformers":
-            from clarity_chat.backends.transformers_hf import NEUTRAL_CONFIG as neutral
-        else:
-            from clarity_chat.backends.llama_cpp import NEUTRAL_REQUEST as neutral
-
-        backend_settings = {k: {"value": v, "origin": "backend"} for k, v in neutral.items()}
-    lines.append(f"backend {session.backend.name}: fixed values for its other sampling fields")
-    for name, entry in backend_settings.items():
+        lines.append(f"  {name:<{width}}  {value!r:<44} {setting['origin']}{note}")
+    lines.append(f"backend {view['backend']}: fixed values for its other sampling fields")
+    for name, entry in view["backend_settings"].items():
         lines.append(f"  {name} = {entry['value']!r}")
-    eog = ((session.backend.server_record or {}).get("model_file") or {}).get("eog_tokens")
-    if eog:
-        listed = ", ".join(f"{t['id']} {t['text']!r}" for t in eog)
+    if view["eog_tokens"]:
+        listed = ", ".join(f"{t['id']} {t['text']!r}" for t in view["eog_tokens"])
         lines.append(f"end-of-reply tokens (from the model file): {listed}")
-    recommended = session.model_lock.get("recommended")
+    recommended = view["recommended"]
     if recommended:
         source = recommended["source"]
-        used = "used" if profile.use_recommended else "not used: set use_recommended = true"
+        used = "used" if recommended["used"] else "not used: set use_recommended = true"
         values = ", ".join(f"{k} {v!r}" for k, v in recommended["values"].items()) or "none"
         lines.append(
             f"model recommends ({source['file']}@{source['revision'][:7]}; {used}): {values}"
         )
         if recommended["not_applied"]:
             lines.append(f"  not applied: {recommended['not_applied']}")
-    not_applied = last.get("not_applied") or []
+    not_applied = view["not_applied"]
     lines.append("not applied:" + ("" if not_applied else " none"))
     lines += [f"  {n['name']}: {n.get('reason', 'no reason given')}" for n in not_applied]
-    ctx_size = session.ctx_size_for(profile)
-    lines.append(f"context {ctx_size.value} tokens ({ctx_size.origin}); stop {profile.stop!r}")
+    ctx = view["ctx_size"]
+    lines.append(f"context {ctx['value']} tokens ({ctx['origin']}); stop {view['stop']!r}")
     return "\n".join(lines)
 
 
@@ -204,6 +188,7 @@ class ChatLoop:
         self.read = read
         self.write = write
         self.draft = ""  # prefilled in the next input
+        self.commands = Commands(session)
 
     def start(self) -> None:
         self.write(f"Starting profile {self.profile_name} …\n")
@@ -230,109 +215,95 @@ class ChatLoop:
     def handle(self, line: str) -> bool:
         """Run one input. Returns False to quit."""
         if line.startswith("//"):
-            return self.send(line[1:])
+            return self.command("say", line[1:])
         if line.startswith("/"):
-            command, raw = split_command(line)
-            if command == "edit":
-                return self.command(command, raw)  # the new message exactly as typed
-            return self.command(command, raw.strip())
+            name, raw = split_command(line)
+            name = {"exit": "quit", "q": "quit"}.get(name, name)
+            if name == "edit":
+                return self.edit(raw)  # the new message exactly as typed
+            return self.command(name, raw.strip())
         if not line.strip():
             return True
-        return self.send(line)
+        return self.command("say", line)
 
-    def command(self, command: str, arg: str) -> bool:
-        session = self.session
-        conversation = session.conversation
-        if command in ("quit", "exit", "q"):
-            return False
-        if conversation is None and command not in ("help", "profile"):
-            self.write("No conversation is running. Start one with /profile NAME.\n")
-            return True
-        if command == "help":
-            self.write(HELP + "\n")
-        elif command == "prompt":
-            assert conversation is not None
-            self.write(format_prompt(conversation.last_call, as_repr=arg == "repr") + "\n")
-        elif command == "settings":
-            self.write(format_settings(session) + "\n")
-        elif command in ("new", "profile"):
-            if command == "profile" and not arg:
-                self.write("Usage: /profile NAME\n")
-                return True
-            # /new reloads the profile's own file, so a profile given as a path is found again.
-            if command == "new":
-                assert conversation is not None
-            target = (
-                arg
-                if conversation is None or command == "profile"
-                else str(conversation.profile.path)
-            )
-            try:
-                new = session.new_conversation(target)
-            except (ConfigError, BackendError) as e:
-                self.write(f"! {e}\n")
-                return True
+    def command(self, name: str, args: str) -> bool:
+        """Run a registry command and show its result. Returns False to quit."""
+        try:
+            result = self.commands.run(name, args, self.on_event)
+        except CancelledBeforeReply as e:
+            offered = name in ("say", "edit")
             self.write(
-                f"New conversation {new.conversation_id} with profile {new.profile.name} "
-                f"({new.profile.model}, {new.profile.mode} mode).\n"
+                f"\n! {e} No reply was added."
+                + (
+                    " Your message is back in the input to edit or send again.\n"
+                    if offered
+                    else "\n"
+                )
             )
-            self.show_server_warnings(new)
-        elif command == "regen":
-            self.run_call(lambda: session.regen(on_text=self.write))
-        elif command == "edit":
-            self.edit(arg)
-        elif command == "undo":
-            try:
-                head = session.undo()
-            except ConfigError as e:
-                self.write(f"! {e}\n")
-                return True
-            where = f"after: {head.text[:60]!r}" if head else "at the start"
+            self.draft = args if offered else ""
+            return True
+        except BackendError as e:
+            calling = name in ("say", "regen", "edit")
+            self.write(f"\n! Call failed: {e}\n" if calling else f"! {e}\n")
+            return True
+        except (ContextError, ConfigError) as e:
+            self.write(f"! {e}\n")
+            return True
+        if name in ("say", "regen", "edit"):
+            self.write("\n")
+            for warning in result["warnings"]:
+                self.write(f"! {warning}\n")
+            if result["call"].get("flags"):
+                self.write("! flags: " + ", ".join(result["call"]["flags"]) + "\n")
+            self.write(format_status(result["call"]) + "\n")
+        elif name == "quit":
+            return False
+        elif name == "help":
+            self.write(format_help(result) + "\n")
+        elif name == "prompt":
+            self.write(format_prompt(result["call"], as_repr=args == "repr") + "\n")
+        elif name == "settings":
+            self.write(format_settings(result) + "\n")
+        elif name in ("new", "profile"):
+            self.write(
+                f"New conversation {result['conversation_id']} with profile "
+                f"{result['profile']} ({result['model']}, {result['mode']} mode).\n"
+            )
+            for warning in result["warnings"]:
+                self.write(f"! {warning}\n")
+        elif name == "undo":
+            text = result["head_text"]
+            where = f"after: {text[:60]!r}" if result["head"] else "at the start"
             self.write(f"Undone. The next message continues {where}.\n")
-        elif command in ("mark", "note"):
-            if not arg:
-                self.write(f"Usage: /{command} {'LABEL' if command == 'mark' else 'TEXT'}\n")
-                return True
-            try:
-                record = session.annotate(command, arg)
-            except ConfigError as e:
-                self.write(f"! {e}\n")
-                return True
-            done = "Marked" if command == "mark" else "Noted"
-            self.write(f"{done} {record['call_id']}.\n")
-        elif command == "replay":
-            self.replay()
-        else:
-            self.write(f"Unknown command /{command}. /help lists them.\n")
+        elif name in ("mark", "note"):
+            done = "Marked" if name == "mark" else "Noted"
+            self.write(f"{done} {result['record']['call_id']}.\n")
+        elif name == "replay":
+            self.write(format_replay(result["replay"]) + "\n")
         return True
 
-    def edit(self, arg: str) -> None:
-        conversation = self.session.conversation
-        assert conversation is not None
-        try:
-            reply = conversation.current_reply("edit the message of")
-        except ConfigError as e:
-            self.write(f"! {e}\n")
-            return
-        assert reply.parent_id is not None
-        text = arg
-        if not text:
-            try:
-                text = self.read(conversation.turns[reply.parent_id].text)
-            except (KeyboardInterrupt, EOFError):
-                text = ""
-        if not text.strip():
-            self.write("Edit cancelled.\n")
-            return
-        self.run_call(lambda: self.session.edit(text, on_text=self.write), message=text)
+    def on_event(self, event: dict[str, Any]) -> None:
+        if event["event"] == "text":
+            self.write(event["text"])
 
-    def replay(self) -> None:
-        try:
-            record = self.session.replay_current()
-        except (ConfigError, BackendError) as e:
-            self.write(f"! {e}\n")
-            return
-        self.write(format_replay(record) + "\n")
+    def edit(self, arg: str) -> bool:
+        """/edit with no text prefills your last message to edit, then runs the command."""
+        conversation = self.session.conversation
+        if not arg and conversation is not None:
+            try:
+                reply = conversation.current_reply("edit the message of")
+            except ConfigError as e:
+                self.write(f"! {e}\n")
+                return True
+            assert reply.parent_id is not None
+            try:
+                arg = self.read(conversation.turns[reply.parent_id].text)
+            except (KeyboardInterrupt, EOFError):
+                arg = ""
+            if not arg.strip():
+                self.write("Edit cancelled.\n")
+                return True
+        return self.command("edit", arg)
 
     def show_server_warnings(self, conversation: Conversation) -> None:
         """The warnings of a server this conversation started (once per server), then the
@@ -341,40 +312,6 @@ class ChatLoop:
             self.write(f"! {warning}\n")
         for warning in conversation.warnings:
             self.write(f"! {warning}\n")
-
-    def send(self, text: str) -> bool:
-        self.run_call(lambda: self.session.say(text, on_text=self.write), message=text)
-        return True
-
-    def run_call(self, call: Callable[[], CallOutcome], message: str = "") -> None:
-        """Make a call, streaming its reply, then show warnings, flags and a status line.
-        `message`, the text sent, is offered back if the call is cancelled before a reply."""
-        try:
-            outcome = call()
-        except (ContextError, ConfigError) as e:
-            self.write(f"! {e}\n")
-            return
-        except CancelledBeforeReply as e:
-            self.write(
-                f"\n! {e} No reply was added."
-                + (
-                    " Your message is back in the input to edit or send again.\n"
-                    if message
-                    else "\n"
-                )
-            )
-            self.draft = message
-            return
-        except BackendError as e:
-            self.write(f"\n! Call failed: {e}\n")
-            return
-        self.write("\n")
-        record = outcome.record
-        for warning in outcome.warnings:
-            self.write(f"! {warning}\n")
-        if record.get("flags"):
-            self.write("! flags: " + ", ".join(record["flags"]) + "\n")
-        self.write(format_status(record) + "\n")
 
 
 def prompt_reader() -> Callable[[str], str]:

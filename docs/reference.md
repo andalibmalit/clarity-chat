@@ -29,6 +29,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | Command | What it does |
 |---|---|
 | `/help` | List the commands. |
+| `/say TEXT` | Send a message. Typing it without a command does the same; scripts use `/say`. |
 | `/prompt` | The exact prompt text of the current reply's call (or of your last message, if its call failed), the BOS decision, and the token IDs. |
 | `/prompt repr` | The same, with each line shown as a Python string, so spaces, tabs and newlines are visible. |
 | `/settings` | Every setting, its value and origin; the fixed values sent for the backend's other fields; the model's recommended values; what wasn't applied; the context size and stop strings; the end-of-reply tokens llama.cpp read from the model file. |
@@ -40,6 +41,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/replay` | Re-send the current reply's call on the running server and compare the output. |
 | `/new` | Start a new conversation (and log file) with the same profile, re-read from its file. |
 | `/profile NAME` | Start a new conversation with another profile. The server restarts only if the model changes. |
+| `/cancel` | Stop the call in progress, like Ctrl-C. It's the one command that runs during a call, for scripts and the web interface. |
 | `/quit` | Stop the server and exit. `/exit`, `/q` and Ctrl-D also work. |
 | `//text` | Send a message that starts with `/`. |
 

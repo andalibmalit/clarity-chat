@@ -182,6 +182,7 @@ class Session:
         when it stops (the instance lock keeps them, to clean up after a crash)."""
         self.root = root
         self.on_server = on_server
+        self.on_record: Callable[[dict[str, Any]], None] | None = None  # every record logged
         self.defaults = load_defaults(root)
         self.models = load_models(root)
         self.server_config: ServerConfig = load_server_config(root)
@@ -328,6 +329,7 @@ class Session:
         self.template = prepared.template
         conversation_id = new_id("conversation")
         log = log or LogFile(self.logs_dir / f"{conversation_id}.jsonl")
+        log.on_append = self._appended
         conversation = Conversation(
             conversation_id, prepared.profile, log, run=run, started_server=started
         )
@@ -767,10 +769,15 @@ class Session:
         if not comparison["identical"]:
             record["logged_output_text"] = call["output_text"]
         log = log or LogFile(log_path)
+        log.on_append = self._appended
         if now_server and now_server["server_id"] not in log.servers_logged:
             log.append({**now_server, "conversation_id": call["conversation_id"]})
             log.servers_logged.add(now_server["server_id"])
         return log.append(record)
+
+    def _appended(self, record: dict[str, Any]) -> None:
+        if self.on_record:
+            self.on_record(record)
 
     def _require_conversation(self) -> Conversation:
         if self.conversation is None:
