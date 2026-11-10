@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import secrets
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -472,20 +472,16 @@ class Session:
         conversation.last_call = conversation.calls.get(head.call_id or "") if head else None
         return head
 
-    def annotate(self, kind: str, text: str) -> dict[str, Any]:
-        """A `mark` (label) or `note` (text) record on the current reply's call."""
+    def annotate(self, kind: str, text: str) -> list[dict[str, Any]]:
+        """A `mark`, `unmark` or `note` on the current reply. See `annotate_call`."""
         conversation = self._require_conversation()
         reply = conversation.current_reply(kind)
-        return conversation.log.append(
-            annotation(
-                kind,
-                conversation.conversation_id,
-                reply.call_id,
-                reply.turn_id,
-                text,
-                "live",
-            )
-        )
+        about = {
+            "conversation_id": conversation.conversation_id,
+            "call_id": reply.call_id,
+            "turn_id": reply.turn_id,
+        }
+        return annotate_call(conversation.log, about, kind, text, "live")
 
     def build_prompt(self, user_turn: Turn) -> Prompt:
         conversation = self._require_conversation()
@@ -785,28 +781,74 @@ class Session:
         return self.conversation
 
 
-def annotation(
-    kind: str, conversation_id: str, call_id: str | None, turn_id: str, text: str, origin: str
-) -> dict[str, Any]:
-    """A `mark` (label) or `note` (text) record. `origin` is "live" (/mark, /note in a
-    chat) or "review" (`clarity mark`, `clarity note` on a log afterwards)."""
-    return {
-        "type": kind,
-        "conversation_id": conversation_id,
-        "call_id": call_id,
-        "turn_id": turn_id,
-        "label" if kind == "mark" else "text": text,
-        "origin": origin,
-    }
+MARK_DEFAULT = "interesting"
 
 
-def annotate_log(path: Path, kind: str, call_id: str, text: str) -> dict[str, Any]:
-    """Append a review-time mark or note on a logged call. Starts no server, reads no
+def marks_and_notes(
+    records: Iterable[dict[str, Any]],
+) -> dict[str, dict[str, list[dict[str, Any]]]]:
+    """Each reply's current marks and notes, by turn ID: {"marks": [...], "notes": [...]}.
+    An `unmark` removes the mark it names (or, for a mark from before mark IDs, the ID-less
+    marks with its label on that reply). A note hides only the note it `replaces`, so notes
+    from before note IDs all show."""
+    out: dict[str, dict[str, list[dict[str, Any]]]] = {}
+    for record in records:
+        kind = record.get("type")
+        if kind not in ("mark", "unmark", "note"):
+            continue
+        current = out.setdefault(record["turn_id"], {"marks": [], "notes": []})
+        if kind == "mark":
+            current["marks"].append(record)
+        elif kind == "unmark":
+            current["marks"] = [m for m in current["marks"] if not _unmarks(record, m)]
+        else:
+            replaced = record.get("replaces")
+            notes = [n for n in current["notes"] if not replaced or n.get("note_id") != replaced]
+            current["notes"] = [*notes, record]
+    return out
+
+
+def _unmarks(unmark: dict[str, Any], mark: dict[str, Any]) -> bool:
+    if unmark.get("mark_id"):
+        return mark.get("mark_id") == unmark["mark_id"]
+    return not mark.get("mark_id") and mark.get("label") == unmark.get("label")
+
+
+def annotate_call(
+    log: LogFile, about: dict[str, Any], kind: str, text: str, origin: str
+) -> list[dict[str, Any]]:
+    """Append a `mark` (label, default "interesting"), `unmark` (one per mark removed: those
+    with the label, or the only label there is) or `note` (replacing the reply's current
+    note) about one reply. `about` has its conversation_id, call_id and turn_id. `origin`
+    is "live" (in a chat) or "review" (`clarity mark`, `clarity note` afterwards)."""
+    log.mend()
+    current = marks_and_notes(read_records(log.path)).get(about["turn_id"], {})
+    base = {"type": kind, **about, "origin": origin}
+    if kind == "mark":
+        return [log.append({**base, "mark_id": new_id("mark"), "label": text or MARK_DEFAULT})]
+    if kind == "note":
+        if not text:
+            raise ConfigError("A note needs a text.")
+        notes = [n for n in current.get("notes", []) if n.get("note_id")]
+        replaces = notes[-1]["note_id"] if notes else None
+        note = {**base, "note_id": new_id("note"), "text": text, "replaces": replaces}
+        return [log.append(note)]
+    marks = current.get("marks", [])
+    labels = sorted({m["label"] for m in marks})
+    if text:
+        marks = [m for m in marks if m["label"] == text]
+    elif len(labels) > 1:
+        raise ConfigError(f"This reply has marks {', '.join(labels)}. Name the one to remove.")
+    if not marks:
+        raise ConfigError(f"This reply has no mark {text}." if text else "This reply has no mark.")
+    return [log.append({**base, "mark_id": m.get("mark_id"), "label": m["label"]}) for m in marks]
+
+
+def annotate_log(path: Path, kind: str, call_id: str, text: str) -> list[dict[str, Any]]:
+    """A review-time mark, unmark or note on a logged call. Starts no server, reads no
     model, and only appends to the log."""
     if not path.is_file():
         raise ConfigError(f"Log file {path} not found.")
-    if not text:
-        raise ConfigError(f"A {kind} needs a {'label' if kind == 'mark' else 'text'}.")
     call = None
     for record in read_records(path):
         if record.get("type") == "call" and record.get("call_id") == call_id:
@@ -815,8 +857,8 @@ def annotate_log(path: Path, kind: str, call_id: str, text: str) -> dict[str, An
         raise ConfigError(f"{path} has no call {call_id}.")
     if not call.get("turn_id"):
         raise ConfigError(f"Call {call_id} failed, so it has no reply to {kind}.")
-    record = annotation(kind, call["conversation_id"], call_id, call["turn_id"], text, "review")
-    return LogFile(path).append(record)
+    about = {k: call[k] for k in ("conversation_id", "call_id", "turn_id")}
+    return annotate_call(LogFile(path), about, kind, text, "review")
 
 
 def result_fields(result: Result) -> tuple[dict[str, Any], str | None]:
