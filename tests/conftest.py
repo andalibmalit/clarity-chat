@@ -128,8 +128,10 @@ def root(tmp_path: Path) -> Path:
         shutil.copy(REPO / name, tmp_path / name)
     (tmp_path / "models.toml").write_text(MODELS, encoding="utf-8")
     (tmp_path / "profiles").mkdir()
-    (tmp_path / "profiles" / "text.toml").write_text(TEXT_PROFILE, encoding="utf-8")
-    (tmp_path / "profiles" / "chat.toml").write_text(CHAT_PROFILE, encoding="utf-8")
+    # newline="\n": the same bytes on every OS (Windows would write CRLF), so a profile
+    # file matches the text a log recorded from it.
+    (tmp_path / "profiles" / "text.toml").write_text(TEXT_PROFILE, encoding="utf-8", newline="\n")
+    (tmp_path / "profiles" / "chat.toml").write_text(CHAT_PROFILE, encoding="utf-8", newline="\n")
     return tmp_path
 
 
