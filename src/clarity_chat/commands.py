@@ -29,6 +29,7 @@ class Command:
     run: Callable[[Commands, str, Emit], dict[str, Any]]
     during_call: bool = False  # runs while a call is in progress (only cancel)
     needs_conversation: bool = True
+    cancellable: bool = False  # /cancel can stop it (it sends a request to the model)
 
 
 class Commands:
@@ -36,6 +37,7 @@ class Commands:
         self.session = session
         self.busy = threading.Lock()  # held while a command runs: one at a time
         self.cancel_event: threading.Event | None = None  # the running command's
+        self.running: str | None = None  # the running command's name
 
     def run(self, name: str, args: str, emit: Emit) -> dict[str, Any]:
         command = COMMANDS.get(name)
@@ -49,12 +51,14 @@ class Commands:
             raise ConfigError("Another command is still running; only /cancel runs now.")
         # Made before the command starts, so a cancel that arrives early isn't lost.
         self.cancel_event = threading.Event()
+        self.running = name
         self.session.on_record = lambda record: emit({"event": "record", "record": record})
         try:
             return command.run(self, args, emit)
         finally:
             self.session.on_record = None
             self.cancel_event = None
+            self.running = None
             self.busy.release()
 
     def call(self, emit: Emit, start: Callable[..., CallOutcome]) -> dict[str, Any]:
@@ -85,10 +89,14 @@ def _edit(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _cancel(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    event = c.cancel_event
-    if event is not None:
-        event.set()
-    return {"cancelled": event is not None}
+    """Stop the running command if it can be stopped; say what was stopped, or why not."""
+    event, running = c.cancel_event, c.running
+    if event is None or running is None:
+        return {"cancelled": False, "reason": "Nothing is running."}
+    if not COMMANDS[running].cancellable:
+        return {"cancelled": False, "reason": f"/{running} can't be cancelled."}
+    event.set()
+    return {"cancelled": True, "command": running}
 
 
 def _undo(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -159,7 +167,7 @@ def _settings(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _replay(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    return {"replay": c.session.replay_current()}
+    return {"replay": c.session.replay_current(c.cancel_event)}
 
 
 def _new(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -224,7 +232,12 @@ def settings_view(session: Session) -> dict[str, Any]:
 
 
 COMMANDS: dict[str, Command] = {
-    "say": Command("/say TEXT", "send a message (plain text without / does the same)", _say),
+    "say": Command(
+        "/say TEXT",
+        "send a message (plain text without / does the same)",
+        _say,
+        cancellable=True,
+    ),
     "prompt": Command(
         "/prompt",
         "the exact prompt text of the last call, its token IDs and their count",
@@ -237,10 +250,16 @@ COMMANDS: dict[str, Command] = {
         _set,
     ),
     "regen": Command(
-        "/regen", "another reply to your last message (seed + 1, + 2, …), as a new branch", _regen
+        "/regen",
+        "another reply to your last message (seed + 1, + 2, …), as a new branch",
+        _regen,
+        cancellable=True,
     ),
     "edit": Command(
-        "/edit [TEXT]", "replace your last message (prefilled to edit) and get a new reply", _edit
+        "/edit [TEXT]",
+        "replace your last message (prefilled to edit) and get a new reply",
+        _edit,
+        cancellable=True,
     ),
     "undo": Command(
         "/undo", "go back past the last exchange; your next message starts a branch", _undo
@@ -265,7 +284,10 @@ COMMANDS: dict[str, Command] = {
         "/note TEXT", "add a note to the current reply (replaces its note)", _annotate("note")
     ),
     "replay": Command(
-        "/replay", "re-send the current reply's call and compare the output", _replay
+        "/replay",
+        "re-send the current reply's call and compare the output",
+        _replay,
+        cancellable=True,
     ),
     "title": Command("/title TEXT", "name this conversation in the chat list", _title),
     "chats": Command(

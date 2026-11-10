@@ -51,7 +51,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/chats` | Your conversations in `logs/`, newest first, with their titles. |
 | `/new` | Start a new conversation (and log file) with the same profile, re-read from its file. |
 | `/profile NAME` | Start a new conversation with another profile. The server restarts only if the model changes. |
-| `/cancel` | Stop the call in progress, like Ctrl-C. It's the one command that runs during a call, for scripts and the web interface. |
+| `/cancel` | Stop the call in progress, like Ctrl-C: a reply (`/say`, `/regen`, `/edit`) or a `/replay`. It's the one command that runs during another, for scripts and the web interface. It says which command it stopped, or why it stopped nothing: nothing was running, or the running command (such as a model start) can't be stopped. |
 | `/quit` | Stop the server and exit. `/exit`, `/q` and Ctrl-D also work. |
 | `//text` | Send a message that starts with `/`. |
 
@@ -71,7 +71,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `result` | a command finished | `command`, `id`, and `result`: what the command returns. It may repeat records already sent as `record` events. |
 | `error` | a command failed, or a line wasn't a command | `command` and `id` (for a command), `type` (`ConfigError`, `ContextError`, `BackendError`, `CancelledBeforeReply` or `InputError`) and `message` |
 
-Commands run one at a time, in order. `cancel` runs as soon as it's read, so it can stop a reply that's being written. End of input quits, like `quit`. Input is UTF-8, whatever the console's encoding; a line that isn't is an `InputError`. Output is ASCII: other characters are written as `\u` escapes.
+Commands run one at a time, in order. `cancel` runs as soon as it's read, so it can stop a reply that's being written; its result names the command it stopped (`"cancelled": true, "command": "say"`) or gives a `reason` it stopped nothing. Send it after the command has started (after its first event): a `cancel` read while the command is still queued finds nothing running. End of input quits, like `quit`. Input is UTF-8, whatever the console's encoding; a line that isn't is an `InputError`. Output is ASCII: other characters are written as `\u` escapes.
 
 ## Profile keys
 

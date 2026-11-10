@@ -105,7 +105,10 @@ def test_cancel_runs_while_a_reply_is_written(make):
     writer.close()
     thread.join(5)
     events = [json.loads(x) for x in stdout.getvalue().splitlines()]
-    assert next(e for e in events if e.get("id") == "c")["result"] == {"cancelled": True}
+    assert next(e for e in events if e.get("id") == "c")["result"] == {
+        "cancelled": True,
+        "command": "say",
+    }
     said = next(e for e in events if e.get("id") == "s")
     assert said["event"] == "error" and said["type"] == "CancelledBeforeReply"
 
@@ -192,12 +195,11 @@ def test_clarity_chat_json_reads_utf8_and_survives_a_bad_byte(fetched_root, monk
     assert events[1]["command"] == "help" and events[1]["event"] == "result"
 
 
-@pytest.mark.xfail(strict=True, reason="checkpoint 3: cancel claims stops it didn't make")
 def test_cancel_says_what_it_stopped_or_why_not(make):
     session, backend = make()
     events: list[dict] = []
     chat = JsonChat(session, io.BytesIO(), io.StringIO())
-    chat.emit = events.append  # type: ignore[method-assign]
+    chat.emit = lambda event: events.append(event)  # type: ignore[method-assign]
     chat.execute({"command": "profile", "args": "text"})
     chat.execute({"command": "say", "args": "a"})
     chat.execute({"command": "cancel", "id": "c"})  # nothing runs now
