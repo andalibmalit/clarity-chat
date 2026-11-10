@@ -534,12 +534,15 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "note":
             return cmd_annotate(args.log, "note", args.call_id, args.text)
         root = args.root.resolve() if args.root else find_root()
-        if args.command == "chat":
-            return cmd_chat(root, args.profile)
-        if args.command == "run":
-            return cmd_run(root, args.openings, args.profiles, args.seeds)
-        if args.command == "replay":
-            return cmd_replay(root, args.log, args.call_id, args.logged_flags)
+        if args.command in ("chat", "run", "replay"):
+            from clarity_chat import instance
+
+            with instance.hold(root, args.command):  # these start a model: one at a time
+                if args.command == "chat":
+                    return cmd_chat(root, args.profile)
+                if args.command == "run":
+                    return cmd_run(root, args.openings, args.profiles, args.seeds)
+                return cmd_replay(root, args.log, args.call_id, args.logged_flags)
         if args.command == "fetch":
             return cmd_fetch(root, args.name)
         if args.command == "verify":
