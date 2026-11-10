@@ -73,6 +73,9 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 
 **Shipped files stay read-only, and your files live in `local/`.** Clarity never edits `models.toml`, `profiles/`, `defaults.toml` or `server.toml`. Your own profiles go in `local/profiles/`, which git ignores, so a `git pull` never touches them. A profile name that exists in both folders is an error, because the name must say which file it means. Clarity writes only into `local/`, `logs/`, `runs/`, `models/`, `models.lock` and the Hugging Face cache, and a new kind of write must be visible to you when it happens.
 
+**One running Clarity per project.** `chat`, `run` and `replay` hold a lock on `local/clarity.lock` while they run; a second one stops and says which process holds it. Two would load two models, more memory than a laptop has, and could write to the same log. The operating system releases the lock however the process ends, so a crash never leaves it stuck. `clarity mark` and `clarity note` only append a line, so they don't take it.
+- Who holds the lock is in a separate file, `local/clarity.json`, because on Windows a locked file can't be read by another process.
+
 **Logs are append-only JSONL,** one file per chat conversation and one `calls.jsonl` per batch run, with a schema version. Every call writes a record, including failed and cancelled ones. Readers ignore keys they don't know, so later additions need no format change. `logs/` and `runs/` are private and gitignored.
 
 **Failure policy.** Configuration problems are errors before anything is sent. A failed check after a call is a flag on the record and a warning in the terminal; in a batch run, it stops the run.
