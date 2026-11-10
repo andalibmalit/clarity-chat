@@ -918,7 +918,6 @@ def annotate_call(
     with the label, or the only label there is) or `note` (replacing the reply's current
     note) about one reply. `about` has its conversation_id, call_id and turn_id. `origin`
     is "live" (in a chat) or "review" (`clarity mark`, `clarity note` afterwards)."""
-    log.mend()
     current = marks_and_notes(read_records(log.path)).get(about["turn_id"], {})
     base = {"type": kind, **about, "origin": origin}
     if kind == "mark":
@@ -945,9 +944,15 @@ def annotate_call(
     ]
 
 
-def annotate_log(path: Path, kind: str, call_id: str, text: str) -> list[dict[str, Any]]:
+def annotate_log(
+    path: Path,
+    kind: str,
+    call_id: str,
+    text: str,
+    on_record: Callable[[dict[str, Any]], None] | None = None,
+) -> list[dict[str, Any]]:
     """A review-time mark, unmark or note on a logged call. Starts no server, reads no
-    model, and only appends to the log."""
+    model, and only appends to the log. `on_record` sees each record appended."""
     if not path.is_file():
         raise ConfigError(f"Log file {path} not found.")
     call = None
@@ -959,7 +964,9 @@ def annotate_log(path: Path, kind: str, call_id: str, text: str) -> list[dict[st
     if not call.get("turn_id"):
         raise ConfigError(f"Call {call_id} failed, so it has no reply to {kind}.")
     about = {k: call[k] for k in ("conversation_id", "call_id", "turn_id")}
-    return annotate_call(LogFile(path), about, kind, text, "review")
+    log = LogFile(path)
+    log.on_append = on_record
+    return annotate_call(log, about, kind, text, "review")
 
 
 def result_fields(result: Result) -> tuple[dict[str, Any], str | None]:

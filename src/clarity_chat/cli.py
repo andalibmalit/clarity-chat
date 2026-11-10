@@ -11,7 +11,7 @@ from typing import Any
 
 from clarity_chat.backends import BackendError
 from clarity_chat.commands import Commands
-from clarity_chat.logs import LogFile, torn_message
+from clarity_chat.logs import torn_message
 from clarity_chat.profiles import ConfigError, find_root, load_models, load_server_config
 from clarity_chat.session import (
     CancelledBeforeReply,
@@ -410,11 +410,14 @@ def cmd_run(
     return 0
 
 
-def mend(log_path: Path) -> None:
-    """End a log's torn last line before reading it, and say so."""
-    torn = LogFile(log_path).mend()
-    if torn:
-        print(f"clarity: {torn_message(torn, str(log_path))}", file=sys.stderr)
+def say_if_torn(log_path: Path) -> Callable[[dict[str, Any]], None]:
+    """An on_record callback: says so when an append ends a cut-off line of `log_path`."""
+
+    def check(record: dict[str, Any]) -> None:
+        if record["type"] == "torn_line":
+            print(f"clarity: {torn_message(record, str(log_path))}", file=sys.stderr)
+
+    return check
 
 
 def cmd_replay(
@@ -427,7 +430,7 @@ def cmd_replay(
     session = Session(root, logs_dir=log_path.parent, on_server=on_server)
     atexit.register(session.close)
     flags_from = ""
-    mend(log_path)
+    session.on_record = say_if_torn(log_path)
     found = find_call(log_path, call_id)
     if logged_flags:
         server = found[1]
@@ -459,8 +462,7 @@ def cmd_annotate(log_path: Path, kind: str, call_id: str, text: str) -> int:
     """A review-time mark, unmark or note: appends to the log, starts nothing."""
     from clarity_chat.session import annotate_log
 
-    mend(log_path)
-    records = annotate_log(log_path, kind, call_id, text)
+    records = annotate_log(log_path, kind, call_id, text, say_if_torn(log_path))
     print(f"{annotated(records)} ({records[0]['turn_id']}) in {log_path}.")
     return 0
 

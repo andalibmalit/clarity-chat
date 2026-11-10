@@ -122,22 +122,17 @@ def test_an_append_after_a_torn_line_ends_it_and_says_so(tmp_path):
     assert [r["type"] for r in seen] == ["torn_line", "note"]
 
 
-def test_mend_ends_a_torn_line_without_another_record(tmp_path):
+def test_an_unfinished_last_line_is_not_read_yet(tmp_path):
     path = torn_log(tmp_path)
-    torn = LogFile(path).mend()
-    assert torn is not None and torn["line"] == 2
-    assert [r["type"] for r in read_records(path)] == ["note", "torn_line"]
-    assert LogFile(path).mend() is None  # once is enough
-    assert LogFile(tmp_path / "missing.jsonl").mend() is None
-    assert not (tmp_path / "missing.jsonl").exists()
+    before = path.read_bytes()
+    assert [r["text"] for r in read_records(path)] == ["kept"]
+    assert path.read_bytes() == before  # reading never writes
 
 
 def test_a_malformed_line_no_torn_line_names_is_an_error(tmp_path):
     from clarity_chat.profiles import ConfigError
 
     path = torn_log(tmp_path)
-    with pytest.raises(ConfigError, match="Line 2 of c.jsonl"):
-        list(read_records(path))
     with path.open("ab") as f:  # ended, but not by Clarity: still unexplained
         f.write(b"\n")
     LogFile(path).append({"type": "note"})

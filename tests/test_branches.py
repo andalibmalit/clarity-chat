@@ -485,7 +485,7 @@ def test_settings_a_backend_cannot_apply_are_flagged_and_warned(make_session):
     assert any("['presence_penalty']" in w for w in outcome.warnings)
 
 
-def test_a_review_mark_mends_a_torn_line_first(make_session, monkeypatch, capsys):
+def test_a_review_mark_after_a_torn_line_says_so(make_session, monkeypatch, capsys):
     session, _ = make_session([" one"])
     call = session.say("a").record
     log = session.conversation.log.path
