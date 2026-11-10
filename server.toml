@@ -1,6 +1,7 @@
 # How Clarity starts llama-server. Every flag that affects output is set here, so
-# nothing depends on llama.cpp's defaults. The client adds --model, --host 127.0.0.1
-# and --port itself. Flags use their long names; `true` passes a bare flag and `false`
+# nothing depends on llama.cpp's defaults. The client adds --model, --host 127.0.0.1,
+# --port, --no-slots and --no-webui itself, passes a new key in LLAMA_API_KEY at each
+# start, and sets ctx-size from the profile (if it has ctx_size). Flags use their long names; `true` passes a bare flag and `false`
 # leaves it out (for flags with no "off" form, whose default is off).
 
 llama_cpp_dir = "vendor/llama.cpp"                            # relative to this file
