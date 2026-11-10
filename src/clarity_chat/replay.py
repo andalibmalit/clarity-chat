@@ -103,6 +103,7 @@ def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict
         "build_info": server.get("build_info"),
         "llama_cpp": {k: v for k, v in (server.get("llama_cpp") or {}).items() if k != "dir"},
         "flags": server.get("flags"),
+        "graph_splits": server.get("graph_splits"),
         "props": {k: v for k, v in (server.get("props") or {}).items() if k not in VOLATILE_PROPS},
         "env": server.get("env_llama_ggml_kept"),
         "machine": server.get("machine"),

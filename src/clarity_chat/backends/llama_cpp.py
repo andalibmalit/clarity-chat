@@ -190,6 +190,20 @@ def eog_tokens(startup_output: str) -> list[dict[str, Any]]:
     return [{"id": int(m[1]), "text": m[2]} for m in EOG_RE.finditer(startup_output)]
 
 
+# "graph: nodes = 1131, splits = 2, …", or "graph (pp bs=512, tg bs=1): … splits = 2 / 3, …"
+# when prompt processing and generation differ (src/llama-context.cpp).
+SPLITS_RE = re.compile(r"graph(?: \(.*?\))?: nodes = [^,]+, splits = (\d+)(?: / (\d+))?")
+
+
+def graph_splits(startup_output: str) -> dict[str, int] | None:
+    """How many pieces llama.cpp cut the compute graph into, for prompt processing and for
+    generation. More than one can mean some work runs on another device, such as the CPU."""
+    m = SPLITS_RE.search(startup_output)
+    if m is None:
+        return None
+    return {"prompt": int(m[1]), "reply": int(m[2] or m[1])}
+
+
 def device_placement(startup_output: str) -> dict[str, Any]:
     """Which devices llama-server used and where the model's weights went (its startup log)."""
     devices = [
@@ -429,6 +443,7 @@ class LlamaServer:
             "build_info": build_info,
             "placement": placement,
             "model_file": {"eog_tokens": eog_tokens(startup)},
+            "graph_splits": graph_splits(startup),
             "props": props,
             "startup_output": startup,
             "warnings": warnings,
