@@ -343,3 +343,18 @@ def test_profiles_on_one_model_with_different_context_sizes_each_start_once(batc
     profile.write_text("ctx_size = 4096\n" + profile.read_text(encoding="utf-8"), "utf-8")
     _, _, backend, _ = batch(seeds=2)
     assert backend.ctx_sizes == [8192, 4096]  # grouped by size: no restart mid-group
+
+
+def test_a_conversation_warning_prints_once_in_a_run(batch, fetched_root, monkeypatch):
+    from clarity_chat import session as session_module
+
+    real = session_module.Session.new_conversation
+
+    def with_warning(self, *args, **kwargs):
+        conversation = real(self, *args, **kwargs)
+        conversation.warnings.append("made-up conversation warning")
+        return conversation
+
+    monkeypatch.setattr(session_module.Session, "new_conversation", with_warning)
+    _, _, _, output = batch(seeds=2)
+    assert output.count("made-up conversation warning") == 1

@@ -199,6 +199,8 @@ def run_batch(
                         started.add(model)
                         for warning in conversation.started_server.get("warnings", []):
                             warn(warning)
+                    for warning in conversation.warnings:  # e.g. unread template_kwargs
+                        warn(warning)
                     outcome = session.say(opening, seed=Setting(seed, "run"))
                 except (ContextError, BackendError, ConfigError) as e:
                     raise RunError(f"{where.capitalize()}: {e}") from e
