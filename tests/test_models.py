@@ -126,7 +126,6 @@ def test_verify_records_a_new_time_when_the_bytes_match(gguf_root):
     check_weights_quick(root, lock_entry(root, model))
 
 
-@pytest.mark.xfail(strict=True, reason="a dotted model name made models.toml unreadable")
 def test_the_shipped_models_toml_loads():
     from clarity_chat.profiles import load_models
 

@@ -30,7 +30,7 @@ revision = "a81bae42db3975be1671e27b9c9a56da1a9f980f"
 tokenizer_repo = "allenai/Olmo-3-1025-7B"
 tokenizer_revision = "a81bae42db3975be1671e27b9c9a56da1a9f980f"
 
-[bge-small-en-v1.5]
+["bge-small-en-v1.5"]  # quoted: a bare dot would nest tables
 # Embedding model for the meaning-search tests, `pytest -m embed` (MIT).
 route = "convert"
 repo = "BAAI/bge-small-en-v1.5"
