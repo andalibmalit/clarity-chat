@@ -124,33 +124,60 @@ def torn_message(record: dict[str, Any], where: str) -> str:
     )
 
 
-def read_records(path: Path) -> Iterator[dict[str, Any]]:
-    """Records in file order. Splits only on "\\n" (never on U+2028 and friends). A last
-    line with no line end isn't a record yet. Lines that aren't records are skipped only if
-    the next record is a `torn_line` naming the last of them."""
-    bad: list[int] = []  # malformed lines in a row, until the next record explains them
+_PASSED = object()  # a line read_records was told not to parse
+
+
+def read_records(
+    path: Path, parse: Callable[[bytes], bool] | None = None
+) -> Iterator[dict[str, Any]]:
+    """Records in file order. Splits only on "\\n" (never on U+2028 and friends).
+
+    A last line with no line end isn't a record yet. A line a `torn_line` names is never a
+    record, even if it parses, and neither are the malformed lines just before it (the
+    write that ends a torn line can be cut off too). Any other malformed line is an error.
+    `parse(raw)`, if given, says which lines to parse; the rest are passed over unread
+    (the chat list reads only what it shows)."""
+    held: list[tuple[int, Any]] = []  # lines a torn_line on the next line could still name
+
+    def release() -> list[dict[str, Any]]:
+        bad = next((n for n, record in held if record is None), None)
+        if bad is not None:
+            raise ConfigError(
+                f"Line {bad} of {path.name} isn't a complete record, and no torn_line "
+                f"record says it was cut off. Clarity won't guess what it held; the file is "
+                f"at {path}."
+            )
+        records = [record for _, record in held if record is not _PASSED]
+        held.clear()
+        return records
+
     with path.open("rb") as f:  # bytes split only on b"\n"; a broken UTF-8 line is malformed
         for number, line in enumerate(f, 1):
             if not line.endswith(b"\n"):
                 break  # not finished: still being written, or cut off (the next append says)
             if not line.strip():
                 continue
-            try:
-                record = json.loads(line)
-            except ValueError:  # includes UnicodeDecodeError
-                bad.append(number)
-                continue
-            if bad:
-                # A torn_line names the last of them: a mending write can be cut off too.
-                if record.get("type") != "torn_line" or record.get("line") != bad[-1]:
-                    break
-                bad = []
-            yield record
-    if bad:
-        raise ConfigError(
-            f"Line {bad[0]} of {path.name} isn't a complete record, and no torn_line record "
-            f"says it was cut off. Clarity won't guess what it held; the file is at {path}."
-        )
+            record: Any = _PASSED
+            if parse is None or parse(line):
+                try:
+                    record = json.loads(line)  # UnicodeDecodeError is a ValueError
+                except ValueError:
+                    record = None
+                if record is not None and not isinstance(record, dict):
+                    record = None
+            if isinstance(record, dict) and record.get("type") == "torn_line":
+                if held and held[-1][0] == record.get("line"):
+                    held.pop()  # the named line
+                    while held and held[-1][1] is None:
+                        held.pop()  # malformed lines just before it
+                yield from release()
+                yield record
+            elif record is None:
+                held.append((number, None))
+            else:
+                yield from release()
+                held.append((number, record))
+        yield from release()
 
 
 TITLE_WORDS = 8  # a title that isn't set: the first words of the first message
@@ -163,7 +190,7 @@ def list_chats(logs_dir: Path) -> list[dict[str, Any]]:
     for path in sorted(logs_dir.glob("*.jsonl"), reverse=True):
         try:
             chats.append(chat_summary(path))
-        except (OSError, ValueError) as e:
+        except (OSError, ValueError, ConfigError) as e:
             chats.append({**_blank_summary(path), "error": str(e)})
     return chats
 
@@ -184,37 +211,25 @@ def _blank_summary(path: Path) -> dict[str, Any]:
 
 def chat_summary(path: Path) -> dict[str, Any]:
     """A conversation's ID, profile, model, start time and title. Reads the log as far as
-    its first message; after that, only lines that may be `title` records (`/title`)."""
+    its first message; after that, only lines that may be `title` or `torn_line` records."""
     summary = _blank_summary(path)
-    first_message, bad = False, None
-    with path.open("rb") as f:
-        for number, line in enumerate(f, 1):
-            if not line.endswith(b"\n"):
-                break  # not finished (see read_records)
-            maybe = b'"type": "title"' in line or (bad and b'"type": "torn_line"' in line)
-            if first_message and not maybe or not line.strip():
-                continue
-            try:
-                record = json.loads(line)
-            except ValueError:  # skipped only if a torn_line names it, as in read_records
-                bad = bad or number
-                continue
-            kind = record.get("type")
-            if kind == "torn_line" and bad and record.get("line", 0) >= bad:
-                bad = None
-                continue
-            if kind == "conversation":
-                summary["profile"] = (record.get("profile") or {}).get("name")
-                summary["model"] = (record.get("model") or {}).get("name")
-                summary["started"] = record.get("time")
-            elif kind == "turn" and record.get("role") == "user" and not first_message:
-                first_message = True
-                if not summary["title_set"]:
-                    summary["title"] = " ".join(record["text"].split()[:TITLE_WORDS])
-            elif kind == "title":
-                summary["title"], summary["title_set"] = record["title"], True
-    if bad:
-        raise ValueError(f"line {bad} isn't a complete record, and no torn_line names it")
+    first_message = False
+
+    def parse(line: bytes) -> bool:
+        return not first_message or b'"type": "title"' in line or b'"type": "torn_line"' in line
+
+    for record in read_records(path, parse):
+        kind = record.get("type")
+        if kind == "conversation":
+            summary["profile"] = (record.get("profile") or {}).get("name")
+            summary["model"] = (record.get("model") or {}).get("name")
+            summary["started"] = record.get("time")
+        elif kind == "turn" and record.get("role") == "user" and not first_message:
+            first_message = True
+            if not summary["title_set"]:
+                summary["title"] = " ".join(record["text"].split()[:TITLE_WORDS])
+        elif kind == "title":
+            summary["title"], summary["title_set"] = record["title"], True
     return summary
 
 

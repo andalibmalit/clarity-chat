@@ -140,7 +140,6 @@ def test_a_malformed_line_no_torn_line_names_is_an_error(tmp_path):
         list(read_records(path))
 
 
-@pytest.mark.xfail(strict=True, reason="checkpoint 3: a parsable torn line flips to a record")
 def test_a_torn_line_reads_the_same_before_and_after_it_is_named(tmp_path):
     path = tmp_path / "c.jsonl"
     LogFile(path).append({"type": "note", "text": "kept"})
