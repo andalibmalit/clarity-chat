@@ -120,6 +120,8 @@ def format_status(record: dict[str, Any]) -> str:
         f"{len(record.get('output_ids', []))} tokens",
         f"{seconds:.1f} s",
         f"seed {seed['value']}" + (f" ({seed['origin']})" if seed["origin"] != "profile" else ""),
+        f"context {record['n_prompt_client'] + len(record.get('output_ids', [])):,} of "
+        f"{record['n_ctx']:,}",
         record["call_id"],
     ]
     return "[" + " · ".join(parts) + "]"

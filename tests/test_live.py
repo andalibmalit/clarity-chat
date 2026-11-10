@@ -192,12 +192,12 @@ SETTINGS = {
 
 
 def test_context_guard_matches_llama_servers_limit(small_context_backend):
-    from clarity_chat.session import fits_context
+    from clarity_chat.session import room_left
 
     n_ctx, max_tokens = 256, MAX_TOKENS
     fitting = n_ctx - max_tokens - 1  # the largest prompt the client allows
-    assert fits_context(fitting, max_tokens, n_ctx)
-    assert not fits_context(fitting + 1, max_tokens, n_ctx)
+    assert room_left(n_ctx, fitting, max_tokens) == 0
+    assert room_left(n_ctx, fitting + 1, max_tokens) == -1
 
     full = small_context_backend.complete(counting_ids(fitting), SETTINGS, [])
     assert full.stop_type == "limit"
