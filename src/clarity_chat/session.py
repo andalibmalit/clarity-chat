@@ -406,12 +406,7 @@ class Session:
             started_server=started,
             ctx_size=ctx_size,
         )
-        unread = prepared.unread_kwargs
-        if unread:
-            conversation.warnings.append(
-                f"The chat template never reads template_kwargs {unread}, so they change "
-                "nothing. Check their names against the template (/prompt shows its output)."
-            )
+        conversation.warnings += self._profile_warnings(prepared)
         log.append(
             {
                 "type": "conversation",
@@ -429,6 +424,17 @@ class Session:
         self.conversation = conversation
         self._log_server_start()
         return conversation
+
+    @staticmethod
+    def _profile_warnings(prepared: Prepared) -> list[str]:
+        """Warnings shown when a conversation starts or resumes, and logged."""
+        unread = prepared.unread_kwargs
+        if not unread:
+            return []
+        return [
+            f"The chat template never reads template_kwargs {unread}, so they change "
+            "nothing. Check their names against the template (/prompt shows its output)."
+        ]
 
     def start_model(self, prepared: Prepared, ctx_size: Setting) -> dict[str, Any] | None:
         """Start (or keep) the model a prepared profile needs, at `ctx_size`. Returns the
@@ -741,7 +747,9 @@ class Session:
             record["error"] = f"{type(e).__name__}: {e}"
             record["warnings"] = warnings
             conversation.log.append(record)
-            conversation.move_head(back_to or user_turn.parent_id, "failed")
+            # A failed message names its call, so a resume shows it in /prompt as the chat did.
+            failed = {"call_id": call_id} if back_to is None else {}
+            conversation.move_head(back_to or user_turn.parent_id, "failed", **failed)
             if back_to is None:
                 conversation.last_call = record  # /prompt shows the failed message's call
             raise
@@ -985,8 +993,11 @@ class Session:
                 t.get("call_id"), seed, t.get("regen_of"), t.get("edit_of"),
             )  # fmt: skip
         conversation.head = state.head
+        conversation.warnings += self._profile_warnings(prepared)
         head = conversation.turns.get(state.head) if state.head else None
-        conversation.last_call = state.calls.get(head.call_id or "") if head else None
+        conversation.last_call = state.failed_call or (
+            state.calls.get(head.call_id or "") if head else None
+        )
         # Checks that read the log or the disk run before the model starts: a failure
         # after it would leave the running conversation on another model or size.
         render = self.check_render(conversation, head, prepared)
@@ -1008,6 +1019,7 @@ class Session:
                 "conversation_id": conversation.conversation_id,
                 "head": state.head,
                 "head_guessed": state.head_guessed,
+                "warnings": conversation.warnings,
                 "unanswered": state.unanswered,
                 "ctx_size": ctx_size.to_json(),
                 "profile_file": profile_file,
