@@ -220,6 +220,56 @@ def device_placement(startup_output: str) -> dict[str, Any]:
     return {"devices": devices, "model_buffers": buffers}
 
 
+KV_RE = re.compile(r"(\S+) KV buffer size = +([\d.]+) MiB")
+COMPUTE_RE = re.compile(r"(\S+) compute buffer size = +([\d.]+) MiB")
+
+
+def memory_use(startup_output: str, placement: dict[str, Any]) -> list[dict[str, Any]]:
+    """Per GPU: the MiB it had free at start, and what the model, the context (KV) cache and
+    the compute buffers took on it, from llama.cpp's startup log. On Metal, free is
+    recommendedMaxWorkingSetSize minus what was already allocated (ggml-metal-device.m)."""
+    model = [(b["buffer"], b["mib"]) for b in placement["model_buffers"]]
+    kv = [(m[1], float(m[2])) for m in KV_RE.finditer(startup_output)]
+    compute = [(m[1], float(m[2])) for m in COMPUTE_RE.finditer(startup_output)]
+
+    def on(device: str, buffers: list[tuple[str, float]]) -> float:
+        return round(sum(mib for name, mib in buffers if name.startswith(device)), 2)
+
+    found = []
+    for device in placement["devices"]:
+        name = device["name"]
+        use = {
+            "model_mib": on(name, model),
+            "kv_mib": on(name, kv),
+            "compute_mib": on(name, compute),
+        }
+        found.append(
+            {
+                "device": name,
+                "free_mib_at_start": device["free_mib"],
+                **use,
+                "total_mib": round(sum(use.values()), 2),
+            }
+        )
+    return found
+
+
+def memory_problem(ctx_size: int, memory: list[dict[str, Any]]) -> str | None:
+    """Metal only for now. Apple documents recommendedMaxWorkingSetSize as "an approximation
+    of how much memory ... this GPU device can allocate without affecting its runtime
+    performance". Other GPUs log the figures only (until the Linux release)."""
+    for m in memory:
+        if m["device"].startswith("MTL") and m["total_mib"] > m["free_mib_at_start"]:
+            return (
+                f"At ctx_size {ctx_size}, the model needs {m['total_mib']:,.0f} MiB of GPU "
+                f"memory ({m['model_mib']:,.0f} for the model, {m['kv_mib']:,.0f} for the "
+                f"context cache, {m['compute_mib']:,.0f} for computing), but the GPU had "
+                f"{m['free_mib_at_start']:,} MiB free. Lower ctx_size: the context cache "
+                "grows with it."
+            )
+    return None
+
+
 def placement_problem(flags: dict[str, Any], placement: dict[str, Any]) -> str | None:
     """With GPU layers requested, the weights must be on a named GPU, not quietly on the CPU."""
     if flags.get("n-gpu-layers") in (0, "0") or flags.get("device") == "none":
@@ -419,6 +469,8 @@ class LlamaServer:
             raise ConfigError("llama-server loaded a config file (see its startup output).")
         placement = device_placement(startup)
         problem = placement_problem(self.config.flags, placement)
+        memory = memory_use(startup, placement)
+        problem = problem or memory_problem(self.config.ctx_size, memory)
         if problem:
             self.stop()
             raise ConfigError(problem)
@@ -455,6 +507,7 @@ class LlamaServer:
             "llama_cpp": {"dir": self.config.llama_cpp_dir.as_posix(), **checkout},
             "build_info": build_info,
             "placement": placement,
+            "memory": memory,
             "model_file": {"eog_tokens": eog_tokens(startup)},
             "graph_splits": graph_splits(startup),
             "props": props,
@@ -588,7 +641,8 @@ class LlamaCppBackend:
         """`request`: a logged request body (prompt left out) to send exactly as it was,
         for replay; otherwise it is built from `settings` and `stop`. `cancel` is checked
         between stream lines; llama-server sends a ping each second while it reads the
-        prompt, so a cancel lands within about a second even then."""
+        prompt, so this returns within about a second even then. The server stops once it
+        finishes its current batch of prompt tokens (measured: M1)."""
         if self.server is None:
             raise BackendError("No model loaded.")
         if request is None:
