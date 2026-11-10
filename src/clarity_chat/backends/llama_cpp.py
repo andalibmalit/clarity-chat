@@ -197,7 +197,12 @@ def placement_problem(flags: dict[str, Any], placement: dict[str, Any]) -> str |
     if flags.get("n-gpu-layers") in (0, "0") or flags.get("device") == "none":
         return None
     gpu_devices = [d for d in placement["devices"] if d["name"] and d["description"]]
-    gpu_buffers = [b for b in placement["model_buffers"] if not b["buffer"].startswith("CPU")]
+    # CUDA_Host and Vulkan_Host are pinned system memory, not the GPU's.
+    gpu_buffers = [
+        b
+        for b in placement["model_buffers"]
+        if not b["buffer"].startswith("CPU") and not b["buffer"].endswith("_Host")
+    ]
     if not gpu_devices or not gpu_buffers:
         return (
             f"n-gpu-layers = {flags.get('n-gpu-layers')!r}, but llama-server put the model on "
