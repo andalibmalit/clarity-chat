@@ -154,7 +154,7 @@ Unless `n-gpu-layers` is 0, Clarity stops if llama.cpp puts the model on the CPU
 
 ## Log records
 
-Each line is one JSON record with `schema_version` (currently 1), `type` and `time` (UTC). Every record except `run` also has `conversation_id`. Readers should ignore keys they don't know.
+Each line is one JSON record with `schema_version` (currently 1), `type` and `time` (UTC). Every record except `run` and `torn_line` also has `conversation_id`. Readers should ignore keys they don't know.
 
 | `type` | Written | Main fields |
 |---|---|---|
@@ -164,6 +164,7 @@ Each line is one JSON record with `schema_version` (currently 1), `type` and `ti
 | `call` | for every call, including failed and cancelled ones | see below |
 | `mark`, `note` | for `/mark`, `/note`, `clarity mark` and `clarity note` | `call_id`, `turn_id`, `label` or `text`, and `origin`: `live` (in a chat) or `review` (afterwards). |
 | `replay` | for every replay | `replay_id`, `call_id`, `n_ctx_from`, `identical`, `compared`, `differences`, `not_recorded` (facts an older log didn't record, so not compared), `unexplained_difference`, and the new output |
+| `torn_line` | before the first record written after a line that was cut off (a crash or a full disk mid-write) | `line` (its line number) and `bytes` (how much of it was written). The cut line stays as it was. Readers skip a line that isn't a record only when the record after it is a `torn_line` naming it; any other malformed line is an error. |
 | `run` | first line of a batch run's `calls.jsonl` | `run_id`, `openings_file`, `openings_sha256`, `profiles`, `seeds`, the split and trim rules |
 
 A `call` record holds:

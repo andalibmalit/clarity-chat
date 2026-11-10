@@ -403,3 +403,16 @@ def test_settings_a_backend_cannot_apply_are_flagged_and_warned(make_session):
     outcome = session.say("Hi")
     assert "not_applied" in outcome.record["flags"]
     assert any("['presence_penalty']" in w for w in outcome.warnings)
+
+
+def test_a_review_mark_mends_a_torn_line_first(make_session, monkeypatch, capsys):
+    session, _ = make_session([" one"])
+    call = session.say("a").record
+    log = session.conversation.log.path
+    with log.open("ab") as f:
+        f.write(b'{"type": "no')
+    monkeypatch.setattr("clarity_chat.session.Session.__init__", None)
+    assert cli.main(["mark", str(log), call["call_id"], "landed"]) == 0
+    assert "was never finished" in capsys.readouterr().err
+    kinds = [r["type"] for r in read_records(log)]
+    assert kinds[-2:] == ["torn_line", "mark"]

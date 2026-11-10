@@ -168,3 +168,12 @@ def test_cancel_between_calls_says_there_is_nothing_to_cancel(loop):
     chat, output, _ = loop
     chat.handle("/cancel")
     assert "Nothing to cancel." in "".join(output)
+
+
+def test_the_chat_says_when_it_ends_a_torn_line(loop):
+    chat, output, _ = loop
+    chat.handle("a")
+    with chat.session.conversation.log.path.open("ab") as f:
+        f.write(b'{"type": "no')
+    chat.handle("b")
+    assert "Line 6 of" in "".join(output) and "was never finished" in "".join(output)
