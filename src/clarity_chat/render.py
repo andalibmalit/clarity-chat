@@ -188,12 +188,7 @@ def chat_template_source(template: Tokenizer, profile: Profile) -> dict[str, Any
             f"Profile {profile.name}: {template.source} has no single chat template "
             f"(found {type(text).__name__}). Set template_repo to a repo that has one."
         )
-    return {
-        **template.source,
-        "kwargs": profile.template_kwargs,
-        "unread_kwargs": unread_kwargs(text, profile.template_kwargs),
-        "sha256": sha256_text(text),
-    }
+    return {**template.source, "kwargs": profile.template_kwargs, "sha256": sha256_text(text)}
 
 
 def unread_kwargs(template_text: str, kwargs: dict[str, Any]) -> list[str]:

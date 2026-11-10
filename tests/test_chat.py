@@ -81,7 +81,6 @@ def test_template_kwargs_reach_the_template(root, chat_tokenizer):
     prompt = build_prompt(chat_tokenizer, profile, [("user", "u")])
     assert prompt.text.startswith("[hey]")
     assert prompt.template is not None and prompt.template["kwargs"] == {"greeting": "hey"}
-    assert prompt.template["unread_kwargs"] == []
 
 
 def test_a_template_kwarg_the_template_never_reads_is_a_logged_warning(
@@ -98,7 +97,6 @@ def test_a_template_kwarg_the_template_never_reads_is_a_logged_warning(
     assert "never reads template_kwargs ['greting']" in conversation.warnings[0]
     first = next(read_records(conversation.log.path))
     assert first["warnings"] == conversation.warnings
-    assert session.say("hi").record["template"]["unread_kwargs"] == ["greting"]
 
 
 def test_chat_mode_never_prepends_bos(root, chat_tokenizer):

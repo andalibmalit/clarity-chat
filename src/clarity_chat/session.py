@@ -38,6 +38,7 @@ from clarity_chat.render import (
     build_prompt,
     chat_template_source,
     library_versions,
+    unread_kwargs,
 )
 from clarity_chat.replay import (
     compare_output,
@@ -93,6 +94,7 @@ class Prepared:
     tokenizer: Tokenizer
     template_tokenizer: Tokenizer
     template: dict[str, Any] | None
+    unread_kwargs: list[str] = field(default_factory=list)  # template_kwargs it never reads
 
 
 @dataclass
@@ -270,10 +272,15 @@ class Session:
             )
         weights = self.weights_for(profile.backend, entry)
         tokenizer, template_tokenizer = self.tokenizers_for(profile, model)
-        template = (
-            chat_template_source(template_tokenizer, profile) if profile.mode == "chat" else None
+        if profile.mode == "chat":
+            template = chat_template_source(template_tokenizer, profile)
+            text = template_tokenizer.tok.chat_template
+            unread = unread_kwargs(text, profile.template_kwargs)
+        else:
+            template, unread = None, []
+        return Prepared(
+            profile, model, entry, weights, tokenizer, template_tokenizer, template, unread
         )
-        return Prepared(profile, model, entry, weights, tokenizer, template_tokenizer, template)
 
     def ctx_size_for(self, profile: Profile) -> Setting:
         """The profile's context size, else server.toml's ctx-size."""
@@ -320,7 +327,7 @@ class Session:
         conversation = Conversation(
             conversation_id, prepared.profile, log, run=run, started_server=started
         )
-        unread = (prepared.template or {}).get("unread_kwargs")
+        unread = prepared.unread_kwargs
         if unread:
             conversation.warnings.append(
                 f"The chat template never reads template_kwargs {unread}, so they change "

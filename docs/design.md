@@ -49,7 +49,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 - The key is never logged. At `log-verbosity` 4, llama-server prints its last four characters; Clarity replaces that line in the startup output and the server log.
 - Cost: the key is in the server process's environment, which other programs running as you can read. The key keeps out web pages, not your own programs.
 
-**The context size is per profile.** A long document needs a large context, and a large context takes memory a short chat doesn't need. So a profile can set `ctx_size`; the rest use `server.toml`'s `ctx-size`. The size goes into the server's flags, so argv, the `/props` check and the log agree, and every call logs it with its origin.
+**The context size is per profile.** A long document needs a large context, and a large context takes memory a short chat doesn't need. So a profile can set `ctx_size`; the rest use `server.toml`'s `ctx-size`. The size goes into the server's flags, so argv, the `/props` check and the log agree, and each conversation logs the size and its origin; each call logs `n_ctx`.
 - Cost: switching between profiles of different sizes restarts llama-server, which reloads the model.
 - Replay runs a call at its logged size, so the size is never a hidden difference between a call and its replay.
 - llama-server quietly caps a size above the model's training context; Clarity refuses it instead, naming the limit.
