@@ -174,6 +174,9 @@ def format_replay(record: dict[str, Any]) -> str:
             "Nothing recorded differs: build, flags, /props, environment, machine, model file, "
             "client."
         )
+    if record.get("not_recorded"):
+        missing = ", ".join(record["not_recorded"])
+        lines.append(f"Not compared, because the log doesn't record them: {missing}.")
     if record["unexplained_difference"]:
         lines.append(
             "! The output differs, but nothing that could change it does. That is the "

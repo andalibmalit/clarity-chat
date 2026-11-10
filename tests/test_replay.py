@@ -272,3 +272,19 @@ def test_replay_uses_the_calls_logged_context_size(make_session, fetched_root, t
     record = alone.replay(conversation.log.path, call_id)
     assert backend.ctx_sizes == [16384]
     assert record["identical"] and record["n_ctx_from"] == "the call's log"
+
+
+def test_an_older_logs_server_compares_without_false_differences():
+    from clarity_chat.replay import facts_from_call, not_recorded
+
+    call = {"model": {"gguf_sha256": "a"}, "client": {}}
+    v010 = {"backend": "llama.cpp", "props": {"endpoint_slots": True, "ui": True, "n": 1}}
+    now = {
+        "backend": "llama.cpp",
+        "props": {"endpoint_slots": False, "ui": False, "n": 1},  # --no-slots, --no-webui
+        "graph_splits": {"prompt": 1, "reply": 1},  # not logged before v0.2.0
+    }
+    logged, current = facts_from_call(call, v010), facts_from_call(call, now)
+    assert environment_diff(logged, current) == {}
+    assert not_recorded(logged, current) == ["graph_splits"]
+    assert unexplained(False, environment_diff(logged, current))
