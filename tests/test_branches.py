@@ -362,11 +362,11 @@ def test_a_failed_switch_restarts_the_current_model(make_session, fetched_root):
     first = session.conversation
     start = backend.start
 
-    def fail_for_tiny2(model, weights):
+    def fail_for_tiny2(model, weights, ctx_size):
         if model.name == "tiny2":
             backend.started.append("broken")  # as if the old server had been stopped
             raise ConfigError("tiny2 won't start")
-        return start(model, weights)
+        return start(model, weights, ctx_size)
 
     backend.start = fail_for_tiny2
     with pytest.raises(ConfigError, match="won't start"):
@@ -379,7 +379,7 @@ def test_a_failed_switch_restarts_the_current_model(make_session, fetched_root):
 def test_when_the_restart_fails_too_no_conversation_runs(make_session):
     session, backend = make_session()
 
-    def always_fail(model, weights):
+    def always_fail(model, weights, ctx_size):
         raise ConfigError("no GPU")
 
     backend.start = always_fail

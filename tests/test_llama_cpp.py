@@ -288,7 +288,7 @@ def test_a_malformed_stream_chunk_is_a_backend_error_with_the_partial_reply(monk
     assert caught.value.partial is not None and caught.value.partial.text == "Hi"
 
 
-def started_server(monkeypatch, root, startup):
+def started_server(monkeypatch, root, startup, props_ok=True):
     """A LlamaServer.start() with every outside step faked: what it launched, and the record."""
     import json
     from pathlib import Path
@@ -315,7 +315,7 @@ def started_server(monkeypatch, root, startup):
         "build_info": "b1-" + config.llama_cpp_commit[:7],
     }
     monkeypatch.setattr(server, "get_props", lambda: props)
-    monkeypatch.setattr(server, "check_props", lambda p: [])
+    monkeypatch.setattr(server, "check_props", lambda p: [] if props_ok else ["n_ctx differs"])
     record = server.start()
     return server, launched, json.dumps(record)
 
@@ -368,3 +368,36 @@ def test_the_key_suffix_line_is_redacted_in_the_output_and_the_server_log(root):
         assert "Wx9z" not in text
         assert "api_keys: (redacted by Clarity)" in text
         assert "main: ready" in text
+
+
+def test_the_context_size_goes_into_the_servers_flags_and_a_new_size_restarts(monkeypatch, root):
+    from clarity_chat.backends import llama_cpp
+    from clarity_chat.profiles import load_models, load_server_config
+
+    sizes = []
+
+    def start(server):
+        sizes.append(server.config.flags["ctx-size"])
+        server.proc = type("Running", (), {"poll": lambda self: None})()
+        return {}
+
+    monkeypatch.setattr(llama_cpp.LlamaServer, "start", start)
+    monkeypatch.setattr(llama_cpp.LlamaServer, "stop", lambda server: None)
+    backend = llama_cpp.LlamaCppBackend(load_server_config(root), root / "logs")
+    model = load_models(root)["tiny"]
+    backend.start(model, root / "m.gguf", 16384)
+    assert backend.n_ctx == 16384 and backend.config.ctx_size == 8192  # server.toml untouched
+    assert backend.start(model, root / "m.gguf", 16384) is None
+    backend.start(model, root / "m.gguf", 4096)
+    assert sizes == [16384, 4096]
+
+
+def test_a_size_above_the_training_context_names_the_limit(monkeypatch, root):
+    from clarity_chat.profiles import ConfigError
+
+    warning = (
+        "srv    load_model: the slot context (65536) exceeds the training context of the "
+        "model (32768) - capping\n"
+    )
+    with pytest.raises(ConfigError, match=r"trained on \(32768 tokens\).*32768 or less"):
+        started_server(monkeypatch, root, STARTUP_GPU + warning, props_ok=False)

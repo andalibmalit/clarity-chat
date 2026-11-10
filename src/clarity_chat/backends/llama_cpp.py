@@ -6,6 +6,7 @@ Facts below were checked against the llama.cpp source at the commit in server.to
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import re
@@ -193,6 +194,11 @@ def eog_tokens(startup_output: str) -> list[dict[str, Any]]:
 # "graph: nodes = 1131, splits = 2, …", or "graph (pp bs=512, tg bs=1): … splits = 2 / 3, …"
 # when prompt processing and generation differ (src/llama-context.cpp).
 SPLITS_RE = re.compile(r"graph(?: \(.*?\))?: nodes = [^,]+, splits = (\d+)(?: / (\d+))?")
+
+
+# llama-server caps the context at the model's training context, with only this warning
+# (tools/server/server-context.cpp); its /props then reports the capped size.
+TRAINING_CONTEXT_RE = re.compile(r"exceeds the training context of the model \((\d+)\)")
 
 
 def graph_splits(startup_output: str) -> dict[str, int] | None:
@@ -424,6 +430,13 @@ class LlamaServer:
         problems = self.check_props(props)
         if problems:
             self.stop()
+            capped = TRAINING_CONTEXT_RE.search(startup)
+            if capped:
+                raise ConfigError(
+                    f"ctx_size {self.config.ctx_size} is more than this model was trained on "
+                    f"({capped[1]} tokens), and llama-server would quietly use {capped[1]}. "
+                    f"Set ctx_size to {capped[1]} or less."
+                )
             raise BackendError(
                 "llama-server is not the server the client started: " + "; ".join(problems)
             )
@@ -533,21 +546,25 @@ class LlamaCppBackend:
 
     @property
     def n_ctx(self) -> int:
-        return self.config.ctx_size
+        return (self.server.config if self.server else self.config).ctx_size
 
     @property
     def server_record(self) -> dict[str, Any] | None:
         return self.server.record if self.server else None
 
-    def start(self, model: ModelEntry, weights: Path) -> dict[str, Any] | None:
-        """Start llama-server with `weights`. The old server stops first, so two models never
-        share memory. Returns the new server_start record, or None if nothing changed."""
-        if self.server and self.server.gguf == weights.absolute() and self.server.proc:
-            if self.server.proc.poll() is None:
+    def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
+        """Start llama-server with `weights` and a context of `ctx_size`. The old server stops
+        first, so two models never share memory. Returns the new server_start record, or None
+        if the same GGUF already runs at that size."""
+        server = self.server
+        if server and server.gguf == weights.absolute() and server.config.ctx_size == ctx_size:
+            if server.proc and server.proc.poll() is None:
                 return None
         self.close()
         self.model = model
-        self.server = LlamaServer(self.config, weights, self.logs_dir)
+        # The size goes into the flags, so argv, the /props check and the log all agree.
+        config = dataclasses.replace(self.config, flags={**self.config.flags, "ctx-size": ctx_size})
+        self.server = LlamaServer(config, weights, self.logs_dir)
         return self.server.start()
 
     def describe(self) -> dict[str, Any]:

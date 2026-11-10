@@ -43,8 +43,9 @@ class Result:
 class Backend(Protocol):
     name: str
 
-    def start(self, model: ModelEntry, weights: Path) -> dict[str, Any] | None:
-        """Load `model` (restarting if another is loaded). Returns a server_start record, if any."""
+    def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
+        """Load `model` with a context of `ctx_size` tokens (restarting if another model or
+        size is loaded). Returns a server_start record, if any."""
         ...
 
     @property

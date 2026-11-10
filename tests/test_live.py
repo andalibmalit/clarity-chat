@@ -5,7 +5,6 @@ Run with `uv run pytest -m live`. Skipped if llama-server isn't built or SmolLM2
 
 from __future__ import annotations
 
-import dataclasses
 import sys
 from pathlib import Path
 
@@ -129,7 +128,7 @@ def test_replay_after_a_longer_call_and_after_a_restart(session):
     assert backend.complete(ids, settings, stop).token_ids == first["output_ids"]
     assert session.model is not None
     backend.close()
-    backend.start(session.model, check_weights_quick(REPO, session.model_lock))
+    backend.start(session.model, check_weights_quick(REPO, session.model_lock), backend.n_ctx)
     assert backend.complete(ids, settings, stop).token_ids == first["output_ids"]
 
 
@@ -158,10 +157,9 @@ def test_ctrl_c_cancels_the_reply_and_the_server_keeps_working(session):
 def small_context_backend(tmp_path_factory):
     """A second server with a 256-token context, to find llama-server's exact limit."""
     config = load_server_config(REPO)
-    config = dataclasses.replace(config, flags={**config.flags, "ctx-size": 256})
     backend = LlamaCppBackend(config, tmp_path_factory.mktemp("logs-small"))
     model = load_models(REPO)[MODEL]
-    backend.start(model, check_weights_quick(REPO, lock_entry(REPO, model)))
+    backend.start(model, check_weights_quick(REPO, lock_entry(REPO, model)), 256)
     yield backend
     backend.close()
 
@@ -222,7 +220,7 @@ def test_llama_arg_variables_are_removed(monkeypatch, tmp_path):
     backend = LlamaCppBackend(load_server_config(REPO), tmp_path)
     model = load_models(REPO)[MODEL]
     try:
-        record = backend.start(model, check_weights_quick(REPO, lock_entry(REPO, model)))
+        record = backend.start(model, check_weights_quick(REPO, lock_entry(REPO, model)), 8192)
         assert record is not None
         assert "LLAMA_ARG_CTX_SIZE" in record["env_removed"]
         assert record["props"]["default_generation_settings"]["n_ctx"] == 8192

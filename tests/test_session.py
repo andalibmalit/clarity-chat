@@ -183,3 +183,32 @@ def test_changed_weights_file_is_an_error(fetched_root, tiny_tokenizer):
     )
     with pytest.raises(ConfigError, match="changed since it was fetched"):
         session.new_conversation("text")
+
+
+def with_ctx_size(root, name, size):
+    """A copy of the text profile with ctx_size set (a top-level key, so it goes first)."""
+    text = (root / "profiles" / "text.toml").read_text(encoding="utf-8")
+    (root / "profiles" / f"{name}.toml").write_text(f"ctx_size = {size}\n{text}", "utf-8")
+
+
+def test_the_context_size_comes_from_the_profile_or_server_toml(make_session, fetched_root):
+    session, backend = make_session()
+    assert backend.ctx_sizes == [8192]
+    assert records(session, "conversation")[0]["ctx_size"] == {
+        "value": 8192,
+        "origin": "server.toml",
+    }
+    with_ctx_size(fetched_root, "big", 16384)
+    session.new_conversation("big")
+    assert backend.ctx_sizes == [8192, 16384]  # another size: a restart
+    assert records(session, "conversation")[0]["ctx_size"] == {"value": 16384, "origin": "profile"}
+    session.new_conversation("big")
+    assert backend.ctx_sizes == [8192, 16384]  # the same size: no restart
+
+
+@pytest.mark.parametrize("value", ["0", "-1", '"big"', "1.5"])
+def test_ctx_size_must_be_a_positive_integer(make_session, fetched_root, value):
+    session, _ = make_session()
+    with_ctx_size(fetched_root, "bad", value)
+    with pytest.raises(ConfigError, match="ctx_size must be a positive integer"):
+        session.new_conversation("bad")

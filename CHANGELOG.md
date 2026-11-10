@@ -16,6 +16,7 @@ Two headings are Clarity's own, used when they apply:
 - Each server start logs how many pieces llama.cpp split the compute graph into, and replay compares it. More than one piece can mean part of the work runs on the CPU.
 - The status line after each reply shows how much of the context the conversation now uses, such as "context 12,400 of 32,768".
 - A `template_kwargs` key that the chat template never reads, such as a misspelt one, is now a warning when the conversation starts, and is logged. Before, it changed nothing silently.
+- `ctx_size` in a profile sets its context size; profiles without it keep `ctx-size` from `server.toml`. Replay runs a call at the size it was logged with, and a size above the model's training context is refused instead of quietly capped.
 - `clarity mark LOG CALL_ID LABEL` and `clarity note LOG CALL_ID TEXT` label or annotate any logged reply after the chat, without starting a model. Marks and notes now record whether they were made live or in review.
 - The Transformers backend sets `attn_implementation = "sdpa"` explicitly, checks it after loading, and logs it.
 - User docs: getting started, guides, reference and contributing.

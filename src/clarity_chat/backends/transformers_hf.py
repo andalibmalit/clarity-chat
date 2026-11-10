@@ -251,8 +251,12 @@ class TransformersBackend:
     def server_record(self) -> dict[str, Any] | None:
         return self.record
 
-    def start(self, model: ModelEntry, weights: Path) -> dict[str, Any] | None:
+    def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
+        # The context size is a limit Clarity enforces, not a property of the loaded model,
+        # so a new size needs no reload, only the positions check again.
+        self._n_ctx = ctx_size
         if self.model is not None and self.weights == weights:
+            self._check_positions(model.name, self.model)
             return None
         self.close()
         try:
@@ -297,11 +301,7 @@ class TransformersBackend:
         loaded.generation_config = GenerationConfig()  # nothing of the model's merges in
         loaded.to(self.device)
         loaded.eval()
-        positions = getattr(loaded.config, "max_position_embeddings", None)
-        if positions is not None and positions < self._n_ctx:
-            raise ConfigError(
-                f"{model.name} handles {positions} positions, less than ctx-size {self._n_ctx}."
-            )
+        self._check_positions(model.name, loaded)
         self.model, self.model_entry, self.weights = loaded, model, weights
         warnings = []
         deterministic = torch.are_deterministic_algorithms_enabled()
@@ -329,7 +329,7 @@ class TransformersBackend:
             "torch": torch.__version__,
             "transformers": transformers.__version__,
             "eos_token_id": self.eos_ids,
-            "max_position_embeddings": positions,
+            "max_position_embeddings": getattr(loaded.config, "max_position_embeddings", None),
             "env_torch_kept": env,
             "deterministic_algorithms": deterministic,
             "warnings": warnings,
@@ -480,6 +480,13 @@ class TransformersBackend:
             flags=flags,
             checks={"generation_config": check},
         )
+
+    def _check_positions(self, name: str, loaded: Any) -> None:
+        positions = getattr(loaded.config, "max_position_embeddings", None)
+        if positions is not None and positions < self._n_ctx:
+            raise ConfigError(
+                f"{name} handles {positions} positions, less than ctx_size {self._n_ctx}."
+            )
 
     def close(self) -> None:
         if self.model is None:

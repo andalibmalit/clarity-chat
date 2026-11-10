@@ -58,10 +58,18 @@ NEUTRAL = {
 }
 
 SEED_MAX = 2**32 - 2  # llama.cpp reads 0xFFFFFFFF (2**32 - 1) as "pick a random seed"
-# "model": its recommended value; "run": a batch run's seed
-ORIGINS = ("profile", "model", "default", "backend", "regen", "run")
+# "model": its recommended value; "run": a batch run's seed; "server.toml": ctx_size only
+ORIGINS = ("profile", "model", "default", "backend", "regen", "run", "server.toml")
 
-PROFILE_KEYS_COMMON = {"backend", "model", "mode", "settings", "use_recommended", "device"}
+PROFILE_KEYS_COMMON = {
+    "backend",
+    "model",
+    "mode",
+    "settings",
+    "use_recommended",
+    "device",
+    "ctx_size",
+}
 # apply_chat_template arguments that Clarity sets, or that would change what it renders or
 # returns behind the logged template (chat_template replaces the template's text).
 RESERVED_TEMPLATE_KWARGS = {
@@ -226,6 +234,7 @@ class Profile:
     raw_settings: dict[str, Any] = field(default_factory=dict)  # the [settings] table, checked
     use_recommended: bool = False  # fill unset settings from the model's generation_config.json
     device: str | None = None  # Transformers backend only: mps (default), cpu or cuda
+    ctx_size: int | None = None  # None: server.toml's ctx-size
     # chat mode
     system: str | None = None
     priming_messages: list[dict[str, str]] = field(default_factory=list)
@@ -327,6 +336,9 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
         raise ConfigError(f'{where}: device applies only to backend = "transformers".')
 
     raw_settings = check_settings_table(data.get("settings", {}), where)
+    ctx_size = data.get("ctx_size")
+    if ctx_size is not None and (_integer(ctx_size) is None or ctx_size <= 0):
+        raise ConfigError(f"{where}: ctx_size must be a positive integer, got {ctx_size!r}.")
     use_recommended = data.get("use_recommended", False)
     if not isinstance(use_recommended, bool):
         raise ConfigError(f"{where}: use_recommended must be true or false.")
@@ -346,6 +358,7 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
         raw_settings=raw_settings,
         use_recommended=use_recommended,
         device=device,
+        ctx_size=ctx_size,
     )
 
     if mode == "chat":

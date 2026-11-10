@@ -168,11 +168,15 @@ The Transformers backend runs the official weights in-process with PyTorch. It i
 
 Some settings can't run on Transformers exactly as written; [Settings](reference.md#settings) lists which. When that can change the reply, the call is flagged `not_applied`, and `/settings` gives the reason. The most common case is sampler order: `defaults.toml` and most profiles, including `smol-chat`, list temperature last, so with temperature ≠ 1 and `top_p` < 1, every Transformers call is flagged.
 
-The context size is `ctx-size` from `server.toml` here too, so the context guard is the same on both backends. A model with fewer positions than that won't start.
+The context size comes from the profile's `ctx_size` or `server.toml` here too, so the context guard is the same on both backends. A model with fewer positions than that won't start.
 
 ## Change the context size or a server flag
 
-Edit `[flags]` in `server.toml`. The context size is `ctx-size`. The next `clarity` command uses the new values, and every call logs them. A chat that is already running keeps the flags it started with, even if `/profile` restarts its server, so quit and start it again.
+For one profile, set `ctx_size = 32768` at the top of the profile. Other profiles keep `ctx-size` from `server.toml`. Starting a conversation with a profile of another size restarts llama-server at that size, and `/settings` shows the size and where it came from.
+
+For every profile, edit `[flags]` in `server.toml`. The next `clarity` command uses the new values, and every call logs them. A chat that is already running keeps the flags it started with, even if `/profile` restarts its server, so quit and start it again.
+
+`clarity replay` runs a call at the context size it was logged with. `/replay` in a chat refuses a call logged at another size, because it would restart the chat's server at that size.
 
 Some flags are required, some values are fixed, and some flags are refused; see [server.toml](reference.md#servertoml) in the reference.
 
@@ -224,6 +228,6 @@ Clarity's errors say what to do. These entries add context where a message can't
 
 **`Tokenizer … is not in the Hugging Face cache.`** `clarity fetch` downloads a model's own tokenizer, but not a `template_repo`'s; see [Use another repo's chat template](#use-another-repos-chat-template).
 
-**`The prompt is N tokens; with max_tokens M it needs more than the context …`** Besides a new conversation or a lower `max_tokens`, you can raise `ctx-size` in `server.toml` and restart the chat.
+**`The prompt is N tokens; with max_tokens M it needs more than the context …`** Besides a new conversation or a lower `max_tokens`, you can raise the profile's `ctx_size` (or `ctx-size` in `server.toml`) and restart the chat.
 
 **`! flags: check_failed:…`** After the call, the server reported something other than what was sent. The reply is logged with the failed check; see [Call flags](reference.md#call-flags).

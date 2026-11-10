@@ -269,6 +269,12 @@ class Session:
         )
         return Prepared(profile, model, entry, weights, tokenizer, template_tokenizer, template)
 
+    def ctx_size_for(self, profile: Profile) -> Setting:
+        """The profile's context size, else server.toml's ctx-size."""
+        if profile.ctx_size is not None:
+            return Setting(profile.ctx_size, "profile")
+        return Setting(self.server_config.ctx_size, "server.toml")
+
     def weights_for(self, backend: str, entry: dict[str, Any]) -> Path:
         """llama.cpp loads the GGUF; Transformers loads the official weights it came from."""
         if backend == "transformers":
@@ -292,9 +298,10 @@ class Session:
         prepared = profile if isinstance(profile, Prepared) else self.prepare(profile)
         model = prepared.model
         previous = self.backend
+        ctx_size = self.ctx_size_for(prepared.profile)
         try:
             backend = self.use_backend(prepared.profile.backend, prepared.profile.device)
-            started = backend.start(model, prepared.weights)
+            started = backend.start(model, prepared.weights, ctx_size.value)
         except (ConfigError, BackendError) as e:
             self._restore(previous, e)
             raise
@@ -320,6 +327,7 @@ class Session:
                 **({"run": run} if run else {}),
                 "profile": prepared.profile.to_json(),
                 "settings": {k: s.to_json() for k, s in prepared.profile.settings.items()},
+                "ctx_size": ctx_size.to_json(),
                 "model": model.to_json(),
                 "client": client_git(),
                 "machine": machine(),
@@ -339,7 +347,8 @@ class Session:
             self.backend.close()
             self.backend = previous
         try:
-            previous.start(self.model, self.weights)
+            ctx_size = self.ctx_size_for(self.conversation.profile).value
+            previous.start(self.model, self.weights, ctx_size)
         except (ConfigError, BackendError) as again:
             self.conversation = None
             raise BackendError(
@@ -644,12 +653,18 @@ class Session:
                 f"Call {call_id} used {name}, but this conversation uses {self.model.name}. "
                 f"Replay it with `clarity replay {log_path} {call_id}`."
             )
+        if self.conversation is not None and call["n_ctx"] != self.backend.n_ctx:
+            raise ConfigError(
+                f"Call {call_id} ran with a context of {call['n_ctx']} tokens, but this "
+                f"conversation uses {self.backend.n_ctx}. Replay it with "
+                f"`clarity replay {log_path} {call_id}`."
+            )
         described = call.get("backend") or {}
         name = described.get("backend", "llama.cpp")
         device = described.get("device") if name == "transformers" else None
         weights = self.weights_for(name, entry)
         backend = self.use_backend(name, device)
-        backend.start(model, weights)
+        backend.start(model, weights, call["n_ctx"])  # the call's own size, as logged
         self.model, self.model_lock, self.weights = model, entry, weights
         tokenizer = self._load_tokenizer(
             call["model"]["tokenizer_repo"], call["model"]["tokenizer_revision"]
@@ -685,6 +700,7 @@ class Session:
             "call_id": call_id,
             "server_id": (now_server or {}).get("server_id"),
             "flags_from": flags_from or "server.toml",
+            "n_ctx_from": "the call's log",
             "logged_server_found": server is not None,
             **comparison,
             "unexplained_difference": unexplained(comparison["identical"], diffs),
