@@ -62,7 +62,8 @@ class LogFile:
 
     A last line with no line end was cut off (a crash or a full disk while it was written).
     The next append ends it and adds a `torn_line` record naming it, in the same write.
-    Nothing is rewritten."""
+    Nothing is rewritten. On Linux and macOS the check and the write hold a file lock, so a
+    line another process is still writing is never taken for a cut one."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
