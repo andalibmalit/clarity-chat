@@ -162,17 +162,18 @@ def run_batch(
     log = LogFile(run_dir / "calls.jsonl")
     log.append({"type": "run", **facts, "client": client_git(), "machine": machine()})
 
-    # Group the calls by backend and model, so each model loads once.
-    def loaded(name: str) -> tuple[str, str | None, str]:
+    # Group the calls by backend, model and context size, so each server starts once.
+    def loaded(name: str) -> tuple[str, str | None, str, int]:
         profile = prepared[name].profile
-        return profile.backend, profile.device, prepared[name].model.name
+        ctx_size = session.ctx_size_for(profile).value
+        return profile.backend, profile.device, prepared[name].model.name, ctx_size
 
     groups = list(dict.fromkeys(loaded(name) for name in profile_names))
     order = sorted(profile_names, key=lambda name: groups.index(loaded(name)))
     total = len(openings) * len(profile_names) * n_seeds
     replies: dict[tuple[int, str, int], Reply] = {}
     shown: set[str] = set()
-    started: set[tuple[str, str | None, str]] = set()  # what this run has loaded
+    started: set[tuple[str, str | None, str, int]] = set()  # what this run has loaded
 
     def warn(message: str) -> None:
         if message not in shown:  # each warning once; they never contain reply text
