@@ -11,7 +11,7 @@ from clarity_chat.backends import BackendError
 from clarity_chat.cli import ChatLoop
 from clarity_chat.logs import SCHEMA_VERSION, read_records
 from clarity_chat.profiles import SEED_MAX, ConfigError
-from clarity_chat.session import Session, annotate_log
+from clarity_chat.session import Session, annotate_log, marks_and_notes
 from tests.conftest import TEXT_PROFILE
 from tests.fakes import FakeBackend
 
@@ -29,8 +29,10 @@ def make_session(fetched_root, tiny_tokenizer):
     return make
 
 
-def records(session, kind):
-    return [r for r in read_records(session.conversation.log.path) if r["type"] == kind]
+def records(session, kind=None):
+    return [
+        r for r in read_records(session.conversation.log.path) if kind is None or r["type"] == kind
+    ]
 
 
 def sent_text(backend, tiny_tokenizer, index=-1):
@@ -163,8 +165,72 @@ def test_a_mark_needs_a_reply(make_session):
 def test_live_marks_and_notes_say_so(make_session):
     session, _ = make_session()
     session.say("a")
-    assert session.annotate("mark", "landed")["origin"] == "live"
-    assert session.annotate("note", "made-up note")["origin"] == "live"
+    assert session.annotate("mark", "landed")[0]["origin"] == "live"
+    assert session.annotate("note", "made-up note")[0]["origin"] == "live"
+
+
+def test_a_mark_without_a_label_is_interesting(make_session):
+    session, _ = make_session()
+    session.say("a")
+    assert session.annotate("mark", "")[0]["label"] == "interesting"
+
+
+def current(session):
+    return marks_and_notes(records(session))[session.conversation.head]
+
+
+def test_unmark_removes_the_named_mark_or_the_only_one(make_session):
+    session, _ = make_session()
+    session.say("a")
+    session.annotate("mark", "landed")
+    session.annotate("mark", "dropped")
+    with pytest.raises(ConfigError, match="has marks dropped, landed"):
+        session.annotate("unmark", "")
+    with pytest.raises(ConfigError, match="no mark other"):
+        session.annotate("unmark", "other")
+    (unmark,) = session.annotate("unmark", "landed")
+    assert unmark["mark_id"] == records(session, "mark")[0]["mark_id"]
+    assert [m["label"] for m in current(session)["marks"]] == ["dropped"]
+    session.annotate("unmark", "")
+    assert current(session)["marks"] == []
+
+
+def test_a_new_note_replaces_the_current_one(make_session):
+    session, _ = make_session()
+    session.say("a")
+    (first,) = session.annotate("note", "made-up first note")
+    (second,) = session.annotate("note", "made-up second note")
+    assert first["replaces"] is None and second["replaces"] == first["note_id"]
+    assert [n["text"] for n in current(session)["notes"]] == ["made-up second note"]
+
+
+def test_marks_and_notes_from_before_ids_still_count():
+    old = {"conversation_id": "c", "call_id": "call-1", "turn_id": "turn-1"}
+    rows = [
+        {"type": "mark", **old, "label": "landed"},
+        {"type": "mark", **old, "label": "dropped"},
+        {"type": "note", **old, "text": "made-up old note"},
+        {"type": "note", **old, "text": "made-up older note"},
+        {"type": "unmark", **old, "mark_id": None, "label": "landed"},
+        {"type": "note", **old, "note_id": "note-1", "text": "made-up new", "replaces": None},
+    ]
+    view = marks_and_notes(rows)["turn-1"]
+    assert [m["label"] for m in view["marks"]] == ["dropped"]
+    assert len(view["notes"]) == 3  # ID-less notes all show
+
+
+def test_the_chat_says_when_a_note_is_replaced(make_session):
+    session, _ = make_session()
+    output: list[str] = []
+    chat = ChatLoop(session, "text", read=lambda default: "", write=output.append)
+    chat.handle("a")
+    chat.handle("/note made-up note")
+    chat.handle("/note made-up better note")
+    chat.handle("/mark")
+    chat.handle("/unmark")
+    text = "".join(output)
+    assert "Noted call-" in text and "Replaced the note on call-" in text
+    assert text.rstrip().endswith("interesting.")
 
 
 # --- review-time marks and notes (clarity mark / clarity note) ----------------------------
@@ -180,7 +246,7 @@ def test_review_marks_and_notes_point_at_an_earlier_call(make_session, monkeypat
     monkeypatch.setattr("clarity_chat.session.Session.__init__", None)
     assert cli.main(["mark", str(log), first["call_id"], "dropped"]) == 0
     assert cli.main(["note", str(log), first["call_id"], "made-up review note"]) == 0
-    assert f"Marked {first['call_id']} ({first['turn_id']})" in capsys.readouterr().out
+    assert f"Marked {first['call_id']} dropped ({first['turn_id']})" in capsys.readouterr().out
     after = log.read_bytes()
     assert after.startswith(before)  # appended, never rewritten
     mark, note = [json.loads(line) for line in after[len(before) :].splitlines()]
@@ -193,7 +259,9 @@ def test_review_marks_and_notes_point_at_an_earlier_call(make_session, monkeypat
         "turn_id": first["turn_id"],
         "label": "dropped",
         "origin": "review",
+        "mark_id": mark["mark_id"],
     }
+    assert mark["mark_id"].startswith("mark-")
     assert note["text"] == "made-up review note" and note["origin"] == "review"
 
 
@@ -202,7 +270,7 @@ def test_review_marks_on_a_cancelled_call(make_session):
     backend.cancel_after = 1
     call = session.say("a").record
     assert call["stop_type"] == "cancelled"
-    record = annotate_log(session.conversation.log.path, "mark", call["call_id"], "cut")
+    (record,) = annotate_log(session.conversation.log.path, "mark", call["call_id"], "cut")
     assert record["turn_id"] == call["turn_id"]
 
 
@@ -210,7 +278,7 @@ def test_review_marks_on_a_cancelled_call(make_session):
     ("call_id", "label", "message"),
     [
         ("call-nope", "x", "has no call call-nope"),
-        (None, "", "A mark needs a label"),
+        (None, "--remove", "This reply has no mark"),
         ("failed", "x", "failed, so it has no reply to mark"),
     ],
 )
@@ -227,6 +295,17 @@ def test_review_mark_errors(make_session, capsys, call_id, label, message):
     assert cli.main(["mark", str(log), call_id or ok["call_id"], label]) == 1
     assert message in capsys.readouterr().err
     assert log.read_bytes() == before
+
+
+def test_review_unmark(make_session, capsys):
+    session, _ = make_session()
+    call = session.say("a").record
+    log = str(session.conversation.log.path)
+    assert cli.main(["mark", log, call["call_id"]]) == 0
+    assert cli.main(["mark", "--remove", log, call["call_id"]]) == 0
+    assert f"Unmarked {call['call_id']} interesting" in capsys.readouterr().out
+    assert current(session)["marks"] == []
+    assert records(session, "unmark")[0]["origin"] == "review"
 
 
 def test_review_mark_needs_the_log_file(tmp_path, capsys):

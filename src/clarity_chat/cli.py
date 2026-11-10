@@ -277,9 +277,8 @@ class ChatLoop:
             text = result["head_text"]
             where = f"after: {text[:60]!r}" if result["head"] else "at the start"
             self.write(f"Undone. The next message continues {where}.\n")
-        elif name in ("mark", "note"):
-            done = "Marked" if name == "mark" else "Noted"
-            self.write(f"{done} {result['record']['call_id']}.\n")
+        elif name in ("mark", "unmark", "note"):
+            self.write(annotated(result["records"]) + ".\n")
         elif name == "replay":
             self.write(format_replay(result["replay"]) + "\n")
         elif name == "cancel":  # in the terminal, Ctrl-C cancels; between calls, nothing runs
@@ -412,14 +411,23 @@ def cmd_replay(
     return 0 if record["identical"] else 1
 
 
+def annotated(records: list[dict[str, Any]]) -> str:
+    """What a mark, unmark or note did: "Marked call-… landed", "Replaced the note on call-…"."""
+    first = records[0]
+    if first["type"] == "note":
+        done = "Replaced the note on" if first.get("replaces") else "Noted"
+        return f"{done} {first['call_id']}"
+    labels = ", ".join(r["label"] for r in records)
+    return f"{'Marked' if first['type'] == 'mark' else 'Unmarked'} {first['call_id']} {labels}"
+
+
 def cmd_annotate(log_path: Path, kind: str, call_id: str, text: str) -> int:
-    """A review-time mark or note: appends one record to the log, starts nothing."""
+    """A review-time mark, unmark or note: appends to the log, starts nothing."""
     from clarity_chat.session import annotate_log
 
     mend(log_path)
-    record = annotate_log(log_path, kind, call_id, text)
-    done = "Marked" if kind == "mark" else "Noted"
-    print(f"{done} {call_id} ({record['turn_id']}) in {log_path}.")
+    records = annotate_log(log_path, kind, call_id, text)
+    print(f"{annotated(records)} ({records[0]['turn_id']}) in {log_path}.")
     return 0
 
 
@@ -476,13 +484,19 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="start llama-server with the call's logged flags instead of server.toml's",
     )
-    for kind, field_name, what in (("mark", "label", "label"), ("note", "text", "add a note to")):
+    for kind, what in (("mark", "label"), ("note", "add a note to (replacing its note)")):
         annotate = commands.add_parser(
             kind, help=f"{what} a logged call's reply while reviewing (appends to the log)"
         )
         annotate.add_argument("log", type=Path, help="a log file (logs/… or runs/<id>/calls.jsonl)")
         annotate.add_argument("call_id")
-        annotate.add_argument(field_name, help="one argument: quote it if it has spaces")
+        if kind == "mark":
+            annotate.add_argument("label", nargs="?", default="", help="default: interesting")
+            annotate.add_argument(
+                "--remove", action="store_true", help="remove the mark (name it if several)"
+            )
+        else:
+            annotate.add_argument("text", help="one argument: quote it if it has spaces")
     fetch = commands.add_parser("fetch", help="download (and convert) a model from models.toml")
     fetch.add_argument("name")
     verify = commands.add_parser("verify", help="re-hash fetched models against models.lock")
@@ -490,7 +504,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.command == "mark":  # a log file is all these need: no project root
-            return cmd_annotate(args.log, "mark", args.call_id, args.label)
+            kind = "unmark" if args.remove else "mark"
+            return cmd_annotate(args.log, kind, args.call_id, args.label)
         if args.command == "note":
             return cmd_annotate(args.log, "note", args.call_id, args.text)
         root = args.root.resolve() if args.root else find_root()

@@ -96,8 +96,10 @@ def _undo(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _annotate(kind: str) -> Callable[[Commands, str, Emit], dict[str, Any]]:
-    usage = "/mark LABEL" if kind == "mark" else "/note TEXT"
-    return lambda c, args, emit: {"record": c.session.annotate(kind, needs(args, usage))}
+    """mark and unmark take an optional label; note needs its text."""
+    return lambda c, args, emit: {
+        "records": c.session.annotate(kind, needs(args, "/note TEXT") if kind == "note" else args)
+    }
 
 
 def _prompt(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -191,9 +193,18 @@ COMMANDS: dict[str, Command] = {
         "/undo", "go back past the last exchange; your next message starts a branch", _undo
     ),
     "mark": Command(
-        "/mark LABEL", "label the current reply (for example landed, dropped)", _annotate("mark")
+        "/mark [LABEL]",
+        "label the current reply (for example landed, dropped; default interesting)",
+        _annotate("mark"),
     ),
-    "note": Command("/note TEXT", "add a note to the current reply", _annotate("note")),
+    "unmark": Command(
+        "/unmark [LABEL]",
+        "remove the current reply's mark (name the label if it has several)",
+        _annotate("unmark"),
+    ),
+    "note": Command(
+        "/note TEXT", "add a note to the current reply (replaces its note)", _annotate("note")
+    ),
     "replay": Command(
         "/replay", "re-send the current reply's call and compare the output", _replay
     ),

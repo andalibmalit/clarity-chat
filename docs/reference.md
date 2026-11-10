@@ -9,8 +9,8 @@ Every command, key and record field a user sees. For task-based instructions, se
 | `clarity chat --profile NAME` | Chat with `profiles/NAME.toml` or `local/profiles/NAME.toml`. NAME can also be a path to a `.toml` file. |
 | `clarity run --openings FILE --profiles A B … [--seeds N]` | Collect replies for a blind test into `runs/RUN_ID/`. FILE holds openings separated by lines that are exactly `---`. `--seeds N` (default 1) gives N replies per opening and profile, with seeds 333, 334 and so on. |
 | `clarity replay LOG CALL_ID [--logged-flags]` | Re-send a logged call and compare the output. `--logged-flags` starts llama-server with the call's logged flags instead of `server.toml`'s. |
-| `clarity mark LOG CALL_ID LABEL` | Label a logged call's reply while reviewing, in `logs/` or a run's `calls.jsonl`. Appends one record and starts no server. |
-| `clarity note LOG CALL_ID TEXT` | Add a note to a logged call's reply while reviewing. Quote TEXT if it has spaces. |
+| `clarity mark LOG CALL_ID [LABEL]` | Label a logged call's reply while reviewing, in `logs/` or a run's `calls.jsonl` (default label `interesting`). Appends one record and starts no server. With `--remove`, removes the mark instead. |
+| `clarity note LOG CALL_ID TEXT` | Add a note to a logged call's reply while reviewing, replacing its note. Quote TEXT if it has spaces. |
 | `clarity fetch NAME` | Download (and, for the `convert` route, convert) a model from `models.toml`, and record it in `models.lock`. |
 | `clarity verify [NAME …]` | Re-hash fetched models against `models.lock`; with no names, every fetched model. |
 
@@ -36,8 +36,9 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/regen` | Another reply to your last message, as a new branch. The k-th regeneration uses the first reply's seed plus k. |
 | `/edit [TEXT]` | Replace your last message and get a new reply, as a new branch. With no text, the input is prefilled with your last message. The new message uses the profile's seed. |
 | `/undo` | Go back past the last exchange; your next message starts a new branch. Nothing is deleted. |
-| `/mark LABEL` | Label the current reply, for example `landed` or `dropped`. |
-| `/note TEXT` | Add a note to the current reply. |
+| `/mark [LABEL]` | Label the current reply, for example `landed` or `dropped`. Without a label, the mark is `interesting`. |
+| `/unmark [LABEL]` | Remove the current reply's mark. If it has marks with different labels, name the one to remove. The log keeps the mark and records its removal. |
+| `/note TEXT` | Add a note to the current reply. A reply has one note: a new one replaces it, and the log keeps both. |
 | `/replay` | Re-send the current reply's call on the running server and compare the output. |
 | `/new` | Start a new conversation (and log file) with the same profile, re-read from its file. |
 | `/profile NAME` | Start a new conversation with another profile. The server restarts only if the model changes. |
@@ -162,7 +163,7 @@ Each line is one JSON record with `schema_version` (currently 1), `type` and `ti
 | `server_start` | once per server per log file, before its first call | `server_id`, `argv`, `flags`, `api_key` (always "random per start; value not logged"), `env_removed`, `env_llama_ggml_kept`, `llama_cpp` (commit, dirty), `build_info`, `placement`, `model_file` (`eog_tokens`: the tokens that end a reply, read from the GGUF), `memory` (per GPU: its limit in MiB, and the model, context cache and compute buffers on it), `graph_splits` (how many pieces llama.cpp cut the compute graph into, for the prompt and the reply), `props`, `startup_output`, `warnings`, `machine`. Transformers: `device`, `dtype`, `attn_implementation`, `torch`, `transformers`, `eos_token_id` and similar. |
 | `turn` | for each message and reply | `turn_id`, `parent_id`, `role`, `origin` (`user`, `model` or `edit`), `text`, `call_id`, and `regen_of` or `edit_of` for branches |
 | `call` | for every call, including failed and cancelled ones | see below |
-| `mark`, `note` | for `/mark`, `/note`, `clarity mark` and `clarity note` | `call_id`, `turn_id`, `label` or `text`, and `origin`: `live` (in a chat) or `review` (afterwards). |
+| `mark`, `unmark`, `note` | for `/mark`, `/unmark`, `/note`, `clarity mark` and `clarity note` | `call_id`, `turn_id`, `label` or `text`, and `origin`: `live` (in a chat) or `review` (afterwards). A `mark` has a `mark_id`; an `unmark` names the `mark_id` it removes (null for a mark from before v0.2.0, which removes that reply's ID-less marks with its `label`). A `note` has a `note_id` and `replaces`: the `note_id` of the note it replaces, or null. Notes from before v0.2.0 have no ID, so they all still show. |
 | `replay` | for every replay | `replay_id`, `call_id`, `n_ctx_from`, `identical`, `compared`, `differences`, `not_recorded` (facts an older log didn't record, so not compared), `unexplained_difference`, and the new output |
 | `torn_line` | before the first record written after a line that was cut off (a crash or a full disk mid-write) | `line` (its line number) and `bytes` (how much of it was written). The cut line stays as it was. Readers skip a line that isn't a record only when the record after it is a `torn_line` naming it; any other malformed line is an error. |
 | `run` | first line of a batch run's `calls.jsonl` | `run_id`, `openings_file`, `openings_sha256`, `profiles`, `seeds`, the split and trim rules |
