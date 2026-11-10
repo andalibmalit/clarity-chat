@@ -262,10 +262,18 @@ class Profile:
 
 
 def profile_path(root: Path, name_or_path: str) -> Path:
+    """A path to a .toml file, else NAME in profiles/ (shipped) or local/profiles/ (yours).
+    A name in both is an error: a name must say which file it means."""
     candidate = Path(name_or_path)
     if candidate.suffix == ".toml" and candidate.is_file():
         return candidate
-    return root / "profiles" / f"{name_or_path}.toml"
+    shipped = root / "profiles" / f"{name_or_path}.toml"
+    own = root / "local" / "profiles" / f"{name_or_path}.toml"
+    if shipped.is_file() and own.is_file():
+        raise ConfigError(
+            f"Profile {name_or_path!r} is both {shipped} and {own}. Rename one of them."
+        )
+    return own if own.is_file() else shipped
 
 
 def _text_or_file(value: object, key: str, base: Path, files: dict[str, str], where: str) -> str:
@@ -305,7 +313,9 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
     path = profile_path(root, name_or_path)
     where = str(path)
     if not path.is_file():
-        raise ConfigError(f"Profile {name_or_path!r} not found ({path}).")
+        raise ConfigError(
+            f"Profile {name_or_path!r} not found in profiles/ or local/profiles/ ({root})."
+        )
     toml_text = read_text(path)
     try:
         data = tomllib.loads(toml_text)

@@ -68,12 +68,12 @@ uv run clarity note logs/CONVERSATION_ID.jsonl CALL_ID "TEXT"      # add a note 
 
 ## Configuration
 
-You set up every experiment in these files, and Clarity never edits them. What `fetch` resolves goes to `models.lock`; what each call resolves goes to its log.
+You set up every experiment in these files. Clarity doesn't edit the ones it ships; your own go in `local/`, which git ignores. What `fetch` resolves goes to `models.lock`; what each call resolves goes to its log.
 
 - `models.toml`: the models, each pinned to a commit.
 - `server.toml`: every llama-server flag.
 - `defaults.toml`: the neutral value of every setting.
-- `profiles/*.toml`: one experimental setup each (model, mode, prompt pieces and settings).
+- `profiles/*.toml`: one experimental setup each (model, mode, prompt pieces and settings). Put your own in `local/profiles/`.
 
 To use a model's own recommended sampling settings, add `use_recommended = true` to a profile. [Reference](docs/reference.md) lists every key.
 
