@@ -460,8 +460,7 @@ def cmd_verify(root: Path, names: list[str]) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="clarity",
-        description="Clarity: what you see is exactly what the model got, and every call "
-        "can be replayed.",
+        description="Clarity: what you see is exactly what the model got.",
     )
     parser.add_argument("--root", type=Path, help="project folder (default: found from here)")
     commands = parser.add_subparsers(dest="command", required=True)
