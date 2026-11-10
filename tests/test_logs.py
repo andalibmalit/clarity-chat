@@ -157,3 +157,13 @@ def test_a_line_cut_inside_a_character_is_torn_too(tmp_path):
     path.write_bytes('{"type": "note", "text": "é'.encode()[:-1])  # half of "é"
     LogFile(path).append({"type": "note"})
     assert [r["type"] for r in read_records(path)] == ["torn_line", "note"]
+
+
+@pytest.mark.xfail(strict=True, reason="B5 review: a tear during the mending write")
+def test_a_torn_line_whose_mending_write_is_torn_too_stays_readable(tmp_path):
+    path = tmp_path / "c.jsonl"
+    LogFile(path).append({"type": "note", "text": "kept"})
+    with path.open("ab") as f:  # a record cut off, then the disk fills mid-mend
+        f.write(b'{"type": "call", "output_te\n{"schema_version": 1, "type": "torn_li')
+    LogFile(path).append({"type": "note", "text": "after"})
+    assert [r["type"] for r in read_records(path)] == ["note", "torn_line", "note"]
