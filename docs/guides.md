@@ -190,7 +190,7 @@ Some flags are required, some values are fixed, and some flags are refused; see 
 
 ## Read your logs
 
-Each chat conversation is one JSONL file in `logs/`, one record per line. These [jq](https://jqlang.org/) queries are a starting point:
+Each chat conversation is one JSONL file in `logs/`, one record per line. `clarity chats`, or `/chats` in a chat, lists them newest first with their titles; `/title TEXT` names the current one. These [jq](https://jqlang.org/) queries are a starting point:
 
 ```
 # each reply: call ID, stop reason, text

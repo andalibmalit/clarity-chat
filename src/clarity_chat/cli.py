@@ -129,6 +129,21 @@ def format_branches(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_chats(chats: list[dict[str, Any]]) -> str:
+    """One line per conversation: start time, ID, profile and title."""
+    if not chats:
+        return "No conversations in logs/ yet."
+    lines = []
+    for chat in chats:
+        if "error" in chat:
+            lines.append(f"{chat['conversation_id']}  can't be read: {chat['error']}")
+            continue
+        started = (chat["started"] or "")[:16].replace("T", " ")
+        title = chat["title"] if chat["title"] is not None else "(no messages)"
+        lines.append(f"{started}  {chat['conversation_id']}  {chat['profile']}  {title}")
+    return "\n".join(lines)
+
+
 def format_status(record: dict[str, Any]) -> str:
     timings = record.get("timings") or {}
     seconds = (timings.get("prompt_ms", 0) + timings.get("predicted_ms", 0)) / 1000
@@ -307,6 +322,10 @@ class ChatLoop:
                 self.write(f"{record['name']} is back to the profile's value.\n")
             else:
                 self.write(f"{record['name']} = {record['value']!r} for this chat.\n")
+        elif name == "title":
+            self.write(f"Titled {result['record']['title']!r}.\n")
+        elif name == "chats":
+            self.write(format_chats(result["chats"]) + "\n")
         elif name == "branches":
             self.write(format_branches(result) + "\n")
         elif name == "switch":
@@ -534,6 +553,7 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             annotate.add_argument("text", help="one argument: quote it if it has spaces")
+    commands.add_parser("chats", help="list your conversations in logs/, newest first")
     fetch = commands.add_parser("fetch", help="download (and convert) a model from models.toml")
     fetch.add_argument("name")
     verify = commands.add_parser("verify", help="re-hash fetched models against models.lock")
@@ -561,6 +581,11 @@ def main(argv: list[str] | None = None) -> int:
                 return cmd_replay(
                     root, args.log, args.call_id, args.logged_flags, held.record_server
                 )
+        if args.command == "chats":
+            from clarity_chat.logs import list_chats
+
+            print(format_chats(list_chats(root / "logs")))
+            return 0
         if args.command == "fetch":
             return cmd_fetch(root, args.name)
         if args.command == "verify":

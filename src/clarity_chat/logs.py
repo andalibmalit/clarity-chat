@@ -153,6 +153,48 @@ def read_records(path: Path) -> Iterator[dict[str, Any]]:
         )
 
 
+TITLE_WORDS = 8  # a title that isn't set: the first words of the first message
+
+
+def list_chats(logs_dir: Path) -> list[dict[str, Any]]:
+    """The conversations in `logs_dir`, newest first (their IDs start with the time). A log
+    that can't be read is listed with its `error`, so one bad file doesn't hide the rest."""
+    chats = []
+    for path in sorted(logs_dir.glob("*.jsonl"), reverse=True):
+        try:
+            chats.append(chat_summary(path))
+        except (OSError, ValueError, ConfigError) as e:
+            chats.append({"conversation_id": path.stem, "path": path.as_posix(), "error": str(e)})
+    return chats
+
+
+def chat_summary(path: Path) -> dict[str, Any]:
+    """A conversation's ID, profile, model, start time and title. Reads the log as far as
+    its first message; after that, only lines that may be `title` records (`/title`)."""
+    summary: dict[str, Any] = {"conversation_id": path.stem, "path": path.as_posix()}
+    summary.update(profile=None, model=None, started=None, title=None, title_set=False)
+    first_message = False
+    with path.open("rb") as f:
+        for line in f:
+            if not line.endswith(b"\n"):
+                break  # not finished (see read_records)
+            if first_message and b'"type": "title"' not in line:
+                continue
+            record = json.loads(line)
+            kind = record.get("type")
+            if kind == "conversation":
+                summary["profile"] = (record.get("profile") or {}).get("name")
+                summary["model"] = (record.get("model") or {}).get("name")
+                summary["started"] = record.get("time")
+            elif kind == "turn" and record.get("role") == "user" and not first_message:
+                first_message = True
+                if not summary["title_set"]:
+                    summary["title"] = " ".join(record["text"].split()[:TITLE_WORDS])
+            elif kind == "title":
+                summary["title"], summary["title_set"] = record["title"], True
+    return summary
+
+
 # --- environment facts -----------------------------------------------------------------
 
 
