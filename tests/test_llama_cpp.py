@@ -443,7 +443,7 @@ def test_memory_use_sums_each_gpus_buffers():
     assert memory == [
         {
             "device": "MTL0",
-            "free_mib_at_start": 25558,
+            "limit_mib": 25558,
             "model_mib": 13137.44,
             "kv_mib": 5824.0,  # the full-attention layers' cache grows with ctx; the SWA one not
             "compute_mib": 2193.01,
@@ -455,36 +455,44 @@ def test_memory_use_sums_each_gpus_buffers():
 def test_more_than_the_gpu_had_free_is_refused_on_metal_only():
     from clarity_chat.backends.llama_cpp import memory_problem
 
-    over = {"device": "MTL0", "free_mib_at_start": 20000, "model_mib": 13137.44}
+    over = {"device": "MTL0", "limit_mib": 20000, "model_mib": 13137.44}
     over |= {"kv_mib": 5824.0, "compute_mib": 2193.01, "total_mib": 21154.45}
     problem = memory_problem(32768, [over])
     assert problem is not None
     assert "At ctx_size 32768, the model needs 21,154 MiB" in problem
-    assert "the GPU had 20,000 MiB free. Lower ctx_size" in problem
+    assert "recommended limit for this GPU, 20,000 MiB. Lower ctx_size" in problem
     assert memory_problem(32768, [{**over, "device": "CUDA0"}]) is None  # logged only
-    assert memory_problem(32768, [{**over, "free_mib_at_start": 25558}]) is None
+    assert memory_problem(32768, [{**over, "limit_mib": 25558}]) is None
 
 
 def test_the_memory_figures_are_logged_and_an_overflow_stops_the_server(monkeypatch, root):
     from clarity_chat.profiles import ConfigError
 
     _, _, record = started_server(monkeypatch, root, STARTUP_OLMO_32K)
-    assert '"memory": [{"device": "MTL0", "free_mib_at_start": 25558' in record
+    assert '"memory": [{"device": "MTL0", "limit_mib": 25558' in record
     tight = STARTUP_OLMO_32K.replace("25558 MiB free", "20000 MiB free")
-    with pytest.raises(ConfigError, match="the GPU had 20,000 MiB free"):
+    with pytest.raises(ConfigError, match="recommended limit for this GPU, 20,000 MiB"):
         started_server(monkeypatch, root, tight)
 
 
-def test_the_server_reports_its_port_pid_and_key_on_start_and_none_on_stop(monkeypatch, root):
+def test_the_server_is_recorded_when_launched_and_cleared_once_it_exits(root):
+    import dataclasses
+    import sys
+
+    from clarity_chat.backends.llama_cpp import LlamaServer
+    from clarity_chat.profiles import load_server_config
+
+    config = dataclasses.replace(load_server_config(root), startup_timeout_s=0.5)
     heard = []
-    server, _, _ = started_server(monkeypatch, root, STARTUP_GPU, on_change=heard.append)
-    assert heard == [
-        {
-            "port": server.port,
-            "pid": 4242,
-            "api_key": server.api_key,
-            "model_path": str(root / "model.gguf"),
-        }
-    ]
-    server.stop()
-    assert heard[-1] is None
+    server = LlamaServer(config, root / "model.gguf", root / "logs", heard.append)
+    server.log_path.parent.mkdir(parents=True)
+    server.port = 1  # nothing answers /health there: the launch times out and stops it
+    sleeper = [sys.executable, "-c", "import time; time.sleep(30)"]
+    assert server._launch(sleeper, dict(__import__("os").environ)) is not None
+    assert heard[0] == {
+        "port": 1,
+        "pid": heard[0]["pid"],
+        "api_key": server.api_key,
+        "model_path": str(root / "model.gguf"),
+    }
+    assert heard[-1] is None and server.proc is not None and server.proc.poll() is not None

@@ -225,9 +225,11 @@ COMPUTE_RE = re.compile(r"(\S+) compute buffer size = +([\d.]+) MiB")
 
 
 def memory_use(startup_output: str, placement: dict[str, Any]) -> list[dict[str, Any]]:
-    """Per GPU: the MiB it had free at start, and what the model, the context (KV) cache and
-    the compute buffers took on it, from llama.cpp's startup log. On Metal, free is
-    recommendedMaxWorkingSetSize minus what was already allocated (ggml-metal-device.m)."""
+    """Per GPU: its limit, and what the model, the context (KV) cache and the compute buffers
+    took on it, from llama.cpp's startup log. On Metal, the "MiB free" llama.cpp prints is
+    recommendedMaxWorkingSetSize minus what this process had allocated
+    (ggml-metal-device.m), so at start it is about the limit itself: other apps' memory
+    isn't counted (measured: 25,558 of 25,559 MiB "free" with other apps open)."""
     model = [(b["buffer"], b["mib"]) for b in placement["model_buffers"]]
     kv = [(m[1], float(m[2])) for m in KV_RE.finditer(startup_output)]
     compute = [(m[1], float(m[2])) for m in COMPUTE_RE.finditer(startup_output)]
@@ -246,7 +248,7 @@ def memory_use(startup_output: str, placement: dict[str, Any]) -> list[dict[str,
         found.append(
             {
                 "device": name,
-                "free_mib_at_start": device["free_mib"],
+                "limit_mib": device["free_mib"],
                 **use,
                 "total_mib": round(sum(use.values()), 2),
             }
@@ -259,13 +261,13 @@ def memory_problem(ctx_size: int, memory: list[dict[str, Any]]) -> str | None:
     of how much memory ... this GPU device can allocate without affecting its runtime
     performance". Other GPUs log the figures only (until the Linux release)."""
     for m in memory:
-        if m["device"].startswith("MTL") and m["total_mib"] > m["free_mib_at_start"]:
+        if m["device"].startswith("MTL") and m["total_mib"] > m["limit_mib"]:
             return (
                 f"At ctx_size {ctx_size}, the model needs {m['total_mib']:,.0f} MiB of GPU "
                 f"memory ({m['model_mib']:,.0f} for the model, {m['kv_mib']:,.0f} for the "
-                f"context cache, {m['compute_mib']:,.0f} for computing), but the GPU had "
-                f"{m['free_mib_at_start']:,} MiB free. Lower ctx_size: the context cache "
-                "grows with it."
+                f"context cache, {m['compute_mib']:,.0f} for computing), more than Metal's "
+                f"recommended limit for this GPU, {m['limit_mib']:,} MiB. Lower ctx_size: "
+                "the context cache grows with it."
             )
     return None
 
@@ -522,15 +524,6 @@ class LlamaServer:
             "warnings": warnings,
             "machine": machine(),
         }
-        if self.on_change and self.proc:
-            self.on_change(
-                {
-                    "port": self.port,
-                    "pid": self.proc.pid,
-                    "api_key": self.api_key,
-                    "model_path": str(self.gguf),
-                }
-            )
         return self.record
 
     def _launch(self, argv: list[str], env: dict[str, str]) -> str | None:
@@ -557,10 +550,20 @@ class LlamaServer:
                 start_new_session=True,
             )
         self.proc = proc
+        if self.on_change:  # recorded before the model loads: a crash then still finds it
+            self.on_change(
+                {
+                    "port": self.port,
+                    "pid": proc.pid,
+                    "api_key": self.api_key,
+                    "model_path": str(self.gguf),
+                }
+            )
         threading.Thread(target=self._drain, args=(proc.stdout,), daemon=True).start()
         deadline = time.monotonic() + self.config.startup_timeout_s
         while time.monotonic() < deadline:
             if proc.poll() is not None:
+                self._stopped()
                 time.sleep(0.2)  # let the drain thread catch the last lines
                 return f"exited with code {proc.returncode}:\n{self.output_text()[-3000:]}"
             try:
@@ -594,16 +597,18 @@ class LlamaServer:
         return problems
 
     def stop(self) -> None:
+        if self.proc is not None and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait(timeout=15)
+        self._stopped()  # only once it has exited: if stopping fails, the record stays
+
+    def _stopped(self) -> None:
         if self.on_change:
             self.on_change(None)
-        if self.proc is None or self.proc.poll() is not None:
-            return
-        self.proc.terminate()
-        try:
-            self.proc.wait(timeout=15)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
-            self.proc.wait(timeout=15)
 
 
 class LlamaCppBackend:
