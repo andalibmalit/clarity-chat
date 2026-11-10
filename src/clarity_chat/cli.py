@@ -473,6 +473,20 @@ def cmd_chat(root: Path, profile: str, on_server: OnServer, resume: str | None) 
     return 0
 
 
+def cmd_chat_json(root: Path, profile: str | None, resume: str | None, on_server: OnServer) -> int:
+    from clarity_chat.json_chat import JsonChat
+
+    session = Session(root, on_server=on_server)
+    atexit.register(session.close)
+    first = [{"command": "profile", "args": profile}] if profile else []
+    first += [{"command": "resume", "args": resume}] if resume else []
+    try:
+        JsonChat(session, sys.stdin, sys.stdout).run(first)
+    finally:
+        session.close()
+    return 0
+
+
 def cmd_run(
     root: Path, openings: Path, profiles: list[str], seeds: int, on_server: OnServer
 ) -> int:
@@ -584,10 +598,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--root", type=Path, help="project folder (default: found from here)")
     commands = parser.add_subparsers(dest="command", required=True)
     chat = commands.add_parser("chat", help="chat with a profile")
-    start = chat.add_mutually_exclusive_group(required=True)
+    start = chat.add_mutually_exclusive_group()
     start.add_argument("--profile", help="a profile name from profiles/ or local/profiles/")
     start.add_argument(
         "--resume", help="a conversation to continue: its ID (from `clarity chats`) or log file"
+    )
+    chat.add_argument(
+        "--json",
+        action="store_true",
+        help="read commands as JSON lines on stdin, write events as JSON lines (for scripts)",
     )
     run = commands.add_parser(
         "run", help="collect replies for a blind test (writes runs/<run-id>/blind.md)"
@@ -630,6 +649,8 @@ def main(argv: list[str] | None = None) -> int:
     verify = commands.add_parser("verify", help="re-hash fetched models against models.lock")
     verify.add_argument("names", nargs="*")
     args = parser.parse_args(argv)
+    if args.command == "chat" and not (args.json or args.profile or args.resume):
+        chat.error("one of --profile or --resume is required (or --json, to start by command)")
     try:
         if args.command == "mark":  # a log file is all these need: no project root
             kind = "unmark" if args.remove else "mark"
@@ -643,6 +664,8 @@ def main(argv: list[str] | None = None) -> int:
             with instance.hold(root, args.command) as held:  # these start a model: one at a time
                 if held.orphan:
                     print(f"clarity: {held.orphan}", file=sys.stderr)
+                if args.command == "chat" and args.json:
+                    return cmd_chat_json(root, args.profile, args.resume, held.record_server)
                 if args.command == "chat":
                     return cmd_chat(root, args.profile, held.record_server, args.resume)
                 if args.command == "run":

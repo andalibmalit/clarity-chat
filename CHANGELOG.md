@@ -18,6 +18,7 @@ Two headings are Clarity's own, used when they apply:
 - A `template_kwargs` key that the chat template never reads, such as a misspelt one, is now a warning when the conversation starts, and is logged. Before, it changed nothing silently.
 - `/say TEXT` and `/cancel` chat commands, for scripts. All chat commands now come from one table, which `/help` lists.
 - If Clarity is killed or crashes, the next start stops the llama-server it left running, after checking that the server's port answers with its key and model. SIGTERM and a closed terminal now stop the server too.
+- `clarity chat --json` runs every chat command from a script or another program: commands in as JSON lines, and events out, including every log record as it's written. `cancel` works while a reply is being written.
 - `clarity chat --resume ID` and `/resume ID` continue a logged conversation with its profile, settings and context size as logged, and say what differs today, including whether the current prompt still renders to the same token IDs.
 - `clarity chats` and `/chats` list your conversations, newest first, with a title: the first words of the first message, or one you set with `/title`. No model is asked for a title.
 - `/set NAME VALUE` changes a setting for one chat, checked like a profile's value and logged with origin `chat`. `/settings` shows it.
