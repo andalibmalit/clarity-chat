@@ -196,6 +196,20 @@ def test_gpu_placement_is_read_from_startup_output():
     assert placement_problem({"n-gpu-layers": "all"}, placement) is None
 
 
+@pytest.mark.xfail(strict=True, reason="A7: _Host buffers are counted as GPU memory")
+@pytest.mark.parametrize("host_buffer", ["CUDA_Host", "Vulkan_Host"])
+def test_pinned_host_buffers_count_as_cpu(host_buffer):
+    # CUDA and Vulkan name pinned system-memory buffers "<backend>_Host": not on the GPU.
+    startup = (
+        "llama_model_load_from_file_impl: using device CUDA0 (NVIDIA RTX 4090) (0000:01:00.0)"
+        " - 23000 MiB free\n"
+        "load_tensors:   CPU_Mapped model buffer size =    56.25 MiB\n"
+        f"load_tensors: {host_buffer:>12} model buffer size =   256.50 MiB\n"
+    )
+    problem = placement_problem({"n-gpu-layers": "all"}, device_placement(startup))
+    assert problem is not None and "put the model on the CPU" in problem
+
+
 def test_model_quietly_on_cpu_is_an_error_when_gpu_layers_are_asked_for():
     placement = device_placement(STARTUP_HIDDEN_GPU)
     problem = placement_problem({"n-gpu-layers": "all"}, placement)
