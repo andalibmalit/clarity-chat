@@ -215,3 +215,34 @@ def test_resume_lists_what_it_takes_from_today(new_session, fetched_root):
     } in record["settings_differ_today"]
     assert [d["path"] for d in record["model_entry"]] == ["tokenizer_revision"]
     assert record["not_recorded"] is not None
+
+
+@pytest.mark.xfail(strict=True, reason="checkpoint 3: a failed resume switched the model")
+def test_a_resume_that_fails_late_leaves_the_running_chat_on_its_model(new_session, tmp_path):
+    import os
+
+    session, backend = new_session([" one", " two"])
+    session.new_conversation("text")
+    session.say("a")
+    running = session.conversation
+    other, _ = new_session([" x"])
+    other.new_conversation("text")
+    other.say("b")
+    path = other.conversation.log.path
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        if row["type"] == "call":
+            row["n_ctx"] = 4096  # another size, so a restart would show
+            del row["prompt_ids"]  # found only when the prompt is checked
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    with pytest.raises(ConfigError):
+        session.resume(path)
+    assert session.conversation is running and backend.ctx_sizes == [8192]
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows[:5]), encoding="utf-8")
+    os.chmod(path, 0o444)
+    try:
+        with pytest.raises(ConfigError, match="can't write"):
+            session.resume(path)
+    finally:
+        os.chmod(path, 0o644)
+    assert session.conversation is running and backend.ctx_sizes == [8192]

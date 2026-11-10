@@ -190,3 +190,23 @@ def test_clarity_chat_json_reads_utf8_and_survives_a_bad_byte(fetched_root, monk
     events = [json.loads(x) for x in capsys.readouterr().out.splitlines()]
     assert events[0]["type"] == "InputError" and "UTF-8" in events[0]["message"]
     assert events[1]["command"] == "help" and events[1]["event"] == "result"
+
+
+@pytest.mark.xfail(strict=True, reason="checkpoint 3: cancel claims stops it didn't make")
+def test_cancel_says_what_it_stopped_or_why_not(make):
+    session, backend = make()
+    events: list[dict] = []
+    chat = JsonChat(session, io.BytesIO(), io.StringIO())
+    chat.emit = events.append  # type: ignore[method-assign]
+    chat.execute({"command": "profile", "args": "text"})
+    chat.execute({"command": "say", "args": "a"})
+    chat.execute({"command": "cancel", "id": "c"})  # nothing runs now
+    nothing = events[-1]["result"]
+    assert nothing["cancelled"] is False and "Nothing" in nothing["reason"]
+    backend.on_call = lambda: chat.execute({"command": "cancel", "id": "c2"})
+    chat.execute({"command": "replay", "id": "r"})
+    stopped = next(e for e in events if e.get("id") == "c2")["result"]
+    assert stopped == {"cancelled": True, "command": "replay"}
+    replayed = events[-1]
+    assert replayed["event"] == "error" and "cancelled" in replayed["message"].lower()
+    assert not [r for r in read_records(session.conversation.log.path) if r["type"] == "replay"]
