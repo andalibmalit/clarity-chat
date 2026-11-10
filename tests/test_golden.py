@@ -53,3 +53,20 @@ def test_a_reply_can_be_marked_after_the_fact(golden):
     annotate_log(golden, "mark", call["call_id"], "interesting")
     last = json.loads(golden.read_text(encoding="utf-8").splitlines()[-1])
     assert last["type"] == "mark" and last["call_id"] == call["call_id"]
+
+
+def test_every_golden_log_resumes(golden, fetched_root, tiny_tokenizer):
+    session = Session(
+        fetched_root,
+        backend=FakeBackend([" More."], tokenizer=tiny_tokenizer),
+        tokenizer_loader=lambda r, v: tiny_tokenizer,
+    )
+    record = session.resume(golden)
+    assert record["render"] is None or record["render"]["identical"], record["render"]
+    turn = session.say("One more made-up message.").turn
+    assert turn is not None and turn.text == " More."
+
+
+def test_the_v0_2_0_golden_log_holds_every_new_record_type():
+    kinds = {r["type"] for r in read_records(GOLDEN / "v0.2.0.jsonl")}
+    assert {"head", "unmark", "settings", "title", "resume", "torn_line"} <= kinds
