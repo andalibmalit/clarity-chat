@@ -164,7 +164,7 @@ Each line is one JSON record with `schema_version` (currently 1), `type` and `ti
 
 A `call` record holds:
 - **Where it sits:** `call_id`, `parent_id` (your message's turn), `regen_of` (for a `/regen`), `run` (in a batch run: the run ID and opening).
-- **Inputs:** `profile`, `settings` (each with its origin), `seed_drawn`, `recommended` (with `use_recommended`), `model` (the `models.toml` entry, plus the GGUF's sha256), `template` (repo, commit, kwargs, `unread_kwargs` and sha256), `libraries` (the `transformers`, `tokenizers` and `jinja2` versions), `client`, `n_ctx`, `stop`.
+- **Inputs:** `profile`, `settings` (each with its origin), `seed_drawn`, `recommended` (with `use_recommended`), `model` (the `models.toml` entry, plus the GGUF's sha256), `template` (repo, commit, kwargs and sha256), `libraries` (the `transformers`, `tokenizers` and `jinja2` versions), `client`, `n_ctx`, `stop`.
 - **Backend:** `backend`, with its name and server ID. llama.cpp adds `build_info` and `llama_cpp_commit`; Transformers adds `device`, `dtype`, `attn_implementation`, `torch` and `transformers`.
 - **Prompt:** `prompt_text`, `prompt_ids`, `n_prompt_client`, `bos` (whether BOS was prepended and why), `special_tokens_in_content` (where any control-token text was found).
 - **Request and response:** `request` (what was sent, except the prompt IDs, which are in `prompt_ids`), `backend_settings`, `not_applied`, `generation_settings`, `response`, `timings`, `tokens_evaluated`, `tokens_predicted`.
@@ -188,7 +188,7 @@ A call's `flags` list marks anything to look at. The terminal shows them after t
 |---|---|
 | `length` | The reply stopped at `max_tokens`. |
 | `context_full` | The reply stopped because the context was full. |
-| `cancelled` | The call was cancelled, with Ctrl-C or from another program, after part of the reply arrived. |
+| `cancelled` | The call was cancelled, with Ctrl-C or from another program. `cancelled_during` says whether any reply had arrived. |
 | `empty_reply` | The reply is empty or only whitespace. |
 | `not_applied` | The backend couldn't apply a setting as set, and it could change the reply. `/settings` gives the reason. |
 | `special_tokens_in_content` | Some prompt text (a message, the system prompt, priming or header) contains text the tokenizer reads as a control token, such as `<\|im_end\|>`. |
