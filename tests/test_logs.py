@@ -179,3 +179,17 @@ def test_the_chat_list_skips_a_cut_off_title_a_torn_line_names(tmp_path):
     log.append({"type": "note"})  # ends the cut line with a torn_line
     (chat,) = list_chats(tmp_path)
     assert chat["error"] is None and chat["title"] == "kept"
+
+
+@pytest.mark.xfail(strict=True, reason="CI: a false torn_line hid a complete record")
+def test_a_torn_line_naming_a_complete_line_hides_nothing(tmp_path):
+    # Another process's write was half visible when this one checked the tail (Linux can
+    # show that), so it named a line that was complete by the time its own write landed.
+    path = tmp_path / "c.jsonl"
+    log = LogFile(path)
+    log.append({"type": "note", "text": "kept"})
+    log.append({"type": "call", "text": "x" * 1000})
+    false_alarm = {"schema_version": 1, "type": "torn_line", "time": "t", "line": 2, "bytes": 100}
+    with path.open("ab") as f:
+        f.write(b"\n" + json.dumps(false_alarm).encode() + b"\n")
+    assert [r["type"] for r in read_records(path)] == ["note", "call", "torn_line"]
