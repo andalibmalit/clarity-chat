@@ -70,20 +70,33 @@ class Held:
         write_info(self.root, self.info)
 
 
-def stop_orphan(server: dict[str, Any]) -> str:
+def stop_orphan(server: dict[str, Any], wait_s: float = 120) -> str:
     """A server a crashed run left: stopped only if its port answers /props with its key and
-    its model, which proves it is that server. Otherwise nothing is killed."""
+    its model, which proves it is that server. Otherwise nothing is killed. A server still
+    loading its model answers 503 to everything, so it gets up to `wait_s` to finish."""
+    import time
+
     import httpx
 
-    url = f"http://127.0.0.1:{server['port']}/props"
-    headers = {"Authorization": f"Bearer {server['api_key']}"}
     port = server["port"]
+    url = f"http://127.0.0.1:{port}/props"
+    headers = {"Authorization": f"Bearer {server['api_key']}"}
+    deadline = time.monotonic() + wait_s
+    while True:
+        try:
+            # Plain HTTP on 127.0.0.1, as in the llama.cpp backend: no proxy, no CA bundle.
+            r = httpx.get(url, headers=headers, timeout=2, trust_env=False, verify=False)
+        except httpx.HTTPError:
+            return (
+                f"An earlier Clarity left a server on port {port}, but nothing answers there now."
+            )
+        if r.status_code != 503 or time.monotonic() > deadline:
+            break
+        time.sleep(1)
     try:
-        # Plain HTTP on 127.0.0.1, as in the llama.cpp backend: no proxy, no CA bundle.
-        r = httpx.get(url, headers=headers, timeout=2, trust_env=False, verify=False)
         props = r.json() if r.status_code == 200 else {}
-    except (httpx.HTTPError, ValueError):
-        return f"An earlier Clarity left a server on port {port}, but nothing answers there now."
+    except ValueError:
+        props = {}
     if Path(props.get("model_path", "")) != Path(server["model_path"]):
         return f"Port {port} answers, but not as the server an earlier Clarity left: left alone."
     os.kill(server["pid"], signal.SIGTERM)
@@ -131,6 +144,7 @@ def hold(root: Path, command: str) -> Generator[Held]:
         finally:
             for number, handler in previous.items():
                 signal.signal(number, handler)
-            (local / "clarity.json").unlink(missing_ok=True)
+            if not held.info.get("server"):  # a server that didn't stop stays recorded
+                (local / "clarity.json").unlink(missing_ok=True)
     finally:
         os.close(fd)  # closing the descriptor releases the lock

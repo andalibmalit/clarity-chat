@@ -151,3 +151,27 @@ def test_sigterm_exits_through_the_normal_cleanup(tmp_path):
     proc.send_signal(signal.SIGTERM)
     assert proc.wait(timeout=10) == 128 + signal.SIGTERM
     assert not (tmp_path / "local" / "clarity.json").exists()  # the finally ran
+
+
+def test_a_server_that_didnt_stop_stays_recorded(tmp_path):
+    with instance.hold(tmp_path, "chat") as held:
+        held.record_server({"port": 1, "pid": 2, "api_key": "k", "model_path": "/m"})
+    assert instance.read_info(tmp_path)["server"]["port"] == 1  # for the next start to find
+
+
+def test_a_server_still_loading_gets_time_to_answer(tmp_path, orphan, monkeypatch):
+    left = orphan()
+    left.left_by_a_crash(tmp_path)
+    answers = iter([503, 503])
+    real_get = __import__("httpx").get
+
+    def loading_then_ready(*args, **kwargs):
+        status = next(answers, None)
+        if status is None:
+            return real_get(*args, **kwargs)
+        return __import__("httpx").Response(status, json={"error": "Loading model"})
+
+    monkeypatch.setattr("httpx.get", loading_then_ready)
+    monkeypatch.setattr("time.sleep", lambda s: None)
+    message = instance.stop_orphan(instance.read_info(tmp_path)["server"])
+    assert message.startswith("Stopped llama-server")
