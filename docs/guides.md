@@ -142,9 +142,9 @@ uv run clarity mark runs/RUN_ID/calls.jsonl CALL_ID landed
 uv run clarity note runs/RUN_ID/calls.jsonl CALL_ID "Drifts off topic after the first line."
 ```
 
-These append one record to the log, with `origin` `review` (in-chat ones say `live`), and start no server. A failed call has no reply, so it can't be marked.
+These append to the log, with `origin` `review` (in-chat ones say `live`), and start no server. A failed call has no reply, so it can't be marked.
 
-A mark without a label is `interesting`. To take a mark back, use `/unmark` in a chat or `clarity mark --remove LOG CALL_ID [LABEL]`; name the label if the reply has marks with different labels. A reply has one note: a new note replaces the old one, and Clarity says so. Nothing is deleted. The log keeps every mark and note, and records each removal and replacement.
+A mark without a label is `interesting`. To take a mark back, use `/unmark` in a chat or `clarity mark --remove LOG CALL_ID [LABEL]`; name the label if the reply has marks with different labels. A reply has one note: a new note replaces the old one, and Clarity says so (notes from before v0.2.0 have no ID, so they all stay). Nothing is deleted. The log keeps every mark and note, and records each removal and replacement.
 
 ## Replay a call
 
