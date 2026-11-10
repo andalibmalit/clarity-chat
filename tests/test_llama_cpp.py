@@ -420,3 +420,54 @@ def test_a_cancel_is_checked_between_stream_lines(monkeypatch, root):
     )
     assert (result.stop_type, result.cancelled_during, result.text) == ("cancelled", "reply", "Hi")
     assert result.flags == ["cancelled"]
+
+
+# OLMo 3 7B at ctx-size 32768, flash attention off, on an M2 Max (measured: M2).
+STARTUP_OLMO_32K = """\
+llama_prepare_model_devices: using device MTL0 (Apple M2 Max) (unknown id) - 25558 MiB free
+load_tensors:   CPU_Mapped model buffer size =   783.42 MiB
+load_tensors:  MTL0_Mapped model buffer size = 13137.44 MiB
+llama_kv_cache:       MTL0 KV buffer size =  4096.00 MiB
+llama_kv_cache:       MTL0 KV buffer size =  1728.00 MiB
+sched_reserve:       MTL0 compute buffer size =  2193.01 MiB
+sched_reserve:        CPU compute buffer size =   137.02 MiB
+"""
+
+
+def test_memory_use_sums_each_gpus_buffers():
+    from clarity_chat.backends.llama_cpp import memory_use
+
+    memory = memory_use(STARTUP_OLMO_32K, device_placement(STARTUP_OLMO_32K))
+    assert memory == [
+        {
+            "device": "MTL0",
+            "free_mib_at_start": 25558,
+            "model_mib": 13137.44,
+            "kv_mib": 5824.0,  # the full-attention layers' cache grows with ctx; the SWA one not
+            "compute_mib": 2193.01,
+            "total_mib": 21154.45,
+        }
+    ]
+
+
+def test_more_than_the_gpu_had_free_is_refused_on_metal_only():
+    from clarity_chat.backends.llama_cpp import memory_problem
+
+    over = {"device": "MTL0", "free_mib_at_start": 20000, "model_mib": 13137.44}
+    over |= {"kv_mib": 5824.0, "compute_mib": 2193.01, "total_mib": 21154.45}
+    problem = memory_problem(32768, [over])
+    assert problem is not None
+    assert "At ctx_size 32768, the model needs 21,154 MiB" in problem
+    assert "the GPU had 20,000 MiB free. Lower ctx_size" in problem
+    assert memory_problem(32768, [{**over, "device": "CUDA0"}]) is None  # logged only
+    assert memory_problem(32768, [{**over, "free_mib_at_start": 25558}]) is None
+
+
+def test_the_memory_figures_are_logged_and_an_overflow_stops_the_server(monkeypatch, root):
+    from clarity_chat.profiles import ConfigError
+
+    _, _, record = started_server(monkeypatch, root, STARTUP_OLMO_32K)
+    assert '"memory": [{"device": "MTL0", "free_mib_at_start": 25558' in record
+    tight = STARTUP_OLMO_32K.replace("25558 MiB free", "20000 MiB free")
+    with pytest.raises(ConfigError, match="the GPU had 20,000 MiB free"):
+        started_server(monkeypatch, root, tight)
