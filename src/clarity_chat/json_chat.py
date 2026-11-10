@@ -31,7 +31,8 @@ from clarity_chat.session import ContextError, Session
 
 
 class JsonChat:
-    def __init__(self, session: Session, stdin: IO[str], stdout: IO[str]) -> None:
+    def __init__(self, session: Session, stdin: IO[bytes], stdout: IO[str]) -> None:
+        """`stdin` is bytes: input is UTF-8 whatever the console's encoding."""
         self.commands = Commands(session)
         self.stdin, self.stdout = stdin, stdout
         self.write_lock = threading.Lock()
@@ -68,21 +69,27 @@ class JsonChat:
     def read(self, pending: queue.Queue[dict[str, Any] | None]) -> None:
         """Read input lines. `cancel` runs here at once; everything else, including a line
         that isn't a command, waits its turn."""
-        for line in self.stdin:
-            if not line.strip():
-                continue
-            command = self.parse(line)
-            if command.get("command") == "cancel":
-                self.execute(command)
-            else:
-                pending.put(command)
-        pending.put(None)
+        try:
+            for line in self.stdin:
+                if not line.strip():
+                    continue
+                command = self.parse(line)
+                if command.get("command") == "cancel":
+                    self.execute(command)
+                else:
+                    pending.put(command)
+        finally:
+            pending.put(None)  # however reading ends, the main loop isn't left waiting
 
     @staticmethod
-    def parse(line: str) -> dict[str, Any]:
+    def parse(line: bytes) -> dict[str, Any]:
         """A command, or {"error": why the line isn't one}."""
         try:
-            command = json.loads(line)
+            text = line.decode("utf-8")
+        except UnicodeDecodeError as e:
+            return {"error": f"Not UTF-8: {e}"}
+        try:
+            command = json.loads(text)
         except ValueError as e:
             return {"error": f"Not JSON: {e}"}
         if (

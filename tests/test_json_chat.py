@@ -32,7 +32,7 @@ def make(fetched_root, tiny_tokenizer):
 
 def run(session, lines, first=()):
     stdout = io.StringIO()
-    stdin = io.StringIO("".join(line + "\n" for line in lines))
+    stdin = io.BytesIO("".join(line + "\n" for line in lines).encode())
     JsonChat(session, stdin, stdout).run(list(first))
     return [json.loads(line) for line in stdout.getvalue().splitlines()]
 
@@ -80,7 +80,7 @@ def test_a_scripted_chat(make):
 def test_cancel_runs_while_a_reply_is_written(make):
     session, backend = make([" a long reply"])
     read_end, write_end = os.pipe()
-    stdin = os.fdopen(read_end, "r", encoding="utf-8")
+    stdin = os.fdopen(read_end, "rb")
     writer = os.fdopen(write_end, "w", encoding="utf-8")
     stdout = io.StringIO()
     chat = JsonChat(session, stdin, stdout)
@@ -117,7 +117,7 @@ def test_a_closed_output_stops_writing_and_the_log_stays_whole(make):
 
     session, _ = make([" one", " two"])
     session.new_conversation("text")
-    stdin = io.StringIO(line("say", "a") + "\n" + line("say", "b") + "\n")
+    stdin = io.BytesIO((line("say", "a") + "\n" + line("say", "b") + "\n").encode())
     chat = JsonChat(session, stdin, Closed())
     chat.run([])  # returns instead of raising
     assert chat.closed
@@ -165,7 +165,7 @@ def test_every_command_works_as_a_slash_command_and_as_json(make):
             text = "".join(output)
             assert text.strip() and not text.startswith("!"), (name, text)
     session, _ = make()
-    chat = JsonChat(session, io.StringIO(), io.StringIO())
+    chat = JsonChat(session, io.BytesIO(), io.StringIO())
     for name, args in EVERY_COMMAND:
         chat.stdout = io.StringIO()
         chat.execute({"command": name, "args": args(session)})
@@ -173,7 +173,6 @@ def test_every_command_works_as_a_slash_command_and_as_json(make):
         assert last["event"] == "result", (name, last)
 
 
-@pytest.mark.xfail(strict=True, reason="checkpoint 3: stdin is decoded by the console")
 def test_clarity_chat_json_reads_utf8_and_survives_a_bad_byte(fetched_root, monkeypatch, capsys):
     from clarity_chat import cli
 

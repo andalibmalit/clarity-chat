@@ -711,7 +711,13 @@ class Session:
                     f"({len(prompt.ids) / n_ctx:.0%})."
                 )
             if cancel is not None and cancel.is_set():  # cancelled while the prompt was built
-                result = Result(text="", token_ids=[], stop_type="cancelled")
+                result = Result(
+                    text="",
+                    token_ids=[],
+                    stop_type="cancelled",
+                    cancelled_during="prompt",
+                    flags=["cancelled"],
+                )
             else:
                 result = self.backend.complete(
                     prompt.ids, values, profile.stop, on_text=on_text, cancel=cancel
