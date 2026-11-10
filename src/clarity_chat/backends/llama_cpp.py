@@ -203,7 +203,8 @@ TRAINING_CONTEXT_RE = re.compile(r"exceeds the training context of the model \((
 
 def graph_splits(startup_output: str) -> dict[str, int] | None:
     """How many pieces llama.cpp cut the compute graph into, for prompt processing and for
-    generation. More than one can mean some work runs on another device, such as the CPU."""
+    generation. On Metal, 2 is normal with the whole model on the GPU (measured: M2); what
+    matters is a change between a call and its replay."""
     m = SPLITS_RE.search(startup_output)
     if m is None:
         return None
@@ -266,8 +267,13 @@ def memory_problem(ctx_size: int, memory: list[dict[str, Any]]) -> str | None:
                 f"At ctx_size {ctx_size}, the model needs {m['total_mib']:,.0f} MiB of GPU "
                 f"memory ({m['model_mib']:,.0f} for the model, {m['kv_mib']:,.0f} for the "
                 f"context cache, {m['compute_mib']:,.0f} for computing), more than Metal's "
-                f"recommended limit for this GPU, {m['limit_mib']:,} MiB. Lower ctx_size: "
-                "the context cache grows with it."
+                f"recommended limit for this GPU, {m['limit_mib']:,} MiB. "
+                + (
+                    "The model alone is over the limit, so no ctx_size fits: use a smaller "
+                    "model or a smaller quantization."
+                    if m["model_mib"] > m["limit_mib"]
+                    else "Lower ctx_size: the context cache grows with it."
+                )
             )
     return None
 
@@ -669,9 +675,10 @@ class LlamaCppBackend:
     ) -> Result:
         """`request`: a logged request body (prompt left out) to send exactly as it was,
         for replay; otherwise it is built from `settings` and `stop`. `cancel` is checked
-        between stream lines; llama-server sends a ping each second while it reads the
-        prompt, so this returns within about a second even then. The server stops once it
-        finishes its current batch of prompt tokens (measured: M1)."""
+        between stream lines; the request asks llama-server for a ping each second while it
+        reads the prompt (sse_ping_interval), so this returns within about a second even
+        then. The server stops once it finishes its current batch of prompt tokens
+        (measured: M1)."""
         if self.server is None:
             raise BackendError("No model loaded.")
         if request is None:
