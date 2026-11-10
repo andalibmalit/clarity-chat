@@ -181,7 +181,6 @@ def test_the_chat_list_skips_a_cut_off_title_a_torn_line_names(tmp_path):
     assert chat["error"] is None and chat["title"] == "kept"
 
 
-@pytest.mark.xfail(strict=True, reason="CI: a false torn_line hid a complete record")
 def test_a_torn_line_naming_a_complete_line_hides_nothing(tmp_path):
     # Another process's write was half visible when this one checked the tail (Linux can
     # show that), so it named a line that was complete by the time its own write landed.

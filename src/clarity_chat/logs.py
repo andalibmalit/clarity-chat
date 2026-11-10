@@ -24,6 +24,7 @@ import os
 import platform
 import secrets
 import subprocess
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
@@ -32,6 +33,9 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.profiles import ConfigError
+
+if sys.platform != "win32":
+    import fcntl
 
 SCHEMA_VERSION = 1
 _append_lock = threading.Lock()
@@ -72,6 +76,11 @@ class LogFile:
         with _append_lock:
             fd = os.open(self.path, flags, 0o644)
             try:
+                if sys.platform != "win32":
+                    # Another process's write can be half visible (Linux): the check for a
+                    # torn last line and this write go under one lock, so a line still
+                    # being written is never taken for a torn one. Closing the fd unlocks.
+                    fcntl.flock(fd, fcntl.LOCK_EX)
                 torn = _torn_tail(fd)
                 lines = (b"\n" + _line(torn) if torn else b"") + _line(full)
                 data = memoryview(lines)
@@ -137,17 +146,17 @@ def read_records(
     write that ends a torn line can be cut off too). Any other malformed line is an error.
     `parse(raw)`, if given, says which lines to parse; the rest are passed over unread
     (the chat list reads only what it shows)."""
-    held: list[tuple[int, Any]] = []  # lines a torn_line on the next line could still name
+    held: list[tuple[int, Any, int]] = []  # (line, record, bytes): a torn_line may name one
 
     def release() -> list[dict[str, Any]]:
-        bad = next((n for n, record in held if record is None), None)
+        bad = next((n for n, record, _ in held if record is None), None)
         if bad is not None:
             raise ConfigError(
                 f"Line {bad} of {path.name} isn't a complete record, and no torn_line "
                 f"record says it was cut off. Clarity won't guess what it held; the file is "
                 f"at {path}."
             )
-        records = [record for _, record in held if record is not _PASSED]
+        records = [record for _, record, _ in held if record is not _PASSED]
         held.clear()
         return records
 
@@ -166,17 +175,24 @@ def read_records(
                 if record is not None and not isinstance(record, dict):
                     record = None
             if isinstance(record, dict) and record.get("type") == "torn_line":
-                if held and held[-1][0] == record.get("line"):
+                # A torn_line names a line and how much of it was written. A line that is
+                # longer now was still being written when the tail was checked (a write
+                # half visible to another process), not cut off: it stays a record.
+                if (
+                    held
+                    and held[-1][0] == record.get("line")
+                    and held[-1][2] == record.get("bytes")
+                ):
                     held.pop()  # the named line
                     while held and held[-1][1] is None:
                         held.pop()  # malformed lines just before it
                 yield from release()
                 yield record
             elif record is None:
-                held.append((number, None))
+                held.append((number, None, len(line) - 1))
             else:
                 yield from release()
-                held.append((number, record))
+                held.append((number, record, len(line) - 1))
         yield from release()
 
 
