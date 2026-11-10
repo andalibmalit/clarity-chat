@@ -59,8 +59,8 @@ NEUTRAL = {
 
 SEED_MAX = 2**32 - 2  # llama.cpp reads 0xFFFFFFFF (2**32 - 1) as "pick a random seed"
 # "model": its recommended value; "run": a batch run's seed; "server.toml": ctx_size only;
-# "chat": set with /set for one conversation
-ORIGINS = ("profile", "model", "default", "backend", "regen", "run", "server.toml", "chat")
+# "chat": set with /set for one conversation; "log": a resumed conversation's logged value
+ORIGINS = ("profile", "model", "default", "backend", "regen", "run", "server.toml", "chat", "log")
 
 PROFILE_KEYS_COMMON = {
     "backend",
@@ -295,15 +295,28 @@ def profile_path(root: Path, name_or_path: str) -> Path:
     return own if own.is_file() else shipped
 
 
-def _text_or_file(value: object, key: str, base: Path, files: dict[str, str], where: str) -> str:
-    """A string used verbatim, or `{ file = "..." }` read byte for byte, relative to the profile."""
+def _text_or_file(
+    value: object,
+    key: str,
+    base: Path,
+    files: dict[str, str],
+    where: str,
+    logged: dict[str, str] | None,
+) -> str:
+    """A string used verbatim, or `{ file = "..." }` read byte for byte, relative to the
+    profile (or, for a profile from a log, the file's text as logged)."""
     if isinstance(value, str):
         return value
     if isinstance(value, dict) and set(value) == {"file"} and isinstance(value["file"], str):
-        path = base / value["file"]
-        if not path.is_file():
-            raise ConfigError(f"{where}: {key} file {value['file']!r} not found ({path}).")
-        text = read_text(path)
+        if logged is not None:
+            if value["file"] not in logged:
+                raise ConfigError(f"{where}: the log doesn't hold {key} file {value['file']!r}.")
+            text = logged[value["file"]]
+        else:
+            path = base / value["file"]
+            if not path.is_file():
+                raise ConfigError(f"{where}: {key} file {value['file']!r} not found ({path}).")
+            text = read_text(path)
         files[value["file"]] = text
         return text
     raise ConfigError(f'{where}: {key} must be a string or {{ file = "..." }}, got {value!r}.')
@@ -328,14 +341,22 @@ def _messages(value: object, where: str) -> list[dict[str, str]]:
     return messages
 
 
-def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Profile:
-    path = profile_path(root, name_or_path)
-    where = str(path)
-    if not path.is_file():
-        raise ConfigError(
-            f"Profile {name_or_path!r} not found in profiles/ or local/profiles/ ({root})."
-        )
-    toml_text = read_text(path)
+def load_profile(
+    root: Path, name_or_path: str, defaults: dict[str, Any], logged: dict[str, Any] | None = None
+) -> Profile:
+    """Load a profile from its file, or, with `logged` (a log's `profile` field: path, toml
+    and files), from the text a conversation was logged with."""
+    if logged is not None:
+        path, toml_text = Path(logged["path"]), logged["toml"]
+        where = f"{path} (as logged)"
+    else:
+        path = profile_path(root, name_or_path)
+        where = str(path)
+        if not path.is_file():
+            raise ConfigError(
+                f"Profile {name_or_path!r} not found in profiles/ or local/profiles/ ({root})."
+            )
+        toml_text = read_text(path)
     try:
         data = tomllib.loads(toml_text)
     except tomllib.TOMLDecodeError as e:
@@ -375,6 +396,7 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
     settings = resolve_settings(raw_settings, defaults, where)
     files: dict[str, str] = {}
     base = path.parent
+    logged_files = logged["files"] if logged is not None else None
     profile = Profile(
         name=path.stem,
         path=path,
@@ -392,11 +414,13 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
 
     if mode == "chat":
         if "system" in data:
-            profile.system = _text_or_file(data["system"], "system", base, files, where)
+            profile.system = _text_or_file(
+                data["system"], "system", base, files, where, logged_files
+            )
         if "priming" in data:
             priming = data["priming"]
             if isinstance(priming, dict):
-                text = _text_or_file(priming, "priming", base, files, where)
+                text = _text_or_file(priming, "priming", base, files, where, logged_files)
                 try:
                     priming_data = tomllib.loads(text)
                 except tomllib.TOMLDecodeError as e:
@@ -433,8 +457,12 @@ def load_profile(root: Path, name_or_path: str, defaults: dict[str, Any]) -> Pro
                     f"{where}: {key} is required: a non-empty name without outer spaces."
                 )
         profile.user_name, profile.assistant_name = data["user_name"], data["assistant_name"]
-        profile.header = _text_or_file(data.get("header", ""), "header", base, files, where)
-        profile.priming_text = _text_or_file(data.get("priming", ""), "priming", base, files, where)
+        profile.header = _text_or_file(
+            data.get("header", ""), "header", base, files, where, logged_files
+        )
+        profile.priming_text = _text_or_file(
+            data.get("priming", ""), "priming", base, files, where, logged_files
+        )
     return profile
 
 

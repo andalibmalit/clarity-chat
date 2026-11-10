@@ -135,6 +135,16 @@ Each call is its own conversation. Profiles are read once, at the start, so edit
 
 `/regen` and `/edit` add a branch next to the reply or message they replace, and `/undo` steps back so your next message starts one. Nothing is overwritten. `/branches` lists every place on the current path where the conversation branches, with each option's turn ID, and `/switch TURN_ID` goes to that branch's newest reply. Switching sends nothing; your next message continues from there.
 
+## Resume a conversation
+
+`clarity chats` lists your conversations. To continue one, pass its log:
+
+```
+uv run clarity chat --resume logs/CONVERSATION_ID.jsonl
+```
+
+In a chat, `/resume LOG` does the same. The conversation continues where it left off, with its profile, settings, `/set` values and context size as they were logged, and new records go to the same log. Clarity lists what differs today, such as an edited profile file or a new llama.cpp build, and checks that the current reply's prompt still renders to the same token IDs. To pick up today's profile instead, start a new conversation with `/new`.
+
 ## Label replies after the fact
 
 `/mark` and `/note` label the current reply during a chat. To label any logged reply later, for example while reading a blind run's results, use:
