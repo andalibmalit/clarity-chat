@@ -33,7 +33,8 @@ class Command:
 class Commands:
     def __init__(self, session: Session) -> None:
         self.session = session
-        self.cancel_event: threading.Event | None = None  # the running call's
+        self.busy = threading.Lock()  # held while a command runs: one at a time
+        self.cancel_event: threading.Event | None = None  # the running command's
 
     def run(self, name: str, args: str, emit: Emit) -> dict[str, Any]:
         command = COMMANDS.get(name)
@@ -43,21 +44,22 @@ class Commands:
             raise ConfigError("No conversation is running. Start one with /profile NAME.")
         if command.during_call:
             return command.run(self, args, emit)
+        if not self.busy.acquire(blocking=False):
+            raise ConfigError("Another command is still running; only /cancel runs now.")
+        # Made before the command starts, so a cancel that arrives early isn't lost.
+        self.cancel_event = threading.Event()
         self.session.on_record = lambda record: emit({"event": "record", "record": record})
         try:
             return command.run(self, args, emit)
         finally:
             self.session.on_record = None
+            self.cancel_event = None
+            self.busy.release()
 
     def call(self, emit: Emit, start: Callable[..., CallOutcome]) -> dict[str, Any]:
-        """A call with its own cancel event, which `cancel` sets from another thread."""
-        self.cancel_event = cancel = threading.Event()
-        try:
-            outcome = start(
-                on_text=lambda text: emit({"event": "text", "text": text}), cancel=cancel
-            )
-        finally:
-            self.cancel_event = None
+        outcome = start(
+            on_text=lambda text: emit({"event": "text", "text": text}), cancel=self.cancel_event
+        )
         return {"call": outcome.record, "warnings": outcome.warnings}
 
 

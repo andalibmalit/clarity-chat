@@ -51,3 +51,19 @@ def test_commands_need_a_conversation_except_a_few(commands):
 
 def test_only_cancel_runs_during_a_call():
     assert [name for name, cmd in COMMANDS.items() if cmd.during_call] == ["cancel"]
+
+
+def test_one_command_at_a_time_and_an_early_cancel_still_lands(commands):
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+
+    def meanwhile():
+        with pytest.raises(ConfigError, match="Another command is still running"):
+            c.run("undo", "", lambda e: None)
+        c.run("cancel", "", lambda e: None)
+
+    backend.on_call = meanwhile
+    with pytest.raises(CancelledBeforeReply):
+        c.run("say", "Hi", lambda e: None)
+    backend.on_call = None
+    assert c.run("say", "Hi", lambda e: None)["call"]["output_text"] == " Again."

@@ -152,3 +152,13 @@ def test_an_early_cancel_offers_the_message_back(loop):
     assert "Cancelled before the reply started. No reply was added." in text
     assert "Your message is back in the input" in text
     assert chat.draft == "Hi there"
+
+
+@pytest.mark.parametrize("line", ["/edit  ", "/edit \n\n"])
+def test_an_edit_of_only_whitespace_is_cancelled(loop, line):
+    chat, output, backend = loop
+    chat.handle("Hi")
+    output.clear()
+    chat.handle(line)
+    assert "Edit cancelled." in "".join(output)
+    assert len(backend.calls) == 1
