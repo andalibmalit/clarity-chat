@@ -148,3 +148,44 @@ def test_every_call_record_names_the_attention_implementation():
 
     described = TransformersBackend("cpu", 512).describe()
     assert described["attn_implementation"] == ATTN_IMPLEMENTATION == "sdpa"
+
+
+@pytest.mark.parametrize("generation_config", ['{"bos_token_id": 0}', None])
+def test_end_tokens_come_from_the_tokenizer_when_generation_config_has_none(
+    tmp_path, generation_config
+):
+    """OLMo 3 base's generation_config.json has no eos_token_id; Qwen3.5-9B ships none."""
+    from clarity_chat.backends.transformers_hf import end_tokens
+    from tests.conftest import build_tokenizer
+
+    build_tokenizer(tmp_path, None, False)
+    if generation_config is not None:
+        (tmp_path / "generation_config.json").write_text(generation_config, encoding="utf-8")
+    ids, origin = end_tokens(tmp_path)
+    assert ids == [257]  # </s>
+    assert origin == "tokenizer (generation_config.json has none)"
+
+
+def test_end_tokens_come_from_generation_config_when_it_lists_them(tmp_path):
+    from clarity_chat.backends.transformers_hf import end_tokens
+    from tests.conftest import build_tokenizer
+
+    build_tokenizer(tmp_path, None, False)
+    (tmp_path / "generation_config.json").write_text('{"eos_token_id": [5, 6]}', encoding="utf-8")
+    assert end_tokens(tmp_path) == ([5, 6], "generation_config.json")
+
+
+def test_no_end_token_anywhere_is_an_error(tmp_path):
+    import json
+
+    from clarity_chat.backends.transformers_hf import end_tokens
+    from tests.conftest import build_tokenizer
+
+    build_tokenizer(tmp_path, None, False)
+    path = tmp_path / "tokenizer_config.json"
+    config = json.loads(path.read_text(encoding="utf-8"))
+    config.pop("eos_token", None)
+    path.write_text(json.dumps(config), encoding="utf-8")
+    (tmp_path / "special_tokens_map.json").unlink(missing_ok=True)
+    with pytest.raises(ConfigError, match="no end token"):
+        end_tokens(tmp_path)
