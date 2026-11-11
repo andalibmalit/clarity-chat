@@ -30,8 +30,8 @@ from clarity_chat.profiles import (
     ServerConfig,
     Setting,
     check_backend_settings,
-    check_flags,
     check_samplers,
+    check_server_flags,
     check_setting,
     load_defaults,
     load_models,
@@ -313,7 +313,7 @@ class Session:
 
         from clarity_chat.backends.llama_cpp import LlamaCppBackend
 
-        check_flags(flags, "the logged server_start's flags")
+        check_server_flags(flags, "the logged server_start's flags")
         self.close()
         self.server_config = dataclasses.replace(self.server_config, flags=flags)
         backend = LlamaCppBackend(self.server_config, self.logs_dir, self.on_server)
