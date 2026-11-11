@@ -553,3 +553,56 @@ def test_the_server_log_is_readable_only_by_you(root):
     server._drain(io.BytesIO(b"main: ready\n"))
     if os.name != "nt":
         assert server.log_path.stat().st_mode & 0o777 == 0o600
+
+
+# Each setting and the request field that carries it.
+REQUEST_FIELD = {
+    "temperature": "temperature",
+    "top_k": "top_k",
+    "top_p": "top_p",
+    "min_p": "min_p",
+    "repeat_penalty": "repeat_penalty",
+    "repeat_last_n": "repeat_last_n",
+    "presence_penalty": "presence_penalty",
+    "frequency_penalty": "frequency_penalty",
+    "seed": "seed",
+    "max_tokens": "n_predict",
+    "samplers": "samplers",
+}
+
+
+def any_settings():
+    from hypothesis import strategies as st
+
+    unit = st.floats(0, 1, allow_nan=False)
+    return st.fixed_dictionaries(
+        {
+            "temperature": st.floats(0, 2, allow_nan=False),
+            "top_k": st.integers(0, 200),
+            "top_p": unit,
+            "min_p": unit,
+            "repeat_penalty": st.floats(0.5, 2, allow_nan=False),
+            "repeat_last_n": st.integers(0, 512),
+            "presence_penalty": st.floats(-2, 2, allow_nan=False),
+            "frequency_penalty": st.floats(-2, 2, allow_nan=False),
+            "seed": st.integers(0, 2**31 - 1),
+            "max_tokens": st.integers(1, 4096),
+            "samplers": st.permutations(["top_k", "top_p", "min_p", "temperature"]),
+        }
+    )
+
+
+def test_each_setting_reaches_its_own_request_field():
+    """What the record says was set is what was sent: no swapped field, no fixed value. The
+    echo check can't catch either, since it compares the request with the server's echo."""
+    from hypothesis import given
+    from hypothesis import settings as hypothesis_settings
+
+    @hypothesis_settings(max_examples=200, deadline=None)
+    @given(any_settings())
+    def check(settings):
+        request = build_request([1], settings, ["\nUser:"])
+        for name, field in REQUEST_FIELD.items():
+            assert request[field] == settings[name], (name, field)
+
+    check()

@@ -259,3 +259,30 @@ def test_the_model_loader_refuses_a_models_own_code(tmp_path, monkeypatch):
     with pytest.raises(ConfigError, match="its own Python code"):
         from_pretrained(AutoModelForCausalLM, folder)
     assert not (folder / "custom.py.ran").exists()
+
+
+def test_each_sampling_setting_reaches_its_own_generation_field():
+    """As for llama.cpp's request: no swapped field and no fixed value, for any values."""
+    from hypothesis import given
+    from hypothesis import settings as hypothesis_settings
+    from hypothesis import strategies as st
+
+    from tests.test_llama_cpp import any_settings
+
+    @hypothesis_settings(max_examples=200, deadline=None)
+    @given(any_settings(), st.floats(0.01, 2, allow_nan=False), st.floats(0.01, 1))
+    def check(settings, temperature, min_p):
+        settings = {**settings, "temperature": temperature, "min_p": min_p, "logprobs": 0}
+        values = generation_values(settings, [], [2])
+        assert values["do_sample"] is True
+        for name, field in [
+            ("temperature", "temperature"),
+            ("top_k", "top_k"),
+            ("top_p", "top_p"),
+            ("min_p", "min_p"),
+            ("repeat_penalty", "repetition_penalty"),
+            ("max_tokens", "max_new_tokens"),
+        ]:
+            assert values[field] == settings[name], (name, field)
+
+    check()
