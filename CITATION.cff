@@ -1,7 +1,7 @@
 cff-version: 1.2.0
 message: "If you use Clarity in your research, please cite it as below."
 type: software
-title: "Clarity: a terminal chat client for reproducible prompting experiments with local LLMs"
+title: "Clarity: a chat client for exact, replayable prompting experiments with local LLMs"
 authors:
   - family-names: Samandari
     given-names: Andalib

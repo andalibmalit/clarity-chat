@@ -2,7 +2,7 @@
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24068236.svg)](https://doi.org/10.5281/zenodo.24068236)
 
-**Clarity**: a simple chat client for transparent, reproducible experiments with local LLMs.
+**Clarity**: a chat client for exact, replayable prompting experiments with local LLMs.
 
 **What you see is exactly what the model got.**
 
