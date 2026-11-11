@@ -1,6 +1,6 @@
 # Roadmap
 
-What the next releases hold. Each release has a written plan, is used for a day before it's tagged, and the next is planned only after that, so later entries can change. Released versions and their changes are in [`CHANGELOG.md`](CHANGELOG.md); v0.2.0 built in the terminal the core a graphical interface needs.
+What the next releases hold. Each release has a written plan, and the next is planned only after it's tagged, so later entries can change. From v0.3.0, the maintainer uses each release as a user would, following its by-hand list, before it's tagged. Released versions and their changes are in [`CHANGELOG.md`](CHANGELOG.md); v0.2.0 built in the terminal the core a graphical interface needs.
 
 - **v0.2.1, sampling and export.** Regenerate a reply several times, each with its own logged seed. Optionally log each token's probability and its likeliest alternatives. Export a conversation as one documented file: turns, token IDs, marks, notes, model pins and settings. The export records what computed each reply, and a check reports what differs when someone recomputes it elsewhere.
 - **v0.2.2, steering.** Chat with a model steered by a pinned, logged vector that was made elsewhere.
