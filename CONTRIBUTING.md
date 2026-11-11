@@ -53,19 +53,19 @@ Every merged contribution of any kind counts: code, docs, design, testing, resea
 - **[`CONTRIBUTORS.md`](CONTRIBUTORS.md)** lists everyone with a merged contribution, with their roles from the [CRediT taxonomy](https://credit.niso.org/), such as Software, Validation or Writing – review & editing. Your pull request can add you, or the maintainer will.
 - **Authors in [`CITATION.cff`](CITATION.cff)**, and so in the citation and the Zenodo record, are people who made a substantial contribution: a feature, a meaningful part of a release, or sustained work. The bar is generous. You can ask to be added, decline, or add your ORCID.
 - **Order:** the maintainer first, then others in the order of their first substantial contribution.
-- **AI tools** are disclosed in commit trailers (`Co-Authored-By`), not credited as authors, because a tool can't take an author's responsibility for the work.
+- **AI tools** are disclosed in commit trailers (`Co-Authored-By`), not credited as authors, because a tool can't take an author's responsibility for the work. Clarity is built with AI assistance: the maintainer approves each plan, reads the review findings, runs the live tests and uses each release.
 
 ## Release checklist
 
 A release is done when every item is checked.
 
-1. Every item in the release's plan is built, and the whole branch has been reviewed against the plan.
+1. Every item in the release's plan is built, and the branch has had its reviews: a fresh-context review against the plan, and one review of the whole release for bugs, with each finding checked and the confirmed ones fixed or listed.
 2. CI passes on Linux, macOS and Windows.
 3. The maintainer runs the live tests on their own machine: `uv run pytest -m live -v`, plus `-m olmo` and `-m hf` if a backend, a chat template or one of the exactness dependencies changed. The results go in the release notes. CI runs only offline tests, so this is the only test of the code that makes Clarity exact.
 4. A golden log for this release is added to `tests/fixtures/golden/`: a small log written by this release's code with the fake backend and made-up text. `tests/test_golden.py` checks that current code still reads and replays every one.
 5. `CHANGELOG.md`: Unreleased becomes the new version, with **Migration** and **Output may change** where they apply.
 6. The version is bumped in `pyproject.toml` and `CITATION.cff` (`version` and `date-released`) together, and `ROADMAP.md` is updated.
-7. The maintainer uses the release for a day. Releases before the web interface (v0.3.0) skip this; their live tests carry the weight.
+7. From v0.3.0, the maintainer uses the release as a user would, following its by-hand list. Releases before the web interface skip this; their live tests carry the weight.
 8. A pull request merges the release branch into `main`, and the maintainer tags it `vX.Y.Z`.
 9. Only for a version worth citing: a GitHub Release, which mints a Zenodo DOI; that DOI goes in `CITATION.cff`.
 
