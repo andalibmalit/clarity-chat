@@ -77,3 +77,26 @@ def test_without_use_recommended_the_model_values_are_not_used(fetched_root, tin
     session = start(fetched_root, tiny_tokenizer)
     assert session.conversation.profile.settings["temperature"].value == 1.0
     assert session.say("hi").record["recommended"] is None
+
+
+def test_a_resumed_call_records_the_logged_recommended_values(fetched_root, tiny_tokenizer):
+    import json
+
+    write_profile(fetched_root, True)
+    session = start(fetched_root, tiny_tokenizer)
+    session.say("hi")
+    log = session.conversation.log.path
+    session.close()
+    # A later fetch changes the model's recommended values in models.lock.
+    lock_path = fetched_root / "models.lock"
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    lock["models"]["tiny"]["recommended"]["values"]["temperature"] = 0.2
+    lock_path.write_text(json.dumps(lock), encoding="utf-8")
+    resumed = Session(
+        fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    resumed.resume(log)
+    record = resumed.say("again").record
+    assert record["settings"]["temperature"] == {"value": 0.7, "origin": "model"}
+    # the recommended values the setting came from, not today's
+    assert record["recommended"]["values"]["temperature"] == 0.7
