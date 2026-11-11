@@ -712,6 +712,16 @@ def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if isinstance(stream, io.TextIOWrapper) and not stream.isatty():
             stream.reconfigure(encoding="utf-8")
+    parser, chat = build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "chat" and not (args.json or args.profile or args.resume):
+        chat.error("one of --profile or --resume is required (or --json, to start by command)")
+    return run_command(args)
+
+
+def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
+    """Clarity's command line, and its `chat` subcommand's parser. scripts/qa_session.py
+    parses with it too, so it checks the arguments exactly as Clarity will read them."""
     parser = argparse.ArgumentParser(
         prog="clarity",
         description="Clarity: what you see is exactly what the model got.",
@@ -774,9 +784,10 @@ def main(argv: list[str] | None = None) -> int:
     fetch.add_argument("name")
     verify = commands.add_parser("verify", help="re-hash fetched models against models.lock")
     verify.add_argument("names", nargs="*")
-    args = parser.parse_args(argv)
-    if args.command == "chat" and not (args.json or args.profile or args.resume):
-        chat.error("one of --profile or --resume is required (or --json, to start by command)")
+    return parser, chat
+
+
+def run_command(args: argparse.Namespace) -> int:
     try:
         if args.command == "mark":  # a log file is all these need: no project root
             kind = "unmark" if args.remove else "mark"
@@ -823,8 +834,7 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nclarity: interrupted", file=sys.stderr)
         return 130
-    parser.error(f"unknown command {args.command}")
-    return 2
+    raise AssertionError(f"unknown command {args.command}")  # argparse refuses it first
 
 
 if __name__ == "__main__":
