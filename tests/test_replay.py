@@ -344,3 +344,43 @@ def test_logged_flags_outside_the_allowed_list_are_refused(fetched_root, capsys)
     argv = ["--root", str(fetched_root), "replay", str(log), "call-1", "--logged-flags"]
     assert cli.main(argv) == 1
     assert "'host' isn't in Clarity's allowed list" in capsys.readouterr().err
+
+
+def test_a_failed_server_restart_in_replay_leaves_the_chat_usable(
+    fetched_root, tiny_tokenizer, monkeypatch
+):
+    """The server died, /replay's restart fails: the next message must not crash on the
+    failed server's empty record (code review, verifier E)."""
+    from clarity_chat.backends import BackendError, Result, llama_cpp
+    from clarity_chat.profiles import load_server_config
+
+    fail = {"on": False}
+
+    def start(server):
+        if fail["on"]:
+            raise ConfigError("stale build (simulated)")
+        server.proc = type("Running", (), {"poll": lambda self: None})()
+        server.record = {"type": "server_start", "server_id": server.server_id}
+        return server.record
+
+    def complete(self, token_ids, settings, stop, on_text=None, request=None, cancel=None):
+        ids = tiny_tokenizer.encode(" ok")
+        return Result(text=" ok", token_ids=ids, stop_type="eos", n_prompt=len(token_ids))
+
+    monkeypatch.setattr(llama_cpp.LlamaServer, "start", start)
+    monkeypatch.setattr(llama_cpp.LlamaServer, "stop", lambda server: None)
+    monkeypatch.setattr(llama_cpp.LlamaCppBackend, "complete", complete)
+    backend = llama_cpp.LlamaCppBackend(load_server_config(fetched_root), fetched_root / "logs")
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    session.new_conversation("text")
+    session.say("Hi")
+    assert backend.server is not None
+    backend.server.proc = type("Exited", (), {"poll": lambda self: 1})()  # the server died
+    fail["on"] = True
+    with pytest.raises((ConfigError, BackendError)):
+        session.replay_current()
+    fail["on"] = False
+    try:
+        session.say("Again")
+    except (ConfigError, BackendError):
+        pass  # said plainly; a KeyError would be the crash
