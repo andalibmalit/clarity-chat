@@ -20,8 +20,9 @@ identifiers:
     description: "Version 0.1.0"
 abstract: >-
   Clarity builds the token IDs for each call itself, sends every sampling value
-  explicitly, checks that the backend used them, logs everything and can replay
-  any call. It runs local models through llama.cpp or Hugging Face Transformers.
+  explicitly, checks that the backend used them, logs every setting and
+  environment fact known to affect the output, and can replay any completed call.
+  It runs local models through llama.cpp or Hugging Face Transformers.
 keywords:
   - large language models
   - reproducibility
