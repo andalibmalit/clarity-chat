@@ -1032,6 +1032,7 @@ class Session:
         chat = {k: check_setting(k, v, f"{path}: /set") for k, v in state.chat_settings.items()}
         merged = {**prepared.profile.settings, **{k: Setting(v, "chat") for k, v in chat.items()}}
         check_samplers(merged, f"{path}: /set")
+        check_backend_settings(merged, prepared.profile.backend, f"{path}: /set")
         # Everything from the log is built before the model starts, so a log that can't be
         # read leaves the current conversation and its model as they were.
         log = LogFile(path)
