@@ -23,7 +23,7 @@ Output sent to a file or a pipe is UTF-8 on every system. On Windows, Python wou
 
 Exit status:
 - `0`: success, or `replay` found the output identical.
-- `1`: a configuration or backend error (printed as `clarity: …`), a stopped `run`, a `replay` whose output differs, a `verify` that failed, or a `chat --json` session ended by an unexpected error.
+- `1`: a configuration or backend error (printed as `clarity: …`), a stopped `run`, a `replay` whose output differs, a `verify` that failed, or a `chat --json` session whose `--profile` or `--resume` failed or that an unexpected error ended.
 - `2`: wrong command-line arguments.
 - `130`: interrupted with Ctrl-C.
 
@@ -63,7 +63,7 @@ After each reply, a status line shows the stop reason, the reply length in token
 
 ## Scripting with --json
 
-`clarity chat --json` reads one command per line on stdin and writes one event per line on stdout, both as JSON. It runs every chat command in the table above except the terminal's own forms: `/exit`, `/q`, `//text`, `/prompt repr` and `/edit` with no text. With `--profile` or `--resume` it starts with that; without either, send a `profile` or `resume` command first.
+`clarity chat --json` reads one command per line on stdin and writes one event per line on stdout, both as JSON. It runs every chat command in the table above except the terminal's own forms: `/exit`, `/q`, `//text`, `/prompt repr` and `/edit` with no text. With `--profile` or `--resume` it starts with that, and if that fails it sends the error and quits, as the terminal does. Without either, send a `profile` or `resume` command first.
 
 A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat command's name without the slash, `args` is the text that would follow it, and `id` (optional, any JSON value) is copied into the command's `result` or `error`.
 
