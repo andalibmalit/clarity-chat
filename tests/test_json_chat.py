@@ -149,6 +149,7 @@ EVERY_COMMAND = [
     ("note", lambda s: "made-up note"),
     ("title", lambda s: "made-up title"),
     ("replay", lambda s: ""),
+    ("export", lambda s: ""),
     ("undo", lambda s: ""),
     ("cancel", lambda s: ""),
     ("resume", lambda s: s.conversation.conversation_id),
