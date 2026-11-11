@@ -103,7 +103,7 @@ Commands run one at a time, in order. `cancel` runs as soon as it's read, so it 
 
 ## Profile keys
 
-A profile is a TOML file in `profiles/` (shipped with Clarity) or `local/profiles/` (yours; git ignores it). Its name is the file name without `.toml`, and a name in both folders is an error. Unknown keys are errors, and the allowed keys depend on `mode`.
+A profile is a TOML file in `profiles/` (shipped with Clarity) or `local/profiles/` (yours; git ignores it). Its name is the file name without `.toml`, and a name in both folders is an error. Unknown keys are errors, and the allowed keys depend on `mode`. A `{ file = "PATH" }` is read byte for byte, relative to the profile, and must be inside the project folder, after following links.
 
 All profiles:
 

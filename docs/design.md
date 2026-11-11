@@ -6,6 +6,7 @@ Why Clarity works the way it does: each choice, what it costs, and what is out o
 
 - **What you see is exactly what the model got, and every completed call can be replayed.**
 - **No silent fallbacks.** If something can't be done exactly as configured, Clarity stops with a clear error. Two cases are flagged instead, on the record and on screen: a check that fails after a call, and a setting the Transformers backend can't apply.
+- **What Clarity trusts.** It acts on these as written: its own code and locked dependencies, your llama.cpp build, the files it ships, your `local/` folder, and what you type or pass on the command line. Everything else is untrusted: logs and exports (yours may be hand-edited, or someone else's), profiles and prompt files from someone else, downloaded model files and their chat templates, everything llama-server sends back and, from v0.3.0, every request from the browser. Untrusted input may be refused, but it must never reach a command line, a file outside the project folder or a network setting unchecked. So logged flags go through the same checks as `server.toml`'s, and a profile's prompt files must be inside the project folder.
 - **Clarity gets out of the way.** Being exact must not make common experiments awkward. Where a strict rule gets in the way, the answer is a small, explicit shortcut that is itself logged, such as `use_recommended = true`, not more ceremony.
 
 ## The prompt
