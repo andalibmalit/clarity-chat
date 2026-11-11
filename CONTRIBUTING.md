@@ -65,7 +65,7 @@ A release is done when every item is checked.
 4. A golden log for this release is added to `tests/fixtures/golden/`: a small log written by this release's code with the fake backend and made-up text. `tests/test_golden.py` checks that current code still reads and replays every one.
 5. `CHANGELOG.md`: Unreleased becomes the new version, with **Migration** and **Output may change** where they apply.
 6. The version is bumped in `pyproject.toml` and `CITATION.cff` (`version` and `date-released`) together, and `ROADMAP.md` is updated.
-7. From v0.3.0, the maintainer uses the release as a user would, following its by-hand list. Releases before the web interface skip this; their live tests carry the weight.
+7. From v0.3.0, the maintainer uses the release as a user would, following its by-hand list. Releases before the web interface skip this; their live tests carry the weight, plus a five-minute check on the GPU of what the CPU-only QA pass can't show: the memory lines in `/settings`, a cancel while a reply streams, and one OLMo 3 profile in a short chat.
 8. A pull request merges the release branch into `main`, and the maintainer tags it `vX.Y.Z`.
 9. Only for a version worth citing: a GitHub Release, which mints a Zenodo DOI; that DOI goes in `CITATION.cff`.
 
