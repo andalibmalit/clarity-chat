@@ -246,4 +246,4 @@ Checks after each call:
 - `server_running`: the llama-server process Clarity started is still running (`exit_code` if not). Its model and context size are checked through `/props` once, after start. Logs before v0.2.1 have `server_props` here, from a `/props` request after each call.
 - `generation_config` (Transformers): the effective generation config equals what was sent.
 
-A batch run stops on any error, any `check_failed:*` flag, a cancelled call, or a server restart. Other flags are logged, and their warnings print once.
+A batch run stops on any error, any `check_failed:*` flag, a cancelled call, or a server restart. Other flags are logged, and each flagged call is named on screen with its flags; other warnings print once.
