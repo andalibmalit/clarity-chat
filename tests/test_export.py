@@ -95,15 +95,17 @@ def test_failed_calls_are_counted_cancelled_ones_flagged_and_replays_left_out(ma
 class Tagged(FakeBackend):
     """A fake whose server start names its machine, so two starts' facts differ."""
 
-    def __init__(self, tag: str, **kwargs) -> None:
+    def __init__(self, tag: str, machine: str | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.tag = tag
+        self.tag, self.chip = tag, machine or tag
+        self.extra: dict = {}  # other server_start fields
 
     def start(self, model, weights, ctx_size):
         record = super().start(model, weights, ctx_size)
         if record is not None:
             record["server_id"] += f"-{self.tag}"
-            record["machine"] = {"chip": self.tag}
+            record["machine"] = {"chip": self.chip}
+            record.update(self.extra)
         return record
 
     def describe(self):
@@ -294,3 +296,72 @@ def test_a_log_whose_conversation_id_is_a_path_is_refused(make, tmp_path):
     with pytest.raises(ConfigError, match="conversation ID"):
         export_log(session, edited)
     assert not list(tmp_path.parent.glob("**/escaped.jsonl"))
+
+
+def test_two_starts_that_differ_only_in_a_server_flag_are_two_groups(make, tiny_tokenizer):
+    """Every fact replay compares splits the conditions, not only machine and build."""
+    first, one = make(backend=Tagged("one", "m", replies=[" Hello!"], tokenizer=tiny_tokenizer))
+    one.extra = {"flags": {"flash-attn": "on"}}
+    first.new_conversation("text")
+    first.say("Hi")
+    assert first.conversation is not None
+    log = first.conversation.log.path
+    second, two = make(backend=Tagged("two", "m", replies=[" Again."], tokenizer=tiny_tokenizer))
+    two.extra = {"flags": {"flash-attn": "off"}}
+    second.resume(log)
+    second.say("And again")
+    header, _ = read_export(Path(export_log(second, log)["path"]))
+    assert len(header["conditions"]) == 2
+
+
+def test_a_path_that_cant_be_written_is_a_clear_error_and_leaves_no_temp_file(make, tmp_path):
+    session, _ = make([" Hello!"])
+    session.new_conversation("text")
+    session.say("Hi")
+    assert session.conversation is not None
+    target = tmp_path / "a-folder"
+    target.mkdir()
+    with pytest.raises(ConfigError, match="a-folder"):
+        export_log(session, session.conversation.log.path, target)
+    assert not list(tmp_path.glob(".a-folder.*.tmp"))  # it held the whole conversation
+
+
+def test_an_unknown_conversation_is_a_clear_error(fetched_root, capsys):
+    assert cli.main(["--root", str(fetched_root), "export", "no-such-id"]) == 1
+    assert capsys.readouterr().err.startswith("clarity: ")
+
+
+def test_a_log_with_a_call_missing_a_field_is_refused(make, tmp_path):
+    session, _ = make([" Hello!"])
+    session.new_conversation("text")
+    session.say("Hi")
+    assert session.conversation is not None
+    rows = [
+        json.loads(line)
+        for line in session.conversation.log.path.read_text(encoding="utf-8").splitlines()
+    ]
+    for row in rows:
+        if row["type"] == "call":
+            del row["model"]
+    edited = tmp_path / "edited.jsonl"
+    edited.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    with pytest.raises(ConfigError, match="can't be exported"):
+        export_log(session, edited)
+
+
+def test_a_turn_whose_parent_comes_later_is_refused_not_looped_on(make, tmp_path):
+    """A parent_id cycle in an edited log would make following the path loop for ever."""
+    session, _ = make([" Hello!"])
+    session.new_conversation("text")
+    session.say("Hi")
+    assert session.conversation is not None
+    rows = [
+        json.loads(line)
+        for line in session.conversation.log.path.read_text(encoding="utf-8").splitlines()
+    ]
+    turns = [r for r in rows if r["type"] == "turn"]
+    turns[0]["parent_id"] = turns[-1]["turn_id"]
+    edited = tmp_path / "edited.jsonl"
+    edited.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    with pytest.raises(ConfigError, match="parent"):
+        export_log(session, edited)
