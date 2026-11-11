@@ -507,6 +507,10 @@ class Session:
     def regen_seed(self) -> int:
         """The next regeneration's seed: the first reply's seed plus k, where k counts this
         and earlier regenerations of the current message."""
+        return self._regen_start()[3]
+
+    def _regen_start(self) -> tuple[Turn, Turn, Turn, int]:
+        """The current reply, its message, that message's first reply, and the next seed."""
         conversation = self._require_conversation()
         reply = conversation.current_reply("regenerate")
         assert reply.parent_id is not None
@@ -520,19 +524,13 @@ class Session:
                 f"The next regeneration seed, {seed}, is above {SEED_MAX}. Edit the message or "
                 "start a new conversation instead."
             )
-        return seed
+        return reply, conversation.turns[reply.parent_id], first, seed
 
     def regen(
         self, on_text: Callable[[str], None] | None = None, cancel: threading.Event | None = None
     ) -> CallOutcome:
         """Another reply to the current message, as a new branch, with `regen_seed()`."""
-        conversation = self._require_conversation()
-        seed = self.regen_seed()
-        reply = conversation.current_reply("regenerate")
-        assert reply.parent_id is not None
-        user = conversation.turns[reply.parent_id]
-        replies = conversation.replies_to(user.turn_id)
-        first = next((t for t in replies if t.regen_of is None), replies[0])
+        reply, user, first, seed = self._regen_start()
         return self.call(
             user,
             seed=Setting(seed, "regen"),

@@ -70,8 +70,6 @@ NEUTRAL_CONFIG: dict[str, Any] = {
     "use_cache": True,
     "cache_implementation": None,
     "output_scores": False,
-    "output_logits": False,
-    "return_dict_in_generate": False,
 }
 # Fields that can't change a single greedy or sampled sequence without an assistant model
 # (speculative decoding), beams, compilation or batching; their values are only logged.
@@ -459,11 +457,7 @@ class TransformersBackend:
             ) from e
         check = check_config(effective.to_dict(), values)
         backend_settings = {
-            k: {
-                "value": values.get(k, v),
-                "origin": "backend" if values.get(k, v) == v else "logprobs",
-            }
-            for k, v in NEUTRAL_CONFIG.items()
+            k: {"value": v, "origin": "backend"} for k, v in NEUTRAL_CONFIG.items()
         } | {"eos_token_id": {"value": self.eos_ids, "origin": self.eos_from}}
         stop_words = values["stop_strings"] or []
         ids: list[int] = []
