@@ -308,3 +308,46 @@ def test_resume_refuses_logprobs_on_a_llama_cpp_conversation(new_session):
     with pytest.raises(ConfigError, match="Transformers backend for now"):
         resumed.resume(session.conversation.log.path)
     assert backend.ctx_sizes == []
+
+
+def test_a_logged_profile_path_outside_the_project_isnt_read(new_session, fetched_root, tmp_path):
+    """A log is untrusted: its profile path mustn't make resume read a file elsewhere."""
+    session, _ = new_session([" Hello!"])
+    session.new_conversation("text")
+    session.say("Hi")
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.toml"
+    outside.write_text("not = 'a profile Clarity should open'\n", encoding="utf-8")
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    rows[0]["profile"]["path"] = outside.as_posix()
+    log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    resumed, _ = new_session([" Again."])
+    record = resumed.resume(log)
+    assert record["profile_file"] == "outside the project folder"
+
+
+def test_a_resumed_call_records_the_logged_recommended_values_after_a_failed_start(
+    new_session, fetched_root
+):
+    """The only call before resuming failed, so no completed call holds `recommended`."""
+    from clarity_chat.models import read_lock, write_lock_entry
+
+    text = (fetched_root / "profiles" / "text.toml").read_text(encoding="utf-8")
+    (fetched_root / "profiles" / "rec.toml").write_text(
+        "use_recommended = true\n" + text, encoding="utf-8"
+    )
+    session, backend = new_session([" Hello!"])
+    session.new_conversation("rec")
+    backend.fail_with = "server gone"
+    with pytest.raises(Exception, match="server gone"):
+        session.say("Hi")
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    logged = next(r for r in read_records(log) if r["type"] == "call")["recommended"]
+    entry = read_lock(fetched_root)["models"]["tiny"]
+    entry["recommended"] = {**entry["recommended"], "values": {"temperature": 0.1}}
+    write_lock_entry(fetched_root, "tiny", entry)  # a later fetch changed it
+    resumed, _ = new_session([" Again."])
+    resumed.resume(log)
+    assert resumed.say("Hi again").record["recommended"] == logged
