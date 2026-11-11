@@ -654,7 +654,24 @@ def load_server_config(root: Path) -> ServerConfig:
     if unknown or not allowed <= set(data):
         raise ConfigError(f"{where}: needs exactly the keys {sorted(allowed)}; unknown: {unknown}.")
     flags = data["flags"]
+    check_server_flags(flags, where)
+    timeout = data["startup_timeout_s"]
+    if _number(timeout) is None or timeout <= 0:
+        raise ConfigError(f"{where}: startup_timeout_s must be a positive number.")
+    return ServerConfig(
+        path=path,
+        llama_cpp_dir=(root / data["llama_cpp_dir"]).resolve(),
+        llama_cpp_commit=check_commit(data["llama_cpp_commit"], f"{where}: llama_cpp_commit"),
+        startup_timeout_s=float(timeout),
+        flags=dict(flags),
+    )
+
+
+def check_server_flags(flags: object, where: str) -> None:
+    """server.toml's flags are complete and exact. Also run on a log's flags before
+    `replay --logged-flags` starts a server with them; every release required the same."""
     check_flags(flags, where)
+    assert isinstance(flags, dict)
     missing = [name for name in REQUIRED_FLAGS if name not in flags]
     if missing:
         raise ConfigError(f"{where}: [flags] must set {missing} explicitly.")
@@ -682,13 +699,3 @@ def load_server_config(root: Path) -> ServerConfig:
         )
     if flags["flash-attn"] not in ("on", "off"):
         raise ConfigError(f'{where}: flash-attn must be "on" or "off".')
-    timeout = data["startup_timeout_s"]
-    if _number(timeout) is None or timeout <= 0:
-        raise ConfigError(f"{where}: startup_timeout_s must be a positive number.")
-    return ServerConfig(
-        path=path,
-        llama_cpp_dir=(root / data["llama_cpp_dir"]).resolve(),
-        llama_cpp_commit=check_commit(data["llama_cpp_commit"], f"{where}: llama_cpp_commit"),
-        startup_timeout_s=float(timeout),
-        flags=dict(flags),
-    )
