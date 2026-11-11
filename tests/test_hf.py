@@ -261,3 +261,43 @@ def test_olmo_3_instruct_on_mps_repeats_and_replays(tmp_path):
     finally:
         other.close()
     assert replayed["identical"], replayed
+
+
+def test_the_recompute_check_on_an_export_of_a_chat_with_probabilities(tmp_path):
+    """C2, as a notebook would run it: the model loaded fresh in bf16 on the CPU gives a gap
+    of 0 and no changed top choices; a float32 load is named as a different precision and
+    moves the numbers."""
+    import torch
+    from transformers import AutoModelForCausalLM
+
+    from clarity_chat.export import export_log
+    from clarity_chat.recompute import check
+
+    model = load_models(REPO)[MODEL]
+    pins = {"repo": model.repo, "revision": model.revision}
+    session = Session(REPO, logs_dir=tmp_path)
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    try:
+        name = profile(folder, "smol-chat", device='"cpu"', temperature="0.8")
+        with open(name, "a", encoding="utf-8") as f:
+            f.write("logprobs = 5\n")  # [settings] is the file's last table
+        session.new_conversation(name)
+        session.say("Name three rivers.")
+        assert session.conversation is not None
+        export = Path(export_log(session, session.conversation.log.path)["path"])
+    finally:
+        session.close()
+    weights = source_weights(REPO, lock_entry(REPO, model))
+    reports = {}
+    for dtype in (torch.bfloat16, torch.float32):
+        loaded = AutoModelForCausalLM.from_pretrained(
+            weights, dtype=dtype, attn_implementation="sdpa"
+        )
+        reports[dtype] = check(export, loaded, **pins)
+    same, wider = reports[torch.bfloat16], reports[torch.float32]
+    assert [f["fact"] for f in same.groups[0]["facts"] if not f["same"]] == [], str(same)
+    measured = same.calls[0]["measured"]
+    assert measured["largest_gap"] == 0.0 and measured["top_changed"] == 0
+    assert [f["fact"] for f in wider.groups[0]["facts"] if not f["same"]] == ["precision"]
+    assert wider.calls[0]["measured"]["largest_gap"] > 0
