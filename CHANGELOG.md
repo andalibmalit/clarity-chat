@@ -33,6 +33,7 @@ Two headings are Clarity's own, used when they apply:
 - A batch run (`clarity run`) logged a call's flags, such as `incomplete_output_ids`, but didn't show them, so a flagged sample went unnoticed unless someone read `calls.jsonl`. Each flagged call is now named on screen with its flags (never its reply).
 - `server.toml` accepted `false` for `kv-unified`, `no-kv-unified` and `no-jinja`, which left the flag out so llama-server's default applied. It also accepted `threads` or `threads-batch` of 0 or less, which llama-server reads as every core. Both are now refused.
 - `server.toml` now refuses every adapter and control-vector flag. Before, only `lora` and `control-vector` were refused, and `lora-scaled`, `lora-init-without-apply`, `control-vector-scaled` and `control-vector-layer-range` were passed to llama-server. A reply made with one of them has the flag in its `server_start` record.
+- A replay flagged `text_differs_from_ids` now logs `decoded_output_text`, as the call does.
 
 ### Changed
 - A llama-server built from a commit other than the one `server.toml` pins is now an error at start, not a warning. The binary is what runs, and a checkout at another commit was already an error.

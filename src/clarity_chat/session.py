@@ -975,7 +975,7 @@ class Session:
                     "timings",
                 )
             },
-            **({"logprobs": fields["logprobs"]} if "logprobs" in fields else {}),
+            **{k: fields[k] for k in ("decoded_output_text", "logprobs") if k in fields},
         }
         if not comparison["identical"]:
             record["logged_output_text"] = call["output_text"]
