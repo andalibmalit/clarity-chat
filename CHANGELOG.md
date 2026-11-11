@@ -23,6 +23,7 @@ Two headings are Clarity's own, used when they apply:
 - `/regen N` makes N more replies to your last message, each a new branch with its own logged seed. With `--json`, a `reply_start` event (`k`, `n`, `seed`) comes before each.
 
 ### Fixed
+- With `--json`, Clarity aborted when it quit while its input was still open, as a script's usually is: "Fatal Python error … daemon threads" and exit status -6 (SIGABRT) instead of 0 or 1. It now exits with its own status.
 - Resuming a hand-edited log whose turns' parents formed a loop could hang. Resume and export now refuse a log whose turn names a parent that isn't an earlier turn, and name that turn.
 - With `--json`, an unexpected error in a command (a bug, or a full disk) ended the session with a traceback and no `error` event. It now sends an `error` event naming the command and the error, quits, and exits with status 1. A line nested too deeply to parse stopped Clarity reading input; it's now an `InputError` like any other line that isn't a command.
 - Replay and resume of a call whose log lacks its `server_start` record (a trimmed or hand-edited log) compared the wrong backend's facts and reported empty ones as differences, which could hide an unexplained difference. The call's own backend now decides, and what the log lacks is listed as not recorded.
