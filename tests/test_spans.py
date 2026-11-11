@@ -142,6 +142,26 @@ def test_a_template_that_fails_on_placeholders_gives_a_reason_not_an_error(root,
     assert set(spans) == {"unavailable"} and "no" in spans["unavailable"]
 
 
+def test_a_template_that_reorders_messages_gives_no_spans(root, tmp_path):
+    reverse = "{% for m in messages | reverse %}<{{ m.role }}>{{ m.content }}</s>{% endfor %}"
+    tokenizer = toy(tmp_path, reverse + "<assistant>")
+    profile = profile_for(root, CHAT_PROFILE)
+    _, spans = spans_for(tokenizer, profile, TURNS)
+    assert "unavailable" in spans and "reorders message 2" in spans["unavailable"]
+
+
+def test_a_long_chat_gets_spans_quickly(root, tmp_path):
+    import time
+
+    tokenizer = toy(tmp_path, LOOP.replace("BODY", "m.content"))
+    profile = profile_for(root, CHAT_PROFILE)
+    turns = [("user" if i % 2 == 0 else "assistant", f"message {i} " * 20) for i in range(400)]
+    start = time.monotonic()
+    prompt, spans = spans_for(tokenizer, profile, turns)
+    assert_covers(prompt, spans)
+    assert time.monotonic() - start < 2  # finding the placeholders once each, not per pair
+
+
 def test_an_empty_message_gets_a_zero_length_span(root, tmp_path):
     tokenizer = toy(tmp_path, LOOP.replace("BODY", "m.content"))
     profile = profile_for(root, CHAT_PROFILE)
