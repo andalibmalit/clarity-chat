@@ -177,3 +177,15 @@ def fake_fetch(root: Path, name: str = "tiny") -> Path:
 def fetched_root(root: Path) -> Path:
     fake_fetch(root)
     return root
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """In CI, an offline test that skips because torch is missing fails instead: CI installs
+    the hf extra, and an offline test never skips there (CLAUDE.md). Without this, a torch
+    that fails to import on one system would pass CI with the probability tests unrun."""
+    outcome = yield
+    report = outcome.get_result()
+    if os.environ.get("CI") and report.skipped and "torch" in str(report.longrepr):
+        report.outcome = "failed"
+        report.longrepr = f"Skipped in CI, where torch must import: {report.longrepr}"
