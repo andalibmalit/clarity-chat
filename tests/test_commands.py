@@ -221,3 +221,35 @@ def test_commands_that_parse_names_ignore_edge_spaces_from_scripts(commands):
     marked = c.run("mark", " landed ", lambda e: None)["records"]
     assert marked[0]["label"] == "landed"
     assert c.run("unmark", "landed", lambda e: None)["records"]
+
+
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        ("profile", "PROFILES/text.toml"),
+        ("profile", "../profiles/text"),
+        ("resume", "LOG"),
+        ("resume", "../logs/LOGNAME"),
+    ],
+)
+def test_a_command_takes_names_and_ids_not_paths(commands, fetched_root, name, args):
+    """From v0.3.0 the browser sends commands too, and the trust statement counts them as
+    untrusted: a path could make Clarity read any .toml or append to any log. The command
+    line's --profile and --resume, typed by you, keep their paths."""
+    c, _ = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    log = c.session.conversation.log.path
+    args = args.replace("PROFILES", str(fetched_root / "profiles")).replace("LOGNAME", log.stem)
+    with pytest.raises(ConfigError, match="not a path"):
+        c.run(name, args.replace("LOG", str(log)), lambda e: None)
+
+
+def test_the_command_lines_paths_still_work(commands, fetched_root):
+    c, _ = commands
+    profile = str(fetched_root / "profiles" / "text.toml")
+    assert c.run("profile", profile, lambda e: None, paths=True)["profile"] == "text"
+    c.run("say", "Hi", lambda e: None)
+    log = c.session.conversation.log.path
+    c.run("resume", str(log), lambda e: None, paths=True)
+    assert c.run("resume", log.stem, lambda e: None)["conversation_id"] == log.stem
