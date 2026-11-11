@@ -254,7 +254,8 @@ def run_batch(
         "calls": "calls.jsonl",
         "openings": key_openings,
     }
-    write_text_atomic(run_dir / "key.json", json.dumps(key, indent=2, ensure_ascii=False) + "\n")
+    key_text = json.dumps(key, indent=2, ensure_ascii=False) + "\n"
+    write_text_atomic(run_dir / "key.json", key_text, private=True)
     blind_path = run_dir / "blind.md"
-    write_text_atomic(blind_path, "\n".join(blind))
+    write_text_atomic(blind_path, "\n".join(blind), private=True)
     return blind_path
