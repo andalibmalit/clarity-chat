@@ -20,7 +20,7 @@ from typing import Any
 
 from clarity_chat.backends import BackendError
 from clarity_chat.logs import list_chats
-from clarity_chat.profiles import ConfigError
+from clarity_chat.profiles import ConfigError, profile_path
 from clarity_chat.session import CallOutcome, CancelledBeforeReply, Session
 
 Emit = Callable[[dict[str, Any]], None]
@@ -178,8 +178,10 @@ def _resume(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     log = needs(args, "/resume ID")
     if not c.paths and not re.fullmatch(r"[A-Za-z0-9_-]+", log):
         raise ConfigError("/resume takes a conversation ID from /chats, not a path.")
+    # An ID means logs/ID.jsonl only, never a file of that name in the working folder.
+    path = c.session.log_for(log) if c.paths else c.session.logs_dir / f"{log}.jsonl"
     emit({"event": "status", "status": "starting", "log": log})
-    record = c.session.resume(c.session.log_for(log))
+    record = c.session.resume(path)
     conversation = c.session.conversation
     assert conversation is not None
     emit({"event": "status", "status": "ready", "conversation_id": conversation.conversation_id})
@@ -278,17 +280,33 @@ def _replay(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 def _new(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     conversation = c.session.conversation
     assert conversation is not None
-    profile = conversation.profile  # its file, so a path works too; else (resumed) its name
-    return _start(c, str(profile.path) if profile.path.is_file() else profile.name, emit)
+    profile = conversation.profile
+    if not conversation.resumed and profile.path.is_file():  # a file you named: a path works
+        return _start(c, str(profile.path), emit)
+    # A resumed conversation's profile path comes from its log, which is untrusted: reuse it
+    # only inside the project, else start the logged name from profiles/ or local/profiles/.
+    root = c.session.root.resolve()
+    if profile.path.is_file() and profile.path.resolve().is_relative_to(root):
+        return _start(c, str(profile.path), emit)
+    return _start(c, named_profile(c, profile.name), emit)
 
 
 def _profile(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     name = needs(args, "/profile NAME")
-    if not c.paths and (Path(name).name != name or name.startswith(".") or "\\" in name):
+    return _start(c, name if c.paths else named_profile(c, name), emit)
+
+
+def named_profile(c: Commands, name: str) -> str:
+    """A profile name's file in profiles/ or local/profiles/: never a path, and never a file
+    in the working folder."""
+    if Path(name).name != name or name.startswith(".") or name.endswith(".toml") or "\\" in name:
         raise ConfigError(
             "/profile takes a profile name from profiles/ or local/profiles/, not a path."
         )
-    return _start(c, name, emit)
+    path = profile_path(c.session.root, name)
+    if not path.is_file():
+        raise ConfigError(f"Profile {name!r} not found in profiles/ or local/profiles/.")
+    return str(path)
 
 
 def _start(c: Commands, profile: str, emit: Emit) -> dict[str, Any]:
