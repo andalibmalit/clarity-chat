@@ -4,11 +4,13 @@
         [--steps STEPS] [--init] -- CLARITY_ARGS...
 
 Runs `clarity --root ROOT CLARITY_ARGS` in a pseudo-terminal (macOS and Linux), types
-each line of STEPS once the output has gone quiet, then Ctrl-D, and writes everything
-printed to FILE. A step line `<ctrl-c>` sends Ctrl-C; `<ctrl-c after S>` sends it S
-seconds after the step before it was typed, without waiting for quiet (to cancel a reply
-while it streams); `<wait N>` waits N more seconds; lines starting with `#` are skipped.
-Clarity runs in ROOT, so relative paths in CLARITY_ARGS are relative to ROOT.
+each line of STEPS once the output has gone quiet (a model still loading counts as
+quiet: the line editor keeps early input and runs it in order), then Ctrl-D, and writes
+everything printed to FILE, exiting with Clarity's status. A step line `<ctrl-c>` sends
+Ctrl-C; `<ctrl-c after S>` sends it S seconds after the step before it was typed,
+without waiting for quiet (to cancel a reply while it streams); `<wait N>` waits N more
+seconds; lines starting with `#` are skipped. Clarity runs in ROOT, so relative paths in
+CLARITY_ARGS are relative to ROOT.
 
 The owner allowlists this script to run outside the sandbox, which blocks
 pseudo-terminals and hides the GPU, so it keeps Clarity to the scratch root and to
@@ -277,7 +279,10 @@ def main() -> int:
         # In the root, so nothing resolves against the checkout. No downloads: everything QA
         # needs is fetched already.
         os.chdir(root)
-        os.execve(argv[0], argv, {**os.environ, "HF_HUB_OFFLINE": "1"})
+        # PROMPT_TOOLKIT_NO_CPR: nothing answers the line editor's cursor-position request,
+        # so it would print a warning that isn't Clarity's.
+        env = {**os.environ, "HF_HUB_OFFLINE": "1", "PROMPT_TOOLKIT_NO_CPR": "1"}
+        os.execve(argv[0], argv, env)
     with args.out.open("wb") as log:
         log.write(f"$ clarity --root {args.root} {' '.join(clarity_args)}\n".encode())
         read_until_quiet(primary, log, STEP_TIMEOUT_S)
@@ -294,14 +299,15 @@ def main() -> int:
                 read_until_quiet(primary, log, float(timed[1]), quiet=float("inf"))
             else:
                 read_until_quiet(primary, log, STEP_TIMEOUT_S)
-        if steps:
-            log.write(b"\n[qa end: ctrl-d]\n")
-            os.write(primary, b"\x04")  # end of input: the chat quits as a user's would
-        read_until_quiet(primary, log, STEP_TIMEOUT_S)
+        # End of input: a chat quits as a user's would; other commands don't read it. Then
+        # read until the program ends, not until it's quiet: replay prints only at the end.
+        log.write(b"\n[qa end: ctrl-d]\n")
+        os.write(primary, b"\x04")
+        read_until_quiet(primary, log, STEP_TIMEOUT_S, quiet=float("inf"))
         status = wait(pid)
         log.write(f"\n[qa exit status {status}]\n".encode())
     os.close(primary)
-    return 0
+    return status  # Clarity's own, so `echo $?` shows it
 
 
 def wait(pid: int) -> int:
