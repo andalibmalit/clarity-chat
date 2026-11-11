@@ -27,6 +27,7 @@ Live tests on an M2 Max (macOS), 2026-11-11: `-m live` 17 passed (including a qu
 - `/regen N` makes N more replies to your last message, each a new branch with its own logged seed. With `--json`, a `reply_start` event (`k`, `n`, `seed`) comes before each.
 
 ### Fixed
+- Replay and resume counted a machine value that one side couldn't read (the chip's name, which a sandbox hides) or didn't record (a newer key) as a difference, so an output that differed for no recorded reason wasn't flagged `unexplained_difference`. Such values are now listed under `not_recorded`.
 - With `--json`, Clarity aborted when it quit while its input was still open, as a script's usually is: "Fatal Python error … daemon threads" and exit status -6 (SIGABRT) instead of 0 or 1. It now exits with its own status.
 - Resuming a hand-edited log whose turns' parents formed a loop could hang. Resume and export now refuse a log whose turn names a parent that isn't an earlier turn, and name that turn.
 - With `--json`, an unexpected error in a command (a bug, or a full disk) ended the session with a traceback and no `error` event. It now sends an `error` event naming the command and the error, quits, and exits with status 1. A line nested too deeply to parse stopped Clarity reading input; it's now an `InputError` like any other line that isn't a command.
