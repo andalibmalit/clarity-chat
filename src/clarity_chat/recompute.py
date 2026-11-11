@@ -34,9 +34,10 @@ def installed(package: str) -> str | None:
 
 @dataclass
 class Report:
-    """`groups`: per conditions group, its call IDs and each fact (`fact`, `export`, `here`,
-    `same`, and `says` for weights). `calls`: per call, `measured` (`steps`, `largest_gap`,
-    `top_changed`) or None with `why`."""
+    """`groups`: per conditions group, its call IDs and each fact: `fact`, `export`, `here`,
+    `same` (True, False, or None if the export didn't record it) and, for weights, `says`.
+    `calls`: per call, `measured` (`steps`, `largest_gap`, `top_changed`) or None with
+    `why`."""
 
     groups: list[dict[str, Any]] = field(default_factory=list)
     calls: list[dict[str, Any]] = field(default_factory=list)
@@ -48,6 +49,8 @@ class Report:
             for f in group["facts"]:
                 if f["same"]:
                     lines.append(f"  {f['fact']}: the same ({shown(f['here'])})")
+                elif f["same"] is None and not f.get("says"):
+                    lines.append(f"  {f['fact']}: not recorded in the export")
                 else:
                     says = f"{f['says']}; " if f.get("says") else ""
                     lines.append(
@@ -122,7 +125,12 @@ def facts(
     ]
     if says:
         found[0]["says"] = says
-    found += [{"fact": f, "export": e, "here": h, "same": e == h} for f, e, h in pairs]
+    # None in the export means not recorded (an older log, a missing server record): unknown,
+    # which isn't the same as different.
+    found += [
+        {"fact": f, "export": e, "here": h, "same": None if e is None else e == h}
+        for f, e, h in pairs
+    ]
     return found
 
 
