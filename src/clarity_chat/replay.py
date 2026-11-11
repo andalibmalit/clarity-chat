@@ -97,8 +97,11 @@ def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict
     `end_tokens` are the IDs a reply stops on. Each backend finds its own, and they can differ:
     llama.cpp also stops on tokens it recognizes by name, such as SmolLM2's <|endoftext|>
     and <reponame>."""
+    # The call names its backend; a log missing the server record still gets the right facts,
+    # and what it lacks is None (not recorded) rather than an empty value that differs.
     server = server or {}
-    if server.get("backend") == "transformers":
+    backend = (call.get("backend") or {}).get("backend") or server.get("backend")
+    if backend == "transformers":
         eos = server.get("eos_token_id")
         return {
             "end_tokens": sorted(eos) if eos is not None else None,
@@ -118,12 +121,18 @@ def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict
     return {
         "end_tokens": sorted(t["id"] for t in eog) if eog is not None else None,
         "build_info": server.get("build_info"),
-        "llama_cpp": {k: v for k, v in (server.get("llama_cpp") or {}).items() if k != "dir"},
+        "llama_cpp": (
+            {k: v for k, v in server["llama_cpp"].items() if k != "dir"}
+            if server.get("llama_cpp") is not None
+            else None
+        ),
         "flags": server.get("flags"),
         "graph_splits": server.get("graph_splits"),
-        "props": {
-            k: v for k, v in (server.get("props") or {}).items() if k not in PROPS_NOT_COMPARED
-        },
+        "props": (
+            {k: v for k, v in server["props"].items() if k not in PROPS_NOT_COMPARED}
+            if server.get("props") is not None
+            else None
+        ),
         "env": server.get("env_llama_ggml_kept"),
         "machine": server.get("machine"),
         "gguf_sha256": call["model"].get("gguf_sha256"),
