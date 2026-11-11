@@ -209,3 +209,18 @@ def make_session(fetched_root, chat_tokenizer):
         return session, backend
 
     return make
+
+
+@pytest.mark.parametrize("case", ["upper", "lower"])
+def test_a_case_changing_template_is_caught_whatever_the_random_part(
+    root, tmp_path, monkeypatch, case
+):
+    """The placeholder must change under any case mapping, even if its random part is all
+    digits (about 1 run in 280), so the reason is the same every run."""
+    monkeypatch.setattr("clarity_chat.render.secrets.token_hex", lambda n: "0" * (2 * n))
+    tokenizer = toy(tmp_path, LOOP.replace("BODY", f"m.content | {case}"))
+    profile = profile_for(root, CHAT_PROFILE)
+    _, spans = spans_for(tokenizer, profile, TURNS)
+    assert spans == {
+        "unavailable": "the chat template changes, leaves out, repeats or reorders message 1"
+    }
