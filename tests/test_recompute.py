@@ -412,3 +412,26 @@ def test_a_machine_value_unknown_here_isnt_a_difference(tmp_path, monkeypatch):
     assert "macos.chip" in line and "differ" not in line
     here["macos"]["chip"] = "Apple M3"  # a value on both sides that differs is a difference
     assert facts(check(export, stand_in(), **PINS))["machine"]["same"] is False
+
+
+def test_the_check_reads_what_export_log_writes(fetched_root, tiny_tokenizer):
+    """A round trip through the real writer, so the check and the export can't drift apart
+    the way a hand-built header could."""
+    from clarity_chat.export import export_log
+    from clarity_chat.session import Session
+    from tests.fakes import FakeBackend
+
+    backend = FakeBackend([" One.", " Two."], tokenizer=tiny_tokenizer)
+    backend.name = "transformers"
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    session.new_conversation("text")
+    session.say("Hi")
+    session.say("Again")
+    assert session.conversation is not None
+    path = Path(export_log(session, session.conversation.log.path)["path"])
+    report = check(path, stand_in(name="test/tiny"), revision="0123456789abcdef" * 2 + "01234567")
+    header = json.loads(path.read_text(encoding="utf-8").split("\n")[0])
+    assert [g["call_ids"] for g in report.groups] == [g["call_ids"] for g in header["conditions"]]
+    assert [c["call_id"] for c in report.calls] == header["conditions"][0]["call_ids"]
+    assert facts(report)["backend"]["same"] and facts(report)["weights"]["same"]
+    assert all("logprobs" in c["why"] for c in report.calls)  # none were logged
