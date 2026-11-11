@@ -190,3 +190,17 @@ def test_no_end_token_anywhere_is_an_error(tmp_path):
     (tmp_path / "special_tokens_map.json").unlink(missing_ok=True)
     with pytest.raises(ConfigError, match="no end token"):
         end_tokens(tmp_path)
+
+
+def test_mps_with_the_cpu_fallback_switched_on_is_refused(monkeypatch, tmp_path):
+    """PYTORCH_ENABLE_MPS_FALLBACK would run what MPS lacks on the CPU without notice."""
+    torch = pytest.importorskip("torch")
+    from clarity_chat.backends.transformers_hf import TransformersBackend
+    from clarity_chat.profiles import load_models
+    from tests.conftest import REPO
+
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: True)  # on any machine
+    monkeypatch.setenv("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    model = next(iter(load_models(REPO).values()))
+    with pytest.raises(ConfigError, match="PYTORCH_ENABLE_MPS_FALLBACK"):
+        TransformersBackend("mps", 512).start(model, tmp_path, 512)
