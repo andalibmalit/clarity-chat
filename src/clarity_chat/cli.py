@@ -575,11 +575,12 @@ def cmd_chat_json(root: Path, profile: str | None, resume: str | None, on_server
     atexit.register(session.close)
     first = [{"command": "profile", "args": profile}] if profile else []
     first += [{"command": "resume", "args": resume}] if resume else []
+    chat = JsonChat(session, sys.stdin.buffer, sys.stdout)
     try:
-        JsonChat(session, sys.stdin.buffer, sys.stdout).run(first)  # bytes: UTF-8 always
+        chat.run(first)  # bytes: UTF-8 always
     finally:
         session.close()
-    return 0
+    return 1 if chat.failed else 0
 
 
 def cmd_run(

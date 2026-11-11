@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import queue
 import threading
+import traceback
 from typing import IO, Any
 
 from clarity_chat.backends import BackendError
@@ -37,6 +38,7 @@ class JsonChat:
         self.stdin, self.stdout = stdin, stdout
         self.write_lock = threading.Lock()
         self.closed = False  # the reader of stdout went away: stop writing, then quit
+        self.failed = False  # an unexpected error ended the session
 
     def emit(self, event: dict[str, Any]) -> None:
         """Write one event. Never raises: a log record's event is sent after the record is
@@ -90,7 +92,7 @@ class JsonChat:
             return {"error": f"Not UTF-8: {e}"}
         try:
             command = json.loads(text)
-        except ValueError as e:
+        except (ValueError, RecursionError) as e:  # RecursionError: nested too deeply
             return {"error": f"Not JSON: {e}"}
         if (
             not isinstance(command, dict)
@@ -109,5 +111,10 @@ class JsonChat:
         except (ConfigError, ContextError, BackendError) as e:
             self.emit({"event": "error", **tag, "type": type(e).__name__, "message": str(e)})
             return True
+        except Exception as e:  # a bug or a full disk: tell the client, then quit
+            traceback.print_exc()
+            self.emit({"event": "error", **tag, "type": type(e).__name__, "message": str(e)})
+            self.failed = True
+            return False
         self.emit({"event": "result", **tag, "result": result})
         return name != "quit"
