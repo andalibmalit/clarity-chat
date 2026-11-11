@@ -1,9 +1,9 @@
 # CLAUDE.md
 
-Clarity: a terminal chat client for reproducible prompting experiments with local LLMs. Design choices, tradeoffs and scope: `docs/design.md`. Local-only notes in `notes/` (gitignored, so not in clones or CI): the spec `notes/brief.md`, the build plan and current status `notes/plan.md`, and research in `notes/research/`. `docs/` holds only docs for other readers.
+Clarity: a chat client for exact, replayable prompting experiments with local LLMs. Design choices, tradeoffs and scope: `docs/design.md`. Local-only notes in `notes/` (gitignored, so not in clones or CI): the spec `notes/brief.md`, the build plan and current status `notes/plan.md`, and research in `notes/research/`. `docs/` holds only docs for other readers.
 
 ## The problem it solves
-When you prompt a local model through a server or chat app, much of what shapes a reply is hidden: which chat template ran and how the text was tokenized, whether a BOS token was added, sampler defaults from the server or the model file, samplers skipped silently, prompt caching, context shift dropping tokens, flags picked up from environment variables or config files. A difference between two replies can come from any of these rather than from your prompt, and you can't rerun the call to find out. Clarity removes that hidden layer: it builds the token IDs itself, sends every value, checks the server used them, logs everything and can replay any call.
+When you prompt a local model through a server or chat app, much of what shapes a reply is hidden: which chat template ran and how the text was tokenized, whether a BOS token was added, sampler defaults from the server or the model file, samplers skipped silently, prompt caching, context shift dropping tokens, flags picked up from environment variables or config files. A difference between two replies can come from any of these rather than from your prompt, and you can't rerun the call to find out. Clarity takes over that layer: it builds the token IDs itself, sends every value, checks the server used them, logs every setting and environment fact known to affect the output, and can replay any completed call.
 
 ## Commands
 
@@ -34,8 +34,8 @@ cmake --build vendor/llama.cpp/build --config Release -j 8 --target llama-server
 ```
 
 ## Principle
-What you see is exactly what the model got, and every call can be replayed.
-No silent fallbacks: if something can't be done exactly as configured, stop with a clear error.
+What you see is exactly what the model got, and every completed call can be replayed.
+No silent fallbacks: if something can't be done exactly as configured, stop with a clear error. Two cases are flagged instead, on the record and on screen: a check that fails after a call, and a setting the Transformers backend can't apply.
 Clarity should get out of the way: being exact must not make common experiments awkward. Prefer a small, explicit, logged shortcut (like `use_recommended = true`) to extra ceremony.
 The backend does what the UI leads people to expect. A difference between them is a silent fallback: show it.
 No terminal commands in the UI. Command-line usage belongs in the docs and `help`.

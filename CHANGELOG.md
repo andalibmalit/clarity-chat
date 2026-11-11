@@ -8,6 +8,12 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Fixed
+- `server.toml` now refuses every adapter and control-vector flag. Before, only `lora` and `control-vector` were refused, and `lora-scaled`, `lora-init-without-apply`, `control-vector-scaled` and `control-vector-layer-range` were passed to llama-server. A reply made with one of them has the flag in its `server_start` record.
+
+### Changed
+- Docs: the README, the design doc and the citation abstract now state the limits of their claims: replay covers completed calls, the same-output tests ran on two model families on one Apple Silicon Mac, and "No silent fallbacks" names its two flagged cases. The README, the package description and the citation title now share one tagline.
+
 ## [0.2.0] - 2026-11-10
 
 Live tests on an M2 Max (macOS), 2026-11-10: `-m live` 15 passed (including crash cleanup against a real llama-server), `-m olmo` 7 passed, `-m hf` 7 passed (greedy output identical on llama.cpp and Transformers), `-m embed` 5 passed: bge-small's embeddings were bit-identical back to back, after a restart, whatever else the request held, and on the CPU at a fixed thread count (and between 8 and 4 threads, 0 of 25 vectors differed).

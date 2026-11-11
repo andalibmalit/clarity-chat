@@ -157,6 +157,11 @@ def test_server_config_builds_flags(root):
         ("webui = true", "not allowed"),
         ('ui-config = "{}"', "not allowed"),
         ("slots = true", "not allowed"),
+        # Every spelling of an adapter or a control vector, not only the bare flag.
+        ('lora-scaled = "a.gguf:0.5"', "not allowed"),
+        ("lora-init-without-apply = true", "not allowed"),
+        ('control-vector-scaled = "v.gguf:4"', "not allowed"),
+        ('control-vector-layer-range = "8 24"', "not allowed"),
         ("-c = 4096", "long name"),
     ],
 )
