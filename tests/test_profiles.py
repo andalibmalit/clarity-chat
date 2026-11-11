@@ -182,7 +182,7 @@ def test_server_config_refuses_flags_outside_the_allowed_list(root, line):
         ("ctx-size = 8192\n", "", "must set"),
         ("log-verbosity = 4 ", "log-verbosity = 3 ", "at least 4"),
         ("cache-ram = 0", "cache-ram = false", "need a value"),  # False == 0 in Python
-        ("threads = 8\n", "threads = false\n", "need a value"),
+        ("threads = 8\n", "threads = false\n", "positive integer"),
         ('n-gpu-layers = "all"', "n-gpu-layers = -1", "explicit"),
         # false would leave the flag out, so llama.cpp's default would decide
         ("no-kv-unified = true", "no-kv-unified = false", "must be true"),

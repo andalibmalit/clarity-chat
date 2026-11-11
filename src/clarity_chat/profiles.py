@@ -572,6 +572,11 @@ REQUIRED_VALUES = {
 # other flag is refused, including aliases, so a new one is added deliberately, with a reason
 # and a test. Clarity itself passes --model, --host, --port, --no-slots and --no-webui.
 ALLOWED_FLAGS = {*REQUIRED_FLAGS, "kv-unified", "no-kv-unified", "no-jinja", "chat-template"}
+# Allowed switches that must be true when set: false would leave the flag out, and
+# llama.cpp's default would decide.
+TRUE_ONLY_FLAGS = {"kv-unified", "no-kv-unified", "no-jinja"}
+# llama-server reads 0 or less as "every core", which depends on the machine.
+POSITIVE_FLAGS = {"threads", "threads-batch"}
 
 
 @dataclass(frozen=True)
@@ -620,6 +625,16 @@ def check_flags(flags: object, where: str) -> None:
             raise ConfigError(f"{where}: flag {name!r} must be true/false, a number or a string.")
         if value == "auto" or (not isinstance(value, bool) and value in ("-1", -1)):
             raise ConfigError(f"{where}: flag {name!r} must be explicit, not {value!r}.")
+        if name in TRUE_ONLY_FLAGS and value is not True:
+            raise ConfigError(
+                f"{where}: {name} must be true when set (false would leave the flag out, "
+                "so llama-server's default would apply); remove it instead."
+            )
+        if name in POSITIVE_FLAGS and not (_integer(value) or 0) > 0:
+            raise ConfigError(
+                f"{where}: {name} must be a positive integer (llama-server reads 0 or less "
+                "as every core, which depends on the machine)."
+            )
 
 
 def load_server_config(root: Path) -> ServerConfig:
