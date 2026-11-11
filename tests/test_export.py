@@ -329,16 +329,25 @@ def test_a_log_whose_conversation_id_is_a_path_is_refused(make, tmp_path):
     assert not list(tmp_path.parent.glob("**/escaped.jsonl"))
 
 
-def test_two_starts_that_differ_only_in_a_server_flag_are_two_groups(make, tiny_tokenizer):
+@pytest.mark.parametrize(
+    ("backend", "fact", "values"),
+    [
+        ("llama.cpp", "flags", ({"flash-attn": "on"}, {"flash-attn": "off"})),
+        ("transformers", "env_torch_kept", ({}, {"PYTORCH_ENABLE_MPS_FALLBACK": "1"})),
+    ],
+)
+def test_two_starts_that_differ_only_in_one_fact_are_two_groups(
+    make, tiny_tokenizer, backend, fact, values
+):
     """Every fact replay compares splits the conditions, not only machine and build."""
     first, one = make(backend=Tagged("one", "m", replies=[" Hello!"], tokenizer=tiny_tokenizer))
-    one.extra = {"flags": {"flash-attn": "on"}}
+    one.name, one.extra = backend, {fact: values[0]}
     first.new_conversation("text")
     first.say("Hi")
     assert first.conversation is not None
     log = first.conversation.log.path
     second, two = make(backend=Tagged("two", "m", replies=[" Again."], tokenizer=tiny_tokenizer))
-    two.extra = {"flags": {"flash-attn": "off"}}
+    two.name, two.extra = backend, {fact: values[1]}
     second.resume(log)
     second.say("And again")
     header, _ = read_export(Path(export_log(second, log)["path"]))
