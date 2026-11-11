@@ -38,7 +38,8 @@ class JsonChat:
         self.stdin, self.stdout = stdin, stdout
         self.write_lock = threading.Lock()
         self.closed = False  # the reader of stdout went away: stop writing, then quit
-        self.failed = False  # an unexpected error ended the session
+        self.failed = False  # the start failed, or an unexpected error ended the session
+        self.starts: list[dict[str, Any]] = []  # the --profile or --resume commands
 
     def emit(self, event: dict[str, Any]) -> None:
         """Write one event. Never raises: a log record's event is sent after the record is
@@ -54,8 +55,10 @@ class JsonChat:
             self.closed = True
 
     def run(self, first: list[dict[str, Any]]) -> None:
-        """Run the `first` commands (from --profile or --resume), then each input line."""
+        """Run the `first` commands (from --profile or --resume), then each input line. If a
+        first command fails, the session ends there, as the terminal's does."""
         pending: queue.Queue[dict[str, Any] | None] = queue.Queue()
+        self.starts = list(first)
         for command in first:
             pending.put(command)
         threading.Thread(target=self.read, args=(pending,), daemon=True).start()
@@ -110,6 +113,9 @@ class JsonChat:
             result = self.commands.run(name, command.get("args", ""), self.emit)
         except (ConfigError, ContextError, BackendError) as e:
             self.emit({"event": "error", **tag, "type": type(e).__name__, "message": str(e)})
+            if any(command is start for start in self.starts):  # not from input
+                self.failed = True
+                return False
             return True
         except Exception as e:  # a bug or a full disk: tell the client, then quit
             traceback.print_exc()
