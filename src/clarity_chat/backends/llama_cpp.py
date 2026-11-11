@@ -646,7 +646,8 @@ class LlamaCppBackend:
 
     @property
     def server_record(self) -> dict[str, Any] | None:
-        return self.server.record if self.server else None
+        # A server that failed to start has an empty record: report it as none.
+        return (self.server.record or None) if self.server else None
 
     def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
         """Start llama-server with `weights` and a context of `ctx_size`. The old server stops
