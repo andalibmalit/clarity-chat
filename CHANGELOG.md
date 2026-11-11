@@ -8,6 +8,10 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-11
+
+Live tests on an M2 Max (macOS): LIVE RESULTS (the maintainer's runs for the release checklist go here).
+
 ### Security
 - A model folder whose config names its own Python code made Transformers ask on the terminal whether to run it, and a "y" typed in the chat would have. Clarity now refuses such a model with a clear error and never runs a model's own code. With `--json`, the question also broke the event stream.
 - Resuming a log whose profile path or name leads outside the project folder no longer reads that file; the resume says so instead. A log is untrusted input.
@@ -115,6 +119,7 @@ The first release.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - A llama-server that Clarity starts and checks itself, and a Transformers backend for the same weights.
 
-[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/andalibmalit/clarity-chat/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/andalibmalit/clarity-chat/releases/tag/v0.1.0
