@@ -289,11 +289,11 @@ def main() -> int:
         for n, step in enumerate(steps, 1):
             log.write(f"\n[qa step {n}: {step}]\n".encode())
             if step == "<ctrl-c>" or step.startswith("<ctrl-c after "):
-                os.write(primary, b"\x03")
+                send(primary, log, b"\x03")
             elif step.startswith("<wait "):
                 time.sleep(float(step[6:-1]))
             else:
-                os.write(primary, step.encode() + b"\r")
+                send(primary, log, step.encode() + b"\r")
             later = steps[n] if n < len(steps) else ""
             if timed := re.fullmatch(r"<ctrl-c after ([0-9.]+)>", later):
                 read_until_quiet(primary, log, float(timed[1]), quiet=float("inf"))
@@ -302,12 +302,20 @@ def main() -> int:
         # End of input: a chat quits as a user's would; other commands don't read it. Then
         # read until the program ends, not until it's quiet: replay prints only at the end.
         log.write(b"\n[qa end: ctrl-d]\n")
-        os.write(primary, b"\x04")
+        send(primary, log, b"\x04")
         read_until_quiet(primary, log, STEP_TIMEOUT_S, quiet=float("inf"))
         status = wait(pid)
         log.write(f"\n[qa exit status {status}]\n".encode())
     os.close(primary)
     return status  # Clarity's own, so `echo $?` shows it
+
+
+def send(fd: int, log: BinaryIO, data: bytes) -> None:
+    """Type `data`, or note in the transcript that the program had already ended."""
+    try:
+        os.write(fd, data)
+    except OSError:  # EIO: the terminal closed when the program ended
+        log.write(b"[qa: the program had ended; nothing was typed]\n")
 
 
 def wait(pid: int) -> int:
