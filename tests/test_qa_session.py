@@ -37,13 +37,13 @@ def repo(tmp_path: Path) -> Path:
         weights = fake / "models" / name / f"{name}-bf16.gguf"
         weights.parent.mkdir(parents=True)
         weights.write_bytes(b"GGUF " + name.encode())
-        os.utime(weights, ns=(1_000_000_123, 1_000_000_123))
+        os.utime(weights, ns=(1_000_000_100, 1_000_000_100))  # Windows keeps 100 ns steps
         gguf = {
             "path": f"models/{name}/{name}-bf16.gguf",
             "size": weights.stat().st_size,
             "sha256": hashlib.sha256(weights.read_bytes()).hexdigest(),
         }
-        models[name] = {"name": name, "gguf": {**gguf, "mtime_ns": 1_000_000_123}}
+        models[name] = {"name": name, "gguf": {**gguf, "mtime_ns": 1_000_000_100}}
     lock = {"schema_version": 1, "models": models}
     (fake / "models.lock").write_text(json.dumps(lock), encoding="utf-8")
     return fake
@@ -70,7 +70,7 @@ def test_the_root_holds_only_smollm2_and_its_profiles(root, repo):
     # The root's own copy of the weights, with the time models.lock recorded: an agent can
     # rename over it (QA step 21) without touching the checkout's.
     weights = root / "models" / SMOL / f"{SMOL}-bf16.gguf"
-    assert not (root / "models").is_symlink() and weights.stat().st_mtime_ns == 1_000_000_123
+    assert not (root / "models").is_symlink() and weights.stat().st_mtime_ns == 1_000_000_100
     assert not (root / "models" / "olmo-3-7b-instruct").exists()
     server = tomllib.loads((root / "server.toml").read_text(encoding="utf-8"))
     assert server["llama_cpp_dir"] == (repo / "vendor" / "llama.cpp").as_posix()
@@ -255,9 +255,9 @@ def test_the_roots_weights_are_checked_by_hash_and_replaced(root, repo):
     lock["models"][SMOL]["gguf"]["sha256"] = hashlib.sha256(original).hexdigest()
     (repo / "models.lock").write_text(json.dumps(lock), encoding="utf-8")
     weights.write_bytes(b"GGUF other model!"[: len(original)].ljust(len(original), b"!"))
-    os.utime(weights, ns=(1_000_000_123, 1_000_000_123))
+    os.utime(weights, ns=(1_000_000_100, 1_000_000_100))
     qa.prepare_root(root, repo, init=False)
-    assert weights.read_bytes() == original and weights.stat().st_mtime_ns == 1_000_000_123
+    assert weights.read_bytes() == original and weights.stat().st_mtime_ns == 1_000_000_100
 
 
 def test_relative_paths_are_judged_from_the_root(root, monkeypatch):
