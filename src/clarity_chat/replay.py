@@ -92,10 +92,15 @@ def environment_diff(logged: dict[str, Any], now: dict[str, Any]) -> dict[str, l
 
 def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict[str, Any]:
     """The facts a replay compares, as the log recorded them. Each backend has its own:
-    llama-server's build, flags and /props, or PyTorch's and Transformers' versions."""
+    llama-server's build, flags and /props, or PyTorch's and Transformers' versions.
+
+    `end_tokens` are the IDs a reply stops on. Each backend finds its own, and they can differ:
+    llama.cpp also stops on tokens it recognizes by name, such as SmolLM2's <|endoftext|>."""
     server = server or {}
     if server.get("backend") == "transformers":
+        eos = server.get("eos_token_id")
         return {
+            "end_tokens": sorted(eos) if eos is not None else None,
             "torch": server.get("torch"),
             "transformers": server.get("transformers"),
             "device": server.get("device"),
@@ -108,7 +113,9 @@ def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict
             "client": call.get("client"),
             "libraries": call.get("libraries"),
         }
+    eog = (server.get("model_file") or {}).get("eog_tokens")
     return {
+        "end_tokens": sorted(t["id"] for t in eog) if eog is not None else None,
         "build_info": server.get("build_info"),
         "llama_cpp": {k: v for k, v in (server.get("llama_cpp") or {}).items() if k != "dir"},
         "flags": server.get("flags"),
