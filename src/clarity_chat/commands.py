@@ -87,8 +87,9 @@ def _say(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 def _regen(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     """N replies to the current message, one after another, each a new branch. A cancel stops
-    the reply being written and the rest. A failure after the first reply stops the rest and
-    is returned as `stopped`, with the replies already made; the head stays at the last."""
+    the reply being written and the rest, whenever it comes. A failure after the first reply
+    stops the rest and is returned as `stopped`, with the replies already made; the head
+    stays at the last."""
     # ASCII digits only: str.isdigit() also accepts "²", which int() refuses.
     n = int(args) if re.fullmatch(r"[0-9]+", args) else 0 if args else 1
     if n < 1:
@@ -100,7 +101,11 @@ def _regen(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         try:
             emit({"event": "reply_start", "k": k, "n": n, "seed": c.session.regen_seed()})
             replies.append(c.call(emit, c.session.regen))
-        except (BackendError, CancelledBeforeReply, ConfigError) as e:
+        except CancelledBeforeReply:
+            if not replies:
+                raise
+            break
+        except (BackendError, ConfigError) as e:
             if not replies:
                 raise
             return {"replies": replies, "stopped": f"Reply {k} of {n}: {e}"}
