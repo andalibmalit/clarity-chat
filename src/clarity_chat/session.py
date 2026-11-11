@@ -1023,7 +1023,8 @@ class Session:
             raise ConfigError(f"{path} can't be resumed: a record lacks or mangles {e}.") from e
 
     def _resume(self, path: Path) -> dict[str, Any]:
-        state = rebuild(list(read_records(path)), str(path))
+        records = list(read_records(path))
+        state = rebuild(records, str(path))
         start = state.start
         prepared = self.prepare(start["profile"]["name"], logged=start["profile"])
         profile_file, now = self._profile_now(start["profile"])
@@ -1053,8 +1054,13 @@ class Session:
             ctx_size=ctx_size,
             resumed=True,
             # The settings are the logged ones, so their source is too.
+            # Failed calls too: a chat whose only call failed still logged them.
             logged_recommended=next(
-                (c["recommended"] for c in reversed(state.calls.values()) if c.get("recommended")),
+                (
+                    r["recommended"]
+                    for r in reversed(records)
+                    if r.get("type") == "call" and r.get("recommended")
+                ),
                 None,
             ),
         )
@@ -1113,9 +1119,13 @@ class Session:
 
     def _profile_now(self, logged: dict[str, Any]) -> tuple[str, Prepared | None]:
         """The profile's file today (at its logged path, else by name in this project),
-        prepared, and whether it matches the logged text: same, changed or missing."""
+        prepared, and whether it matches the logged text: same, changed or missing. A log is
+        untrusted, so a path or name that leads outside the project folder isn't read."""
         path = Path(logged["path"])
         name = str(path) if path.is_file() else logged["name"]
+        found = path if path.is_file() else profile_path(self.root, name)
+        if not found.resolve().is_relative_to(self.root.resolve()):
+            return "outside the project folder", None
         try:
             now = self.prepare(name)
         except ConfigError:  # gone, or no longer loads
