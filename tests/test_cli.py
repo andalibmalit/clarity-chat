@@ -298,7 +298,9 @@ def test_the_terminal_starts_from_a_profile_path(fetched_root, tiny_tokenizer):
     chat.start()
     assert "Ready:" in "".join(output)
     chat.handle("Hi")
+    assert session.conversation is not None
     log = str(session.conversation.log.path)
-    again = ChatLoop(session, None, read=lambda default: "", write=output.append, resume=log)
+    again = ChatLoop(session, "text", read=lambda default: "", write=output.append, resume=log)
     again.start()
+    assert session.conversation is not None
     assert session.conversation.conversation_id == Path(log).stem
