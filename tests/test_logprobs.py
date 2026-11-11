@@ -207,3 +207,13 @@ def test_a_replay_takes_logprobs_from_the_logged_request(tiny_tokenizer):
     del old["logprobs"]  # a call logged before v0.2.1
     old["generation_config"] = {**old["generation_config"], "output_logits": False}
     assert backend.complete([1, 2], SETTINGS, [], request=old).logprobs is None
+
+
+def test_a_replay_records_the_probabilities_it_gets(commands):
+    """B2: a replay of a call with probabilities stores them in the replay record."""
+    backend = commands.session.backend
+    backend.logprobs = {"view": "raw logits, before any sampler", "n": 1, "tokens": []}
+    call = commands.run("say", "Hi", lambda e: None)["call"]
+    assert call["logprobs"] == backend.logprobs
+    replayed = commands.session.replay_current()
+    assert replayed["logprobs"] == backend.logprobs
