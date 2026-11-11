@@ -3,7 +3,8 @@
 M1: does closing the stream stop llama-server's prompt processing, or does the next request
 wait for it? A3 (cancel) needs the answer. M2: how much memory OLMo 3 takes at two context
 sizes, with flash attention on and off. A4 (the memory check) needs it. M3: how fast each
-backend chats with OLMo 3, to decide which one a steered model should run on.
+backend chats with OLMo 3, to decide which one a steered model should run on. M4: how much
+faster llama.cpp gets on a quantized copy of the same model.
 
 Needs the built llama-server and OLMo 3 Instruct fetched (M3's Transformers half also needs
 `uv sync --extra hf`). Measures and prints; asserts only that the servers started.
@@ -14,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import re
+import subprocess
 import time
 from pathlib import Path
 
@@ -204,4 +206,50 @@ def test_m3_backend_speed(tmp_path, backend):
             f"  turn {turn}: prompt {t['prompt_n']} tokens at "
             f"{per_second(t['prompt_n'], t['prompt_ms'])} tokens/s; reply {t['predicted_n']} "
             f"tokens at {per_second(t['predicted_n'], t['predicted_ms'])} tokens/s"
+        )
+
+
+@pytest.mark.parametrize("quant", ["bf16", "Q8_0", "Q4_K_M"])
+def test_m4_quantized_speed(tmp_path, quant):
+    """M3 compared the backends on the same unquantized weights. This is llama.cpp alone,
+    on the fetched bf16 file and on copies llama-quantize makes of it. Every reply is 128
+    tokens (the end token is ignored), and the copies are deleted afterwards."""
+    config = load_server_config(REPO)
+    assert WEIGHTS is not None
+    weights = WEIGHTS
+    if quant != "bf16":
+        tool = config.llama_cpp_dir / "build" / "bin" / "llama-quantize"
+        if not tool.exists():
+            pytest.skip(
+                "llama-quantize isn't built: cmake --build vendor/llama.cpp/build "
+                "--config Release -j 8 --target llama-quantize"
+            )
+        weights = tmp_path / f"{MODEL}-{quant}.gguf"
+        subprocess.run(
+            [str(tool), str(WEIGHTS), str(weights), quant], check=True, capture_output=True
+        )
+    s = LlamaServer(config, weights, tmp_path)
+    try:
+        size = weights.stat().st_size / 2**30
+        start = time.monotonic()
+        s.start()
+        ready = time.monotonic() - start
+        timings = []
+        for _ in range(2):
+            body = {**request(LONG_PROMPT[:1600], False), "n_predict": 128, "ignore_eos": True}
+            r = httpx.post(
+                f"{s.url}/completion", headers=s.headers, json=body, timeout=600, trust_env=False
+            )
+            r.raise_for_status()
+            timings.append(r.json()["timings"])
+    finally:
+        s.stop()
+        if quant != "bf16":
+            weights.unlink(missing_ok=True)
+    print(f"\nM4 {quant}: file {size:.1f} GiB, model ready after {ready:.1f} s")
+    for turn, t in enumerate(timings, 1):
+        print(
+            f"  call {turn}: prompt {t['prompt_n']} tokens at {t['prompt_per_second']:,.1f} "
+            f"tokens/s; reply {t['predicted_n']} tokens at "
+            f"{t['predicted_per_second']:,.1f} tokens/s"
         )
