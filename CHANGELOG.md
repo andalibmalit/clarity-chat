@@ -38,6 +38,7 @@ Two headings are Clarity's own, used when they apply:
 - A replay flagged `text_differs_from_ids` now logs `decoded_output_text`, as the call does.
 
 ### Changed
+- The `2-system` and `3-primed` profiles and their placeholder files, `prompts/system.txt` and `prompts/priming.toml`, are gone. They only held placeholder text. Put your own system prompt or priming in a profile in `local/profiles/`; `docs/guides.md` shows both.
 - `clarity chat --json` with a `--profile` or `--resume` that fails now sends the error and quits with exit status 1, as the terminal does. It used to carry on with no conversation and exit 0.
 - A llama-server built from a commit other than the one `server.toml` pins is now an error at start, not a warning. The binary is what runs, and a checkout at another commit was already an error.
 - After each call, Clarity checks that the llama-server process it started is still running, in place of a second `/props` request. `/props` is still checked once after start; nothing can change a running server's model or context.

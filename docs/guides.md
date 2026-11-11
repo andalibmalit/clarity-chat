@@ -12,8 +12,11 @@ A chat-mode profile uses the model's chat template:
 backend = "llama.cpp"
 model = "smollm2-135m-instruct"   # a name from models.toml
 mode = "chat"
-system = { file = "../prompts/system.txt" }   # or a string; leave out for none
-priming = { file = "../prompts/priming.toml" } # earlier messages placed before the conversation
+system = "You answer in one sentence."    # or { file = "PATH" }; leave out for none
+priming = [                                # earlier messages placed before the conversation
+  { role = "user", content = "What's a token?" },
+  { role = "assistant", content = "A piece of text the model reads as one unit." },
+]
 
 [settings]
 temperature = 0.6
@@ -39,7 +42,13 @@ The model sees the header, the priming text, one line per turn, and a final `Ass
 Tips:
 - Unknown keys and setting names are errors, so most typos stop the profile from loading. Keys inside `template_kwargs` can't be checked against a fixed list, because the chat template defines them. Instead, Clarity warns when a conversation starts if the template never reads one of them.
 - File paths are relative to the profile, and files are read byte for byte. A trailing newline your editor added is part of the prompt; `/prompt repr` shows it.
-- A priming file holds only `[[messages]]` tables, each with `role` (`"user"` or `"assistant"`) and `content`. See `prompts/priming.toml`.
+- A priming file holds only `[[messages]]` tables, each with `role` (`"user"` or `"assistant"`) and `content`:
+
+  ```toml
+  [[messages]]
+  role = "user"
+  content = "What's a token?"
+  ```
 - Template options such as `enable_thinking` go in a `[template_kwargs]` table.
 - Settings you leave out come from the model if `use_recommended = true`, and otherwise from `defaults.toml`, whose values turn every sampler off.
 

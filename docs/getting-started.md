@@ -236,5 +236,5 @@ flowchart LR
 ## Next steps
 
 - Write your own profile: see [Write a profile](guides.md#write-a-profile).
-- Fetch the OLMo 3 models (`uv run clarity fetch olmo-3-7b-instruct`, then `olmo-3-7b-base`) and try the five OLMo 3 profiles in `profiles/` (`1a-stock` to `5-raw-base`), which compare a stock chat, a system prompt, priming messages and a plain document. `2-system` and `3-primed` read placeholder text from `prompts/`; replace it with your own first.
+- Fetch the OLMo 3 models (`uv run clarity fetch olmo-3-7b-instruct`, then `olmo-3-7b-base`) and try the four OLMo 3 profiles in `profiles/`: `1a-stock` (no system message, so OLMo 3's template writes its own), `1b-blank` (a blank one, so none), `4-raw-instruct` (the instruct model continuing a plain document) and `5-raw-base` (the base model on the same document).
 - Read [Design](design.md) for why Clarity works the way it does.
