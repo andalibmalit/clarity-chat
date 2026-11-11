@@ -13,6 +13,7 @@ import pytest
 from clarity_chat import cli
 from clarity_chat.export import RECOMPUTE_NOTE, export_log
 from clarity_chat.logs import list_chats, read_records
+from clarity_chat.profiles import ConfigError
 from clarity_chat.session import Session
 from tests.conftest import CHAT_PROFILE, build_tokenizer
 from tests.fakes import FakeBackend
@@ -207,7 +208,7 @@ def test_a_template_with_a_date_exported_on_a_later_day_has_no_spans(fetched_roo
 
 def test_text_mode_priming_is_one_span_with_no_role(make, fetched_root):
     text = (fetched_root / "profiles" / "text.toml").read_text(encoding="utf-8")
-    primed = text + 'priming = "User: An earlier line.\\nAssistant: An earlier reply.\\n"\n'
+    primed = 'priming = "User: An earlier line.\\nAssistant: An earlier reply.\\n"\n' + text
     (fetched_root / "profiles" / "primed.toml").write_text(primed, encoding="utf-8")
     session, _ = make([" Hello!"])
     session.new_conversation("primed")
@@ -265,9 +266,9 @@ def test_slash_export_and_clarity_export_write_the_same_file(make, fetched_root,
     assert body(by_command) == body(by_cli)
 
 
-def test_exporting_400_exchanges_with_derived_spans_stays_quick(make):
-    session, backend = make()
-    backend.replies = [" ok"] * 400
+def test_exporting_400_exchanges_with_derived_spans_stays_quick(make, tiny_tokenizer):
+    backend = FakeBackend([" ok"] * 400, n_ctx=100_000, tokenizer=tiny_tokenizer)
+    session, _ = make(backend=backend)
     session.new_conversation("text")
     for i in range(400):
         session.say(f"Message {i}")
@@ -277,3 +278,19 @@ def test_exporting_400_exchanges_with_derived_spans_stays_quick(make):
     result = export_log(session, log)
     assert result["calls"] == 400
     assert time.monotonic() - started < 60  # loose: catches a blow-up, not a slowdown
+
+
+def test_a_log_whose_conversation_id_is_a_path_is_refused(make, tmp_path):
+    """A log is untrusted: its ID names the default file, so it mustn't leave logs/exports/."""
+    session, _ = make([" Hello!"])
+    session.new_conversation("text")
+    session.say("Hi")
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    rows[0]["conversation_id"] = "../../escaped"
+    edited = tmp_path / "edited.jsonl"
+    edited.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    with pytest.raises(ConfigError, match="conversation ID"):
+        export_log(session, edited)
+    assert not list(tmp_path.parent.glob("**/escaped.jsonl"))

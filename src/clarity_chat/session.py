@@ -327,7 +327,7 @@ class Session:
             self.backend = backend
         return backend
 
-    def _load_tokenizer(self, repo: str, revision: str) -> Tokenizer:
+    def load_tokenizer(self, repo: str, revision: str) -> Tokenizer:
         if (repo, revision) not in self._tokenizers:
             self._tokenizers[repo, revision] = self.tokenizer_loader(repo, revision)
         return self._tokenizers[repo, revision]
@@ -335,9 +335,9 @@ class Session:
     def tokenizers_for(self, profile: Profile, model: ModelEntry) -> tuple[Tokenizer, Tokenizer]:
         """The model's tokenizer, which always tokenizes, and the tokenizer whose chat
         template renders chat mode (the profile's template_repo, else the model's)."""
-        tokenizer = self._load_tokenizer(model.tokenizer_repo, model.tokenizer_revision)
+        tokenizer = self.load_tokenizer(model.tokenizer_repo, model.tokenizer_revision)
         if profile.mode == "chat" and profile.template_repo and profile.template_revision:
-            return tokenizer, self._load_tokenizer(profile.template_repo, profile.template_revision)
+            return tokenizer, self.load_tokenizer(profile.template_repo, profile.template_revision)
         return tokenizer, tokenizer
 
     def prepare(self, profile_name: str, logged: dict[str, Any] | None = None) -> Prepared:
@@ -927,7 +927,7 @@ class Session:
             self._restore(previous, e)  # as start_model does: the conversation stays usable
             raise
         self.model, self.model_lock, self.weights = model, entry, weights
-        tokenizer = self._load_tokenizer(
+        tokenizer = self.load_tokenizer(
             call["model"]["tokenizer_repo"], call["model"]["tokenizer_revision"]
         )
         values = {k: v["value"] for k, v in call["settings"].items()}

@@ -478,6 +478,8 @@ class ChatLoop:
             self.write(annotated(result["records"]) + ".\n")
         elif name == "replay":
             self.write(format_replay(result["replay"]) + "\n")
+        elif name == "export":
+            self.write(format_export(result) + "\n")
         elif name == "cancel":  # in the terminal, Ctrl-C cancels; between calls, nothing runs
             self.write("Cancelled.\n" if result["cancelled"] else "Nothing to cancel.\n")
         return True
@@ -607,6 +609,17 @@ def cmd_run(
         session.close()
     print(f"Done. Share {blind}.\nKeep {run_dir / 'key.json'} closed until rating is done.")
     return 0
+
+
+def format_export(result: dict[str, Any]) -> str:
+    """Where an export went, and what it holds."""
+    replaced = " (replaced the earlier export)" if result["replaced"] else ""
+    left_out = result["failed_calls_left_out"]
+    failed = f"; {left_out} failed call(s) left out" if left_out else ""
+    return (
+        f"Wrote {result['path']}{replaced}: {result['calls']} call(s){failed}. Before "
+        "recomputing it in a notebook, run clarity_chat.recompute.check (docs/guides.md)."
+    )
 
 
 def say_if_torn(log_path: Path) -> Callable[[dict[str, Any]], None]:
@@ -748,6 +761,11 @@ def main(argv: list[str] | None = None) -> int:
         else:
             annotate.add_argument("text", help="one argument: quote it if it has spaces")
     commands.add_parser("chats", help="list your conversations in logs/, newest first")
+    export = commands.add_parser(
+        "export", help="write a conversation for a notebook (logs/exports/ID.jsonl)"
+    )
+    export.add_argument("conversation", help="its ID (from `clarity chats`) or log file")
+    export.add_argument("--out", type=Path, help="where to write it instead")
     fetch = commands.add_parser("fetch", help="download (and convert) a model from models.toml")
     fetch.add_argument("name")
     verify = commands.add_parser("verify", help="re-hash fetched models against models.lock")
@@ -783,6 +801,13 @@ def main(argv: list[str] | None = None) -> int:
             from clarity_chat.logs import list_chats
 
             print(format_chats(list_chats(root / "logs")))
+            return 0
+        if args.command == "export":  # reads a log and tokenizers; starts no model
+            from clarity_chat.export import export_log
+
+            session = Session(root)
+            log = session.log_for(args.conversation)
+            print(format_export(export_log(session, log, args.out)))
             return 0
         if args.command == "fetch":
             return cmd_fetch(root, args.name)

@@ -14,6 +14,7 @@ Every command, key and record field a user sees. For task-based instructions, se
 | `clarity replay LOG CALL_ID [--logged-flags]` | Re-send a logged call and compare the output. `--logged-flags` starts llama-server with the call's logged flags instead of `server.toml`'s, after checking them against the same allowed list, so a log can't add a flag `server.toml` couldn't. |
 | `clarity mark LOG CALL_ID [LABEL] [--remove]` | Label a logged call's reply while reviewing, in `logs/` or a run's `calls.jsonl` (default label `interesting`). Appends one record and starts no server. With `--remove`, appends an `unmark` for each mark it removes: those with that label, or the reply's only label. |
 | `clarity note LOG CALL_ID TEXT` | Add a note to a logged call's reply while reviewing, replacing its note. Quote TEXT if it has spaces. |
+| `clarity export ID [--out PATH]` | Write a conversation to `logs/exports/ID.jsonl`, or PATH, for a notebook. See [Export](#export). ID is a conversation ID from `clarity chats`, or a log file. A new export replaces the old file and says so. Starts no server. |
 | `clarity fetch NAME` | Download (and, for the `convert` route, convert) a model from `models.toml`, and record it in `models.lock`. |
 | `clarity verify [NAME …]` | Re-hash fetched models against `models.lock`; with no names, every fetched model. |
 
@@ -50,6 +51,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/unmark [LABEL]` | Remove the current reply's mark. If it has marks with different labels, name the one to remove. The log keeps the mark and records its removal. |
 | `/note TEXT` | Add a note to the current reply. A reply has one note: a new one replaces it, and the log keeps both. Notes from before v0.2.0 have no ID, so they all stay. |
 | `/replay` | Re-send the current reply's call on the running server and compare the output. |
+| `/export [PATH]` | Write this conversation for a notebook, as `clarity export` does. |
 | `/resume ID` | Continue a logged conversation, by its ID from `/chats` or its log file: its profile, settings, `/set` values and context size as logged, starting where it left off. Clarity shows what differs today: a changed profile file, settings today's files would set differently, server, machine or library changes since its last call, and whether the current reply's prompt still renders to the same token IDs. |
 | `/title TEXT` | Name this conversation in the chat list. Without a title, the list shows the first eight words of its first message; Clarity never asks a model for one. |
 | `/chats` | Your conversations in `logs/`, newest first, with their titles. |
@@ -92,6 +94,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `mark`, `unmark`, `note` | `records`: the records appended |
 | `title` | `record` |
 | `replay` | `replay`: the replay record |
+| `export` | `path`, `replaced`, `calls` and `failed_calls_left_out` |
 | `chats` | `chats` |
 | `profile`, `new` | `conversation_id`, `profile`, `model`, `mode` and `warnings` |
 | `resume` | the same, plus `resume` (the record) and `head_text` |
@@ -202,6 +205,7 @@ Unless `n-gpu-layers` is 0, Clarity stops if llama.cpp puts the model on the CPU
 | `runs/RUN_ID/calls.jsonl` | Every call of a batch run, after a first `run` record. |
 | `runs/RUN_ID/blind.md` | Openings and shuffled, labelled replies, for raters. Written only if the whole run succeeds. |
 | `runs/RUN_ID/key.json` | Which label is which profile, seed and call, and the shuffle seed. |
+| `logs/exports/CONVERSATION_ID.jsonl` | A conversation exported for a notebook (`clarity export`, `/export`). `clarity chats` doesn't list it. |
 | `local/clarity.lock` | Locked while `chat`, `run` or `replay` runs, so only one of them runs in a project at a time. Empty. |
 | `local/clarity.json` | Who holds the lock: process ID, command and start time, and the running llama-server's port, process ID and key. Readable only by you on Linux and macOS (mode 0600); on Windows it gets your folder's permissions. Removed on a normal exit; one left behind means Clarity didn't exit normally, and the next start uses it to stop that server. |
 
@@ -245,6 +249,26 @@ A replay compares the output token IDs and stop type, or the text if the logged 
 - Both: the machine, the client's commit, and the rendering libraries.
 
 `unexplained_difference` is true when the output differs and nothing changed except, at most, the client's commit or the rendering libraries. Neither can change a replay, since it sends the logged IDs and request.
+
+## Export
+
+`clarity export` and `/export` write a conversation as JSON Lines, so a notebook reads it with a loop or `pandas.read_json(path, lines=True)`. The file is readable only by you on Linux and macOS, like the log. Replay records aren't exported: they re-run calls already there. A batch run's `calls.jsonl` can't be exported.
+
+The first line is the header, `"type": "export"`:
+- `format_version` (1), `clarity` (`version`, `commit`, `dirty`) and `conversation_id`.
+- `calls` (how many follow) and `failed_calls_left_out`: calls that produced no reply.
+- `conditions`: one entry per distinct set of conditions the calls were computed under, since a resumed conversation can span several server starts, machines or builds. Each has `conditions` (`backend`; `weights`, the repo and revision, plus the GGUF's sha256 for llama.cpp; `device`, `dtype`, `torch` and `transformers` for Transformers, or `llama_cpp` and `build_info` for llama.cpp; `machine`) and `call_ids`, the calls it covers.
+- `note`: "Recomputing these calls under other conditions gives different numbers. Run `clarity_chat.recompute.check` with your loaded model first; it lists what differs."
+
+Then one line per call that produced a reply, `"type": "call"`, in log order:
+- **Where it sits:** `call_id`, `turn_id` (the reply), `parent_id` (your message), `regen_of`, `edit_of` (your message replaced an earlier one), and `path`, the turn IDs from the start of the conversation to this reply.
+- **What went in and came out:** `prompt_ids` as sent (with any BOS), `output_ids` as generated, `prompt_text`, `output_text`, `stop_type`, and `cancelled` (true for a reply cut short; its output is incomplete).
+- **Settings:** `settings` (each with its value and origin), `n_ctx` and `flags`, as logged.
+- **Message spans:** `message_spans`, as in the call record. A call logged before v0.2.1 has none, so the export works them out with the profile and tokenizers as logged, and checks the result rebuilds the logged prompt exactly. If it can't, the field is `{"unavailable": REASON}`, never a guess. A template that writes today's date can't be checked on a later day.
+- **Marks and notes:** `marks` (`label`, `origin`, `time`) and `notes` (`text`, `origin`, `time`), as they are now, after any `unmark` or replaced note.
+- **Model:** `model`, its pins: `name`, `repo`, `revision`, `route`, `gguf_sha256` and `gguf_path`.
+- **Probabilities:** `logprobs`, if the call logged them.
+- **Facts:** `facts`, what replay compares, from the call's own server start: the end tokens, and the build, flags and machine or the library versions, device and precision.
 
 ## Call flags
 

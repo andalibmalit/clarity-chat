@@ -15,6 +15,7 @@ import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends import BackendError
@@ -249,6 +250,14 @@ def _probs(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return {"call_id": call["call_id"], "logprobs": logprobs, "least_likely": least}
 
 
+def _export(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    from clarity_chat.export import export_log
+
+    conversation = c.session.conversation
+    assert conversation is not None
+    return export_log(c.session, conversation.log.path, Path(args) if args else None)
+
+
 def _settings(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return settings_view(c.session)
 
@@ -391,6 +400,11 @@ COMMANDS: dict[str, Command] = {
         "re-send the current reply's call and compare the output",
         _replay,
         cancellable=True,
+    ),
+    "export": Command(
+        "/export [PATH]",
+        "write this conversation for a notebook (default logs/exports/ID.jsonl)",
+        _export,
     ),
     "title": Command("/title TEXT", "name this conversation in the chat list", _title),
     "chats": Command(
