@@ -15,7 +15,7 @@ from clarity_chat.export import RECOMPUTE_NOTE, export_log
 from clarity_chat.logs import list_chats, read_records
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import Session
-from tests.conftest import CHAT_PROFILE, build_tokenizer
+from tests.conftest import CHAT_PROFILE, TOY_TEMPLATE, build_tokenizer
 from tests.fakes import FakeBackend
 
 GOLDEN = Path(__file__).parent / "fixtures" / "golden"
@@ -159,9 +159,7 @@ def test_older_calls_get_derived_spans_or_a_reason(make, golden, tmp_path):
     assert rows
     for row in rows:
         spans = row["message_spans"]
-        if isinstance(spans, dict):
-            assert isinstance(spans["unavailable"], str) and spans["unavailable"]
-            continue
+        assert isinstance(spans, list), spans  # every golden call derives today
         for span in spans:
             if span["kind"] == "message" and span.get("turn_id"):
                 start, end = span["chars"]
@@ -365,3 +363,82 @@ def test_a_turn_whose_parent_comes_later_is_refused_not_looped_on(make, tmp_path
     edited.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     with pytest.raises(ConfigError, match="parent"):
         export_log(session, edited)
+
+
+def test_derived_spans_match_the_logged_ones_in_chat_mode(make, fetched_root, tmp_path):
+    """A system message and priming messages: the labels `system` and `priming N`, and the
+    chat template, all derived as they were logged."""
+    chat = (fetched_root / "profiles" / "chat.toml").read_text(encoding="utf-8")
+    priming = (
+        'priming = [{ role = "user", content = "An earlier question." },'
+        ' { role = "assistant", content = "An earlier answer." }]\n'
+    )
+    (fetched_root / "profiles" / "primed-chat.toml").write_text(priming + chat, encoding="utf-8")
+    tokenizer = build_tokenizer(tmp_path / "toy", None, False, TOY_TEMPLATE)
+    session = Session(
+        fetched_root,
+        backend=FakeBackend([" Hello!", " Again."], tokenizer=tokenizer),
+        tokenizer_loader=lambda r, v: tokenizer,
+    )
+    session.new_conversation("primed-chat")
+    session.say("Hi")
+    session.say("More")
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    logged = [c["message_spans"] for c in logged_calls(log).values()]
+    assert {s.get("source") for s in logged[0]} >= {"system", "priming 1", "priming 2"}
+    without_spans(log)
+    _, rows = read_export(Path(export_log(session, log)["path"]))
+    assert [row["message_spans"] for row in rows] == logged
+
+
+# Server records shaped like the real backends' (docs/reference.md, server_start).
+LLAMA_SERVER = {
+    "type": "server_start",
+    "server_id": "server-1",
+    "backend": "llama.cpp",
+    "flags": {"ctx-size": 8192, "flash-attn": "on"},
+    "llama_cpp": {"commit": "f" * 40, "dirty": False, "dir": "/home/me/clarity/vendor/llama.cpp"},
+    "build_info": "b1-f477f79",
+    "props": {"n_ctx": 8192, "media_marker": "<random>"},
+    "model_file": {"eog_tokens": [{"id": 2, "text": "</s>"}, {"id": 0, "text": "<|e|>"}]},
+    "graph_splits": {"prompt": 2, "reply": 2},
+    "env_llama_ggml_kept": {},
+    "machine": {"chip": "M2 Max"},
+}
+TRANSFORMERS_SERVER = {
+    "type": "server_start",
+    "server_id": "server-2",
+    "backend": "transformers",
+    "device": "mps",
+    "dtype": "bfloat16",
+    "attn_implementation": "sdpa",
+    "torch": "2.15.0",
+    "transformers": "5.22.2",
+    "eos_token_id": [2],
+    "env_torch_kept": {},
+    "deterministic_algorithms": False,
+    "machine": {"chip": "M2 Max"},
+}
+
+
+@pytest.mark.parametrize("server", [LLAMA_SERVER, TRANSFORMERS_SERVER], ids=["llama", "hf"])
+def test_conditions_from_real_shaped_server_records(server):
+    from clarity_chat.export import conditions
+
+    call = {
+        "backend": {"backend": server["backend"], "server_id": server["server_id"]},
+        "model": {"repo": "org/m", "revision": "a" * 40, "gguf_sha256": "0" * 64},
+        "client": {"commit": "c"},
+        "libraries": {"tokenizers": "0"},
+    }
+    found = conditions(call, server)
+    assert found["backend"] == server["backend"]
+    assert found["end_tokens"] == ([0, 2] if server["backend"] == "llama.cpp" else [2])
+    assert "client" not in found and "libraries" not in found  # can't change the numbers
+    assert None not in found.values(), found  # every fact read from its real field
+    if server["backend"] == "llama.cpp":
+        assert "dir" not in found["llama_cpp"] and "media_marker" not in found["props"]
+        assert found["weights"]["gguf_sha256"] == "0" * 64
+    else:
+        assert found["attn_implementation"] == "sdpa" and found["dtype"] == "bfloat16"
