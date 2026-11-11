@@ -246,3 +246,23 @@ def test_an_unexpected_error_is_reported_and_ends_the_session(make):
         "message": "disk full",
     }
     assert not any(e.get("id") == 2 for e in events)  # the session ended there
+
+
+def test_a_failed_start_from_the_command_line_ends_the_session_with_status_1(
+    fetched_root, monkeypatch, capsys
+):
+    """As in the terminal: if --profile can't start, nothing after it runs, and the exit
+    status says so."""
+    from clarity_chat import cli
+
+    raw = b'{"command": "help"}\n'
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(raw), encoding="utf-8"))
+    argv = ["--root", str(fetched_root), "chat", "--json", "--profile", "no-such-profile"]
+    done = []
+    thread = threading.Thread(target=lambda: done.append(cli.main(argv)), daemon=True)
+    thread.start()
+    thread.join(10)
+    assert done == [1], "clarity chat --json hung, or exited 0 after a failed start"
+    events = [json.loads(x) for x in capsys.readouterr().out.splitlines()]
+    assert [e["event"] for e in events if e["event"] != "status"] == ["error"]
+    assert events[-1]["command"] == "profile" and events[-1]["type"] == "ConfigError"
