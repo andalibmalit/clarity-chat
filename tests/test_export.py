@@ -247,23 +247,34 @@ def test_a_second_export_replaces_the_file_and_says_so(make, fetched_root, capsy
     assert [c["conversation_id"] for c in list_chats(fetched_root / "logs")] == [conversation_id]
 
 
-def test_slash_export_and_clarity_export_write_the_same_file(make, fetched_root, tmp_path):
+def test_slash_export_and_clarity_export_write_the_same_file(make, fetched_root):
     from clarity_chat.commands import Commands
 
     session, _ = make([" Hello!"])
     session.new_conversation("text")
     session.say("Hi")
-    by_command = tmp_path / "a.jsonl"
-    result = Commands(session).run("export", str(by_command), lambda e: None)
-    assert Path(result["path"]) == by_command
-    by_cli = tmp_path / "b.jsonl"
+    result = Commands(session).run("export", "", lambda e: None)
+    path = Path(result["path"])
+    assert path.parent == fetched_root / "logs" / "exports"
+    by_command = path.read_text(encoding="utf-8")  # the header holds no time
     log = str(session.conversation.log.path)
-    assert cli.main(["--root", str(fetched_root), "export", log, "--out", str(by_cli)]) == 0
+    assert cli.main(["--root", str(fetched_root), "export", log]) == 0
+    assert path.read_text(encoding="utf-8") == by_command
 
-    def body(path):  # the header holds no time, so the files match line for line
-        return path.read_text(encoding="utf-8")
 
-    assert body(by_command) == body(by_cli)
+def test_slash_export_takes_no_path(make, tmp_path):
+    """Commands will also come from the browser (v0.3.0), so /export writes only to
+    logs/exports/; `clarity export --out` writes elsewhere."""
+    from clarity_chat.commands import Commands
+
+    session, _ = make([" Hello!"])
+    session.new_conversation("text")
+    session.say("Hi")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    with pytest.raises(ConfigError, match="takes no path"):
+        Commands(session).run("export", str(elsewhere / "a.jsonl"), lambda e: None)
+    assert list(elsewhere.iterdir()) == []
 
 
 def test_exporting_400_exchanges_with_derived_spans_stays_quick(make, tiny_tokenizer):
