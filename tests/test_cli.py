@@ -214,6 +214,23 @@ def test_title_and_chats_in_the_terminal(loop, fetched_root, capsys):
     assert "Made-up greeting" in capsys.readouterr().out
 
 
+def test_redirected_output_is_utf8_whatever_the_locale(loop, fetched_root, monkeypatch):
+    """Windows writes pipes and files in its ANSI code page, which can't hold every title."""
+    import io
+    import sys
+
+    from clarity_chat import cli
+
+    chat, _, _ = loop
+    chat.handle("Hi")
+    chat.handle("/title 日本語 → made-up 🙂")
+    out = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(out, encoding="cp1252"))
+    assert cli.main(["--root", str(fetched_root), "chats"]) == 0
+    sys.stdout.flush()
+    assert "日本語 → made-up 🙂".encode() in out.getvalue()
+
+
 def test_ctrl_c_during_a_call_cancels_it_and_the_chat_goes_on(loop):
     """Ctrl-C anywhere in a call, not only while the stream is read, cancels the call
     (docs/reference.md): the chat keeps running and the log keeps the call."""
