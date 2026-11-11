@@ -110,6 +110,8 @@ def format_settings(view: dict[str, Any]) -> str:
     if view["eog_tokens"]:
         listed = ", ".join(f"{t['id']} {t['text']!r}" for t in view["eog_tokens"])
         lines.append(f"end-of-reply tokens (from the model file): {listed}")
+    elif view["backend"] == "llama.cpp":
+        lines.append("end-of-reply tokens: not found in llama-server's startup log")
     recommended = view["recommended"]
     if recommended:
         source = recommended["source"]

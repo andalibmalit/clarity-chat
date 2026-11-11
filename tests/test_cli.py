@@ -62,6 +62,7 @@ def test_settings_lists_the_end_of_reply_tokens(loop):
     chat.handle("/settings")
     assert "end-of-reply tokens (from the model file): 2 '</s>'" in "".join(output)
     output.clear()
+    backend.name = "llama.cpp"
     backend.record = {**backend.record, "model_file": {"eog_tokens": None}}
     chat.handle("/settings")
     assert "end-of-reply tokens: not found in llama-server's startup log" in "".join(output)
