@@ -375,7 +375,8 @@ def test_a_failed_server_restart_in_replay_leaves_the_chat_usable(
     session.new_conversation("text")
     session.say("Hi")
     assert backend.server is not None
-    backend.server.proc = type("Exited", (), {"poll": lambda self: 1})()  # the server died
+    exited = type("Exited", (), {"poll": lambda self: 1})()
+    monkeypatch.setattr(backend.server, "proc", exited)  # the server died
     fail["on"] = True
     with pytest.raises((ConfigError, BackendError)):
         session.replay_current()

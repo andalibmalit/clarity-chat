@@ -911,8 +911,13 @@ class Session:
         name = described.get("backend", "llama.cpp")
         device = described.get("device") if name == "transformers" else None
         weights = self.weights_for(name, entry)
-        backend = self.use_backend(name, device)
-        backend.start(model, weights, call["n_ctx"])  # the call's own size, as logged
+        previous = self.backend
+        try:
+            backend = self.use_backend(name, device)
+            backend.start(model, weights, call["n_ctx"])  # the call's own size, as logged
+        except (ConfigError, BackendError) as e:
+            self._restore(previous, e)  # as start_model does: the conversation stays usable
+            raise
         self.model, self.model_lock, self.weights = model, entry, weights
         tokenizer = self._load_tokenizer(
             call["model"]["tokenizer_repo"], call["model"]["tokenizer_revision"]
