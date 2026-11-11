@@ -15,7 +15,6 @@ import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends import BackendError
@@ -253,9 +252,11 @@ def _probs(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 def _export(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     from clarity_chat.export import export_log
 
+    if args:  # commands will also come from the browser (v0.3.0): no path from a command
+        raise ConfigError("/export takes no path: it writes to logs/exports/ID.jsonl.")
     conversation = c.session.conversation
     assert conversation is not None
-    return export_log(c.session, conversation.log.path, Path(args) if args else None)
+    return export_log(c.session, conversation.log.path)
 
 
 def _settings(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -402,8 +403,8 @@ COMMANDS: dict[str, Command] = {
         cancellable=True,
     ),
     "export": Command(
-        "/export [PATH]",
-        "write this conversation for a notebook (default logs/exports/ID.jsonl)",
+        "/export",
+        "write this conversation for a notebook, to logs/exports/ID.jsonl",
         _export,
     ),
     "title": Command("/title TEXT", "name this conversation in the chat list", _title),
