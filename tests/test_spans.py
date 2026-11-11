@@ -135,7 +135,7 @@ def test_a_template_that_inserts_the_date_has_it_as_template_text(root, tmp_path
 
 
 def test_a_template_that_fails_on_placeholders_gives_a_reason_not_an_error(root, tmp_path):
-    body = "{% if 'CLARITY' in m.content %}{{ raise_exception('no') }}{% endif %}{{ m.content }}"
+    body = "{% if 'Clarity' in m.content %}{{ raise_exception('no') }}{% endif %}{{ m.content }}"
     tokenizer = toy(tmp_path, LOOP.replace("{{ BODY }}", body))
     profile = profile_for(root, CHAT_PROFILE)
     _, spans = spans_for(tokenizer, profile, TURNS)

@@ -355,7 +355,9 @@ def _chat_parts(
     message as written, else stripped of edge whitespace (marked `trimmed`)."""
     messages = chat_messages(profile, turns)
     nonce = secrets.token_hex(6)
-    marks = [f"CLARITY{nonce}M{i}Z" for i in range(len(messages))]
+    # Mixed case, so a template that upper- or lowercases content changes every placeholder,
+    # even when the random part is all digits.
+    marks = [f"Clarity{nonce}M{i}z" for i in range(len(messages))]
     placeheld = template.tok.apply_chat_template(
         [{**m, "content": mark} for m, mark in zip(messages, marks, strict=True)],
         tokenize=False,
