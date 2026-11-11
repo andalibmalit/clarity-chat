@@ -385,7 +385,8 @@ class ChatLoop:
             name = {"exit": "quit", "q": "quit"}.get(name, name)
             if name == "edit":
                 return self.edit(raw)  # the new message exactly as typed
-            return self.command(name, raw.strip())
+            # A message goes as typed, like a plain line; other commands parse their args.
+            return self.command(name, raw if name == "say" else raw.strip())
         if not line.strip():
             return True
         return self.command("say", line)
