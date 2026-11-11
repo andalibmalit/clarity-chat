@@ -185,16 +185,36 @@ def facts(
 
 
 def machine_fact(logged: dict[str, Any] | None, here: dict[str, Any]) -> dict[str, Any]:
-    """The machine, shown as only the keys that differ: a whole record would bury them."""
+    """The machine, value by value (`macos.chip`), shown as only the values that differ: a
+    whole record would bury them. A value one side couldn't read (None, as when a sandbox
+    hides the chip's name) is unknown, not a difference."""
     if logged is None:
         return {"fact": "machine", "export": None, "here": here, "same": None}
-    keys = sorted(k for k in {*logged, *here} if logged.get(k) != here.get(k))
-    return {
+    old, new = flat(logged), flat(here)
+    keys = sorted({*old, *new})
+    differ = [k for k in keys if None not in (old.get(k), new.get(k)) and old[k] != new[k]]
+    unknown = [k for k in keys if (old.get(k) is None) != (new.get(k) is None)]
+    shown = differ or unknown
+    fact: dict[str, Any] = {
         "fact": "machine",
-        "export": {k: logged.get(k) for k in keys} if keys else logged,
-        "here": {k: here.get(k) for k in keys} if keys else "this machine",
-        "same": not keys,
+        "export": {k: old.get(k) for k in shown} if shown else logged,
+        "here": {k: new.get(k) for k in shown} if shown else "this machine",
+        "same": False if differ else None if unknown else True,
     }
+    if unknown and not differ:
+        fact["says"] = f"not known on one side: {', '.join(unknown)}"
+    return fact
+
+
+def flat(values: dict[str, Any], prefix: str = "") -> dict[str, Any]:
+    """{"macos": {"chip": X}} -> {"macos.chip": X}."""
+    out: dict[str, Any] = {}
+    for key, value in values.items():
+        if isinstance(value, dict):
+            out.update(flat(value, f"{prefix}{key}."))
+        else:
+            out[f"{prefix}{key}"] = value
+    return out
 
 
 def measure(call: dict[str, Any], model: Any, backend: str | None) -> dict[str, Any]:
