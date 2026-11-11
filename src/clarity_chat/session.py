@@ -962,6 +962,7 @@ class Session:
                     "timings",
                 )
             },
+            **({"logprobs": fields["logprobs"]} if "logprobs" in fields else {}),
         }
         if not comparison["identical"]:
             record["logged_output_text"] = call["output_text"]
