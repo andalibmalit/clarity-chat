@@ -5,16 +5,20 @@
 
 Runs `clarity --root ROOT CLARITY_ARGS` in a pseudo-terminal (macOS and Linux), types
 each line of STEPS once the output has gone quiet, then Ctrl-D, and writes everything
-printed to FILE. A step line `<ctrl-c>` sends Ctrl-C; `<wait N>` waits N more seconds;
-lines starting with `#` are skipped.
+printed to FILE. A step line `<ctrl-c>` sends Ctrl-C; `<ctrl-c after S>` sends it S
+seconds after the step before it was typed, without waiting for quiet (to cancel a reply
+while it streams); `<wait N>` waits N more seconds; lines starting with `#` are skipped.
+Clarity runs in ROOT, so relative paths in CLARITY_ARGS are relative to ROOT.
 
-The owner allowlists this script to run outside the sandbox, which blocks pseudo-terminals
-and hides the GPU, so it keeps Clarity to the scratch root and to SmolLM2 whatever the
-steps say. Every run rewrites the root's models.toml, models.lock and profiles from this
-checkout, listing SmolLM2 only (Clarity loads models by name through models.lock), and
-checks that server.toml differs from the checkout's in its flags only. `--init` also
-resets server.toml. Arguments are parsed with Clarity's own parser and steps with its own
-command splitter, so they are checked as Clarity will read them.
+The owner allowlists this script to run outside the sandbox, which blocks pseudo-
+terminals and hides the GPU, so it keeps Clarity to the scratch root and to SmolLM2
+whatever the steps say. Every run rewrites the root's models.toml, models.lock and
+profiles from this checkout, listing SmolLM2 only (Clarity loads models by name through
+models.lock), and checks that server.toml differs from the checkout's in its flags only,
+that the weights match models.lock's sha256, and that nothing in the root is a link
+(Clarity and the driver follow links, so one could reach a private folder). `--init`
+also resets server.toml. Arguments are parsed with Clarity's own parser and steps with
+its own command splitter, so they are checked as Clarity will read them.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ import re
 import select
 import shutil
 import signal
+import stat
 import sys
 import time
 import tomllib
@@ -53,11 +58,14 @@ class Refused(Exception):
 
 def prepare_root(root: Path, repo: Path = REPO, init: bool = False) -> None:
     """Make `root` a scratch project that can load SmolLM2 only (see the module docstring)."""
+    from clarity_chat.files import sha256_file
+
     root.mkdir(parents=True, exist_ok=True)
-    left_server(root)
     for name in ("profiles", "models", "prompts"):  # an older layout linked to the checkout
         if (root / name).is_symlink():
             (root / name).unlink()
+    no_links(root)
+    left_server(root)
     shutil.copy(repo / "defaults.toml", root / "defaults.toml")
     models = tomllib.loads((repo / "models.toml").read_text(encoding="utf-8"))[QA_MODEL]
     lines = [f"[{QA_MODEL}]", *(f"{k} = {json.dumps(v)}" for k, v in models.items())]
@@ -67,12 +75,15 @@ def prepare_root(root: Path, repo: Path = REPO, init: bool = False) -> None:
     lock = {**lock, "models": {QA_MODEL: entry}}
     (root / "models.lock").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
     # The root's own copy of the weights, with the modified time models.lock recorded: QA
-    # renames a file over it to test the restart, which mustn't touch the checkout's.
-    weights = Path(entry["gguf"]["path"])
+    # renames a file over it to test the restart, which mustn't touch the checkout's. Checked
+    # by hash each run: Clarity checks only size and time, which can be set by hand.
+    weights, sha256 = Path(entry["gguf"]["path"]), entry["gguf"]["sha256"]
     for child in (root / "models").glob("*"):
         if child.name != weights.parts[1]:
             shutil.rmtree(child) if child.is_dir() else child.unlink()
-    if not (root / weights).exists():
+    if not (root / weights).is_file() or sha256_file(root / weights) != sha256:
+        if sha256_file(repo / weights) != sha256:
+            raise Refused(f"{repo / weights} doesn't match models.lock; run clarity verify.")
         (root / weights).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(repo / weights, root / weights)
     profiles = root / "profiles"
@@ -85,6 +96,16 @@ def prepare_root(root: Path, repo: Path = REPO, init: bool = False) -> None:
     hf = chat.replace('backend = "llama.cpp"', 'backend = "transformers"\ndevice = "cpu"', 1)
     (profiles / "smol-chat-hf.toml").write_text(hf, encoding="utf-8", newline="\n")
     check_server_toml(root, repo, init)
+
+
+def no_links(root: Path) -> None:
+    """Plain files and folders only: no symbolic link, and no file with a second name (a hard
+    link to a file outside the root)."""
+    for folder, folders, files in os.walk(root, followlinks=False):
+        for name in [*folders, *files]:
+            info = (Path(folder) / name).lstat()
+            if stat.S_ISLNK(info.st_mode) or (stat.S_ISREG(info.st_mode) and info.st_nlink > 1):
+                raise Refused(f"{Path(folder) / name} is a link; the root holds plain files only.")
 
 
 def left_server(root: Path) -> None:
@@ -138,15 +159,20 @@ def check_clarity_args(root: Path, argv: list[str]) -> argparse.Namespace:
         raise Refused("--out isn't allowed: an export goes to the root's logs/exports/")
     if getattr(args, "profile", None) is not None and not ID.fullmatch(args.profile):
         raise Refused(f"--profile takes a profile name here, not {args.profile!r}")
-    for name in ("resume", "log", "conversation"):
+    for name in ("resume", "conversation"):  # an ID, or a path
         value = getattr(args, name, None)
-        if value is not None and not inside(root, str(value)):
+        if value is not None and not (ID.fullmatch(str(value)) or inside(root, str(value))):
             raise Refused(f"{value} must be an ID or a path inside {root}")
+    log = getattr(args, "log", None)  # replay's LOG is always a path to Clarity
+    if log is not None and not inside(root, str(log)):
+        raise Refused(f"{log} must be a path inside {root}")
     return args
 
 
 def inside(root: Path, value: str) -> bool:
-    return bool(ID.fullmatch(value)) or Path(value).resolve().is_relative_to(root.resolve())
+    """A path inside the root, judged from the root, where Clarity runs."""
+    path = Path(value) if Path(value).is_absolute() else root / value
+    return path.resolve().is_relative_to(root.resolve())
 
 
 # --- steps ---------------------------------------------------------------------------
@@ -166,7 +192,7 @@ def parse_steps(path: Path, json_mode: bool) -> list[str]:
         if any(unicodedata.category(c) in ("Cc", "Zl", "Zp") for c in line):
             raise Refused(f"{where}: a control character; use <ctrl-c> for Ctrl-C")
         if line.startswith("<") and line != "<ctrl-c>":
-            if not re.fullmatch(r"<wait [0-9]+(\.[0-9]+)?>", line):
+            if not re.fullmatch(r"<(wait|ctrl-c after) [0-9]+(\.[0-9]+)?>", line):
                 raise Refused(f"{where}: unknown step {line!r}")
         elif json_mode:
             check_json_step(where, line)
@@ -183,7 +209,11 @@ def check_json_step(where: str, line: str) -> None:
         step = json.loads(line)
     except ValueError:
         return  # Clarity answers with an InputError and acts on nothing
-    if not isinstance(step, dict) or step.get("command") not in NAMED:
+    if not isinstance(step, dict):
+        return
+    if not isinstance(step.get("command"), str):
+        raise Refused(f"{where}: a command that isn't a string")
+    if step["command"] not in NAMED:
         return
     arg = step.get("args", "")
     if not isinstance(arg, str) or (arg.strip() and not ID.fullmatch(arg.strip())):
@@ -193,8 +223,9 @@ def check_json_step(where: str, line: str) -> None:
 # --- running -------------------------------------------------------------------------
 
 
-def read_until_quiet(fd: int, log: BinaryIO, timeout: float) -> None:
-    """Copy output to `log` until it has been silent for QUIET_S or the program ends."""
+def read_until_quiet(fd: int, log: BinaryIO, timeout: float, quiet: float = QUIET_S) -> None:
+    """Copy output to `log` until it has been silent for `quiet` seconds, `timeout` passes
+    or the program ends."""
     deadline = time.monotonic() + timeout
     last = time.monotonic()
     while time.monotonic() < deadline:
@@ -209,7 +240,7 @@ def read_until_quiet(fd: int, log: BinaryIO, timeout: float) -> None:
             log.write(data)
             log.flush()
             last = time.monotonic()
-        elif time.monotonic() - last >= QUIET_S:
+        elif time.monotonic() - last >= quiet:
             return
 
 
@@ -234,7 +265,8 @@ def main() -> int:
     except Refused as e:
         parser.error(str(e))
     program = Path(sys.executable).parent / "clarity"
-    argv = [str(program), "--root", str(args.root), *clarity_args]
+    root = args.root.resolve()
+    argv = [str(program), "--root", str(root), *clarity_args]
     args.out.parent.mkdir(parents=True, exist_ok=True)
     import pty  # POSIX only; the checks above also run in the tests on Windows
 
@@ -242,20 +274,26 @@ def main() -> int:
     # typed into the pty reaches it as SIGINT, as in a real terminal.
     pid, primary = pty.fork()
     if pid == 0:
-        # No downloads: everything QA needs is fetched already.
+        # In the root, so nothing resolves against the checkout. No downloads: everything QA
+        # needs is fetched already.
+        os.chdir(root)
         os.execve(argv[0], argv, {**os.environ, "HF_HUB_OFFLINE": "1"})
     with args.out.open("wb") as log:
         log.write(f"$ clarity --root {args.root} {' '.join(clarity_args)}\n".encode())
         read_until_quiet(primary, log, STEP_TIMEOUT_S)
         for n, step in enumerate(steps, 1):
             log.write(f"\n[qa step {n}: {step}]\n".encode())
-            if step == "<ctrl-c>":
+            if step == "<ctrl-c>" or step.startswith("<ctrl-c after "):
                 os.write(primary, b"\x03")
             elif step.startswith("<wait "):
                 time.sleep(float(step[6:-1]))
             else:
                 os.write(primary, step.encode() + b"\r")
-            read_until_quiet(primary, log, STEP_TIMEOUT_S)
+            later = steps[n] if n < len(steps) else ""
+            if timed := re.fullmatch(r"<ctrl-c after ([0-9.]+)>", later):
+                read_until_quiet(primary, log, float(timed[1]), quiet=float("inf"))
+            else:
+                read_until_quiet(primary, log, STEP_TIMEOUT_S)
         if steps:
             log.write(b"\n[qa end: ctrl-d]\n")
             os.write(primary, b"\x04")  # end of input: the chat quits as a user's would
