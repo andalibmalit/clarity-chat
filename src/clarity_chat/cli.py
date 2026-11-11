@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import io
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -687,6 +688,11 @@ def cmd_verify(root: Path, names: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows writes pipes and files in its ANSI code page, which can't hold every title or
+    # reply; consoles are UTF-8 already. PowerShell 5.1 may still show the bytes wrongly.
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper) and not stream.isatty():
+            stream.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(
         prog="clarity",
         description="Clarity: what you see is exactly what the model got.",

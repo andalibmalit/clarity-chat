@@ -19,6 +19,8 @@ Every command, key and record field a user sees. For task-based instructions, se
 
 `--root PATH` sets the project folder, and goes before the command: `clarity --root PATH chat --profile NAME`. By default, the project folder is the nearest folder, from the current one upwards, that holds both `defaults.toml` and `server.toml`. `mark` and `note` don't need a project folder, only the log file.
 
+Output sent to a file or a pipe is UTF-8 on every system. On Windows, Python would otherwise use the system's code page, which can't hold every title or reply.
+
 Exit status:
 - `0`: success, or `replay` found the output identical.
 - `1`: a configuration or backend error (printed as `clarity: …`), a stopped `run`, a `replay` whose output differs, a `verify` that failed, or a `chat --json` session ended by an unexpected error.
