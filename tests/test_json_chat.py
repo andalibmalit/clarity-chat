@@ -214,3 +214,35 @@ def test_cancel_says_what_it_stopped_or_why_not(make):
     replayed = events[-1]
     assert replayed["event"] == "error" and "cancelled" in replayed["message"].lower()
     assert not [r for r in read_records(session.conversation.log.path) if r["type"] == "replay"]
+
+
+def test_deeply_nested_input_is_an_input_error_and_reading_goes_on(make):
+    session, _ = make([" Hi."])
+    events = run(session, ["[" * 100_000, line("help", id=2)])
+    errors = [e for e in events if e["event"] == "error"]
+    assert [e["type"] for e in errors] == ["InputError"]
+    assert any(e.get("id") == 2 and e["event"] == "result" for e in events)
+
+
+def test_an_unexpected_error_is_reported_and_ends_the_session(make):
+    session, backend = make([" Hi."])
+
+    def fail():
+        raise OSError("disk full")
+
+    backend.on_call = fail
+    stdout = io.StringIO()
+    stdin = io.BytesIO((line("say", "Hi", id=1) + "\n" + line("help", id=2) + "\n").encode())
+    chat = JsonChat(session, stdin, stdout)
+    chat.run([{"command": "profile", "args": "text"}])
+    events = [json.loads(x) for x in stdout.getvalue().splitlines()]
+    assert chat.failed  # so `clarity chat --json` exits with status 1
+    error = events[-1]
+    assert error == {
+        "event": "error",
+        "command": "say",
+        "id": 1,
+        "type": "OSError",
+        "message": "disk full",
+    }
+    assert not any(e.get("id") == 2 for e in events)  # the session ended there
