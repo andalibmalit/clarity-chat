@@ -48,7 +48,7 @@ Clarity writes files only visibly. Shipped files stay read-only; the user's own 
   Show the command and its output in the step report.
 - A bug fix starts with a failing test, committed before the fix.
 - Each release follows its approved plan in `notes/plans/`. If the build departs from the plan, update the plan in the same step and say so.
-- A release is done when `CONTRIBUTING.md`'s release checklist is complete. The owner runs the live tests, pushes and tags.
+- A release is done when `CONTRIBUTING.md`'s release checklist is complete. I may run the live tests while building, to catch my own bugs, and ask before `-m olmo` (it loads 15 GB). The owner runs them again for the release checklist, pushes and tags.
 - A change to the llama.cpp commit, `tokenizers`, `transformers` or `jinja2` can change output: give it its own commit and a changelog line, and ask the owner to run the live tests.
 - Add user-visible changes to `CHANGELOG.md` under Unreleased in the same commit.
 - If you make a mistake that an earlier session also made, propose one line for this file.
