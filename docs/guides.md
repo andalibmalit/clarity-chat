@@ -156,7 +156,7 @@ On a Transformers profile, `/set logprobs 5` records, for each token of the next
 
 `/export`, or `uv run clarity export ID` afterwards, writes the conversation to `logs/exports/ID.jsonl`: exact token IDs, where each message sits in the prompt, marks, notes and settings for every reply. Its fields are in [Export](reference.md#export).
 
-Numbers you recompute in a notebook are only comparable with the logged ones under the same conditions: the same weights, precision, device, attention implementation and library versions. So run the check first, with the model you loaded:
+Numbers you recompute in a notebook are only comparable with the logged ones under the same conditions: the same weights, precision, device, attention implementation, library versions, PyTorch environment variables and machine. So run the check first, with the model you loaded:
 
 ```python
 from clarity_chat.recompute import check

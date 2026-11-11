@@ -20,7 +20,15 @@ from typing import Any
 DIFFERENT = "different weights: this is a different model"
 UNKNOWN = "unknown: pass revision="
 GGUF = "the export ran on a GGUF file, not on these weights"
-TORCH_FACTS = ("precision", "device", "attention", "torch", "transformers")
+TORCH_FACTS = (
+    "precision",
+    "device",
+    "attention",
+    "torch",
+    "transformers",
+    "environment",
+    "deterministic algorithms",
+)
 HOW = (
     "Recomputed step by step with the cache, as generation ran: the prompt all at once, then "
     "one reply token at a time. A changed top choice means the token the model now ranks "
@@ -131,7 +139,14 @@ def facts(
     eos = sorted([eos] if isinstance(eos, int) else eos or [])
     # The loaded module's version: Linux and Windows wheels add a local tag (+cu128) that the
     # logged torch.__version__ has and the package metadata doesn't.
-    torch_here = getattr(sys.modules.get("torch"), "__version__", None) or installed("torch")
+    from clarity_chat.backends.transformers_hf import torch_env
+    from clarity_chat.logs import machine
+
+    torch = sys.modules.get("torch")
+    if torch is None and installed("torch"):
+        import torch
+    torch_here = getattr(torch, "__version__", None) or installed("torch")
+    deterministic = torch.are_deterministic_algorithms_enabled() if torch else None
     pairs = [
         ("backend", logged.get("backend"), "transformers"),
         ("precision", logged.get("dtype"), str(model.dtype).removeprefix("torch.")),
@@ -140,6 +155,8 @@ def facts(
         ("torch", logged.get("torch"), torch_here),
         ("transformers", logged.get("transformers"), installed("transformers")),
         ("end tokens", logged.get("end_tokens"), eos),
+        ("environment", logged.get("env"), torch_env()),
+        ("deterministic algorithms", logged.get("deterministic_algorithms"), deterministic),
     ]
     if logged.get("backend") != "transformers":  # llama.cpp has none of these
         pairs = [p for p in pairs if p[0] not in TORCH_FACTS]
@@ -155,7 +172,21 @@ def facts(
         {"fact": f, "export": e, "here": h, "same": None if e is None else e == h}
         for f, e, h in pairs
     ]
+    found.append(machine_fact(logged.get("machine"), machine()))
     return found
+
+
+def machine_fact(logged: dict[str, Any] | None, here: dict[str, Any]) -> dict[str, Any]:
+    """The machine, shown as only the keys that differ: a whole record would bury them."""
+    if logged is None:
+        return {"fact": "machine", "export": None, "here": here, "same": None}
+    keys = sorted(k for k in {*logged, *here} if logged.get(k) != here.get(k))
+    return {
+        "fact": "machine",
+        "export": {k: logged.get(k) for k in keys} if keys else logged,
+        "here": {k: here.get(k) for k in keys} if keys else "this machine",
+        "same": not keys,
+    }
 
 
 def measure(call: dict[str, Any], model: Any, backend: str | None) -> dict[str, Any]:

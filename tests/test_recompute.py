@@ -133,7 +133,7 @@ def test_a_gguf_isnt_the_same_weights_and_torch_facts_dont_apply(tmp_path):
         "backend": "llama.cpp",
         "weights": {"repo": "org/tiny", "revision": "a" * 40, "gguf_sha256": "0" * 64},
         "end_tokens": [7],
-        "machine": None,
+        "machine": machine(),
     }
     report = check(write_export(tmp_path / "e.jsonl", [], llama), stand_in(), **PINS)
     text = str(report)
@@ -149,7 +149,8 @@ def test_the_torch_version_is_the_loaded_ones(tmp_path, monkeypatch):
     header = json.loads(export.read_text(encoding="utf-8"))
     header["conditions"][0]["conditions"]["torch"] = "9.9.9+cu128"
     export.write_text(json.dumps(header) + "\n", encoding="utf-8")
-    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(__version__="9.9.9+cu128"))
+    loaded = SimpleNamespace(__version__="9.9.9+cu128", are_deterministic_algorithms_enabled=bool)
+    monkeypatch.setitem(sys.modules, "torch", loaded)
     assert facts(check(export, stand_in(), **PINS))["torch"]["same"]
 
 
