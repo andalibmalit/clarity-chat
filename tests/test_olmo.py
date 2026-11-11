@@ -109,6 +109,8 @@ def on_transformers(folder: Path, base: str, max_tokens: int | None = None) -> s
     except ConfigError as e:
         pytest.skip(str(e))
     text = text.replace('backend = "llama.cpp"', 'backend = "transformers"')
+    # The copy lives elsewhere, so the shipped profile's relative file paths must be absolute.
+    text = text.replace('"../prompts/', f'"{(REPO / "prompts").as_posix()}/')
     if max_tokens is not None:
         text = text.replace("max_tokens = 1024", f"max_tokens = {max_tokens}")
     path = folder / f"{base}-transformers.toml"
