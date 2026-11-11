@@ -42,6 +42,20 @@ def library_versions() -> dict[str, str]:
     return {name: version(name) for name in ("transformers", "tokenizers", "jinja2")}
 
 
+def from_pretrained(cls: Any, folder: Path, **kwargs: Any) -> Any:
+    """`cls.from_pretrained(folder)` without the folder's own Python code. Without
+    trust_remote_code=False, Transformers asks on stdin whether to run it, and a "y" typed
+    in the chat would. Clarity runs only its own code and locked libraries."""
+    try:
+        return cls.from_pretrained(folder, trust_remote_code=False, **kwargs)
+    except ValueError as e:
+        if "custom code" not in str(e):
+            raise
+        raise ConfigError(
+            f"{folder} needs its own Python code to load, which Clarity doesn't run."
+        ) from e
+
+
 @dataclass
 class Tokenizer:
     """A Hugging Face tokenizer, loaded from a local folder, plus where it came from."""
@@ -56,7 +70,7 @@ class Tokenizer:
 
         config_path = folder / "tokenizer_config.json"
         config = json.loads(read_text(config_path)) if config_path.is_file() else {}
-        tok = AutoTokenizer.from_pretrained(folder, local_files_only=True)
+        tok = from_pretrained(AutoTokenizer, folder, local_files_only=True)
         return cls(tok=tok, source=source or {"path": folder.as_posix()}, config=config)
 
     @classmethod

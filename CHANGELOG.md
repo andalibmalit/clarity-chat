@@ -9,6 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Security
+- A model folder whose config names its own Python code made Transformers ask on the terminal whether to run it, and a "y" typed in the chat would have. Clarity now refuses such a model with a clear error and never runs a model's own code. With `--json`, the question also broke the event stream.
 - Resuming a log whose profile path or name leads outside the project folder no longer reads that file; the resume says so instead. A log is untrusted input.
 - A profile's `{ file = "PATH" }` could name any file on your computer, which then went into the prompt and the log. A profile from someone else could use that to put, say, a private key into a log you might share. Prompt files must now be inside the project folder.
 - Logs, llama-server's output logs and a batch run's files are now created readable only by you on Linux and macOS (mode 0600). They hold private conversations and were readable by other accounts on the machine. Files from earlier versions keep their mode; `chmod 600` changes them.

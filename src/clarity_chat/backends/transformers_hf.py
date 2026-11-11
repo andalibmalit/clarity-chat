@@ -29,6 +29,7 @@ from typing import Any
 from clarity_chat.backends import BackendError, Result
 from clarity_chat.logs import machine, new_id
 from clarity_chat.profiles import ConfigError, ModelEntry
+from clarity_chat.render import from_pretrained
 
 NAME = "transformers"
 # Set, not left to the library: with None Transformers picks sdpa but falls back to eager
@@ -132,7 +133,7 @@ def end_tokens(weights: Path) -> tuple[list[int], str]:
         ids = [eos] if isinstance(eos, int) else list(eos or [])
         if ids:
             return ids, "generation_config.json"
-    tokenizer: Any = AutoTokenizer.from_pretrained(weights)
+    tokenizer: Any = from_pretrained(AutoTokenizer, weights)
     eos = tokenizer.eos_token_id
     if eos is None:
         raise ConfigError(
@@ -348,10 +349,13 @@ class TransformersBackend:
                 'CPU without notice. Unset it, or set device = "cpu".'
             )
         self.eos_ids, self.eos_from = end_tokens(weights)
-        tokenizer: Any = AutoTokenizer.from_pretrained(weights)
+        tokenizer: Any = from_pretrained(AutoTokenizer, weights)
         self.tokenizer = tokenizer
-        loaded = AutoModelForCausalLM.from_pretrained(
-            weights, dtype=torch.bfloat16, attn_implementation=ATTN_IMPLEMENTATION
+        loaded = from_pretrained(
+            AutoModelForCausalLM,
+            weights,
+            dtype=torch.bfloat16,
+            attn_implementation=ATTN_IMPLEMENTATION,
         )
         attention = getattr(loaded.config, "_attn_implementation", None)
         if attention != ATTN_IMPLEMENTATION:
