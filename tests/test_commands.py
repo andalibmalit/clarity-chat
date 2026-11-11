@@ -278,14 +278,13 @@ def test_a_name_is_never_looked_up_in_the_working_folder(
 
 
 def test_new_after_a_resume_doesnt_read_a_logged_profile_outside_the_project(
-    fetched_root, tmp_path, tiny_tokenizer
+    fetched_root, tmp_path_factory, tiny_tokenizer
 ):
     """A log is untrusted: its profile path can name any .toml file. /new starts the logged
     profile by name from the project instead."""
     import shutil
 
-    outside = tmp_path / "outside"
-    outside.mkdir()
+    outside = tmp_path_factory.mktemp("outside")  # not under fetched_root
     shutil.copy(fetched_root / "profiles" / "text.toml", outside / "text.toml")
 
     def commands():
