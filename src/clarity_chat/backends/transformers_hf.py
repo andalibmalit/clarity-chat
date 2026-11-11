@@ -175,8 +175,9 @@ LOGPROBS_CHUNK = 256  # steps reduced at once; each step's logits are a vocabula
 def log_softmax(rows: Any) -> Any:
     """Log-probabilities from logits, always on the CPU in float32. On MPS, log_softmax over
     a batch of rows can differ in the last bits from the same row alone, so a reduction on the
-    GPU would depend on how the rows were batched; on the CPU it doesn't. Only the logits then
-    depend on the device, and a recompute (`clarity_chat.recompute`) reduces the same way."""
+    GPU would depend on how the rows were batched; on the CPU it doesn't. We infer that only
+    the logits then depend on the device, and a recompute (`clarity_chat.recompute`) reduces
+    the same way."""
     import torch
 
     return torch.log_softmax(rows.float().cpu(), dim=-1)

@@ -26,7 +26,7 @@ Clarity's live tests have run on Apple Silicon (Metal) only. Its offline tests r
    git -C vendor/llama.cpp checkout f477f795cb071baf5b8af6488378366a72034ac4
    ```
 
-   Clarity refuses to start the server if the checkout is at another commit, because a different build can give different output. If the checkout is right but the built `llama-server` comes from another commit, Clarity warns you to rebuild it.
+   Clarity refuses to start the server if the checkout is at another commit, because a different build can give different output. If the checkout is right but the built `llama-server` comes from another commit, Clarity stops and asks you to rebuild it.
 
 3. Build `llama-server`:
 
