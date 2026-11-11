@@ -26,6 +26,8 @@ from pathlib import Path
 from typing import BinaryIO
 
 REPO = Path(__file__).resolve().parents[1]
+QA_DIR = REPO / "notes" / "qa"  # local-only; scratch roots, steps and transcripts
+QA_COMMANDS = {"chat", "chats", "replay", "export"}
 QUIET_S = 2.0  # output silent this long means the program is waiting for input
 STEP_TIMEOUT_S = 600.0
 
@@ -74,6 +76,13 @@ def main() -> int:
     parser.add_argument("clarity_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     clarity_args = [a for a in args.clarity_args if a != "--"]
+    # Allowlisted outside the sandbox, so it stays narrow: scratch paths only (never the
+    # checkout's own logs/), and only the commands a QA pass uses (no fetch: no downloads).
+    for path in (args.root, args.out, args.steps):
+        if path is not None and not path.resolve().is_relative_to(QA_DIR):
+            parser.error(f"{path} must be inside {QA_DIR}")
+    if not clarity_args or clarity_args[0] not in QA_COMMANDS:
+        parser.error(f"the Clarity command must be one of {sorted(QA_COMMANDS)}")
     if args.init:
         init_root(args.root)
     steps = []
