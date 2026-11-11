@@ -109,11 +109,12 @@ class JsonChat:
         """Run one command and send its result or error. Returns False to quit."""
         name = command["command"]
         tag = {"command": name, **({"id": command["id"]} if "id" in command else {})}
+        start = any(command is s for s in self.starts)  # --profile or --resume, not input
         try:
-            result = self.commands.run(name, command.get("args", ""), self.emit)
+            result = self.commands.run(name, command.get("args", ""), self.emit, paths=start)
         except (ConfigError, ContextError, BackendError) as e:
             self.emit({"event": "error", **tag, "type": type(e).__name__, "message": str(e)})
-            if any(command is start for start in self.starts):  # not from input
+            if start:
                 self.failed = True
                 return False
             return True

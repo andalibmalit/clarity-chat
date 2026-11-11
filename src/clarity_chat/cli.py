@@ -356,11 +356,11 @@ class ChatLoop:
     def start(self) -> None:
         if self.resume is not None:
             self.write(f"Resuming {self.resume} …\n")
-            result = self.commands.run("resume", self.resume, self.on_event)
+            result = self.commands.run("resume", self.resume, self.on_event, paths=True)
             self.write(format_resume(result) + "\n")
             return
         self.write(f"Starting profile {self.profile_name} …\n")
-        result = self.commands.run("profile", self.profile_name, self.on_event)
+        result = self.commands.run("profile", self.profile_name, self.on_event, paths=True)
         for warning in result["warnings"]:
             self.write(f"! {warning}\n")
         self.write(
