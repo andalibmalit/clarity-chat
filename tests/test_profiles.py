@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from clarity_chat.profiles import (
@@ -231,3 +233,23 @@ def test_a_name_in_both_profile_folders_is_an_error(root):
     (own / "text.toml").write_text("", encoding="utf-8")
     with pytest.raises(ConfigError, match="Rename one of them"):
         load_profile(root, "text", load_defaults(root))
+
+
+@pytest.mark.parametrize("how", ["relative", "absolute", "symlink"])
+def test_a_prompt_file_outside_the_project_folder_is_refused(root, how):
+    """A profile from someone else mustn't put, say, ~/.ssh/id_rsa into a prompt and a log."""
+    outside = root.parent / f"{root.name}-outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    if how == "relative":
+        ref = f"../../{outside.name}"
+    elif how == "absolute":
+        ref = outside.as_posix()
+    else:
+        if os.name == "nt":  # creating a symlink needs extra rights on Windows
+            return
+        (root / "prompts").mkdir()
+        (root / "prompts" / "link.txt").symlink_to(outside)
+        ref = "../prompts/link.txt"
+    write_profile(root, "p", BASE + f'header = {{ file = "{ref}" }}\n')
+    with pytest.raises(ConfigError, match="outside the project folder"):
+        load_profile(root, "p", load_defaults(root))
