@@ -15,6 +15,7 @@ import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends import BackendError
@@ -42,8 +43,11 @@ class Commands:
         self.busy = threading.Lock()  # held while a command runs: one at a time
         self.cancel_event: threading.Event | None = None  # the running command's
         self.running: str | None = None  # the running command's name
+        # Paths only from the command line (--profile, --resume), which you type. Commands
+        # will also come from the browser (v0.3.0), so they take names and IDs.
+        self.paths = False
 
-    def run(self, name: str, args: str, emit: Emit) -> dict[str, Any]:
+    def run(self, name: str, args: str, emit: Emit, *, paths: bool = False) -> dict[str, Any]:
         command = COMMANDS.get(name)
         if command is None:
             raise ConfigError(f"Unknown command /{name}. /help lists them.")
@@ -58,6 +62,7 @@ class Commands:
         # Made before the command starts, so a cancel that arrives early isn't lost.
         self.cancel_event = threading.Event()
         self.running = name
+        self.paths = paths
         self.session.on_record = lambda record: emit({"event": "record", "record": record})
         try:
             return command.run(self, args, emit)
@@ -65,6 +70,7 @@ class Commands:
             self.session.on_record = None
             self.cancel_event = None
             self.running = None
+            self.paths = False
             self.busy.release()
 
     def call(self, emit: Emit, start: Callable[..., CallOutcome]) -> dict[str, Any]:
@@ -170,6 +176,8 @@ def _switch(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 def _resume(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     log = needs(args, "/resume ID")
+    if not c.paths and not re.fullmatch(r"[A-Za-z0-9_-]+", log):
+        raise ConfigError("/resume takes a conversation ID from /chats, not a path.")
     emit({"event": "status", "status": "starting", "log": log})
     record = c.session.resume(c.session.log_for(log))
     conversation = c.session.conversation
@@ -275,7 +283,12 @@ def _new(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _profile(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    return _start(c, needs(args, "/profile NAME"), emit)
+    name = needs(args, "/profile NAME")
+    if not c.paths and (Path(name).name != name or name.startswith(".") or "\\" in name):
+        raise ConfigError(
+            "/profile takes a profile name from profiles/ or local/profiles/, not a path."
+        )
+    return _start(c, name, emit)
 
 
 def _start(c: Commands, profile: str, emit: Emit) -> dict[str, Any]:

@@ -51,6 +51,7 @@ Two headings are Clarity's own, used when they apply:
 - Docs: the README, the design doc and the citation abstract now state the limits of their claims: replay covers completed calls, the same-output tests ran on two model families on one Apple Silicon Mac, and "No silent fallbacks" names its two flagged cases. The README, the package description and the citation title now share one tagline.
 
 ### Migration
+- In a chat and through `--json`, `/resume` takes a conversation ID and `/profile` a profile name; a path is refused. Commands will also come from the browser in v0.3.0, which mustn't make Clarity read any `.toml` file or append to any log. `clarity chat --resume PATH` and `--profile PATH`, which you type, still take paths.
 - With `--json`, the `regen` command's result is now `{"replies": [{"call", "warnings"}, …]}`, also for a plain `/regen`, in place of one `call` and `warnings`. Read `replies[0]` where a script read the result itself.
 - The check after each llama.cpp call is renamed: `checks.server_props` is now `checks.server_running` (with `exit_code` when the process has exited). `checks.not_echoed` is gone: it could never fail, and the same list follows from the logged request and `generation_settings`. A reader that looks for either key finds it missing in new logs.
 

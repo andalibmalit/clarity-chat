@@ -52,11 +52,11 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/note TEXT` | Add a note to the current reply. A reply has one note: a new one replaces it, and the log keeps both. Notes from before v0.2.0 have no ID, so they all stay. |
 | `/replay` | Re-send the current reply's call on the running server and compare the output. |
 | `/export` | Write this conversation for a notebook to `logs/exports/ID.jsonl`, as `clarity export` does. It takes no path; `clarity export --out` writes elsewhere. |
-| `/resume ID` | Continue a logged conversation, by its ID from `/chats` or its log file: its profile, settings, `/set` values and context size as logged, starting where it left off. Clarity shows what differs today: a changed profile file, settings today's files would set differently, server, machine or library changes since its last call, and whether the current reply's prompt still renders to the same token IDs. |
+| `/resume ID` | Continue a logged conversation, by its ID from `/chats` (not a path; `--resume` takes a log file): its profile, settings, `/set` values and context size as logged, starting where it left off. Clarity shows what differs today: a changed profile file, settings today's files would set differently, server, machine or library changes since its last call, and whether the current reply's prompt still renders to the same token IDs. |
 | `/title TEXT` | Name this conversation in the chat list. Without a title, the list shows the first eight words of its first message; Clarity never asks a model for one. |
 | `/chats` | Your conversations in `logs/`, newest first, with their titles. |
 | `/new` | Start a new conversation (and log file) with the same profile, re-read from its file. |
-| `/profile NAME` | Start a new conversation with another profile. The server restarts only if the model file, the context size or the backend changes. |
+| `/profile NAME` | Start a new conversation with another profile, by its name in `profiles/` or `local/profiles/` (not a path; `--profile` takes a file). The server restarts only if the model file, the context size or the backend changes. |
 | `/cancel` | Stop the call in progress, like Ctrl-C: a reply (`/say`, `/regen`, `/edit`) or a `/replay`. It's the one command that runs during another, for scripts and the web interface. It says which command it stopped, or why it stopped nothing: nothing was running, or the running command (such as a model start) can't be stopped. |
 | `/quit` | Stop the server and exit. `/exit`, `/q` and Ctrl-D also work. |
 | `//text` | Send a message that starts with `/`. |
