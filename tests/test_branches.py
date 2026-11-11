@@ -683,3 +683,29 @@ def test_history_is_the_current_branch_with_marks_and_notes(make_session):
     output: list[str] = []
     ChatLoop(session, "text", read=lambda d: "", write=output.append).handle("/history")
     assert "model: two\n  marked: landed\n  note: made-up better note\nyou: b" in "".join(output)
+
+
+def test_history_and_marks_parse_only_the_records_they_need(make_session, monkeypatch):
+    from clarity_chat import session as session_module
+
+    session, _ = make_session([" one"])
+    session.say("a")
+    log = session.conversation.log.path
+    parsed: list[str] = []
+
+    def spy(path, parse=None):
+        for record in read_records(path, parse):
+            parsed.append(record["type"])
+            yield record
+
+    monkeypatch.setattr(session_module, "read_records", spy)
+    session.annotate("mark", "landed")
+    session.annotate("note", "made-up note")
+    turns = session.history()
+    annotate_log(log, "unmark", records(session, "call")[0]["call_id"], "")
+    # Call records are the bulk of a long log; reading marks never parses them, except the
+    # one call `clarity mark` looks up.
+    assert parsed.count("call") == 1 and "turn" not in parsed
+    assert [m["label"] for m in turns[1]["marks"]] == ["landed"]
+    assert [n["text"] for n in turns[1]["notes"]] == ["made-up note"]
+    assert marks_and_notes(read_records(log))[turns[1]["turn_id"]]["marks"] == []
