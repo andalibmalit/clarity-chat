@@ -338,7 +338,7 @@ def test_end_of_reply_tokens_are_logged(monkeypatch, root):
     _, _, record = started_server(monkeypatch, root, STARTUP_GPU)
     assert '"eog_tokens": [{"id": 100257, "text": "<|endoftext|>"}, {"id": 100265' in record
     windows = STARTUP_GPU.replace("\n", "\r\n")
-    assert [t["id"] for t in eog_tokens(windows)] == [100257, 100265]
+    assert [t["id"] for t in eog_tokens(windows) or []] == [100257, 100265]
     assert eog_tokens("no such line") is None  # not found, which isn't "no end tokens"
 
 

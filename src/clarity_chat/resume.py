@@ -40,8 +40,13 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
     out = Rebuilt(records[0])
     roles: dict[str, dict[str, Any]] = {}
     failed: dict[str, dict[str, Any]] = {}  # calls with no reply, by ID
+    resumed = moved_after_resume = False
     for record in records:
         kind = record.get("type")
+        if kind == "resume":
+            resumed = True
+        elif kind in ("turn", "head") and resumed:
+            moved_after_resume = True  # a newer Clarity logged where the head went
         if kind == "conversation" and record is not records[0]:
             raise ConfigError(f"{where} holds more than one conversation.")
         if kind == "turn":
@@ -64,8 +69,9 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
         out.unanswered = {"turn_id": last["turn_id"], "text": last["text"]}
     if out.head is not None and roles[out.head]["role"] == "user":
         out.head = roles[out.head]["parent_id"]
-    # v0.1.0 logged neither /undo nor a failed call's move back: the head is a guess.
-    out.head_guessed = "ctx_size" not in out.start
+    # v0.1.0 logged neither /undo nor a failed call's move back: the head is a guess, until
+    # a later Clarity resumed the log and logged a turn or a head move.
+    out.head_guessed = "ctx_size" not in out.start and not moved_after_resume
     return out
 
 

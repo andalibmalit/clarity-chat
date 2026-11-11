@@ -184,9 +184,11 @@ BUFFER_RE = re.compile(r"(\S+) model buffer size = +([\d.]+) MiB")
 EOG_RE = re.compile(r"EOG token += (\d+) '(.*)'\r?$", re.MULTILINE)
 
 
-def eog_tokens(startup_output: str) -> list[dict[str, Any]]:
-    """The tokens that end a reply, as llama.cpp read them from the GGUF (its startup log)."""
-    return [{"id": int(m[1]), "text": m[2]} for m in EOG_RE.finditer(startup_output)]
+def eog_tokens(startup_output: str) -> list[dict[str, Any]] | None:
+    """The tokens that end a reply, as llama.cpp read them from the GGUF (its startup log).
+    None if the log has no such line (a llama.cpp update may change it): unknown, not none."""
+    found = [{"id": int(m[1]), "text": m[2]} for m in EOG_RE.finditer(startup_output)]
+    return found or None
 
 
 # "graph: nodes = 1131, splits = 2, …", or "graph (pp bs=512, tg bs=1): … splits = 2 / 3, …"
