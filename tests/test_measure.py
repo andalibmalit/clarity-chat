@@ -1,11 +1,12 @@
-"""Two measurements for v0.2.0's design (opt-in: `uv run pytest -m measure -v -s`).
+"""Measurements behind design choices (opt-in: `uv run pytest -m measure -v -s`).
 
 M1: does closing the stream stop llama-server's prompt processing, or does the next request
 wait for it? A3 (cancel) needs the answer. M2: how much memory OLMo 3 takes at two context
-sizes, with flash attention on and off. A4 (the memory check) needs it.
+sizes, with flash attention on and off. A4 (the memory check) needs it. M3: how fast each
+backend chats with OLMo 3, to decide which one a steered model should run on.
 
-Needs the built llama-server and OLMo 3 Instruct fetched. Measures and prints; asserts only
-that the servers started.
+Needs the built llama-server and OLMo 3 Instruct fetched (M3's Transformers half also needs
+`uv sync --extra hf`). Measures and prints; asserts only that the servers started.
 """
 
 from __future__ import annotations
@@ -20,8 +21,9 @@ import httpx
 import pytest
 
 from clarity_chat.backends.llama_cpp import LlamaServer
-from clarity_chat.models import check_weights_quick, lock_entry
+from clarity_chat.models import check_weights_quick, lock_entry, source_weights
 from clarity_chat.profiles import ConfigError, load_models, load_server_config
+from clarity_chat.session import Session
 
 REPO = Path(__file__).resolve().parents[1]
 MODEL = "olmo-3-7b-instruct"
@@ -147,3 +149,59 @@ def test_m2_memory(tmp_path, ctx_size, flash_attn):
     lines = [line.rstrip() for line in startup.splitlines() if MEMORY_LINE.search(line)]
     print(f"\nM2 ctx-size={ctx_size} flash-attn={flash_attn}")
     print("\n".join(lines))
+
+
+# About 1,500 tokens of made-up text: the prompt of a chat a few turns in.
+LONG_MESSAGE = "Describe this harbour in one paragraph. " + (
+    "The harbour was quiet, and the boats sat still on grey water. " * 110
+)
+
+
+def speed_profile(folder: Path, backend: str) -> str:
+    """profiles/1a-stock.toml on `backend`, with a reply short enough to time."""
+    text = (REPO / "profiles" / "1a-stock.toml").read_text(encoding="utf-8")
+    text = text.replace('backend = "llama.cpp"', f'backend = "{backend}"')
+    text = text.replace("max_tokens = 1024", "max_tokens = 128")
+    path = folder / f"speed-{backend}.toml"
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
+def per_second(n: int, ms: float) -> str:
+    return f"{n / (ms / 1000):,.1f}" if ms else "?"
+
+
+@pytest.mark.parametrize("backend", ["llama.cpp", "transformers"])
+def test_m3_backend_speed(tmp_path, backend):
+    """Each turn re-reads the whole prompt on both backends (Clarity keeps no prompt cache),
+    so prompt speed counts on every turn. Turn 1 includes any warm-up; turn 2 is the steadier
+    figure. On Transformers, the prompt time runs to the first generated token."""
+    memory = ""
+    if backend == "transformers":
+        torch = pytest.importorskip("torch")
+        try:
+            source_weights(REPO, lock_entry(REPO, load_models(REPO)[MODEL]))
+        except ConfigError as e:
+            pytest.skip(str(e))
+    session = Session(REPO, logs_dir=tmp_path / "logs")
+    try:
+        start = time.monotonic()
+        session.new_conversation(speed_profile(tmp_path, backend))
+        ready = time.monotonic() - start
+        records = [
+            session.say(LONG_MESSAGE).record,
+            session.say("Now say that in one sentence.").record,
+        ]
+        if backend == "transformers" and torch.backends.mps.is_available():
+            mib = torch.mps.driver_allocated_memory() / 2**20
+            memory = f"; PyTorch holds {mib:,.0f} MiB on the GPU"
+    finally:
+        session.close()
+    print(f"\nM3 {backend}: model ready after {ready:.1f} s{memory}")
+    for turn, record in enumerate(records, 1):
+        t = record["timings"]
+        print(
+            f"  turn {turn}: prompt {t['prompt_n']} tokens at "
+            f"{per_second(t['prompt_n'], t['prompt_ms'])} tokens/s; reply {t['predicted_n']} "
+            f"tokens at {per_second(t['predicted_n'], t['predicted_ms'])} tokens/s"
+        )
