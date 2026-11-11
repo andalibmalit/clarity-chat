@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from clarity_chat.models import check_weights_quick, lock_entry
+from clarity_chat.models import check_weights_quick, lock_entry, source_weights
 from clarity_chat.profiles import ConfigError, load_models
 from clarity_chat.session import Session
 
@@ -97,12 +97,22 @@ def test_raw_text_mode_on_both_models(session, profile):
         assert "\nUser:" not in record["output_text"]
 
 
-def on_transformers(folder: Path, base: str) -> str:
-    """A copy of profiles/<base>.toml on the Transformers backend (needs `uv sync --extra hf`)."""
+def on_transformers(folder: Path, base: str, max_tokens: int | None = None) -> str:
+    """A copy of profiles/<base>.toml on the Transformers backend. Skips without the `hf`
+    extra or the model's official weights. Used through the module's session, so switching
+    to it stops llama-server first: only one 7B model is in memory."""
     pytest.importorskip("torch")
     text = (REPO / "profiles" / f"{base}.toml").read_text(encoding="utf-8")
+    model = INSTRUCT if INSTRUCT in text else BASE
+    try:
+        source_weights(REPO, lock_entry(REPO, load_models(REPO)[model]))
+    except ConfigError as e:
+        pytest.skip(str(e))
+    text = text.replace('backend = "llama.cpp"', 'backend = "transformers"')
+    if max_tokens is not None:
+        text = text.replace("max_tokens = 1024", f"max_tokens = {max_tokens}")
     path = folder / f"{base}-transformers.toml"
-    path.write_text(text.replace('backend = "llama.cpp"', 'backend = "transformers"'), "utf-8")
+    path.write_text(text, encoding="utf-8")
     return str(path)
 
 
@@ -126,6 +136,20 @@ def test_each_backend_stops_on_its_own_end_tokens(
         server = session.backend.server_record
         found[server["backend"]] = facts_from_call({"model": {}}, server)["end_tokens"]
     assert found == {"llama.cpp": llama_cpp, "transformers": transformers}
+
+
+def test_the_base_model_in_text_mode_on_transformers_replays(session, tmp_path):
+    """Needs A3: the base model's generation_config.json lists no end token. The replay runs
+    after the model is unloaded, so it loads again."""
+    session.new_conversation(on_transformers(tmp_path, "5-raw-base", max_tokens=64))
+    record = session.say("Hello, who are you?").record
+    checks_ok(record)
+    assert session.backend.server_record["eos_token_id_from"].startswith("tokenizer")
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    session.backend.close()
+    replayed = session.replay(log, record["call_id"])
+    assert replayed["identical"], replayed
 
 
 def test_switching_models_restarts_the_server(session):
