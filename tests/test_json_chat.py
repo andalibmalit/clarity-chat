@@ -267,3 +267,15 @@ def test_a_failed_start_from_the_command_line_ends_the_session_with_status_1(
     events = [json.loads(x) for x in capsys.readouterr().out.splitlines()]
     assert [e["event"] for e in events if e["event"] != "status"] == ["error"]
     assert events[-1]["command"] == "profile" and events[-1]["type"] == "ConfigError"
+
+
+def test_the_start_takes_a_path_but_input_lines_dont(make, fetched_root):
+    session, _ = make([" Hello!"])
+    path = str(fetched_root / "profiles" / "text.toml")
+    events = run(
+        session, [line("profile", path, id=1)], first=[{"command": "profile", "args": path}]
+    )
+    started = next(e for e in events if e["event"] == "result")
+    assert started["result"]["profile"] == "text"
+    refused = next(e for e in events if e.get("id") == 1)
+    assert refused["event"] == "error" and "not a path" in refused["message"]

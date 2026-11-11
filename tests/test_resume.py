@@ -285,7 +285,7 @@ def test_resume_shows_the_conversations_warnings(new_session, fetched_root):
     resumed, backend = new_session()
     backend.start_warnings = []
     resumed.prepare = lambda name, logged=None, _p=resumed.prepare: _with_unread(_p(name, logged))
-    result = Commands(resumed).run("resume", str(session.conversation.log.path), lambda e: None)
+    result = Commands(resumed).run("resume", session.conversation.log.path.stem, lambda e: None)
     assert any("never reads template_kwargs" in w for w in result["warnings"])
 
 

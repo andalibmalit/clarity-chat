@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from clarity_chat.cli import ChatLoop, visible_lines
@@ -284,3 +286,19 @@ def test_say_sends_its_text_exactly_like_a_plain_line(loop, tiny_tokenizer):
     chat.handle("/say  hi  ")
     sent = tiny_tokenizer.decode(backend.calls[-1]["token_ids"])
     assert sent.endswith("User:  hi  \nAssistant:")
+
+
+def test_the_terminal_starts_from_a_profile_path(fetched_root, tiny_tokenizer):
+    """--profile PATH and --resume PATH come from the command line, which you type."""
+    backend = FakeBackend([" Hello!"], tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    path = str(fetched_root / "profiles" / "text.toml")
+    output: list[str] = []
+    chat = ChatLoop(session, path, read=lambda default: "", write=output.append)
+    chat.start()
+    assert "Ready:" in "".join(output)
+    chat.handle("Hi")
+    log = str(session.conversation.log.path)
+    again = ChatLoop(session, None, read=lambda default: "", write=output.append, resume=log)
+    again.start()
+    assert session.conversation.conversation_id == Path(log).stem
