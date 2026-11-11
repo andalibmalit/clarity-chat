@@ -12,7 +12,7 @@ Every command, key and record field a user sees. For task-based instructions, se
 | `clarity chats` | List your conversations in `logs/`, newest first: conversation ID (it starts with the local date and time), profile and title. |
 | `clarity run --openings FILE --profiles A B … [--seeds N]` | Collect replies for a blind test into `runs/RUN_ID/`. FILE holds openings separated by lines that are exactly `---`. `--seeds N` (default 1) gives N replies per opening and profile, with seeds 333, 334 and so on. |
 | `clarity replay LOG CALL_ID [--logged-flags]` | Re-send a logged call and compare the output. `--logged-flags` starts llama-server with the call's logged flags instead of `server.toml`'s, after checking them against the same allowed list, so a log can't add a flag `server.toml` couldn't. |
-| `clarity mark LOG CALL_ID [LABEL] [--remove]` | Label a logged call's reply while reviewing, in `logs/` or a run's `calls.jsonl` (default label `interesting`). Appends one record and starts no server. With `--remove`, removes the mark instead. |
+| `clarity mark LOG CALL_ID [LABEL] [--remove]` | Label a logged call's reply while reviewing, in `logs/` or a run's `calls.jsonl` (default label `interesting`). Appends one record and starts no server. With `--remove`, appends an `unmark` for each mark it removes: those with that label, or the reply's only label. |
 | `clarity note LOG CALL_ID TEXT` | Add a note to a logged call's reply while reviewing, replacing its note. Quote TEXT if it has spaces. |
 | `clarity fetch NAME` | Download (and, for the `convert` route, convert) a model from `models.toml`, and record it in `models.lock`. |
 | `clarity verify [NAME …]` | Re-hash fetched models against `models.lock`; with no names, every fetched model. |
@@ -54,7 +54,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/title TEXT` | Name this conversation in the chat list. Without a title, the list shows the first eight words of its first message; Clarity never asks a model for one. |
 | `/chats` | Your conversations in `logs/`, newest first, with their titles. |
 | `/new` | Start a new conversation (and log file) with the same profile, re-read from its file. |
-| `/profile NAME` | Start a new conversation with another profile. The server restarts only if the model changes. |
+| `/profile NAME` | Start a new conversation with another profile. The server restarts only if the model file, the context size or the backend changes. |
 | `/cancel` | Stop the call in progress, like Ctrl-C: a reply (`/say`, `/regen`, `/edit`) or a `/replay`. It's the one command that runs during another, for scripts and the web interface. It says which command it stopped, or why it stopped nothing: nothing was running, or the running command (such as a model start) can't be stopped. |
 | `/quit` | Stop the server and exit. `/exit`, `/q` and Ctrl-D also work. |
 | `//text` | Send a message that starts with `/`. |
@@ -63,7 +63,7 @@ After each reply, a status line shows the stop reason, the reply length in token
 
 ## Scripting with --json
 
-`clarity chat --json` reads one command per line on stdin and writes one event per line on stdout, both as JSON. It runs every chat command in the table above. With `--profile` or `--resume` it starts with that; without either, send a `profile` or `resume` command first.
+`clarity chat --json` reads one command per line on stdin and writes one event per line on stdout, both as JSON. It runs every chat command in the table above except the terminal's own forms: `/exit`, `/q`, `//text`, `/prompt repr` and `/edit` with no text. With `--profile` or `--resume` it starts with that; without either, send a `profile` or `resume` command first.
 
 A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat command's name without the slash, `args` is the text that would follow it, and `id` (optional, any JSON value) is copied into the command's `result` or `error`.
 
@@ -73,8 +73,31 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `reply_start` | before each reply of `/regen N` | `k` (which reply, from 1), `n`, `seed` |
 | `status` | a model is starting or ready | `status`, and `profile`, `log` or `conversation_id` |
 | `record` | a record is appended to the log | `record`: exactly what was written. Record events are the log, in order. |
-| `result` | a command finished | `command`, `id`, and `result`: what the command returns. It may repeat records already sent as `record` events. `say` and `edit` return `call` and `warnings`; `regen` returns `replies`, a list of those, and `stopped` (why it stopped early) if a reply failed. A cancel ends `regen` without `stopped`, whenever it comes. |
+| `result` | a command finished | `command`, `id`, and `result`: what the command returns. It may repeat records already sent as `record` events. See [Command results](#command-results). |
 | `error` | a command failed, or a line wasn't a command | `command` and `id` (for a command), `type` (`ConfigError`, `ContextError`, `BackendError`, `CancelledBeforeReply` or `InputError`; any other type is an unexpected error, after which the session quits) and `message` |
+
+### Command results
+
+| Command | `result` holds |
+|---|---|
+| `say`, `edit` | `call` (the call record) and `warnings` |
+| `regen` | `replies`, a list of `call` and `warnings`, and `stopped` (why it stopped early) if a reply failed. A cancel ends it without `stopped`, whenever it comes. |
+| `prompt` | `call`: the latest call record, which can be a failed one; null before any |
+| `probs` | `call_id`, `logprobs` (the call's record) and `least_likely`: up to 10 entries with `index`, `id`, `text`, `logprob` and `top` (each `id`, `text`, `logprob`). With no probabilities, `least_likely` is empty and `unavailable` says why. |
+| `settings` | `profile`, `settings` (each with its value and origin), `backend`, `backend_settings`, `eog_tokens`, `recommended`, `not_applied`, `ctx_size` and `stop` |
+| `set` | `record` (the `setting` record) and `setting` (its value and origin) |
+| `undo`, `switch` | `head` and `head_text`, null at the start; `switch` adds `render` |
+| `history` | `head` and `turns` |
+| `branches` | `head` and `forks` |
+| `mark`, `unmark`, `note` | `records`: the records appended |
+| `title` | `record` |
+| `replay` | `replay`: the replay record |
+| `chats` | `chats` |
+| `profile`, `new` | `conversation_id`, `profile`, `model`, `mode` and `warnings` |
+| `resume` | the same, plus `resume` (the record) and `head_text` |
+| `cancel` | `cancelled`, and `command` or `reason` |
+| `help` | `commands`, each with `usage` and `help` |
+| `quit` | `quit`: true |
 
 Commands run one at a time, in order. `cancel` runs as soon as it's read, so it can stop a reply that's being written; its result names the command it stopped (`"cancelled": true, "command": "say"`) or gives a `reason` it stopped nothing. Send it after the command has started (after its first event): a `cancel` read while the command is still queued finds nothing running. End of input quits, like `quit`. Input is UTF-8, whatever the console's encoding; a line that isn't is an `InputError`. Output is ASCII: other characters are written as `\u` escapes.
 
@@ -191,7 +214,7 @@ Each line is one JSON record with `schema_version` (currently 1), `type` and `ti
 | `type` | Written | Main fields |
 |---|---|---|
 | `conversation` | at the start of each conversation | `profile` (name, path, full TOML text and every file it read), `settings`, `model`, `client` (commit and dirty flag), `machine`, `warnings`, `ctx_size` (value and origin: `profile` or `server.toml`) |
-| `server_start` | once per server per log file, before its first call | `server_id`, `argv`, `flags`, `api_key` (always "random per start; value not logged"), `env_removed`, `env_llama_ggml_kept`, `llama_cpp` (commit, dirty), `build_info`, `placement`, `model_file` (`eog_tokens`: the tokens that end a reply, read from llama-server's startup log; null if the log has no such line), `memory` (per GPU: its limit in MiB, and the model, context cache and compute buffers on it), `graph_splits` (how many pieces llama.cpp cut the compute graph into, for the prompt and the reply), `props`, `startup_output`, `warnings`, `machine`. Transformers: `device`, `dtype`, `attn_implementation`, `torch`, `transformers`, `eos_token_id`, `eos_token_id_from` (`generation_config.json`, or `tokenizer (generation_config.json has none)`) and similar. |
+| `server_start` | once per server per log file, before its first call | `server_id`, `argv`, `flags`, `api_key` (always "random per start; value not logged"), `env_removed`, `env_llama_ggml_kept`, `llama_cpp` (commit, dirty), `build_info`, `placement`, `model_file` (`eog_tokens`: the tokens that end a reply, read from llama-server's startup log; null if the log has no such line), `memory` (per GPU: `limit_mib`, which is Metal's recommended working-set limit on a Mac and, on other GPUs, the memory llama.cpp reported free when the model loaded; and the model, context cache and compute buffers on it), `graph_splits` (how many pieces llama.cpp cut the compute graph into, for the prompt and the reply), `props`, `startup_output`, `warnings`, `machine`. Transformers: `device`, `dtype`, `attn_implementation`, `torch`, `transformers`, `eos_token_id`, `eos_token_id_from` (`generation_config.json`, or `tokenizer (generation_config.json has none)`) and similar. |
 | `turn` | for each message and reply | `turn_id`, `parent_id`, `role`, `origin` (`user`, `model` or `edit`), `text`, `call_id`, and `regen_of` or `edit_of` for branches |
 | `settings` | for each `/set` | `name`, `value` (null: back to the profile's) and `chat_settings`: every value set in this chat so far. |
 | `resume` | for each `/resume` or `--resume` | `head` (where it continues), `head_guessed` (a v0.1.0 log that no later Clarity has moved the head in since resuming), `warnings` (as in the `conversation` record), `unanswered` (your last message, if its call failed or was cut off), `ctx_size`, `profile_file` (`same`, `changed` or `missing` today), `model_entry` (how the model's `models.toml` entry differs from the logged one), `settings_differ_today` (each with its `logged` and `today` value; `logged` is null for a setting the log doesn't have, which then comes from the logged profile resolved today), `chat_settings` (restored `/set` values), `compared_with_call`, `differences` and `not_recorded` (as in `replay`), and `render`: the current reply's call ID and whether its prompt renders to the same token IDs today (`n_ids` and `first_different_token` if not), or null if there's no reply yet. |
@@ -199,7 +222,7 @@ Each line is one JSON record with `schema_version` (currently 1), `type` and `ti
 | `call` | for every call, including failed and cancelled ones | see below |
 | `head` | when the current turn moves other than to a new reply: `/undo`, `/switch`, or a call that failed or was cancelled before any reply | `turn_id` (null: the start) and `reason`: `undo`, `switch` or `failed`. A `failed` move after a message (not a `/regen` or `/edit`) names the failed call in `call_id`, so a resumed conversation's `/prompt` shows it, as the chat did. A `switch` in a resumed conversation adds `render`, as in the `resume` record. The latest `turn` or `head` record says where the conversation continues; if that is a message with no reply (Clarity stopped during its call), it continues before that message. |
 | `mark`, `unmark`, `note` | for `/mark`, `/unmark`, `/note`, `clarity mark` and `clarity note` | `call_id`, `turn_id`, `label` or `text`, and `origin`: `live` (in a chat) or `review` (afterwards). A `mark` has a `mark_id`; an `unmark` names the `mark_id` it removes (null for a mark from before v0.2.0, which removes that reply's ID-less marks with its `label`). A `note` has a `note_id` and `replaces`: the `note_id` of the note it replaces, or null. Notes from before v0.2.0 have no ID, so they all still show. |
-| `replay` | for every replay | `replay_id`, `call_id`, `n_ctx_from`, `identical`, `compared`, `differences`, `not_recorded` (facts an older log didn't record, so not compared; `end_tokens` for v0.1.0 llama.cpp logs), `unexplained_difference`, and the new output |
+| `replay` | for every replay | `replay_id`, `call_id`, `n_ctx_from`, `identical`, `compared`, `differences`, `not_recorded` (facts an older log didn't record, so not compared; `end_tokens` for v0.1.0 llama.cpp logs), `unexplained_difference`, `server_id`, `flags_from` (`server.toml`, or the log with `--logged-flags`), `logged_server_found`, `logged_output_text` (when the output differs), and the new output with its `flags` and `checks`. Its `flags` hold only the output checks, not the call's `not_applied` or `special_tokens_in_content`. |
 | `torn_line` | before the first record written after a line that was cut off (a crash or a full disk mid-write) | `line` (its line number) and `bytes` (how much of it was written). The cut line stays as it was. A last line with no line end isn't read: it's still being written, or was cut off and the next record will say so. A line a `torn_line` names, with the same byte count, is never read as a record, even if it parses, and neither are malformed lines just before it; any other malformed line is an error. |
 | `run` | first line of a batch run's `calls.jsonl` | `run_id`, `openings_file`, `openings_sha256`, `profiles`, `seeds`, the split and trim rules |
 
