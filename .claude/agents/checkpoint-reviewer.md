@@ -14,7 +14,7 @@ Before you start, read `CLAUDE.md` (the project rules, especially "Principle" an
 - **Correctness.** Bugs, and cases the tests miss that can happen. Give each one a concrete failure scenario: the inputs or state, and the wrong result. Check the items that build on these commits next: can they use what was built as it is?
 - **Records and old logs.** Each new or changed record field holds what was really sent or done, and matches `docs/reference.md`. Each new reader works on logs from earlier releases (`tests/fixtures/golden/`) and on records that lack the new fields.
 - **Silent fallbacks.** Each new `except`, default or skipped step is a refusal, or a flag on the record and on screen.
-- **Tests that can't fail.** Each sentence in the plan items that states behaviour has a test that fails if it's false. Name tests that are skipped in CI or assert nothing.
+- **Tests that can't fail.** Check each line of the item's Checks list: the test exists, fails if the sentence is false, and runs in the tier named. Name behaviour sentences with no line, and tests that are skipped in CI or assert nothing.
 - **Long inputs and other platforms.** What happens at 400 exchanges or a 4,000-token reply? Does it hold on Linux and Windows (newlines, encoding, paths, rename, locks)?
 - **The plan.** Does the diff do what the items say? Is each departure from the plan recorded in its "Build status" section?
 - **Bloat.** Look for code no item asked for, abstractions with one user, options nobody requested, and tests for cases that can't happen. Prefer findings that delete code.
