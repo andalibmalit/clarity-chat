@@ -556,31 +556,10 @@ REQUIRED_VALUES = {
     "cache-reuse": 0,
     "no-cache-idle-slots": True,
 }
-# Set by the client (including the per-start key, --no-slots and --no-webui), or never wanted
-# (another model, overrides, router mode, a draft model).
-FORBIDDEN_FLAGS = {
-    "model",
-    "host",
-    "port",
-    "context-shift",
-    "override-kv",
-    "lora",
-    "control-vector",
-    "models-dir",
-    "models-preset",
-    "model-draft",
-    "spec-type",
-    "backend-sampling",
-    "api-key",
-    "api-key-file",
-    "slots",
-    "no-slots",
-    "ui",
-    "no-ui",
-    "webui",
-    "no-webui",
-}
-FORBIDDEN_PREFIXES = ("hf-", "models-", "spec-", "ui-", "webui-", "lora-", "control-vector-")
+# Every flag server.toml may set: the required ones, plus the few the shipped file uses. Any
+# other flag is refused, including aliases, so a new one is added deliberately, with a reason
+# and a test. Clarity itself passes --model, --host, --port, --no-slots and --no-webui.
+ALLOWED_FLAGS = {*REQUIRED_FLAGS, "kv-unified", "no-kv-unified", "no-jinja", "chat-template"}
 
 
 @dataclass(frozen=True)
@@ -625,10 +604,11 @@ def load_server_config(root: Path) -> ServerConfig:
     if not isinstance(flags, dict):
         raise ConfigError(f"{where}: [flags] must be a table.")
     for name, value in flags.items():
-        if name.startswith("-") or len(name) < 3:
-            raise ConfigError(f"{where}: write flags by their long name without dashes: {name!r}.")
-        if name in FORBIDDEN_FLAGS or name.startswith(FORBIDDEN_PREFIXES):
-            raise ConfigError(f"{where}: flag {name!r} is not allowed here.")
+        if name not in ALLOWED_FLAGS:
+            raise ConfigError(
+                f"{where}: flag {name!r} isn't in Clarity's allowed list (docs/reference.md); "
+                "ask for it to be added, with a reason."
+            )
         if not isinstance(value, (bool, int, str)):
             raise ConfigError(f"{where}: flag {name!r} must be true/false, a number or a string.")
         if value == "auto" or (not isinstance(value, bool) and value in ("-1", -1)):

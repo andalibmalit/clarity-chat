@@ -148,31 +148,6 @@ def test_server_config_builds_flags(root):
 
 
 @pytest.mark.parametrize(
-    ("line", "message"),
-    [
-        ('model = "x.gguf"', "not allowed"),
-        ('hf-repo = "a/b"', "not allowed"),
-        ("context-shift = true", "not allowed"),
-        ('api-key-file = "keys.txt"', "not allowed"),
-        ("webui = true", "not allowed"),
-        ('ui-config = "{}"', "not allowed"),
-        ("slots = true", "not allowed"),
-        # Every spelling of an adapter or a control vector, not only the bare flag.
-        ('lora-scaled = "a.gguf:0.5"', "not allowed"),
-        ("lora-init-without-apply = true", "not allowed"),
-        ('control-vector-scaled = "v.gguf:4"', "not allowed"),
-        ('control-vector-layer-range = "8 24"', "not allowed"),
-        ("-c = 4096", "long name"),
-    ],
-)
-def test_server_config_rejects_flags(root, line, message):
-    path = root / "server.toml"
-    path.write_text(path.read_text(encoding="utf-8") + line + "\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match=message):
-        load_server_config(root)
-
-
-@pytest.mark.parametrize(
     "line",
     [
         "gpu-layers = 10",  # an alias of n-gpu-layers
@@ -180,6 +155,15 @@ def test_server_config_rejects_flags(root, line, message):
         'override-tensor = "blk.0=CPU"',
         "special = true",
         'docker-repo = "a/b"',
+        # Flags Clarity sets itself, or that would change the model or how it runs.
+        'model = "x.gguf"',
+        'hf-repo = "a/b"',
+        "context-shift = true",
+        'api-key-file = "keys.txt"',
+        "webui = true",
+        'lora-scaled = "a.gguf:0.5"',
+        'control-vector-scaled = "v.gguf:4"',
+        "-c = 4096",
     ],
 )
 def test_server_config_refuses_flags_outside_the_allowed_list(root, line):
