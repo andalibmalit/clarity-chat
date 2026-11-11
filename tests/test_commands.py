@@ -113,7 +113,7 @@ def test_plain_regen_returns_a_list_of_one(commands):
     assert len(result["replies"]) == 1 and result["replies"][0]["call"]["regen_of"]
 
 
-@pytest.mark.parametrize("args", ["0", "-1", "two", "1.5"])
+@pytest.mark.parametrize("args", ["0", "-1", "two", "1.5", "²", "٣"])
 def test_regen_n_must_be_a_positive_whole_number(commands, args):
     c, _ = commands
     c.run("profile", "text", lambda e: None)

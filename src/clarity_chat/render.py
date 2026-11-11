@@ -332,7 +332,8 @@ def _text_parts(
     """render_text's pieces: the profile's header, names and line ends, and each message."""
     profile_text = {"kind": "profile"}
     parts: list[Part] = [(profile_text, profile.header)]
-    parts.append(({"kind": "message", "role": "user", "source": "priming"}, profile.priming_text))
+    # Priming is free text, usually lines from both speakers: no role.
+    parts.append(({"kind": "message", "source": "priming"}, profile.priming_text))
     for (role, text), turn_id in zip(turns, turn_ids, strict=True):
         name = f"{profile.user_name}: " if role == "user" else f"{profile.assistant_name}:"
         parts.append((profile_text, name))

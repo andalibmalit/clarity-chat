@@ -11,6 +11,7 @@ Commands run one at a time, except `cancel`, which runs during a call.
 
 from __future__ import annotations
 
+import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -85,11 +86,9 @@ def _regen(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     """N replies to the current message, one after another, each a new branch. A cancel stops
     the reply being written and the rest. A failure after the first reply stops the rest and
     is returned as `stopped`, with the replies already made; the head stays at the last."""
-    if not args:
-        n = 1
-    elif args.isdigit() and int(args) > 0:
-        n = int(args)
-    else:
+    # ASCII digits only: str.isdigit() also accepts "²", which int() refuses.
+    n = int(args) if re.fullmatch(r"[0-9]+", args) else 0 if args else 1
+    if n < 1:
         raise ConfigError("Usage: /regen [N], where N is a whole number of replies, 1 or more.")
     replies: list[dict[str, Any]] = []
     for k in range(1, n + 1):

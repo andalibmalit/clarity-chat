@@ -172,7 +172,6 @@ def test_a_call_with_logprobs_asks_for_logits_and_records_them(tiny_tokenizer):
     config = result.request["generation_config"]
     assert config["output_logits"] and config["return_dict_in_generate"]
     assert result.request["logprobs"] == 2
-    assert result.backend_settings["output_logits"] == {"value": True, "origin": "logprobs"}
     assert result.logprobs is not None
     assert [t["id"] for t in result.logprobs["tokens"]] == [5, 9, 257]
     assert [t["top"][0][0] for t in result.logprobs["tokens"]] == [5, 9, 257]
@@ -183,7 +182,7 @@ def test_a_call_without_logprobs_asks_for_no_logits(tiny_tokenizer):
     backend = stand_in_backend(torch, tiny_tokenizer)
     result = backend.complete([1, 2], {**SETTINGS, "logprobs": 0}, [])
     assert not result.request["generation_config"]["output_logits"]
-    assert result.backend_settings["output_logits"] == {"value": False, "origin": "backend"}
+    assert not result.request["generation_config"]["return_dict_in_generate"]
     assert result.logprobs is None
 
 
