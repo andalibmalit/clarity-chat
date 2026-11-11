@@ -20,7 +20,8 @@ UNKNOWN = "unknown: pass repo= and revision="
 HOW = (
     "Recomputed step by step with the cache, as generation ran: the prompt all at once, then "
     "one reply token at a time. A changed top choice means the token the model now ranks "
-    "first at that step isn't the one it ranked first when the call was logged."
+    "first at that step differs from the one it ranked first when the call was logged. The "
+    "reply's own token was sampled, so it isn't always the top choice."
 )
 
 
@@ -136,8 +137,9 @@ def facts(
 
 def measure(call: dict[str, Any], model: Any) -> dict[str, Any]:
     """Each logged reply token's log-probability recomputed step by step with the cache, as
-    generation ran. One pass over the whole sequence would differ even under the same
-    conditions (measured on SmolLM2: a gap of 0.139, as large as a precision change)."""
+    generation ran. In bf16, one pass over the whole sequence differs even under the same
+    conditions (one 60-token SmolLM2 run on a CPU: a gap of 0.139, about as large as loading
+    in float32), because its sums run in another order and round differently."""
     logprobs = call.get("logprobs")
     if not logprobs or "tokens" not in logprobs:
         why = (logprobs or {}).get("unavailable") or "the call has no logprobs"

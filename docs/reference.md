@@ -258,7 +258,7 @@ The first line is the header, `"type": "export"`:
 - `format_version` (1), `clarity` (`version`, `commit`, `dirty`) and `conversation_id`.
 - `calls` (how many follow) and `failed_calls_left_out`: calls that produced no reply.
 - `conditions`: one entry per distinct set of conditions the calls were computed under, since a resumed conversation can span several server starts, machines or builds. Each has `conditions` and `call_ids`, the calls it covers. `conditions` holds `backend`, `weights` (the repo and revision, plus the GGUF's sha256 for llama.cpp), and every fact replay compares except Clarity's own commit and the tokenizer libraries: for llama.cpp, `build_info`, `llama_cpp`, `flags`, `graph_splits`, `props`, `env`, `end_tokens` and `machine`; for Transformers, `torch`, `transformers`, `device`, `dtype`, `attn_implementation`, `env`, `deterministic_algorithms`, `end_tokens` and `machine`. A null is a fact the log didn't record.
-- `note`: "Recomputing these calls under other conditions gives different numbers. Run `clarity_chat.recompute.check` with your loaded model first; it lists what differs."
+- `note`: "Recomputing these calls under other conditions can give different numbers, sometimes by a tiny amount and sometimes enough to change the likeliest token. Run `clarity_chat.recompute.check` with your loaded model first; it lists what differs."
 
 Then one line per call that produced a reply, `"type": "call"`, in log order:
 - **Where it sits:** `call_id`, `turn_id` (the reply), `parent_id` (your message), `regen_of`, `edit_of` (your message replaced an earlier one), and `path`, the turn IDs from the start of the conversation to this reply.

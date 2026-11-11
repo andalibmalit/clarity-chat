@@ -21,7 +21,8 @@ from clarity_chat.session import Session, marks_and_notes
 
 FORMAT_VERSION = 1
 RECOMPUTE_NOTE = (
-    "Recomputing these calls under other conditions gives different numbers. Run "
+    "Recomputing these calls under other conditions can give different numbers, sometimes "
+    "by a tiny amount and sometimes enough to change the likeliest token. Run "
     "`clarity_chat.recompute.check` with your loaded model first; it lists what differs."
 )
 # Copied from the call record as logged.
