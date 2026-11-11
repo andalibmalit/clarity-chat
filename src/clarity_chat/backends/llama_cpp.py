@@ -158,11 +158,9 @@ def check_generation_settings(request: dict, gs: dict) -> dict[str, dict[str, An
         if gs[name] != expected:
             mismatched[name] = {"expected": expected, "got": gs[name]}
     unaccounted = sorted(set(gs) - set(request) - set(EXPECTED_UNSENT))
-    not_echoed = sorted(set(NEUTRAL_REQUEST) - set(gs))
     return {
         "settings_echo": {"ok": not mismatched, "mismatched": mismatched},
         "unaccounted_settings": {"ok": not unaccounted, "keys": unaccounted},
-        "not_echoed": {"ok": True, "keys": not_echoed},  # sent, but the server doesn't report them
     }
 
 
@@ -348,16 +346,20 @@ def server_env() -> tuple[dict[str, str], list[str], dict[str, str]]:
     return env, sorted(removed), kept
 
 
-def start_warnings(
-    build_info: str, pinned_commit: str, checkout: dict[str, Any], kept: dict[str, str]
-) -> list[str]:
+def stale_build(build_info: str, pinned_commit: str) -> str | None:
+    """The binary is what runs, so one built from another commit is an error, like a checkout
+    at another commit. build_info ends in the short commit it was built from."""
+    if pinned_commit.startswith(build_info.rsplit("-", 1)[-1] or "?"):
+        return None
+    return (
+        f"llama-server reports build {build_info!r}, but server.toml pins "
+        f"{pinned_commit[:12]}: rebuild llama-server at that commit (docs/getting-started.md)."
+    )
+
+
+def start_warnings(checkout: dict[str, Any], kept: dict[str, str]) -> list[str]:
     """Facts about this server that you can act on and that could change its output."""
     warnings = []
-    if not pinned_commit.startswith(build_info.rsplit("-", 1)[-1] or "?"):
-        warnings.append(
-            f"build_info {build_info!r} doesn't match the checkout commit "
-            f"{pinned_commit[:12]}: rebuild llama-server."
-        )
     if checkout.get("dirty"):
         warnings.append(
             "The llama.cpp checkout has uncommitted changes, so this server can't be rebuilt "
@@ -508,7 +510,11 @@ class LlamaServer:
                 "llama-server is not the server the client started: " + "; ".join(problems)
             )
         build_info = str(props.get("build_info", ""))
-        warnings = start_warnings(build_info, self.config.llama_cpp_commit, checkout, kept)
+        stale = stale_build(build_info, self.config.llama_cpp_commit)
+        if stale:
+            self.stop()
+            raise ConfigError(stale)
+        warnings = start_warnings(checkout, kept)
         self.record = {
             "type": "server_start",
             "server_id": self.server_id,
@@ -788,14 +794,15 @@ class LlamaCppBackend:
             "ok": timings.get("cache_n") == 0,
             "cache_n": timings.get("cache_n"),
         }
-        # The reply is complete; a failure here is a failed check, never a lost reply.
-        try:
-            props_problems = self.server.check_props(self.server.get_props())
-        except (httpx.HTTPError, ValueError) as e:
-            props_problems = [f"/props failed after the reply: {type(e).__name__}: {e}"]
-        except KeyboardInterrupt:
-            props_problems = ["/props check interrupted (Ctrl-C) after the reply"]
-        checks["server_props"] = {"ok": not props_problems, "problems": props_problems}
+        # /props was checked at start. Nothing can change a running server's model or context
+        # (server.toml allows no router flags and no --props), and its key keeps other
+        # clients out, so what's left to check is that the process is still the one started.
+        # The reply is complete: a failure here is a failed check, never a lost reply.
+        proc = self.server.proc
+        exit_code = proc.poll() if proc is not None else "never started"
+        checks["server_running"] = {"ok": exit_code is None}
+        if exit_code is not None:
+            checks["server_running"]["exit_code"] = exit_code
 
         flags = []
         if final.get("truncated"):

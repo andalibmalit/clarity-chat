@@ -41,7 +41,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 
 ## The server
 
-**Clarity starts its own llama-server.** Every output-affecting flag is set in `server.toml`, nothing is left on `auto`, `server.toml` accepts only a fixed list of flags, and the environment variables and config files llama.cpp would read are removed or refused. After startup and after each call, Clarity checks `/props` to confirm that the process it started is still running, with the same model and context size.
+**Clarity starts its own llama-server.** Every output-affecting flag is set in `server.toml`, nothing is left on `auto`, `server.toml` accepts only a fixed list of flags, and the environment variables and config files llama.cpp would read are removed or refused. After startup, Clarity checks `/props` to confirm that the server it started has the expected model and context size, and that its build is the pinned commit; a build from another commit is an error. After each call, it checks that the process is still running. Nothing can change a running server's model or context: `server.toml` allows no flag that would, and the per-start key keeps other programs out.
 - Cost: one model at a time. Switching to a profile with another model restarts the server.
 - The server never parses the model's chat template (`no-jinja`). Clarity doesn't use it, and OLMo 3's fails to parse in llama.cpp, which would stop the server from starting.
 - With GPU layers requested, a model that lands on the CPU is an error. Clarity reads where the weights went from llama.cpp's startup output, which reports it only at `log-verbosity` 4.
@@ -152,6 +152,7 @@ When a choice above changes, the old one, the new one and the reason go here, ne
 
 | Date | Was | Now | Why |
 |---|---|---|---|
+| 2026-11-11 | A llama-server built from another commit was a warning, as the brief asked. | It's an error at start. | The binary is what runs. A checkout at another commit was already an error, so a binary built from one shouldn't pass with a warning. |
 | 2026-11-11 | `server.toml` refused a list of known-bad flags. | It accepts only the flags it ships with; any other is refused. | A list of bad flags misses new flags and other names for the same flag: `gpu-layers`, `override-tensor` and others got through. A new flag now joins on purpose, with a test. |
 | 2026-11-10 | Clarity never edits any file you write. | Shipped files stay read-only; your own files live in `local/`, and Clarity writes there only visibly. | The web interface needs to save profiles and settings you make in it. Keeping them in `local/` keeps a `git pull` from touching them, and keeps the shipped files a fixed reference. |
 | 2026-11-10 | A web interface and retrieval from documents were out of scope. | Both are planned: the web interface in v0.3.0, documents in v0.3.1 to v0.3.3 ([Roadmap](../ROADMAP.md)). | Making local models easy to use for people who don't use a terminal, without giving up exactness. Every feature still works from the terminal. |

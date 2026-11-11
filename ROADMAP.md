@@ -8,7 +8,7 @@ What the next releases hold. Each release has a written plan, is used for a day 
 - **v0.3.1 to v0.3.3, documents.** Attach a document to a chat, then search it by words, then by meaning, with what was retrieved and where it went in the prompt logged.
 - **v0.4.0, setup and models.** A one-command install, a setup step and a short list of models, your own model files, context presets, rebuilding a call's setup from the pins in its log, import of chats, and export in Inspect's log format.
 - **v0.5.0, thinking models.** Reasoning stored with each reply, and the extra samplers these models use.
-- **v0.6.0, Linux.** CUDA, Vulkan and CPU builds, with the GPU driver and CUDA version logged.
+- **v0.6.0, Linux.** CUDA, Vulkan and CPU builds, with the GPU driver and CUDA version logged. Check, on a real CUDA and Vulkan run, how the GPU placement check reads llama.cpp's `CUDA_Host` and `Vulkan_Host` buffers.
 - **v0.7.0, Windows.**
 - **1.0.** Cross-platform, and easy to install for people who don't use a terminal.
 - **Later, not scheduled.** Live probe readings, when an experiment needs them.
