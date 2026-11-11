@@ -216,3 +216,19 @@ def test_a_replay_records_the_probabilities_it_gets(commands):
     assert call["logprobs"] == backend.logprobs
     replayed = commands.session.replay_current()
     assert replayed["logprobs"] == backend.logprobs
+
+
+def test_probs_shows_the_reply_on_screen_after_a_failed_message(commands):
+    """A failed /say leaves the earlier reply at head; /probs must describe that one, not
+    the failed call (code review, verifier A)."""
+    from clarity_chat.backends import BackendError
+
+    backend = commands.session.backend
+    backend.logprobs = {"view": "raw logits, before any sampler", "n": 1, "tokens": []}
+    first = commands.run("say", "Hi", lambda e: None)["call"]
+    backend.fail_with = "server gone"
+    with pytest.raises(BackendError):
+        commands.run("say", "Again", lambda e: None)
+    result = commands.run("probs", "", lambda e: None)
+    assert result["call_id"] == first["call_id"]
+    assert "unavailable" not in result
