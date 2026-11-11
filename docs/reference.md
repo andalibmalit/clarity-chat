@@ -257,7 +257,7 @@ A replay compares the output token IDs and stop type, or the text if the logged 
 The first line is the header, `"type": "export"`:
 - `format_version` (1), `clarity` (`version`, `commit`, `dirty`) and `conversation_id`.
 - `calls` (how many follow) and `failed_calls_left_out`: calls that produced no reply.
-- `conditions`: one entry per distinct set of conditions the calls were computed under, since a resumed conversation can span several server starts, machines or builds. Each has `conditions` (`backend`; `weights`, the repo and revision, plus the GGUF's sha256 for llama.cpp; `device`, `dtype`, `torch` and `transformers` for Transformers, or `llama_cpp` and `build_info` for llama.cpp; `machine`) and `call_ids`, the calls it covers.
+- `conditions`: one entry per distinct set of conditions the calls were computed under, since a resumed conversation can span several server starts, machines or builds. Each has `conditions` (`backend`; `weights`, the repo and revision, plus the GGUF's sha256 for llama.cpp; `device`, `dtype`, `attn_implementation`, `torch` and `transformers` for Transformers, or `llama_cpp` and `build_info` for llama.cpp; `end_tokens`; `machine`) and `call_ids`, the calls it covers.
 - `note`: "Recomputing these calls under other conditions gives different numbers. Run `clarity_chat.recompute.check` with your loaded model first; it lists what differs."
 
 Then one line per call that produced a reply, `"type": "call"`, in log order:

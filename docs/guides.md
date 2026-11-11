@@ -152,6 +152,21 @@ Each call is its own conversation. Profiles are read once, at the start, so edit
 
 On a Transformers profile, `/set logprobs 5` records, for each token of the next replies, the probability the model gave it and its five likeliest alternatives. `/probs` then summarizes the current reply: the ten tokens the model thought least likely, in reply order, each with the model's likeliest other tokens. The probabilities are the model's own, from its raw scores before any sampler: a token picked at temperature 1.2 shows the probability the model gave it, not the reshaped one. Every number is in the call's `logprobs` field in the log, and `/probs` with `--json` returns all of them. `/set logprobs 0` turns it off. llama.cpp profiles refuse the setting for now.
 
+## Take a conversation to a notebook
+
+`/export`, or `uv run clarity export ID` afterwards, writes the conversation to `logs/exports/ID.jsonl`: exact token IDs, where each message sits in the prompt, marks, notes and settings for every reply. Its fields are in [Export](reference.md#export).
+
+Numbers you recompute in a notebook are only comparable with the logged ones under the same conditions: the same weights, precision, device, attention implementation and library versions. So run the check first, with the model you loaded:
+
+```python
+from clarity_chat.recompute import check
+
+report = check("logs/exports/ID.jsonl", model, repo="ORG/NAME", revision="COMMIT")
+print(report)
+```
+
+It lists each condition that differs from the export's. Pass `repo` and `revision` when the model was loaded from a local folder, since its config then doesn't name its weights. For replies logged with `logprobs` on, it also recomputes each reply token's log-probability and reports the largest gap from the logged value, and how many steps' top choice changed. It recomputes step by step with the cache, as generation ran. One pass over the whole reply gives different numbers even under the same conditions: on SmolLM2, a gap of 0.139, as large as switching to float32. Under the same conditions the gap is exactly 0. The check gives facts and numbers, not a verdict: whether a difference matters depends on your experiment. It needs the `hf` extra.
+
 ## Resume a conversation
 
 `clarity chats` lists your conversations. To continue one, pass its ID:

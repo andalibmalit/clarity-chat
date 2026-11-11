@@ -97,9 +97,13 @@ def conditions(call: dict[str, Any], server: dict[str, Any] | None) -> dict[str,
     backend = (call.get("backend") or {}).get("backend") or (server or {}).get("backend")
     model = call.get("model") or {}
     if backend == "transformers":
-        weights, keys = ("repo", "revision"), ("device", "dtype", "torch", "transformers")
+        weights = ("repo", "revision")
+        keys = ("device", "dtype", "attn_implementation", "torch", "transformers", "end_tokens")
     else:
-        weights, keys = ("repo", "revision", "gguf_sha256"), ("llama_cpp", "build_info")
+        weights, keys = (
+            ("repo", "revision", "gguf_sha256"),
+            ("llama_cpp", "build_info", "end_tokens"),
+        )
     return {
         "backend": backend,
         "weights": {k: model.get(k) for k in weights},
