@@ -195,6 +195,51 @@ def _prompt(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return {"call": c.session.conversation.last_call}
 
 
+LEAST_LIKELY = 10  # how many of a reply's least likely chosen tokens /probs lists
+
+
+def _probs(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    """The current reply's token probabilities: the full record, and its least likely
+    chosen tokens with their text and the alternatives the model ranked above them."""
+    conversation = c.session.conversation
+    assert conversation is not None
+    call = conversation.last_call
+    if call is None or call.get("turn_id") is None:
+        return {
+            "call_id": None,
+            "logprobs": None,
+            "least_likely": [],
+            "unavailable": "no reply yet",
+        }
+    logprobs = call.get("logprobs")
+    if logprobs is None or "unavailable" in logprobs:
+        reason = (
+            logprobs["unavailable"]
+            if logprobs
+            else "not recorded; on a Transformers profile, /set logprobs 5 records them"
+        )
+        return {
+            "call_id": call["call_id"],
+            "logprobs": logprobs,
+            "least_likely": [],
+            "unavailable": reason,
+        }
+    decode = c.session.tokenizer.decode if c.session.tokenizer else str
+    tokens = logprobs["tokens"]
+    ranked = sorted(range(len(tokens)), key=lambda i: tokens[i]["logprob"])[:LEAST_LIKELY]
+    least = [
+        {
+            "index": i,
+            "id": tokens[i]["id"],
+            "text": decode([tokens[i]["id"]]),
+            "logprob": tokens[i]["logprob"],
+            "top": [{"id": t, "text": decode([t]), "logprob": lp} for t, lp in tokens[i]["top"]],
+        }
+        for i in sorted(ranked)
+    ]
+    return {"call_id": call["call_id"], "logprobs": logprobs, "least_likely": least}
+
+
 def _settings(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return settings_view(c.session)
 
@@ -281,6 +326,11 @@ COMMANDS: dict[str, Command] = {
         "/prompt",
         "the exact prompt text of the last call, its token IDs and their count",
         _prompt,
+    ),
+    "probs": Command(
+        "/probs",
+        "the current reply's least likely tokens and the alternatives (needs logprobs on)",
+        _probs,
     ),
     "settings": Command("/settings", "every setting, its value and where it came from", _settings),
     "set": Command(

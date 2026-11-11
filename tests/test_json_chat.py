@@ -137,6 +137,7 @@ EVERY_COMMAND = [
     ("say", lambda s: "Hi"),
     ("prompt", lambda s: ""),
     ("settings", lambda s: ""),
+    ("probs", lambda s: ""),
     ("set", lambda s: "temperature 0.9"),
     ("regen", lambda s: ""),
     ("edit", lambda s: "Hi again"),

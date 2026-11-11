@@ -33,6 +33,7 @@ SETTING_NAMES = (
     "seed",
     "max_tokens",
     "samplers",
+    "logprobs",
 )
 SAMPLER_NAMES = ("penalties", "top_k", "top_p", "min_p", "temperature")
 
@@ -148,6 +149,7 @@ SETTING_RANGES: dict[str, tuple[str, float | None, float | None, str]] = {
     "repeat_last_n": ("integer", 0, None, "an integer >= 0"),
     "max_tokens": ("integer", 1, None, "an integer >= 1"),
     "seed": ("integer", 0, SEED_MAX, f'"random" or an integer from 0 to {SEED_MAX}'),
+    "logprobs": ("integer", 0, 20, "an integer from 0 (off) to 20"),
 }
 
 
@@ -209,6 +211,15 @@ def resolve_settings(
         resolved[name] = Setting(values[name], origin)
     check_samplers(resolved, where)
     return resolved
+
+
+def check_backend_settings(resolved: dict[str, Setting], backend: str, where: str) -> None:
+    """Refuse a setting the backend can't honour, rather than return a reply without it."""
+    if backend == "llama.cpp" and resolved["logprobs"].value > 0:
+        raise ConfigError(
+            f"{where}: logprobs is {resolved['logprobs'].value}, but token probabilities run "
+            "on the Transformers backend for now; llama.cpp's come in v0.4.0."
+        )
 
 
 def check_samplers(resolved: dict[str, Setting], where: str) -> None:
@@ -394,6 +405,7 @@ def load_profile(
         raise ConfigError(f"{where}: use_recommended must be true or false.")
     # With use_recommended, the session resolves again once it knows the model's values.
     settings = resolve_settings(raw_settings, defaults, where)
+    check_backend_settings(settings, data["backend"], where)
     files: dict[str, str] = {}
     base = path.parent
     logged_files = logged["files"] if logged is not None else None

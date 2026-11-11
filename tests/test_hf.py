@@ -176,6 +176,62 @@ def test_each_backend_stops_on_its_own_end_tokens(tmp_path):
     assert found == {"llama.cpp": [0, 2, 4], "transformers": [2]}
 
 
+def recompute_logprobs(backend, prompt_ids: list[int], output_ids: list[int]) -> list[float]:
+    """Each reply token's log-probability, recomputed as generation ran: the prompt in one
+    pass, then one token per step with the cache."""
+    import torch
+
+    from clarity_chat.backends.transformers_hf import log_softmax
+
+    model, device = backend.model, backend.device
+    found = []
+    with torch.inference_mode():
+        ids = torch.tensor([prompt_ids], device=device)
+        out = model(ids, attention_mask=torch.ones_like(ids), use_cache=True)
+        mask_length = len(prompt_ids)
+        for token in output_ids:
+            logprobs = log_softmax(out.logits[:, -1, :])
+            found.append(logprobs[0, token].item())
+            mask_length += 1
+            out = model(
+                torch.tensor([[token]], device=device),
+                attention_mask=torch.ones(1, mask_length, dtype=torch.long, device=device),
+                past_key_values=out.past_key_values,
+                use_cache=True,
+            )
+    return found
+
+
+@pytest.mark.parametrize("device", ["cpu", "mps"])
+@pytest.mark.parametrize("temperature", ["0.0", "0.8"])
+def test_logprobs_change_no_output_and_match_a_step_by_step_recompute(
+    tmp_path, device, temperature
+):
+    session = Session(REPO, logs_dir=tmp_path)
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    records = {}
+    try:
+        for n in (0, 5):
+            name = profile(folder, "smol-chat", device=f'"{device}"', temperature=temperature)
+            with open(name, "a", encoding="utf-8") as f:
+                f.write(f"logprobs = {n}\n")  # [settings] is the file's last table
+            session.new_conversation(name)
+            records[n] = session.say("Name three rivers.").record
+            checks_ok(records[n])
+        logged = records[5]["logprobs"]
+        recomputed = recompute_logprobs(
+            session.backend, records[5]["prompt_ids"], records[5]["output_ids"]
+        )
+    finally:
+        session.close()
+    assert records[0]["output_ids"] == records[5]["output_ids"]
+    assert "logprobs" not in records[0]
+    assert logged["view"] == "raw logits, before any sampler" and logged["n"] == 5
+    assert [t["id"] for t in logged["tokens"]] == records[5]["output_ids"]
+    assert [t["logprob"] for t in logged["tokens"]] == recomputed
+
+
 def test_olmo_3_instruct_on_mps_repeats_and_replays(tmp_path):
     """The model the experiments use: same seed twice, then a replay after a reload.
     Loads about 15 GB once per session; the first session is closed before the second

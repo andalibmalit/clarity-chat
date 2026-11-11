@@ -164,7 +164,44 @@ def generation_values(
         "stop_strings": list(stop) or None,
         "eos_token_id": list(eos_ids),
         "pad_token_id": eos_ids[0],
+        # With logprobs on, generate also returns each step's logits, before any processor.
+        "output_logits": settings["logprobs"] > 0,
+        "return_dict_in_generate": settings["logprobs"] > 0,
     }
+
+
+LOGPROBS_VIEW = "raw logits, before any sampler"
+LOGPROBS_CHUNK = 256  # steps reduced at once; each step's logits are a vocabulary of float32s
+
+
+def log_softmax(rows: Any) -> Any:
+    """Log-probabilities from logits, always on the CPU in float32. On MPS, log_softmax over
+    a batch of rows can differ in the last bits from the same row alone, so a reduction on the
+    GPU would depend on how the rows were batched; on the CPU it doesn't. Only the logits then
+    depend on the device, and a recompute (`clarity_chat.recompute`) reduces the same way."""
+    import torch
+
+    return torch.log_softmax(rows.float().cpu(), dim=-1)
+
+
+def reduce_logits(logits: Any, ids: list[int], n: int) -> dict[str, Any]:
+    """Each generated token's log-probability, and the n likeliest tokens with theirs, from
+    the logits `generate` returned (one tensor per step, taken before any processor)."""
+    import torch
+
+    if len(logits) != len(ids):
+        return {"unavailable": f"{len(logits)} steps of logits for {len(ids)} tokens"}
+    tokens = []
+    for start in range(0, len(ids), LOGPROBS_CHUNK):
+        logprobs = log_softmax(torch.cat(logits[start : start + LOGPROBS_CHUNK]))
+        chosen = torch.tensor(ids[start : start + LOGPROBS_CHUNK])
+        picked = logprobs.gather(1, chosen[:, None])[:, 0].tolist()
+        top = torch.topk(logprobs, n, dim=-1)
+        rows = zip(picked, top.indices.tolist(), top.values.tolist(), strict=True)
+        for token, (logprob, top_ids, top_values) in zip(chosen.tolist(), rows, strict=True):
+            pairs = [[i, v] for i, v in zip(top_ids, top_values, strict=True)]
+            tokens.append({"id": token, "logprob": logprob, "top": pairs})
+    return {"view": LOGPROBS_VIEW, "n": n, "tokens": tokens}
 
 
 def active_samplers(settings: dict[str, Any]) -> list[str]:
@@ -404,7 +441,14 @@ class TransformersBackend:
             else generation_values(settings, stop, self.eos_ids)
         )
         seed = request["seed"] if request is not None else settings["seed"]
-        logged_request = {"generation_config": values, "seed": seed, "device": self.device}
+        # A replay takes it from the logged request (absent before v0.2.1: off).
+        n_logprobs = request.get("logprobs", 0) if request is not None else settings["logprobs"]
+        logged_request = {
+            "generation_config": values,
+            "seed": seed,
+            "device": self.device,
+            "logprobs": n_logprobs,
+        }
         try:
             config = GenerationConfig(**values)
             effective, _ = self.model._prepare_generation_config(config)
@@ -415,7 +459,11 @@ class TransformersBackend:
             ) from e
         check = check_config(effective.to_dict(), values)
         backend_settings = {
-            k: {"value": v, "origin": "backend"} for k, v in NEUTRAL_CONFIG.items()
+            k: {
+                "value": values.get(k, v),
+                "origin": "backend" if values.get(k, v) == v else "logprobs",
+            }
+            for k, v in NEUTRAL_CONFIG.items()
         } | {"eos_token_id": {"value": self.eos_ids, "origin": self.eos_from}}
         stop_words = values["stop_strings"] or []
         ids: list[int] = []
@@ -460,7 +508,7 @@ class TransformersBackend:
                 torch.mps.manual_seed(seed)
             inputs = torch.tensor([token_ids], device=self.device)
             with torch.inference_mode():
-                self.model.generate(
+                output = self.model.generate(
                     inputs,
                     attention_mask=torch.ones_like(inputs),
                     generation_config=config,
@@ -475,6 +523,15 @@ class TransformersBackend:
                 Result(text="", token_ids=list(ids), stop_type="none", request=logged_request),
             ) from e
         ended = time.perf_counter()
+        logprobs = None
+        if values.get("output_logits") and n_logprobs > 0:
+            # The cancel is raised inside generate, so a cancelled call returns no logits.
+            if cancelled:
+                logprobs = {"unavailable": "cancelled"}
+            else:
+                with torch.inference_mode():
+                    logprobs = reduce_logits(output.logits, ids, n_logprobs)
+                del output
         first = first_token_at[0] if first_token_at else ended
         # llama-server's names; prompt_ms here is the time to the first generated token.
         timings = {
@@ -517,6 +574,7 @@ class TransformersBackend:
             not_applied=not_applied(settings),
             flags=flags,
             checks={"generation_config": check},
+            logprobs=logprobs,
         )
 
     def _check_positions(self, name: str, loaded: Any) -> None:

@@ -154,6 +154,21 @@ def test_the_base_model_in_text_mode_on_transformers_replays(session, tmp_path):
     assert replayed["identical"], replayed
 
 
+def test_logprobs_change_no_output_on_transformers(session, tmp_path):
+    """On MPS, asking generate for its logits changes how the cache is cropped each step,
+    and OLMo 3 has sliding-window layers; SmolLM2 and the CPU take neither path."""
+    records = {}
+    for n in (0, 5):
+        name = on_transformers(tmp_path, "1b-blank", max_tokens=64)
+        with open(name, "a", encoding="utf-8") as f:
+            f.write(f"logprobs = {n}\n")  # [settings] is the file's last table
+        session.new_conversation(name)
+        records[n] = session.say("Name three rivers.").record
+        checks_ok(records[n])
+    assert records[0]["output_ids"] == records[5]["output_ids"]
+    assert len(records[5]["logprobs"]["tokens"]) == len(records[5]["output_ids"])
+
+
 def test_switching_models_restarts_the_server(session):
     session.new_conversation("4-raw-instruct")
     instruct_path = session.backend.server_record["props"]["model_path"]

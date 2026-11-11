@@ -35,6 +35,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/say TEXT` | Send a message. Typing it without a command does the same; scripts use `/say`. |
 | `/prompt` | The exact prompt text of the current reply's call (or of your last message, if its call failed), the BOS decision, and the token IDs. |
 | `/prompt repr` | The same, with each line shown as a Python string, so spaces, tabs and newlines are visible. |
+| `/probs` | A summary of the current reply's token probabilities, if `logprobs` was on: how many tokens, and the 10 least likely chosen tokens in reply order, each with its probability and the model's likeliest other tokens. With `--json`, the result also holds every token's record. Without them, it says why. |
 | `/settings` | Every setting, its value and origin; the fixed values sent for the backend's other fields; the model's recommended values; what wasn't applied; the context size and stop strings; the end-of-reply tokens llama.cpp read from the model file. |
 | `/set NAME [VALUE]` | Change a setting for this chat only, for example `/set temperature 0.7`, `/set seed random` or `/set samplers top_k temperature`. It's checked like a profile's value, its origin is `chat`, and it's logged. With no value, the setting goes back to the profile's. |
 | `/regen [N]` | N more replies to your last message (default 1), one after another, each a new branch. The k-th regeneration of a message uses its first reply's seed plus k. A cancel stops the reply being written and the rest; a failure stops the rest and is reported with the replies already made. The current reply is then the last one made. |
@@ -130,6 +131,7 @@ Settings use the same names on every backend. Each resolved value records its or
 | `seed` | integer from 0 to 4294967294, or `"random"` (Clarity draws one per call and logs it) | `"random"` | |
 | `max_tokens` | integer ≥ 1: the longest reply | 1024 (a cap, not a neutral value) | |
 | `samplers` | the order and membership of the sampler chain, from `penalties`, `top_k`, `top_p`, `min_p`, `temperature` | all five, in that order | |
+| `logprobs` | integer from 0 to 20. 0 is off. N records, for each token of the reply, its log-probability and the N likeliest tokens with theirs, in the call's `logprobs` field. A log-probability is the natural log of the probability the model gave the token, so 0 is certain and more negative is less likely. The probabilities come from the model's raw scores (logits) before any sampler, so they don't show what temperature, `top_k` or the penalties did. Transformers backend only for now; a llama.cpp profile with it above 0 is refused. While a reply is written, the scores take memory: about 0.4 MB per token for a model with a 100,000-token vocabulary. | 0 | |
 
 A sampler not listed in `samplers` doesn't run. A setting whose sampler isn't listed must keep its neutral value; anything else is an error when the profile loads.
 
@@ -206,6 +208,7 @@ A `call` record holds:
 - **Prompt:** `prompt_text`, `prompt_ids`, `n_prompt_client`, `bos` (whether BOS was prepended and why), `special_tokens_in_content` (where any control-token text was found).
 - **Request and response:** `request` (what was sent, except the prompt IDs, which are in `prompt_ids`), `backend_settings`, `not_applied`, `generation_settings`, `response`, `timings`, `tokens_evaluated`, `tokens_predicted`.
 - **Output:** `output_text`, `output_ids`, `stop_type` (`eos`, `word`, `limit`, `cancelled` or `none`), `cancelled_during` (`prompt` or `reply`, for a cancelled call), `stopping_word`, `turn_id`.
+- **Probabilities:** `logprobs`, with the `logprobs` setting on (Transformers only): `view` (`raw logits, before any sampler`), `n`, and `tokens`, one per output token: `id`, `logprob` (natural log) and `top`, the `n` likeliest tokens as `[id, logprob]` pairs, likeliest first. A cancelled call has `{"unavailable": "cancelled"}` instead: Transformers returns no scores for a generation stopped part way. A replay of a call with probabilities records them too.
 - **Checks:** `checks`, `flags`, `warnings`, and `error` if the call failed.
 
 `output_ids` include the tokens of a stop string and the end-of-sequence token; `output_text` leaves out the stop string.

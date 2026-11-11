@@ -28,6 +28,7 @@ from clarity_chat.profiles import (
     Profile,
     ServerConfig,
     Setting,
+    check_backend_settings,
     check_samplers,
     check_setting,
     load_defaults,
@@ -582,6 +583,7 @@ class Session:
         trial = {**conversation.profile.settings}
         trial.update({k: Setting(v, "chat") for k, v in chat.items()})
         check_samplers(trial, "/set")
+        check_backend_settings(trial, conversation.profile.backend, "/set")
         conversation.chat_settings = chat
         return conversation.log.append(
             {
@@ -1232,5 +1234,6 @@ def result_fields(result: Result) -> tuple[dict[str, Any], str | None]:
         "response": {k: v for k, v in response.items() if k != "generation_settings"},
         "flags": list(result.flags),
         "checks": dict(result.checks),
+        **({"logprobs": result.logprobs} if result.logprobs is not None else {}),
     }
     return fields, server_prompt
