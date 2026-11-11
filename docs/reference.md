@@ -238,7 +238,7 @@ Checks after each call:
 - `unaccounted_settings`: the server reports no setting Clarity didn't send or expect.
 - `tokens_evaluated`: the server read as many prompt tokens as were sent.
 - `no_cache_reuse`: no prompt tokens came from a cache.
-- `server_props`: `/props` still shows the same process, model and context size.
+- `server_running`: the llama-server process Clarity started is still running (`exit_code` if not). Its model and context size are checked through `/props` once, after start. Logs before v0.2.1 have `server_props` here, from a `/props` request after each call.
 - `generation_config` (Transformers): the effective generation config equals what was sent.
 
 A batch run stops on any error, any `check_failed:*` flag, a cancelled call, or a server restart. Other flags are logged, and their warnings print once.

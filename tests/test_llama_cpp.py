@@ -154,16 +154,22 @@ def test_values_of_secret_looking_variables_are_never_logged(monkeypatch):
 COMMIT = "f477f795cb071baf5b8af6488378366a72034ac4"
 
 
-def test_a_clean_matching_server_has_no_start_warnings():
-    assert start_warnings("b1-f477f79", COMMIT, {"dirty": False}, {}) == []
+def test_a_clean_server_has_no_start_warnings():
+    assert start_warnings({"dirty": False}, {}) == []
 
 
 def test_start_warnings_name_what_you_can_act_on():
-    warnings = start_warnings("b1-0000000", COMMIT, {"dirty": True}, {"GGML_X": "1"})
-    text = " ".join(warnings)
-    assert "rebuild llama-server" in text
+    text = " ".join(start_warnings({"dirty": True}, {"GGML_X": "1"}))
     assert "uncommitted changes" in text
     assert "GGML_X" in text
+
+
+def test_a_server_built_from_another_commit_is_an_error(monkeypatch, root):
+    from clarity_chat.profiles import ConfigError
+
+    with pytest.raises(ConfigError, match="rebuild llama-server"):
+        started_server(monkeypatch, root, STARTUP_GPU, build_info="b1-0000000")
+    started_server(monkeypatch, root, STARTUP_GPU, build_info="b1-" + COMMIT[:7])
 
 
 def test_config_files_are_found(monkeypatch, tmp_path):
@@ -235,17 +241,12 @@ class FakeStream:
         yield from self.lines
 
 
-class PropsFail:
+class ExitedServer:
+    """A server whose process exited once the reply was in."""
+
     url = "http://127.0.0.1:1"
     headers = {"Authorization": "Bearer test-key"}
-
-    def get_props(self):
-        import httpx
-
-        raise httpx.ConnectError("server gone")
-
-    def check_props(self, props):
-        return []
+    proc = type("Exited", (), {"poll": lambda self: 1})()
 
 
 def fake_backend(monkeypatch, root, lines):
@@ -255,7 +256,7 @@ def fake_backend(monkeypatch, root, lines):
     from clarity_chat.profiles import load_server_config
 
     backend = llama_cpp.LlamaCppBackend(load_server_config(root), root / "logs")
-    monkeypatch.setattr(backend, "server", PropsFail())  # only what complete() uses
+    monkeypatch.setattr(backend, "server", ExitedServer())  # only what complete() uses
     encoded = [line if isinstance(line, str) else "data: " + json.dumps(line) for line in lines]
     monkeypatch.setattr(llama_cpp.httpx, "stream", lambda *a, **k: FakeStream(encoded))
     return backend
@@ -273,12 +274,12 @@ FINAL = {
 }
 
 
-def test_a_props_failure_after_the_reply_is_a_failed_check_not_a_lost_reply(monkeypatch, root):
+def test_a_server_gone_after_the_reply_is_a_failed_check_not_a_lost_reply(monkeypatch, root):
     backend = fake_backend(monkeypatch, root, [{"content": "Hi", "tokens": [5]}, FINAL])
     result = backend.complete([1, 2], SETTINGS, [])
     assert result.text == "Hi"
-    assert result.checks["server_props"]["ok"] is False
-    assert "check_failed:server_props" in result.flags
+    assert result.checks["server_running"] == {"ok": False, "exit_code": 1}
+    assert "check_failed:server_running" in result.flags
 
 
 def test_a_malformed_stream_chunk_is_a_backend_error_with_the_partial_reply(monkeypatch, root):
@@ -288,7 +289,7 @@ def test_a_malformed_stream_chunk_is_a_backend_error_with_the_partial_reply(monk
     assert caught.value.partial is not None and caught.value.partial.text == "Hi"
 
 
-def started_server(monkeypatch, root, startup, props_ok=True, on_change=None):
+def started_server(monkeypatch, root, startup, props_ok=True, on_change=None, build_info=None):
     """A LlamaServer.start() with every outside step faked: what it launched, and the record."""
     import json
     from pathlib import Path
@@ -314,7 +315,7 @@ def started_server(monkeypatch, root, startup, props_ok=True, on_change=None):
     props = {
         "model_path": str(root / "model.gguf"),
         "default_generation_settings": {"n_ctx": config.ctx_size},
-        "build_info": "b1-" + config.llama_cpp_commit[:7],
+        "build_info": build_info or "b1-" + config.llama_cpp_commit[:7],
     }
     monkeypatch.setattr(server, "get_props", lambda: props)
     monkeypatch.setattr(server, "check_props", lambda p: [] if props_ok else ["n_ctx differs"])
