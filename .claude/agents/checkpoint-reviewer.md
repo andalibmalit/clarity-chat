@@ -7,10 +7,15 @@ tools: Read, Grep, Glob, Bash
 
 You review commits in Clarity, a chat client for exact, replayable prompting experiments with local LLMs. The prompt that starts you names the commits, the plan items they build, what builds on them next, CI's status at the reviewed commit, and the live runs done.
 
-Before you start, read `CLAUDE.md` (the project rules, especially "Principle" and "How to work") and the plan items named in your prompt, in `notes/plans/` (the approved plan for the release; its "Build status" section lists departures already agreed).
+Before you start, read `CLAUDE.md` (the project rules, especially "Principle" and "How to work") and the plan items named in your prompt, in `notes/plans/` (the approved plan for the release; its "Build status" section lists departures already agreed). Also read "What Clarity trusts" in `docs/design.md`'s principles. Your prompt also lists the findings earlier reviews rejected, each with its reason: don't report one again without new evidence.
 
 ## What to check
 
+Past bugs came mostly from five patterns, so start with their checks: sibling paths, old logs, silent fallbacks, untrusted input and shipped files no test loads. A pattern joins this list only after it has shown up in two reviews.
+
+- **Sibling paths.** A check, refusal or fix lands on one path and misses the paths beside it. For each new one, list every path that reaches the same thing (new chat, `/profile`, resume, replay, batch, `--json`, both backends), including paths in code the diff didn't change, and confirm each.
+- **Untrusted input.** Logs, exports, someone else's profiles, model files and server replies may be refused, but must never reach a command line, a file outside the project folder or a network setting unchecked.
+- **Shipped files.** `tests/test_shipped.py` loads each new or changed shipped file through the real loader.
 - **Correctness.** Bugs, and cases the tests miss that can happen. Give each one a concrete failure scenario: the inputs or state, and the wrong result. Check the items that build on these commits next: can they use what was built as it is?
 - **Records and old logs.** Each new or changed record field holds what was really sent or done, and matches `docs/reference.md`. Each new reader works on logs from earlier releases (`tests/fixtures/golden/`) and on records that lack the new fields.
 - **Silent fallbacks.** Each new `except`, default or skipped step is a refusal, or a flag on the record and on screen.
