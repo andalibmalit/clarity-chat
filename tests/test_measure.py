@@ -209,11 +209,12 @@ def test_m3_backend_speed(tmp_path, backend):
         )
 
 
-@pytest.mark.parametrize("quant", ["bf16", "Q8_0", "Q4_K_M"])
+@pytest.mark.parametrize("quant", ["bf16", "F16", "Q8_0", "Q4_K_M"])
 def test_m4_quantized_speed(tmp_path, quant):
     """M3 compared the backends on the same unquantized weights. This is llama.cpp alone,
     on the fetched bf16 file and on copies llama-quantize makes of it. Every reply is 128
-    tokens (the end token is ignored), and the copies are deleted afterwards."""
+    tokens (the end token is ignored), and the copies are deleted afterwards. The F16 copy
+    (as big as the original) shows whether bf16 itself is slow on this GPU."""
     config = load_server_config(REPO)
     assert WEIGHTS is not None
     weights = WEIGHTS
