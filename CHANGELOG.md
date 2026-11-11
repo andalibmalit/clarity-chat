@@ -17,6 +17,7 @@ Two headings are Clarity's own, used when they apply:
 - `/regen N` makes N more replies to your last message, each a new branch with its own logged seed. With `--json`, a `reply_start` event (`k`, `n`, `seed`) comes before each.
 
 ### Fixed
+- A Transformers replay judged its stop type, and recorded `eos_token_id`, from the end tokens in today's model files rather than the logged ones it was generated with. A model revision that changed only `generation_config.json` made an identical replay report `stop_type: none`.
 - `/say` in the terminal sent its text with the spaces at its start and end removed, while a plain line and `--json` sent them; now all three send the text exactly. Through `--json`, spaces around another command's arguments made `/set` name an empty setting and `/mark` store a label `/unmark` couldn't find; they're now ignored, as in the terminal.
 - If llama-server had to restart for `/replay` (it had stopped, or its model file was fetched again) and the restart failed, the next message crashed the chat. Now the conversation's model starts again, or the chat says to start a new conversation.
 - In the terminal, Ctrl-C during a call cancels it wherever the call is. Before, it cancelled only while the reply streamed; at any other moment (building the prompt, the checks after the reply, computing token probabilities) it quit the chat, and the reply on screen could be missing from the log. During a command that can't be cancelled, such as a model start, Ctrl-C still stops Clarity.

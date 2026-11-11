@@ -456,9 +456,13 @@ class TransformersBackend:
                 Result(text="", token_ids=[], stop_type="none", request=logged_request),
             ) from e
         check = check_config(effective.to_dict(), values)
+        # The end tokens generate stops on: the logged ones on a replay, not today's.
+        eos = values["eos_token_id"]
+        eos_ids = [eos] if isinstance(eos, int) else list(eos)
+        eos_origin = "log" if request is not None else self.eos_from
         backend_settings = {
             k: {"value": v, "origin": "backend"} for k, v in NEUTRAL_CONFIG.items()
-        } | {"eos_token_id": {"value": self.eos_ids, "origin": self.eos_from}}
+        } | {"eos_token_id": {"value": eos_ids, "origin": eos_origin}}
         stop_words = values["stop_strings"] or []
         ids: list[int] = []
         shown = 0
@@ -538,7 +542,7 @@ class TransformersBackend:
         text, word = cut_at_stop(full, stop_words)
         if cancelled:
             stop_type = "cancelled"
-        elif ids and ids[-1] in self.eos_ids:
+        elif ids and ids[-1] in eos_ids:
             stop_type = "eos"
         elif word:
             stop_type = "word"
