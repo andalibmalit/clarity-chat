@@ -94,7 +94,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `mark`, `unmark`, `note` | `records`: the records appended |
 | `title` | `record` |
 | `replay` | `replay`: the replay record |
-| `export` | `path`, `replaced`, `calls` and `failed_calls_left_out` |
+| `export` | `path`, `replaced`, `calls`, `failed_calls_left_out` and `calls_without_a_turn_left_out` |
 | `chats` | `chats` |
 | `profile`, `new` | `conversation_id`, `profile`, `model`, `mode` and `warnings` |
 | `resume` | the same, plus `resume` (the record) and `head_text` |
@@ -256,7 +256,7 @@ A replay compares the output token IDs and stop type, or the text if the logged 
 
 The first line is the header, `"type": "export"`:
 - `format_version` (1), `clarity` (`version`, `commit`, `dirty`) and `conversation_id`.
-- `calls` (how many follow) and `failed_calls_left_out`: calls that produced no reply.
+- `calls` (how many follow), `failed_calls_left_out` (calls that produced no reply) and `calls_without_a_turn_left_out` (calls whose reply's record is missing from the log, as after a crash while it was written; resume carries on without them too).
 - `conditions`: one entry per distinct set of conditions the calls were computed under, since a resumed conversation can span several server starts, machines or builds. Each has `conditions` and `call_ids`, the calls it covers. `conditions` holds `backend`, `weights` (the repo and revision, plus the GGUF's sha256 for llama.cpp), and every fact replay compares except Clarity's own commit and the tokenizer libraries: for llama.cpp, `build_info`, `llama_cpp`, `flags`, `graph_splits`, `props`, `env`, `end_tokens` and `machine`; for Transformers, `torch`, `transformers`, `device`, `dtype`, `attn_implementation`, `env`, `deterministic_algorithms`, `end_tokens` and `machine`. A null is a fact the log didn't record.
 - `note`: "Recomputing these calls under other conditions can give different numbers, sometimes by a tiny amount and sometimes enough to change the likeliest token. Run `clarity_chat.recompute.check` with your loaded model first; it lists what differs."
 

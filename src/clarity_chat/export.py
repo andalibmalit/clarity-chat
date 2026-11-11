@@ -63,6 +63,10 @@ def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any
     current = marks_and_notes(records)
     calls = [r for r in records if r.get("type") == "call"]
     done = [c for c in calls if c.get("turn_id")]  # a reply turn: it produced output
+    # The call is written before its turn: a crash between them leaves a call with no turn,
+    # which resume carries on without. Leave it out too, and say so.
+    torn = [c for c in done if c["turn_id"] not in turns]
+    done = [c for c in done if c["turn_id"] in turns]
     rows = []
     groups: dict[str, list[str]] = {}  # the conditions, as JSON, to the calls they cover
     for call in done:
@@ -82,7 +86,8 @@ def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any
         "clarity": {"version": version("clarity-chat"), **client_git()},
         "conversation_id": conversation_id,
         "calls": len(rows),
-        "failed_calls_left_out": len(calls) - len(done),
+        "failed_calls_left_out": len(calls) - len(done) - len(torn),
+        "calls_without_a_turn_left_out": len(torn),
         "conditions": [
             {"conditions": json.loads(key), "call_ids": ids} for key, ids in groups.items()
         ],
@@ -100,6 +105,7 @@ def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any
         "replaced": replaced,
         "calls": len(rows),
         "failed_calls_left_out": header["failed_calls_left_out"],
+        "calls_without_a_turn_left_out": header["calls_without_a_turn_left_out"],
     }
 
 

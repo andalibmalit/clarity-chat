@@ -618,6 +618,8 @@ def format_export(result: dict[str, Any]) -> str:
     replaced = " (replaced the earlier export)" if result["replaced"] else ""
     left_out = result["failed_calls_left_out"]
     failed = f"; {left_out} failed call(s) left out" if left_out else ""
+    if torn := result["calls_without_a_turn_left_out"]:
+        failed += f"; {torn} call(s) left out: the log has no record of their reply"
     return (
         f"Wrote {result['path']}{replaced}: {result['calls']} call(s){failed}. Before "
         "recomputing it in a notebook, run clarity_chat.recompute.check (docs/guides.md)."
