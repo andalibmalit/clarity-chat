@@ -8,7 +8,8 @@ Every `GenerationConfig` field that can change the output is set explicitly; Tra
 otherwise fills unset fields from the model's `generation_config.json` and then from its
 own defaults (`top_k` 50, for one). The model's own `generation_config` is replaced by an
 empty one at load, and after every call the effective config is checked field by field.
-Only `eos_token_id` comes from the model's `generation_config.json`, and it is logged.
+Only `eos_token_id` comes from the model: from its `generation_config.json`, or from its
+tokenizer if that file lists none. Both the IDs and their source are logged.
 
 Transformers applies its processors in a fixed order: repetition penalty, then
 temperature, top_k, top_p and min_p. A profile whose `samplers` lists them in another
@@ -117,6 +118,30 @@ def torch_env() -> dict[str, str]:
         for k, v in sorted(os.environ.items())
         if k.startswith(TORCH_ENV_PREFIXES)
     }
+
+
+TOKENIZER_END = "tokenizer (generation_config.json has none)"
+
+
+def end_tokens(weights: Path) -> tuple[list[int], str]:
+    """The IDs a reply stops on, and where they came from: `generation_config.json` if it
+    lists any, else the tokenizer's end token. OLMo 3 base's file lists none, and Qwen3.5-9B
+    ships no file; Transformers' own fallback, `config.json`, would give Qwen the wrong stop."""
+    from transformers import AutoTokenizer, GenerationConfig
+
+    if (weights / "generation_config.json").is_file():
+        eos = GenerationConfig.from_pretrained(weights).eos_token_id
+        ids = [eos] if isinstance(eos, int) else list(eos or [])
+        if ids:
+            return ids, "generation_config.json"
+    tokenizer: Any = AutoTokenizer.from_pretrained(weights)
+    eos = tokenizer.eos_token_id
+    if eos is None:
+        raise ConfigError(
+            f"{weights}: no end token in generation_config.json or the tokenizer, so a reply "
+            "would never stop."
+        )
+    return [eos], TOKENIZER_END
 
 
 def generation_values(
@@ -246,6 +271,7 @@ class TransformersBackend:
         self.model_entry: ModelEntry | None = None
         self.weights: Path | None = None
         self.eos_ids: list[int] = []
+        self.eos_from = ""
         self.record: dict[str, Any] | None = None
 
     @property
@@ -285,15 +311,9 @@ class TransformersBackend:
                 "PYTORCH_ENABLE_MPS_FALLBACK is set, so operations MPS lacks would run on the "
                 'CPU without notice. Unset it, or set device = "cpu".'
             )
-        generation_file = weights / "generation_config.json"
-        if not generation_file.is_file():
-            raise ConfigError(f"{generation_file} is missing: no eos_token_id to stop on.")
-        own = GenerationConfig.from_pretrained(weights)
-        eos = own.eos_token_id
-        self.eos_ids = [eos] if isinstance(eos, int) else list(eos or [])
-        if not self.eos_ids:
-            raise ConfigError(f"{generation_file} has no eos_token_id.")
-        self.tokenizer = AutoTokenizer.from_pretrained(weights)
+        self.eos_ids, self.eos_from = end_tokens(weights)
+        tokenizer: Any = AutoTokenizer.from_pretrained(weights)
+        self.tokenizer = tokenizer
         loaded = AutoModelForCausalLM.from_pretrained(
             weights, dtype=torch.bfloat16, attn_implementation=ATTN_IMPLEMENTATION
         )
@@ -309,6 +329,12 @@ class TransformersBackend:
         self._check_positions(model.name, loaded)
         self.model, self.model_entry, self.weights = loaded, model, weights
         warnings = []
+        if self.eos_from == TOKENIZER_END:
+            (eos,) = self.eos_ids
+            warnings.append(
+                f"{model.name}'s generation_config.json lists no end token, so replies stop on "
+                f"the tokenizer's: {self.tokenizer.convert_ids_to_tokens(eos)} ({eos})."
+            )
         deterministic = torch.are_deterministic_algorithms_enabled()
         if deterministic:
             # Clarity never turns it on (it makes nothing in inference deterministic on MPS or
@@ -334,6 +360,7 @@ class TransformersBackend:
             "torch": torch.__version__,
             "transformers": transformers.__version__,
             "eos_token_id": self.eos_ids,
+            "eos_token_id_from": self.eos_from,
             "max_position_embeddings": getattr(loaded.config, "max_position_embeddings", None),
             "env_torch_kept": env,
             "deterministic_algorithms": deterministic,
@@ -389,7 +416,7 @@ class TransformersBackend:
         check = check_config(effective.to_dict(), values)
         backend_settings = {
             k: {"value": v, "origin": "backend"} for k, v in NEUTRAL_CONFIG.items()
-        } | {"eos_token_id": {"value": self.eos_ids, "origin": "model"}}
+        } | {"eos_token_id": {"value": self.eos_ids, "origin": self.eos_from}}
         stop_words = values["stop_strings"] or []
         ids: list[int] = []
         shown = 0
