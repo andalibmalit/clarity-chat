@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -363,3 +364,10 @@ def test_a_conversation_warning_prints_once_in_a_run(batch, fetched_root, monkey
     monkeypatch.setattr(session_module.Session, "new_conversation", with_warning)
     _, _, _, output = batch(seeds=2)
     assert output.count("made-up conversation warning") == 1
+
+
+def test_a_runs_files_are_readable_only_by_you(batch):
+    blind, run_dir, _, _ = batch(replies=[" r1", " r2", " r3", " r4"])
+    if os.name != "nt":
+        for path in (blind, run_dir / "key.json", run_dir / "calls.jsonl"):
+            assert path.stat().st_mode & 0o777 == 0o600, path.name
