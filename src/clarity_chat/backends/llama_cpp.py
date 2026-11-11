@@ -631,6 +631,7 @@ class LlamaCppBackend:
         self.on_server = on_server
         self.server: LlamaServer | None = None
         self.model: ModelEntry | None = None
+        self.weights_identity: tuple[int, int, int] | None = None  # of the running server's file
 
     @property
     def n_ctx(self) -> int:
@@ -644,16 +645,29 @@ class LlamaCppBackend:
         """Start llama-server with `weights` and a context of `ctx_size`. The old server stops
         first, so two models never share memory. Returns the new server_start record, or None
         if the same GGUF already runs at that size."""
+        # `fetch` replaces a file by rename: same path, new bytes, while the server still has
+        # the old ones open. Its inode, size and modification time tell the two apart without
+        # hashing (fetch and verify hash). An overwrite in place isn't covered.
+        st = weights.stat()
+        identity = (st.st_ino, st.st_size, st.st_mtime_ns)
         server = self.server
-        if server and server.gguf == weights.absolute() and server.config.ctx_size == ctx_size:
-            if server.proc and server.proc.poll() is None:
-                return None
+        if (
+            server
+            and server.gguf == weights.absolute()
+            and server.config.ctx_size == ctx_size
+            and self.weights_identity == identity
+            and server.proc
+            and server.proc.poll() is None
+        ):
+            return None
         self.close()
         self.model = model
         # The size goes into the flags, so argv, the /props check and the log all agree.
         config = dataclasses.replace(self.config, flags={**self.config.flags, "ctx-size": ctx_size})
         self.server = LlamaServer(config, weights, self.logs_dir, self.on_server)
-        return self.server.start()
+        record = self.server.start()
+        self.weights_identity = identity
+        return record
 
     def describe(self) -> dict[str, Any]:
         record = self.server_record or {}
