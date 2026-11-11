@@ -13,9 +13,9 @@ import pytest
 
 from clarity_chat.backends.transformers_hf import torch_env
 from clarity_chat.logs import machine
-from clarity_chat.recompute import check, installed
+from clarity_chat.recompute import check, installed, torch_version
 
-TORCH, TRANSFORMERS = installed("torch"), installed("transformers")
+TORCH, TRANSFORMERS = torch_version(), installed("transformers")  # as the check reads them
 
 VOCAB = 8
 DIFFERENT = "different weights: this is a different model"

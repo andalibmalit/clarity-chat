@@ -85,6 +85,19 @@ class Report:
         return "\n".join(lines)
 
 
+def loaded_torch() -> Any:
+    """torch, imported if installed (a notebook passing a model has it already), else None."""
+    if sys.modules.get("torch") is None and installed("torch"):
+        import torch  # noqa: F401
+    return sys.modules.get("torch")
+
+
+def torch_version() -> str | None:
+    """The loaded module's version: Linux and Windows wheels add a local tag (+cpu, +cu128)
+    that the logged torch.__version__ has and the package metadata doesn't."""
+    return getattr(loaded_torch(), "__version__", None) or installed("torch")
+
+
 def shown(value: Any) -> str:
     return "not recorded" if value is None else str(value)
 
@@ -137,22 +150,17 @@ def facts(
         says, same = None, True
     eos = model.generation_config.eos_token_id
     eos = sorted([eos] if isinstance(eos, int) else eos or [])
-    # The loaded module's version: Linux and Windows wheels add a local tag (+cu128) that the
-    # logged torch.__version__ has and the package metadata doesn't.
     from clarity_chat.backends.transformers_hf import torch_env
     from clarity_chat.logs import machine
 
-    torch = sys.modules.get("torch")
-    if torch is None and installed("torch"):
-        import torch
-    torch_here = getattr(torch, "__version__", None) or installed("torch")
+    torch = loaded_torch()
     deterministic = torch.are_deterministic_algorithms_enabled() if torch else None
     pairs = [
         ("backend", logged.get("backend"), "transformers"),
         ("precision", logged.get("dtype"), str(model.dtype).removeprefix("torch.")),
         ("device", logged.get("device"), model.device.type),
         ("attention", logged.get("attn_implementation"), config._attn_implementation),
-        ("torch", logged.get("torch"), torch_here),
+        ("torch", logged.get("torch"), torch_version()),
         ("transformers", logged.get("transformers"), installed("transformers")),
         ("end tokens", logged.get("end_tokens"), eos),
         ("environment", logged.get("env"), torch_env()),
