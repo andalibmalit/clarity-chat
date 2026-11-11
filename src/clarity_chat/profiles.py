@@ -604,15 +604,10 @@ class ServerConfig:
         }
 
 
-def load_server_config(root: Path) -> ServerConfig:
-    path = root / "server.toml"
-    data = read_toml(path)
-    where = str(path)
-    allowed = {"llama_cpp_dir", "llama_cpp_commit", "startup_timeout_s", "flags"}
-    unknown = sorted(set(data) - allowed)
-    if unknown or not allowed <= set(data):
-        raise ConfigError(f"{where}: needs exactly the keys {sorted(allowed)}; unknown: {unknown}.")
-    flags = data["flags"]
+def check_flags(flags: object, where: str) -> None:
+    """Every flag is on the allowed list, with an explicit value. Also run on a log's flags
+    before `replay --logged-flags` starts a server with them: a shared or hand-edited log
+    must not add a flag server.toml couldn't (such as `host` or `tools`)."""
     if not isinstance(flags, dict):
         raise ConfigError(f"{where}: [flags] must be a table.")
     for name, value in flags.items():
@@ -625,6 +620,18 @@ def load_server_config(root: Path) -> ServerConfig:
             raise ConfigError(f"{where}: flag {name!r} must be true/false, a number or a string.")
         if value == "auto" or (not isinstance(value, bool) and value in ("-1", -1)):
             raise ConfigError(f"{where}: flag {name!r} must be explicit, not {value!r}.")
+
+
+def load_server_config(root: Path) -> ServerConfig:
+    path = root / "server.toml"
+    data = read_toml(path)
+    where = str(path)
+    allowed = {"llama_cpp_dir", "llama_cpp_commit", "startup_timeout_s", "flags"}
+    unknown = sorted(set(data) - allowed)
+    if unknown or not allowed <= set(data):
+        raise ConfigError(f"{where}: needs exactly the keys {sorted(allowed)}; unknown: {unknown}.")
+    flags = data["flags"]
+    check_flags(flags, where)
     missing = [name for name in REQUIRED_FLAGS if name not in flags]
     if missing:
         raise ConfigError(f"{where}: [flags] must set {missing} explicitly.")
