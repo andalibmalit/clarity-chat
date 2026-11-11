@@ -29,6 +29,7 @@ SETTINGS = {
     "seed": 42,
     "max_tokens": 16,
     "samplers": ["top_k", "top_p", "min_p", "temperature"],
+    "logprobs": 0,
 }
 
 

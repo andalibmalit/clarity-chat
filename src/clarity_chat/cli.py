@@ -55,6 +55,28 @@ def visible_lines(text: str) -> list[str]:
     return lines
 
 
+def format_probs(result: dict[str, Any]) -> str:
+    """A summary of a reply's token probabilities; --json gets every token."""
+    import math
+
+    if "unavailable" in result:
+        return f"No token probabilities for this reply: {result['unavailable']}."
+    tokens = result["logprobs"]["tokens"]
+    lines = [
+        f"{len(tokens)} tokens in {result['call_id']} ({result['logprobs']['view']}). "
+        f"The {len(result['least_likely'])} least likely chosen, in reply order:"
+    ]
+    for t in result["least_likely"]:
+        others = ", ".join(
+            f"{o['text']!r} {math.exp(o['logprob']):.1%}" for o in t["top"] if o["id"] != t["id"]
+        )
+        lines.append(
+            f"  #{t['index']} {t['text']!r} {math.exp(t['logprob']):.1%}"
+            + (f"   model's likeliest others: {others}" if others else "")
+        )
+    return "\n".join(lines)
+
+
 def format_prompt(record: dict[str, Any] | None, as_repr: bool) -> str:
     if record is None or "prompt_text" not in record:
         return "No call yet."
@@ -413,6 +435,8 @@ class ChatLoop:
             self.write(format_prompt(result["call"], as_repr=args == "repr") + "\n")
         elif name == "settings":
             self.write(format_settings(result) + "\n")
+        elif name == "probs":
+            self.write(format_probs(result) + "\n")
         elif name in ("new", "profile"):
             self.write(
                 f"New conversation {result['conversation_id']} with profile "

@@ -9,6 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Added
+- Token probabilities on the Transformers backend: the `logprobs` setting (0 to 20, off by default) records each reply token's log-probability and its N likeliest alternatives, from the model's raw scores before any sampler. `/probs` summarizes the current reply's least likely tokens. A llama.cpp profile refuses the setting until v0.4.0.
 - `/regen N` makes N more replies to your last message, each a new branch with its own logged seed. With `--json`, a `reply_start` event (`k`, `n`, `seed`) comes before each.
 
 ### Fixed
