@@ -23,6 +23,7 @@ from clarity_chat.profiles import ConfigError
 from clarity_chat.session import CallOutcome, CancelledBeforeReply, Session
 
 Emit = Callable[[dict[str, Any]], None]
+MESSAGE_COMMANDS = {"say", "edit"}  # their args are message text, sent exactly
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,8 @@ class Commands:
         command = COMMANDS.get(name)
         if command is None:
             raise ConfigError(f"Unknown command /{name}. /help lists them.")
+        if name not in MESSAGE_COMMANDS:  # a message goes exactly; names and labels don't
+            args = args.strip()
         if command.needs_conversation and self.session.conversation is None:
             raise ConfigError("No conversation is running. Start one with /profile NAME.")
         if command.during_call:

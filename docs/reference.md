@@ -32,7 +32,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | Command | What it does |
 |---|---|
 | `/help` | List the commands. |
-| `/say TEXT` | Send a message. Typing it without a command does the same; scripts use `/say`. |
+| `/say TEXT` | Send a message, exactly as written after the one space that follows `/say`. Typing it without a command does the same; scripts use `/say`. Other commands ignore spaces around their arguments. |
 | `/prompt` | The exact prompt text of the current reply's call (or of your last message, if its call failed), the BOS decision, and the token IDs. |
 | `/prompt repr` | The same, with each line shown as a Python string, so spaces, tabs and newlines are visible. |
 | `/probs` | A summary of the current reply's token probabilities, if `logprobs` was on: how many tokens, and the 10 least likely chosen tokens in reply order, each with its probability and the model's likeliest other tokens. With `--json`, the result also holds every token's record. Without them, it says why. |
