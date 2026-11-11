@@ -51,7 +51,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/unmark [LABEL]` | Remove the current reply's mark. If it has marks with different labels, name the one to remove. The log keeps the mark and records its removal. |
 | `/note TEXT` | Add a note to the current reply. A reply has one note: a new one replaces it, and the log keeps both. Notes from before v0.2.0 have no ID, so they all stay. |
 | `/replay` | Re-send the current reply's call on the running server and compare the output. |
-| `/export [PATH]` | Write this conversation for a notebook, as `clarity export` does. |
+| `/export` | Write this conversation for a notebook to `logs/exports/ID.jsonl`, as `clarity export` does. It takes no path; `clarity export --out` writes elsewhere. |
 | `/resume ID` | Continue a logged conversation, by its ID from `/chats` or its log file: its profile, settings, `/set` values and context size as logged, starting where it left off. Clarity shows what differs today: a changed profile file, settings today's files would set differently, server, machine or library changes since its last call, and whether the current reply's prompt still renders to the same token IDs. |
 | `/title TEXT` | Name this conversation in the chat list. Without a title, the list shows the first eight words of its first message; Clarity never asks a model for one. |
 | `/chats` | Your conversations in `logs/`, newest first, with their titles. |

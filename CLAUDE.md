@@ -18,6 +18,7 @@ uv run clarity chats                      # list conversations in logs/
 uv run clarity run --openings FILE --profiles A B [--seeds N]   # blind test into runs/RUN_ID/
 uv run clarity replay LOG CALL_ID [--logged-flags]                # re-send a call and compare
 uv run clarity mark LOG CALL_ID [LABEL] [--remove]                # label a logged reply, or remove a label (note: TEXT)
+uv run clarity export ID [--out PATH]     # write a conversation for a notebook (logs/exports/ID.jsonl)
 uv run pytest                             # offline tests (no network, model or server)
 uv run pytest -m live                     # SmolLM2 via the managed llama-server
 uv run pytest -m olmo                     # OLMo 3 (needs both OLMo models fetched)
