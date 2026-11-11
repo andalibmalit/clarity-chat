@@ -1,8 +1,9 @@
 """Every chat command in one table, for the terminal, `clarity chat --json` and the web UI.
 
 `Commands(session).run(name, args, emit)` runs one command and returns a JSON-able result.
-`emit` receives events while it runs: `text` (reply text as it streams), `status` (a model
-starting, ready) and `record` (every record appended to the log). Errors are raised
+`emit` receives events while it runs: `text` (reply text as it streams), `reply_start`
+(before each reply of `/regen N`, with `k`, `n` and its `seed`), `status` (a model starting,
+ready) and `record` (every record appended to the log). Errors are raised
 (ConfigError, ContextError, BackendError); each front end shows them its own way.
 
 Commands run one at a time, except `cancel`, which runs during a call.
@@ -15,9 +16,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from clarity_chat.backends import BackendError
 from clarity_chat.logs import list_chats
 from clarity_chat.profiles import ConfigError
-from clarity_chat.session import CallOutcome, Session
+from clarity_chat.session import CallOutcome, CancelledBeforeReply, Session
 
 Emit = Callable[[dict[str, Any]], None]
 
@@ -80,7 +82,29 @@ def _say(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _regen(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    return c.call(emit, c.session.regen)
+    """N replies to the current message, one after another, each a new branch. A cancel stops
+    the reply being written and the rest. A failure after the first reply stops the rest and
+    is returned as `stopped`, with the replies already made; the head stays at the last."""
+    if not args:
+        n = 1
+    elif args.isdigit() and int(args) > 0:
+        n = int(args)
+    else:
+        raise ConfigError("Usage: /regen [N], where N is a whole number of replies, 1 or more.")
+    replies: list[dict[str, Any]] = []
+    for k in range(1, n + 1):
+        if replies and c.cancel_event is not None and c.cancel_event.is_set():
+            break
+        try:
+            emit({"event": "reply_start", "k": k, "n": n, "seed": c.session.regen_seed()})
+            replies.append(c.call(emit, c.session.regen))
+        except (BackendError, CancelledBeforeReply, ConfigError) as e:
+            if not replies:
+                raise
+            return {"replies": replies, "stopped": f"Reply {k} of {n}: {e}"}
+        if replies[-1]["call"]["stop_type"] == "cancelled":
+            break
+    return {"replies": replies}
 
 
 def _edit(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -265,8 +289,8 @@ COMMANDS: dict[str, Command] = {
         _set,
     ),
     "regen": Command(
-        "/regen",
-        "another reply to your last message (seed + 1, + 2, …), as a new branch",
+        "/regen [N]",
+        "N more replies to your last message (default 1; seed + 1, + 2, …), each a new branch",
         _regen,
         cancellable=True,
     ),

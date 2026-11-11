@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Added
+- `/regen N` makes N more replies to your last message, each a new branch with its own logged seed. With `--json`, a `reply_start` event (`k`, `n`, `seed`) comes before each.
+
 ### Fixed
 - The Transformers backend refused models whose `generation_config.json` lists no end token (OLMo 3 base) or that ship none (Qwen3.5-9B). It now takes the tokenizer's end token, says so at start, and logs where the IDs came from (`server_start.eos_token_id_from`); `/settings` shows it.
 - A model fetched again while its llama-server was running kept the old server, so calls ran the old file while the record named the new one. A server is now kept only if its file is unchanged (same inode, size and modification time); otherwise it restarts.
@@ -21,6 +24,7 @@ Two headings are Clarity's own, used when they apply:
 - Docs: the README, the design doc and the citation abstract now state the limits of their claims: replay covers completed calls, the same-output tests ran on two model families on one Apple Silicon Mac, and "No silent fallbacks" names its two flagged cases. The README, the package description and the citation title now share one tagline.
 
 ### Migration
+- With `--json`, the `regen` command's result is now `{"replies": [{"call", "warnings"}, …]}`, also for a plain `/regen`, in place of one `call` and `warnings`. Read `replies[0]` where a script read the result itself.
 - The check after each llama.cpp call is renamed: `checks.server_props` is now `checks.server_running` (with `exit_code` when the process has exited). `checks.not_echoed` is gone: it could never fail, and the same list follows from the logged request and `generation_settings`. A reader that looks for either key finds it missing in new logs.
 
 ## [0.2.0] - 2026-11-10
