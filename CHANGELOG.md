@@ -17,6 +17,7 @@ Two headings are Clarity's own, used when they apply:
 - `/regen N` makes N more replies to your last message, each a new branch with its own logged seed. With `--json`, a `reply_start` event (`k`, `n`, `seed`) comes before each.
 
 ### Fixed
+- In the terminal, Ctrl-C during a call cancels it wherever the call is. Before, it cancelled only while the reply streamed; at any other moment (building the prompt, the checks after the reply, computing token probabilities) it quit the chat, and the reply on screen could be missing from the log. During a command that can't be cancelled, such as a model start, Ctrl-C still stops Clarity.
 - The Transformers backend refused models whose `generation_config.json` lists no end token (OLMo 3 base) or that ship none (Qwen3.5-9B). It now takes the tokenizer's end token, says so at start, and logs where the IDs came from (`server_start.eos_token_id_from`); `/settings` shows it.
 - A model fetched again while its llama-server was running kept the old server, so calls ran the old file while the record named the new one. A server is now kept only if its file is unchanged (same inode, size and modification time); otherwise it restarts.
 - `server.toml` now accepts only a fixed list of flags, the ones it ships with, and refuses any other. Before, it refused a list of known-bad flags, so flags such as `gpu-layers` (another name for `n-gpu-layers`), `grp-attn-n`, `override-tensor`, `special` and `docker-repo` were passed to llama-server.

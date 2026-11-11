@@ -393,7 +393,7 @@ class ChatLoop:
     def command(self, name: str, args: str) -> bool:
         """Run a registry command and show its result. Returns False to quit."""
         try:
-            result = self.commands.run(name, args, self.on_event)
+            result = self.run_cancellable(name, args)
         except CancelledBeforeReply as e:
             offered = name in ("say", "edit")
             self.write(
@@ -485,6 +485,25 @@ class ChatLoop:
         if result["call"].get("flags"):
             self.write("! flags: " + ", ".join(result["call"]["flags"]) + "\n")
         self.write(format_status(result["call"]) + "\n")
+
+    def run_cancellable(self, name: str, args: str) -> dict[str, Any]:
+        """Run a command with Ctrl-C mapped to /cancel, so a call is cancelled wherever it
+        is, not only while the stream is read. A command that can't be cancelled (a model
+        start) keeps Ctrl-C's usual effect, so a long load can still be stopped."""
+        import signal
+
+        def cancel(signum: int, frame: Any) -> None:
+            if not self.commands.run("cancel", "", lambda e: None)["cancelled"]:
+                raise KeyboardInterrupt
+
+        try:
+            previous = signal.signal(signal.SIGINT, cancel)
+        except ValueError:  # not the main thread: leave Ctrl-C as it is
+            return self.commands.run(name, args, self.on_event)
+        try:
+            return self.commands.run(name, args, self.on_event)
+        finally:
+            signal.signal(signal.SIGINT, previous)
 
     def on_event(self, event: dict[str, Any]) -> None:
         if event["event"] == "text":
