@@ -385,3 +385,23 @@ def test_a_failed_server_restart_in_replay_leaves_the_chat_usable(
         session.say("Again")
     except (ConfigError, BackendError):
         pass  # said plainly; a KeyError would be the crash
+
+
+@pytest.mark.parametrize("backend", ["llama.cpp", "transformers"])
+def test_a_call_whose_server_record_is_missing_lists_facts_as_not_recorded(backend):
+    """A trimmed or hand-edited log: the call's backend picks the facts, and what the log
+    lacks is not recorded, not a difference that hides an unexplained one."""
+    from clarity_chat.replay import facts_from_call
+
+    call = {"model": {"repo": "r", "revision": "v"}, "client": {}, "backend": {"backend": backend}}
+    now_server = (
+        {"backend": "llama.cpp", "props": {"n_ctx": 8192}, "llama_cpp": {"commit": "c"}}
+        if backend == "llama.cpp"
+        else {"backend": "transformers", "torch": "2", "transformers": "5"}
+    )
+    logged = facts_from_call(call, None)
+    now = facts_from_call(call, now_server)
+    diffs = environment_diff(logged, now)
+    assert diffs == {}, diffs
+    assert unexplained(False, diffs)
+    assert "weights" not in not_recorded(logged, now)
