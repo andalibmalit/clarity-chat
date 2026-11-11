@@ -241,7 +241,8 @@ def fixed_model(table):
         ):
             self.kept.append(logits_to_keep)
             ids = input_ids[0].tolist()
-            if past_key_values is not None:
+            # One token at a time is a reply step, which must get the cache back.
+            if len(ids) == 1 or past_key_values is not None:
                 assert past_key_values == self.seen, "the cache wasn't passed back"
             self.seen = [*(past_key_values or []), *ids]
             logits = torch.stack([table[i] for i in ids])[None]
