@@ -184,6 +184,13 @@ def test_server_config_refuses_flags_outside_the_allowed_list(root, line):
         ("cache-ram = 0", "cache-ram = false", "need a value"),  # False == 0 in Python
         ("threads = 8\n", "threads = false\n", "need a value"),
         ('n-gpu-layers = "all"', "n-gpu-layers = -1", "explicit"),
+        # false would leave the flag out, so llama.cpp's default would decide
+        ("no-kv-unified = true", "no-kv-unified = false", "must be true"),
+        ("no-kv-unified = true", "kv-unified = false", "must be true"),
+        ("no-jinja = true", "no-jinja = false", "must be true"),
+        # llama-server reads 0 or less as "every core", which depends on the machine
+        ("threads = 8\n", "threads = 0\n", "positive integer"),
+        ("threads-batch = 8", "threads-batch = -2", "positive integer"),
     ],
 )
 def test_server_config_requires_explicit_values(root, old, new, message):
