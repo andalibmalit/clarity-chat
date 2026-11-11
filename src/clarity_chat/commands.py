@@ -202,7 +202,9 @@ def _probs(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     chosen tokens with their text and the alternatives the model ranked above them."""
     conversation = c.session.conversation
     assert conversation is not None
-    call = conversation.last_call
+    # The reply at head, which is on screen; last_call can be a failed call (for /prompt).
+    head = conversation.turns.get(conversation.head or "")
+    call = conversation.calls.get(head.call_id or "") if head else None
     if call is None or call.get("turn_id") is None:
         return {
             "call_id": None,
