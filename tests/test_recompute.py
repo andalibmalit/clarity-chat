@@ -11,6 +11,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from clarity_chat.backends.transformers_hf import torch_env
+from clarity_chat.logs import machine
 from clarity_chat.recompute import check, installed
 
 TORCH, TRANSFORMERS = installed("torch"), installed("transformers")
@@ -31,7 +33,9 @@ def write_export(path: Path, calls: list[dict], conditions: dict | None = None) 
         "torch": TORCH,
         "transformers": TRANSFORMERS,
         "end_tokens": [7],
-        "machine": None,
+        "env": torch_env(),
+        "deterministic_algorithms": False,
+        "machine": machine(),
     }
     header = {
         "type": "export",
@@ -342,3 +346,49 @@ def test_one_changed_score_gives_the_exact_gap_and_change_count(tmp_path):
     )
     expected = abs(log_softmax(changed[3][None])[0, 4].item() - logged["tokens"][1]["logprob"])
     assert report.calls[0]["measured"] == {"steps": 3, "largest_gap": expected, "top_changed": 1}
+
+
+def edited(path: Path, **conditions) -> Path:
+    header = json.loads(path.read_text(encoding="utf-8").split("\n")[0])
+    header["conditions"][0]["conditions"].update(conditions)
+    path.write_text(json.dumps(header) + "\n", encoding="utf-8")
+    return path
+
+
+def test_the_environment_deterministic_setting_and_machine_are_compared(tmp_path, monkeypatch):
+    """Conditions the export records that can change the numbers: PyTorch's environment
+    variables (PYTORCH_ENABLE_MPS_FALLBACK), deterministic algorithms, and the machine."""
+    torch = SimpleNamespace(__version__=TORCH, are_deterministic_algorithms_enabled=lambda: False)
+    monkeypatch.setitem(sys.modules, "torch", torch)
+    other = {**machine(), "hostname_hash": "another machine", "cpu_count": 999}
+    export = edited(
+        write_export(tmp_path / "e.jsonl", []),
+        env={**torch_env(), "PYTORCH_ENABLE_MPS_FALLBACK": "1"},
+        deterministic_algorithms=True,
+        machine=other,
+    )
+    report = check(export, stand_in(), **PINS)
+    found = facts(report)
+    assert [found[f]["same"] for f in ("environment", "deterministic algorithms", "machine")] == [
+        False,
+        False,
+        False,
+    ]
+    machine_line = next(line for line in str(report).splitlines() if "machine" in line)
+    assert "hostname_hash" in machine_line and "cpu_count" in machine_line
+    assert "os_release" not in machine_line  # only the keys that differ
+
+
+def test_an_older_export_without_these_facts_says_not_recorded(tmp_path):
+    export = edited(
+        write_export(tmp_path / "e.jsonl", []),
+        env=None,
+        deterministic_algorithms=None,
+        machine=None,
+    )
+    found = facts(check(export, stand_in(), **PINS))
+    assert [found[f]["same"] for f in ("environment", "deterministic algorithms", "machine")] == [
+        None,
+        None,
+        None,
+    ]
