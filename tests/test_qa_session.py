@@ -206,3 +206,73 @@ def test_ordinary_steps_pass_as_written(tmp_path):
     lines = ['{"command": "say", "args": "Hi"}', "not json", '{"command": "export"}']
     steps.write_text("\n".join(lines) + "\n", encoding="utf-8")
     assert qa.parse_steps(steps, json_mode=True) == lines
+
+
+# --- links, the weights' hash, the working folder, timed Ctrl-C ------------------------
+
+
+@pytest.mark.parametrize(
+    "plant",
+    [
+        lambda root, outside: (root / "logs").symlink_to(outside, target_is_directory=True),
+        lambda root, outside: (root / "local").symlink_to(outside, target_is_directory=True),
+        lambda root, outside: (
+            (root / "defaults.toml").unlink()
+            or (root / "defaults.toml").symlink_to(outside / "settings.json")
+        ),
+        lambda root, outside: (
+            (root / "server.toml").unlink()
+            or (root / "server.toml").symlink_to(outside / "missing.toml")
+        ),
+        lambda root, outside: os.link(outside / "settings.json", root / "hard.json"),
+    ],
+)
+def test_a_link_anywhere_in_the_root_is_refused_before_anything_is_written(
+    root, repo, tmp_path, plant
+):
+    """Clarity and the driver run outside the sandbox and follow links: a link in the root
+    would let them read a private folder or overwrite a file the sandbox denies."""
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "settings.json").write_text("{}", encoding="utf-8")
+    plant(root, outside)
+    with pytest.raises(qa.Refused, match="link"):
+        qa.prepare_root(root, repo, init=False)
+    assert (outside / "settings.json").read_text(encoding="utf-8") == "{}"
+    assert not (outside / "missing.toml").exists()
+
+
+def test_the_roots_weights_are_checked_by_hash_and_replaced(root, repo):
+    """Clarity checks only size and time at start, and both can be set by hand."""
+    import hashlib
+
+    weights = root / "models" / SMOL / f"{SMOL}-bf16.gguf"
+    lock = json.loads((repo / "models.lock").read_text(encoding="utf-8"))
+    original = (repo / "models" / SMOL / f"{SMOL}-bf16.gguf").read_bytes()
+    lock["models"][SMOL]["gguf"]["sha256"] = hashlib.sha256(original).hexdigest()
+    (repo / "models.lock").write_text(json.dumps(lock), encoding="utf-8")
+    weights.write_bytes(b"GGUF other model!"[: len(original)].ljust(len(original), b"!"))
+    os.utime(weights, ns=(1_000_000_123, 1_000_000_123))
+    qa.prepare_root(root, repo, init=False)
+    assert weights.read_bytes() == original and weights.stat().st_mtime_ns == 1_000_000_123
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["replay", "x", "c1"],  # LOG is a path to Clarity, so a bare name means ./x
+        ["chat", "--resume", "../outside.jsonl"],
+    ],
+)
+def test_relative_paths_are_judged_from_the_root(root, argv):
+    with pytest.raises(qa.Refused):
+        qa.check_clarity_args(root, argv)
+
+
+def test_a_timed_ctrl_c_and_a_malformed_json_step(tmp_path):
+    steps = tmp_path / "steps.txt"
+    steps.write_text("/regen 3\n<ctrl-c after 1.5>\n", encoding="utf-8")
+    assert qa.parse_steps(steps, json_mode=False) == ["/regen 3", "<ctrl-c after 1.5>"]
+    steps.write_text('{"command": ["resume"], "args": "/abs/x"}\n', encoding="utf-8")
+    with pytest.raises(qa.Refused):
+        qa.parse_steps(steps, json_mode=True)
