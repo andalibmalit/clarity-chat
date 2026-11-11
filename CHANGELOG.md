@@ -35,6 +35,7 @@ Two headings are Clarity's own, used when they apply:
 - A llama-server built from a commit other than the one `server.toml` pins is now an error at start, not a warning. The binary is what runs, and a checkout at another commit was already an error.
 - After each call, Clarity checks that the llama-server process it started is still running, in place of a second `/props` request. `/props` is still checked once after start; nothing can change a running server's model or context.
 - Replay and resume compare one more fact, `end_tokens`: the IDs a reply stops on. The backends can differ here (llama.cpp also stops on tokens it recognizes by name), and the difference is now shown rather than hidden. Logs from v0.1.0 made with llama.cpp list it under `not_recorded`; v0.2.0 llama.cpp logs and every Transformers log already hold it.
+- `/history`, `/mark`, `/unmark`, `/note`, `clarity mark` and `clarity note` read only the records they need, not every call record, which made them 3 to 5 times faster on long logs in a measurement on made-up logs of 45 to 225 MB. A damaged line of another type no longer stops them; resume and replay still refuse it.
 - Docs: the README, the design doc and the citation abstract now state the limits of their claims: replay covers completed calls, the same-output tests ran on two model families on one Apple Silicon Mac, and "No silent fallbacks" names its two flagged cases. The README, the package description and the citation title now share one tagline.
 
 ### Migration

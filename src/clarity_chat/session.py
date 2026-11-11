@@ -9,6 +9,7 @@ record, whether it succeeded, failed or was cancelled.
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import threading
@@ -603,7 +604,7 @@ class Session:
         """The conversation from its start to `head`: each turn with its current marks and
         notes. What a front end needs to draw the chat, without reading the log."""
         conversation = self._require_conversation()
-        notes = marks_and_notes(read_records(conversation.log.path))
+        notes = marks_and_notes(read_records(conversation.log.path, annotation_line))
         return [
             {
                 "turn_id": t.turn_id,
@@ -1158,6 +1159,16 @@ class Session:
 MARK_DEFAULT = "interesting"
 
 
+ANNOTATION_TYPES = ("mark", "unmark", "note", "torn_line")
+
+
+def annotation_line(raw: bytes) -> bool:
+    """A `read_records` filter for the records `marks_and_notes` reads. Call records, the
+    bulk of a long log, are passed over unread. A damaged line that isn't one of these
+    is passed over too, as the chat list does; resume and replay still read every line."""
+    return any(f'"type": "{kind}"'.encode() in raw for kind in ANNOTATION_TYPES)
+
+
 def marks_and_notes(
     records: Iterable[dict[str, Any]],
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
@@ -1195,7 +1206,7 @@ def annotate_call(
     with the label, or the only label there is) or `note` (replacing the reply's current
     note) about one reply. `about` has its conversation_id, call_id and turn_id. `origin`
     is "live" (in a chat) or "review" (`clarity mark`, `clarity note` afterwards)."""
-    current = marks_and_notes(read_records(log.path)).get(about["turn_id"], {})
+    current = marks_and_notes(read_records(log.path, annotation_line)).get(about["turn_id"], {})
     base = {"type": kind, **about, "origin": origin}
     if kind == "mark":
         return [log.append({**base, "mark_id": new_id("mark"), "label": text or MARK_DEFAULT})]
@@ -1233,7 +1244,12 @@ def annotate_log(
     if not path.is_file():
         raise ConfigError(f"Log file {path} not found.")
     call = None
-    for record in read_records(path):
+    wanted = json.dumps({"call_id": call_id}, ensure_ascii=False)[1:-1].encode()  # as logged
+
+    def parse(raw: bytes) -> bool:
+        return wanted in raw and b'"type": "call"' in raw or b'"type": "torn_line"' in raw
+
+    for record in read_records(path, parse):
         if record.get("type") == "call" and record.get("call_id") == call_id:
             call = record
     if call is None:
