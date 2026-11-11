@@ -204,3 +204,58 @@ def test_mps_with_the_cpu_fallback_switched_on_is_refused(monkeypatch, tmp_path)
     model = next(iter(load_models(REPO).values()))
     with pytest.raises(ConfigError, match="PYTORCH_ENABLE_MPS_FALLBACK"):
         TransformersBackend("mps", 512).start(model, tmp_path, 512)
+
+
+def custom_code_folder(folder):
+    """A model folder whose config and tokenizer name their own Python code, which records
+    that it ran."""
+    import json
+
+    folder.mkdir()
+    auto_map = {
+        "AutoConfig": "custom.Cfg",
+        "AutoModelForCausalLM": "custom.Model",
+        "AutoTokenizer": ["custom.Tok", None],
+    }
+    (folder / "config.json").write_text(
+        json.dumps({"model_type": "made_up_xyz", "auto_map": auto_map}), encoding="utf-8"
+    )
+    (folder / "tokenizer_config.json").write_text(
+        json.dumps({"auto_map": {"AutoTokenizer": ["custom.Tok", None]}}), encoding="utf-8"
+    )
+    (folder / "custom.py").write_text(
+        "open(__file__ + '.ran', 'w').close()\n"
+        "from transformers import PretrainedConfig, PreTrainedTokenizer\n"
+        "class Cfg(PretrainedConfig):\n    model_type = 'made_up_xyz'\n"
+        "class Tok(PreTrainedTokenizer):\n    pass\n"
+        "class Model:\n    pass\n",
+        encoding="utf-8",
+    )
+    return folder
+
+
+def test_a_models_own_code_is_refused_never_asked_about(tmp_path, monkeypatch):
+    """Transformers asks on stdin whether to run a folder's code; in the terminal a typed "y"
+    would run it. Clarity runs only its own code and locked libraries (design.md)."""
+    from clarity_chat.backends.transformers_hf import end_tokens
+    from clarity_chat.render import Tokenizer
+
+    asked: list[str] = []
+    monkeypatch.setattr("builtins.input", lambda prompt="": asked.append(prompt) or "y")
+    folder = custom_code_folder(tmp_path / "m")
+    for load in (lambda: Tokenizer.from_dir(folder), lambda: end_tokens(folder)):
+        with pytest.raises(ConfigError, match="its own Python code"):
+            load()
+    assert asked == [] and not (folder / "custom.py.ran").exists()
+
+
+def test_the_model_loader_refuses_a_models_own_code(tmp_path, monkeypatch):
+    from transformers import AutoModelForCausalLM
+
+    from clarity_chat.render import from_pretrained
+
+    monkeypatch.setattr("builtins.input", lambda prompt="": "y")
+    folder = custom_code_folder(tmp_path / "m")
+    with pytest.raises(ConfigError, match="its own Python code"):
+        from_pretrained(AutoModelForCausalLM, folder)
+    assert not (folder / "custom.py.ran").exists()
