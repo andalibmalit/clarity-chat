@@ -387,6 +387,7 @@ def test_the_context_size_goes_into_the_servers_flags_and_a_new_size_restarts(mo
     monkeypatch.setattr(llama_cpp.LlamaServer, "stop", lambda server: None)
     backend = llama_cpp.LlamaCppBackend(load_server_config(root), root / "logs")
     model = load_models(root)["tiny"]
+    (root / "m.gguf").write_bytes(b"weights")
     backend.start(model, root / "m.gguf", 16384)
     assert backend.n_ctx == 16384 and backend.config.ctx_size == 8192  # server.toml untouched
     assert backend.start(model, root / "m.gguf", 16384) is None
