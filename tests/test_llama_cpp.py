@@ -538,3 +538,18 @@ def test_the_server_is_recorded_when_launched_and_cleared_once_it_exits(root):
         "model_path": str(root / "model.gguf"),
     }
     assert heard[-1] is None and server.proc is not None and server.proc.poll() is not None
+
+
+def test_the_server_log_is_readable_only_by_you(root):
+    """llama-server's output can hold prompt text, so its log is private like the chat's."""
+    import io
+    import os
+
+    from clarity_chat.backends.llama_cpp import LlamaServer
+    from clarity_chat.profiles import load_server_config
+
+    server = LlamaServer(load_server_config(root), root / "model.gguf", root / "logs")
+    server.log_path.parent.mkdir(parents=True)
+    server._drain(io.BytesIO(b"main: ready\n"))
+    if os.name != "nt":
+        assert server.log_path.stat().st_mode & 0o777 == 0o600
