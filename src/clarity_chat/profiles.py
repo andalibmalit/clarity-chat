@@ -580,7 +580,7 @@ FORBIDDEN_FLAGS = {
     "webui",
     "no-webui",
 }
-FORBIDDEN_PREFIXES = ("hf-", "models-", "spec-", "ui-", "webui-")
+FORBIDDEN_PREFIXES = ("hf-", "models-", "spec-", "ui-", "webui-", "lora-", "control-vector-")
 
 
 @dataclass(frozen=True)

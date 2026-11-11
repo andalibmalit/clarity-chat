@@ -159,7 +159,7 @@ Each table is one model, and its name is the model's name in profiles and `clari
 
 Every flag that affects output must be set explicitly. The shipped `server.toml` sets them all, with comments, and Clarity names any that is missing or has the wrong value. These values are fixed: one slot (`parallel = 1`), no prompt cache, no context shift, and `fit = "off"`.
 
-Refused: `auto` and `-1` as values; the flags `model`, `host`, `port`, `api-key`, `api-key-file`, `slots`, `no-slots`, `ui`, `no-ui`, `webui` and `no-webui` (Clarity sets these), `context-shift`, `override-kv`, `lora`, `control-vector`, `model-draft`, `backend-sampling`; and any flag starting with `hf-`, `models-`, `spec-`, `ui-` or `webui-`.
+Refused: `auto` and `-1` as values; the flags `model`, `host`, `port`, `api-key`, `api-key-file`, `slots`, `no-slots`, `ui`, `no-ui`, `webui` and `no-webui` (Clarity sets these), `context-shift`, `override-kv`, `lora`, `control-vector`, `model-draft`, `backend-sampling`; and any flag starting with `hf-`, `models-`, `spec-`, `ui-`, `webui-`, `lora-` or `control-vector-`.
 
 Unless `n-gpu-layers` is 0, Clarity stops if llama.cpp puts the model on the CPU.
 
