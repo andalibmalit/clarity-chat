@@ -62,6 +62,8 @@ def test_server_start_is_logged_with_props_and_gpu_placement(session):
         assert any(b["buffer"].startswith("MTL") for b in placement["model_buffers"]), placement
     assert record["warnings"] == []
     assert "--no-context-shift" in record["argv"]
+    # Read from llama.cpp's startup log: a llama.cpp update that changes the line shows here.
+    assert [t["id"] for t in record["model_file"]["eog_tokens"]] == [0, 2, 4]
 
 
 def test_the_server_refuses_requests_without_its_key(session):

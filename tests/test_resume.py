@@ -139,6 +139,19 @@ def test_the_v0_1_0_golden_log_resumes(new_session, tmp_path):
     assert kinds(path, "resume")[0]["compared_with_call"] == "call-78a5a5886108"
 
 
+def test_a_v0_1_0_head_is_a_guess_only_until_a_newer_clarity_moves_it(new_session, tmp_path):
+    path = Path(shutil.copy(GOLDEN, tmp_path / GOLDEN.name))
+    session, _ = new_session()
+    session.resume(path)
+    session.close()
+    session, _ = new_session([" Sure."])
+    assert session.resume(path)["head_guessed"] is True  # resumed, but nothing moved the head
+    session.say("Still there?")  # logs turn records: the head is exact from here
+    session.close()
+    session, _ = new_session()
+    assert session.resume(path)["head_guessed"] is False
+
+
 def test_the_terminal_resumes_and_says_what_differs(new_session, fetched_root, tmp_path):
     path = Path(shutil.copy(GOLDEN, tmp_path / GOLDEN.name))
     session, _ = new_session()
