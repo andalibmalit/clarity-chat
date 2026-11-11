@@ -409,7 +409,7 @@ def test_a_machine_value_unknown_here_isnt_a_difference(tmp_path, monkeypatch):
     report = check(export, stand_in(), **PINS)
     assert facts(report)["machine"]["same"] is None
     line = next(x for x in str(report).splitlines() if "machine" in x)
-    assert "macos.chip" in line and "differ" not in line
+    assert line == "  machine: macos.chip not known here (Apple M2 Max in the export)"
     here["macos"]["chip"] = "Apple M3"  # a value on both sides that differs is a difference
     assert facts(check(export, stand_in(), **PINS))["machine"]["same"] is False
 
