@@ -48,7 +48,8 @@ def installed(package: str) -> str | None:
 @dataclass
 class Report:
     """`groups`: per conditions group, its call IDs and each fact: `fact`, `export`, `here`,
-    `same` (True, False, or None if the export didn't record it) and, for weights, `says`.
+    `same` (True, False, or None: unknown, because the export didn't record it or one side
+    couldn't read it), for weights `says`, and for the machine's unknown values `summary`.
     `calls`: per call, `measured` (`steps`, `largest_gap`, `top_changed`) or None with
     `why`."""
 
@@ -60,7 +61,9 @@ class Report:
         for group in self.groups:
             lines.append(f"Calls {', '.join(group['call_ids']) or '(none)'}:")
             for f in group["facts"]:
-                if f["same"]:
+                if f.get("summary"):
+                    lines.append(f"  {f['fact']}: {f['summary']}")
+                elif f["same"]:
                     lines.append(f"  {f['fact']}: the same ({shown(f['here'])})")
                 elif f["same"] is None and not f.get("says"):
                     lines.append(f"  {f['fact']}: not recorded in the export")
@@ -201,8 +204,13 @@ def machine_fact(logged: dict[str, Any] | None, here: dict[str, Any]) -> dict[st
         "here": {k: new.get(k) for k in shown} if shown else "this machine",
         "same": False if differ else None if unknown else True,
     }
-    if unknown and not differ:
-        fact["says"] = f"not known on one side: {', '.join(unknown)}"
+    if unknown and not differ:  # one plain line: which value, and what the other side says
+        fact["summary"] = "; ".join(
+            f"{k} not known here ({old[k]} in the export)"
+            if new.get(k) is None
+            else f"{k} not recorded in the export ({new[k]} here)"
+            for k in unknown
+        )
     return fact
 
 
