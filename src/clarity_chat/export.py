@@ -45,6 +45,17 @@ MODEL_PINS = ("name", "repo", "revision", "route", "gguf_sha256", "gguf_path")
 def export_log(session: Session, log_path: Path, out: Path | None = None) -> dict[str, Any]:
     """Write `log_path`'s conversation to `out` (default `logs/exports/ID.jsonl`), replacing
     any file there. Returns the path, whether a file was replaced, and the counts."""
+    if not log_path.is_file():
+        raise ConfigError(
+            f"No conversation or log file {log_path}. `clarity chats` or /chats lists them."
+        )
+    try:
+        return _export(session, log_path, out)
+    except (KeyError, TypeError, AttributeError) as e:  # a log Clarity didn't write
+        raise ConfigError(f"{log_path} can't be exported: a record lacks or mangles {e}.") from e
+
+
+def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any]:
     records = list(read_records(log_path))
     state = rebuild(records, str(log_path))  # refuses a batch run's calls.jsonl
     turns = {t["turn_id"]: t for t in state.turns}
@@ -79,8 +90,10 @@ def export_log(session: Session, log_path: Path, out: Path | None = None) -> dic
     path = out or session.logs_dir / "exports" / f"{conversation_id}.jsonl"
     replaced = path.exists()
     lines = [json.dumps(row, ensure_ascii=False) for row in [header, *rows]]
-    # Private, like the log it comes from.
-    write_text_atomic(path, "\n".join(lines) + "\n", private=True)
+    try:  # private, like the log it comes from
+        write_text_atomic(path, "\n".join(lines) + "\n", private=True)
+    except OSError as e:  # a folder, no permission, a file a notebook holds open on Windows
+        raise ConfigError(f"Can't write the export to {path}: {e.strerror or e}.") from e
     return {
         "path": str(path),
         "replaced": replaced,
@@ -90,25 +103,18 @@ def export_log(session: Session, log_path: Path, out: Path | None = None) -> dic
 
 
 def conditions(call: dict[str, Any], server: dict[str, Any] | None) -> dict[str, Any]:
-    """What a call was computed under, as far as recomputing it is concerned: the backend,
-    the weights, the machine, and the device and precision or the llama.cpp build. Taken
-    from the facts replay compares, so the two agree."""
-    facts = facts_from_call(call, server)
+    """What a call was computed under: the backend, the weights, and every fact replay
+    compares except Clarity's own commit and the tokenizer libraries, which can't change
+    the numbers. So two server starts that differ in anything that can share no group."""
     backend = (call.get("backend") or {}).get("backend") or (server or {}).get("backend")
     model = call.get("model") or {}
-    if backend == "transformers":
-        weights = ("repo", "revision")
-        keys = ("device", "dtype", "attn_implementation", "torch", "transformers", "end_tokens")
-    else:
-        weights, keys = (
-            ("repo", "revision", "gguf_sha256"),
-            ("llama_cpp", "build_info", "end_tokens"),
-        )
+    pins = ("repo", "revision") + (() if backend == "transformers" else ("gguf_sha256",))
+    skip = {"client", "libraries", "weights", "gguf_sha256"}
+    facts = facts_from_call(call, server)
     return {
         "backend": backend,
-        "weights": {k: model.get(k) for k in weights},
-        **{k: facts[k] for k in keys},
-        "machine": facts["machine"],
+        "weights": {k: model.get(k) for k in pins},
+        **{k: v for k, v in facts.items() if k not in skip},
     }
 
 

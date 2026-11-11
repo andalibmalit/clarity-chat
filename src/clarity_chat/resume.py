@@ -35,7 +35,7 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
     the turn before it."""
     if not records or records[0].get("type") != "conversation":
         first = records[0].get("type") if records else "nothing"
-        hint = " A batch run's calls.jsonl can't be resumed." if first == "run" else ""
+        hint = " A batch run's calls.jsonl can't be resumed or exported." if first == "run" else ""
         raise ConfigError(f"{where} starts with {first}, not a conversation record.{hint}")
     out = Rebuilt(records[0])
     roles: dict[str, dict[str, Any]] = {}
@@ -50,6 +50,11 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
         if kind == "conversation" and record is not records[0]:
             raise ConfigError(f"{where} holds more than one conversation.")
         if kind == "turn":
+            parent = record.get("parent_id")
+            if parent is not None and parent not in roles:  # an edited log: a cycle loops
+                raise ConfigError(
+                    f"{where}: turn {record['turn_id']}'s parent {parent} isn't an earlier turn."
+                )
             out.turns.append(record)
             roles[record["turn_id"]] = record
             out.head, out.failed_call = record["turn_id"], None

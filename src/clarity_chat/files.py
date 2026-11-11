@@ -23,13 +23,17 @@ def write_text_atomic(path: Path, text: str, *, private: bool = False) -> None:
     mode = 0o600 if private else 0o666
     # O_BINARY: Windows would otherwise write each \n as \r\n.
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), mode)
-    with open(fd, "w", encoding="utf-8", newline="") as f:
-        f.write(text)
     try:
-        os.replace(tmp, path)
-    except PermissionError:  # Windows: a reader can briefly lock the target
-        time.sleep(0.2)
-        os.replace(tmp, path)
+        with open(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+        try:
+            os.replace(tmp, path)
+        except PermissionError:  # Windows: a reader can briefly lock the target
+            time.sleep(0.2)
+            os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # it may hold a private conversation
+        raise
 
 
 def sha256_file(path: Path, chunk_size: int = 16 * 1024 * 1024) -> str:
