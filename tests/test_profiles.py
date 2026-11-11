@@ -173,6 +173,23 @@ def test_server_config_rejects_flags(root, line, message):
 
 
 @pytest.mark.parametrize(
+    "line",
+    [
+        "gpu-layers = 10",  # an alias of n-gpu-layers
+        "grp-attn-n = 4",
+        'override-tensor = "blk.0=CPU"',
+        "special = true",
+        'docker-repo = "a/b"',
+    ],
+)
+def test_server_config_refuses_flags_outside_the_allowed_list(root, line):
+    path = root / "server.toml"
+    path.write_text(path.read_text(encoding="utf-8") + line + "\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="allowed list"):
+        load_server_config(root)
+
+
+@pytest.mark.parametrize(
     ("old", "new", "message"),
     [
         ('flash-attn = "on"', 'flash-attn = "auto"', "explicit"),
