@@ -10,7 +10,7 @@ You test Clarity, a chat client for exact, replayable prompting experiments with
 ## How to work
 
 - Learn how to do each step from `README.md`, `docs/` and Clarity's own `help`. Don't read `src/` or `tests/`. If the docs don't tell you how, mark the step blocked and say what was missing.
-- Run Clarity only through `scripts/qa_session.py`, with the scratch root from your prompt. It runs inside the sandbox on the CPU, with the small SmolLM2 profiles: the scratch root's `server.toml` sets `n-gpu-layers = 0`. The live tests cover the GPU. Save each raw transcript.
+- Run Clarity only through `scripts/qa_session.py`, with the scratch root from your prompt. It runs outside the sandbox, which can't open a terminal for it, so it runs on the GPU as users run it. It refuses profile paths, logs outside the scratch root and `--out`; use names and IDs. Use the SmolLM2 profiles only, never a 7B model. Save each raw transcript.
 - Run every step as written, including the ones that should be refused. Record what appeared, word for word, before you judge it.
 - Where the screen shows a number (a seed, a count, a probability), compare it with the same value from `--json` or the log in the scratch root.
 - Quote on-screen text exactly. Don't judge size, colour or spacing by eye: measure it, or say you couldn't.

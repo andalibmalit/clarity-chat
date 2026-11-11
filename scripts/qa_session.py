@@ -8,8 +8,9 @@ each line of STEPS once the output has gone quiet, then Ctrl-D, and writes every
 printed to FILE. A step line `<ctrl-c>` sends Ctrl-C; `<wait N>` waits N more seconds;
 lines starting with `#` are skipped. `--init` first makes ROOT a scratch project that
 uses this checkout's config, profiles and fetched models, so a QA chat never writes to
-the checkout's own `logs/`. It runs inside the sandbox, on the CPU: the scratch root's
-`server.toml` sets `n-gpu-layers = 0` (the live tests cover the GPU).
+the checkout's own `logs/`. The owner allowlists it to run outside the sandbox, which
+blocks pseudo-terminals and hides the GPU. So it stays narrow: scratch paths only,
+profiles by name, logs only inside the scratch root, and no `--out`.
 """
 
 from __future__ import annotations
@@ -39,16 +40,10 @@ def init_root(root: Path) -> None:
         shutil.copy(REPO / name, root / name)
     server = (REPO / "server.toml").read_text(encoding="utf-8")
     llama = (REPO / "vendor" / "llama.cpp").as_posix()
-    for old, new in (
-        ('llama_cpp_dir = "vendor/llama.cpp"', f'llama_cpp_dir = "{llama}"'),
-        (  # the sandbox hides the GPU
-            'n-gpu-layers = "all"          # every layer on the GPU (Metal on a Mac)',
-            "n-gpu-layers = 0              # QA runs on the CPU, inside the sandbox",
-        ),
-    ):
-        if old not in server:
-            raise SystemExit(f"server.toml has no {old!r} to rewrite; update init_root.")
-        server = server.replace(old, new)
+    old = 'llama_cpp_dir = "vendor/llama.cpp"'
+    if old not in server:
+        raise SystemExit(f"server.toml has no {old!r} to rewrite; update init_root.")
+    server = server.replace(old, f'llama_cpp_dir = "{llama}"')
     (root / "server.toml").write_text(server, encoding="utf-8", newline="\n")
     for name in ("profiles", "prompts", "models"):
         link = root / name
@@ -76,12 +71,25 @@ def read_until_quiet(fd: int, log: BinaryIO, timeout: float) -> None:
             return
 
 
+# Chat commands whose argument names a file or folder: a bare name or ID only.
+NAMED = ("/profile", "/resume", "/export")
+
+
+def bare(value: str) -> bool:
+    """A profile name or conversation ID, not a path."""
+    return bool(value) and not any(c in value for c in "/\\:~") and not value.startswith(".")
+
+
 def parse_steps(path: Path) -> list[str]:
-    """The steps, checked before anything starts, so a typo can't stop a session midway."""
+    """The steps, checked before anything starts, so a typo can't stop a session midway and
+    no step names a file outside the scratch root."""
     steps = []
     for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if line.startswith("#"):
             continue
+        command, _, arg = line.partition(" ")
+        if command in NAMED and arg and not bare(arg.strip()):
+            raise SystemExit(f"{path}:{n}: {command} takes a name or ID here, not {arg!r}")
         if line.startswith("<") and line != "<ctrl-c>":
             try:
                 assert line.startswith("<wait ") and line.endswith(">")
@@ -90,6 +98,23 @@ def parse_steps(path: Path) -> list[str]:
                 raise SystemExit(f"{path}:{n}: unknown step {line!r}") from None
         steps.append(line)
     return steps
+
+
+def check_clarity_args(parser: argparse.ArgumentParser, root: Path, argv: list[str]) -> None:
+    """Profiles by name; a log or conversation as an ID or a path inside the scratch root;
+    no --out."""
+    command, rest = argv[0], argv[1:]
+    for i, arg in enumerate(rest):
+        if arg == "--out" or arg.startswith("--out="):
+            parser.error("--out isn't allowed: an export goes to the scratch root's logs/exports/")
+        if arg.startswith("-"):
+            continue
+        before = rest[i - 1] if i else ""
+        if before == "--profile" and not bare(arg):
+            parser.error(f"--profile takes a profile name here, not {arg!r}")
+        named = before in ("--resume",) or (command in ("replay", "export") and i == 0)
+        if named and not bare(arg) and not Path(arg).resolve().is_relative_to(root.resolve()):
+            parser.error(f"{arg} must be an ID or a path inside {root}")
 
 
 def main() -> int:
@@ -108,6 +133,7 @@ def main() -> int:
             parser.error(f"{path} must be inside {QA_DIR}")
     if not clarity_args or clarity_args[0] not in QA_COMMANDS:
         parser.error(f"the Clarity command must be one of {sorted(QA_COMMANDS)}")
+    check_clarity_args(parser, args.root, clarity_args)
     steps = parse_steps(args.steps) if args.steps else []
     if args.init:
         init_root(args.root)
