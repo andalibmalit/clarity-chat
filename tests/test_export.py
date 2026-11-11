@@ -93,6 +93,27 @@ def test_failed_calls_are_counted_cancelled_ones_flagged_and_replays_left_out(ma
     assert all(row["type"] == "call" for row in rows)  # no replay records
 
 
+def test_a_call_whose_turn_line_was_cut_off_is_left_out_and_counted(make):
+    """The call record is written before its reply's turn. A crash between them leaves a call
+    with no turn; resume carries on without it, and so does the export."""
+    from clarity_chat.logs import LogFile
+
+    session, _ = make([" Hello!", " Again!"])
+    session.new_conversation("text")
+    session.say("Hi")
+    session.say("More")
+    log = session.conversation.log.path
+    raw = log.read_bytes().splitlines(keepends=True)
+    assert json.loads(raw[-1])["type"] == "turn"
+    log.write_bytes(b"".join(raw[:-1]) + raw[-1][:20])  # the last reply's turn line cut off
+    LogFile(log).append({"type": "title", "conversation_id": "x", "title": "after the crash"})
+    result = export_log(session, log)
+    header, rows = read_export(Path(result["path"]))
+    assert len(rows) == 1 and header["calls_without_a_turn_left_out"] == 1
+    assert result["calls_without_a_turn_left_out"] == 1
+    assert header["failed_calls_left_out"] == 0
+
+
 class Tagged(FakeBackend):
     """A fake whose server start names its machine, so two starts' facts differ."""
 
