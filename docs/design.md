@@ -4,8 +4,8 @@ Why Clarity works the way it does: each choice, what it costs, and what is out o
 
 ## Principles
 
-- **What you see is exactly what the model got, and every call can be replayed.**
-- **No silent fallbacks.** If something can't be done exactly as configured, Clarity stops with a clear error.
+- **What you see is exactly what the model got, and every completed call can be replayed.**
+- **No silent fallbacks.** If something can't be done exactly as configured, Clarity stops with a clear error. Two cases are flagged instead, on the record and on screen: a check that fails after a call, and a setting the Transformers backend can't apply.
 - **Clarity gets out of the way.** Being exact must not make common experiments awkward. Where a strict rule gets in the way, the answer is a small, explicit shortcut that is itself logged, such as `use_recommended = true`, not more ceremony.
 
 ## The prompt
@@ -129,11 +129,11 @@ Clarity logs all of these, and replay lists the ones that differ.
 
 **Warnings are for things you can act on.**
 - Per call: a failed check, a nearly full context, or control-token text in your message.
-- Per server start: a build that doesn't match the pinned commit, uncommitted changes in the llama.cpp checkout, or inherited `GGML_*` or `LLAMA_*` variables (or `PYTORCH_*` and `TORCH_*` on the Transformers backend), whose values are logged unless the name looks like a secret.
+- Per server start: a `llama-server` binary built from another commit than the pinned one (a checkout at another commit is refused instead), uncommitted changes in the llama.cpp checkout, or inherited `GGML_*` or `LLAMA_*` variables (or `PYTORCH_*` and `TORCH_*` on the Transformers backend), whose values are logged unless the name looks like a secret.
 
 There is no general "results may vary" notice. Replay flags the one case that needs attention: output that differs although nothing that could explain it changed.
 
-**Not attempted:** identical output across machines, builds or backends, which no inference stack offers; llama.cpp's experimental batch-invariant kernels, which fix a variation Clarity's single-slot setup doesn't have; and a determinism guarantee for the Transformers backend on Apple GPUs, which PyTorch doesn't provide. The live tests check that case instead.
+**Not attempted:** identical output across machines, builds or backends; llama.cpp's experimental batch-invariant kernels, which fix a variation Clarity's single-slot setup doesn't have; and a determinism guarantee for the Transformers backend on Apple GPUs, which PyTorch doesn't provide. The live tests check that case instead.
 
 ## Not in scope
 

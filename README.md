@@ -18,29 +18,29 @@ When you prompt a local model through a server or chat app, much of what shapes 
 
 So when two replies differ, you can't tell whether your prompt caused it, and you can't rerun the call to find out.
 
-Clarity removes that hidden layer, without making experiments harder to run:
+Clarity takes over that layer and shows it to you, without making experiments harder to run:
 
 - it builds the prompt and its token IDs itself
 - it sends every sampling value and checks that the server used them
-- it logs everything that affects the output
-- it can replay any call
+- it logs every setting and environment fact known to affect the output
+- it can re-send any completed call, and reports whether the output matched and what changed
 
 ## Reproducibility
 
-The same call on the same machine and llama.cpp build gives the same output. Live tests check this, and it holds for the Transformers backend on MPS and CPU too. A different build, GPU, macOS version or batch setting can change the output, because GPU arithmetic depends on the order of operations. Clarity logs all of these, and `clarity replay` (or `/replay` in a chat) re-sends a call and lists any that differ. See [Design](docs/design.md#determinism-and-replay).
+The same call on the same machine and llama.cpp build gives the same output. Live tests check this for SmolLM2 and OLMo 3 on one Apple Silicon Mac, and it holds for the Transformers backend on MPS and CPU too. A different build, GPU, macOS version or batch setting can change the output, because GPU arithmetic depends on the order of operations. Clarity logs all of these, and `clarity replay` (or `/replay` in a chat) re-sends a call and lists any that differ. See [Design](docs/design.md#determinism-and-replay).
 
 ## Features
 
 - Chat mode, through the model's chat template, and text mode, where the model continues a plain document.
 - Branches in a chat (`/regen`, `/edit`, `/undo`), and marks and notes on replies, during a chat or afterwards.
-- Replay of any logged call, with a list of everything recorded that changed since.
+- Replay of any completed call, with a list of everything recorded that changed since.
 - Blind batch runs for comparing setups.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - A llama-server that Clarity starts and checks itself, and a Transformers backend that runs the same weights in-process (`uv sync --extra hf`).
 
 ## Quick start
 
-Needs [uv](https://docs.astral.sh/uv/), CMake, a C++ compiler and a GPU that llama.cpp supports (or see [Getting started](docs/getting-started.md#before-you-begin) to run on the CPU). Getting started also walks through these steps.
+Needs [uv](https://docs.astral.sh/uv/), CMake, a C++ compiler and a GPU that llama.cpp supports (or see [Getting started](docs/getting-started.md#before-you-begin) to run on the CPU). Live tests have run on Apple Silicon only; other GPUs are untested. Getting started also walks through these steps.
 
 ```
 uv sync
