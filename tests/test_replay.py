@@ -317,3 +317,30 @@ def test_end_tokens_an_older_log_lacks_are_listed_as_not_recorded():
     old = facts_from_call(call, {"backend": "llama.cpp", "model_file": {}})
     now = facts_from_call(call, {"backend": "llama.cpp", "model_file": {"eog_tokens": [{"id": 2}]}})
     assert "end_tokens" in not_recorded(old, now)
+
+
+def test_logged_flags_outside_the_allowed_list_are_refused(fetched_root, capsys):
+    """A shared or hand-edited log must not reach llama-server's argv: later flags win there,
+    so `host`, `slots`, `webui`, `api-key` or `tools` would undo Clarity's own."""
+    import json
+
+    from clarity_chat.profiles import load_server_config
+
+    log = fetched_root / "logs" / "x.jsonl"
+    log.parent.mkdir()
+    flags = {**load_server_config(fetched_root).flags, "host": "0.0.0.0", "tools": "all"}
+    rows = [
+        {"type": "server_start", "server_id": "server-1", "backend": "llama.cpp", "flags": flags},
+        {
+            "type": "call",
+            "call_id": "call-1",
+            "conversation_id": "c",
+            "backend": {"backend": "llama.cpp", "server_id": "server-1"},
+            "output_ids": [1],
+            "stop_type": "eos",
+        },
+    ]
+    log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    argv = ["--root", str(fetched_root), "replay", str(log), "call-1", "--logged-flags"]
+    assert cli.main(argv) == 1
+    assert "'host' isn't in Clarity's allowed list" in capsys.readouterr().err

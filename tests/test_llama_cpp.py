@@ -351,6 +351,13 @@ def test_the_server_key_goes_in_the_environment_and_is_never_logged(monkeypatch,
     assert server.headers == {"Authorization": f"Bearer {server.api_key}"}
 
 
+def test_clarity_s_own_flags_come_last_so_no_configured_flag_overrides_them(monkeypatch, root):
+    _, launched, _ = started_server(monkeypatch, root, STARTUP_GPU)
+    argv = launched["argv"]
+    assert argv[-6:-4] == ["--host", "127.0.0.1"] and argv[-4] == "--port"
+    assert argv[-2:] == ["--no-slots", "--no-webui"]
+
+
 def test_each_start_draws_a_new_key(monkeypatch, root):
     first, _, _ = started_server(monkeypatch, root, STARTUP_GPU)
     second, _, _ = started_server(monkeypatch, root, STARTUP_GPU)
