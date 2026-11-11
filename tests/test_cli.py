@@ -212,3 +212,45 @@ def test_title_and_chats_in_the_terminal(loop, fetched_root, capsys):
     assert f"{chat.session.conversation.conversation_id}  text  Made-up greeting" in text
     assert cli.main(["--root", str(fetched_root), "chats"]) == 0
     assert "Made-up greeting" in capsys.readouterr().out
+
+
+def test_ctrl_c_during_a_call_cancels_it_and_the_chat_goes_on(loop):
+    """Ctrl-C anywhere in a call, not only while the stream is read, cancels the call
+    (docs/reference.md): the chat keeps running and the log keeps the call."""
+    import signal
+
+    from clarity_chat.logs import read_records
+
+    chat, output, backend = loop
+    backend.on_call = lambda: signal.raise_signal(signal.SIGINT)
+    try:
+        keep_going = chat.handle("Hi")
+    except KeyboardInterrupt:
+        pytest.fail("Ctrl-C escaped the call and would quit the chat")
+    assert keep_going is True
+    assert "No reply was added" in "".join(output)
+    conversation = chat.session.conversation
+    assert conversation is not None
+    calls = [r for r in read_records(conversation.log.path) if r["type"] == "call"]
+    assert calls and calls[-1]["stop_type"] == "cancelled"
+    backend.on_call = None
+    output.clear()
+    assert chat.handle("Again") is True and "! " not in "".join(output)
+
+
+def test_ctrl_c_during_a_command_that_cant_be_cancelled_still_stops_clarity(loop, fetched_root):
+    """A model start can't be cancelled, so Ctrl-C keeps its old effect there."""
+    import signal
+
+    chat, _, backend = loop
+    text = (fetched_root / "profiles" / "text.toml").read_text(encoding="utf-8")
+    (fetched_root / "profiles" / "big.toml").write_text("ctx_size = 4096\n" + text, "utf-8")
+    original = backend.start
+
+    def start(*args):
+        signal.raise_signal(signal.SIGINT)
+        return original(*args)
+
+    backend.start = start
+    with pytest.raises(KeyboardInterrupt):
+        chat.handle("/profile big")
