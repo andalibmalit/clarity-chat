@@ -225,6 +225,12 @@ def settings_view(session: Session) -> dict[str, Any]:
             from clarity_chat.backends.llama_cpp import NEUTRAL_REQUEST as neutral
 
         backend_settings = {k: {"value": v, "origin": "backend"} for k, v in neutral.items()}
+        started = session.backend.server_record or {}
+        if "eos_token_id" in started:  # Transformers: the end tokens, and where they came from
+            backend_settings["eos_token_id"] = {
+                "value": started["eos_token_id"],
+                "origin": started.get("eos_token_id_from", "model"),
+            }
     recommended = session.model_lock.get("recommended")
     model_file = (session.backend.server_record or {}).get("model_file") or {}
     return {

@@ -82,7 +82,8 @@ def format_settings(view: dict[str, Any]) -> str:
         lines.append(f"  {name:<{width}}  {value!r:<44} {setting['origin']}{note}")
     lines.append(f"backend {view['backend']}: fixed values for its other sampling fields")
     for name, entry in view["backend_settings"].items():
-        lines.append(f"  {name} = {entry['value']!r}")
+        origin = "" if entry["origin"] == "backend" else f"  {entry['origin']}"
+        lines.append(f"  {name} = {entry['value']!r}{origin}")
     if view["eog_tokens"]:
         listed = ", ".join(f"{t['id']} {t['text']!r}" for t in view["eog_tokens"])
         lines.append(f"end-of-reply tokens (from the model file): {listed}")

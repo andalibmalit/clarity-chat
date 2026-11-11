@@ -63,6 +63,15 @@ def test_settings_lists_the_end_of_reply_tokens(loop):
     assert "end-of-reply tokens (from the model file): 2 '</s>'" in "".join(output)
 
 
+def test_settings_shows_where_the_transformers_end_tokens_came_from(loop):
+    chat, output, backend = loop
+    backend.name = "transformers"
+    origin = "tokenizer (generation_config.json has none)"
+    backend.record = {**backend.record, "eos_token_id": [257], "eos_token_id_from": origin}
+    chat.handle("/settings")
+    assert f"eos_token_id = [257]  {origin}" in "".join(output)
+
+
 def test_settings_gives_the_reason_a_setting_was_not_applied(loop):
     chat, output, backend = loop
     backend.not_applied = [
