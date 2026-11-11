@@ -361,13 +361,14 @@ def _chat_parts(
         add_generation_prompt=True,
         **profile.template_kwargs,
     )
-    pieces, rest = [], placeheld
+    pieces, end = [], 0
     for i, mark in enumerate(marks):
-        if rest.count(mark) != 1 or any(m in rest.split(mark)[0] for m in marks[i + 1 :]):
+        at = placeheld.find(mark)
+        if at < end or placeheld.count(mark) != 1:
             return f"the chat template changes, leaves out, repeats or reorders message {i + 1}"
-        before, rest = rest.split(mark)
-        pieces.append(before)
-    pieces.append(rest)
+        pieces.append(placeheld[end:at])
+        end = at + len(mark)
+    pieces.append(placeheld[end:])
     parts: list[Part] = []
     pos = 0
     labels = _labels(profile, turns, turn_ids)
