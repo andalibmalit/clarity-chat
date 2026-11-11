@@ -8,7 +8,13 @@ from clarity_chat import cli
 from clarity_chat.cli import ChatLoop, format_replay
 from clarity_chat.logs import read_records
 from clarity_chat.profiles import ConfigError
-from clarity_chat.replay import compare_output, deep_diff, environment_diff, unexplained
+from clarity_chat.replay import (
+    compare_output,
+    deep_diff,
+    environment_diff,
+    not_recorded,
+    unexplained,
+)
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend
 
@@ -288,3 +294,26 @@ def test_an_older_logs_server_compares_without_false_differences():
     assert environment_diff(logged, current) == {}
     assert not_recorded(logged, current) == ["graph_splits"]
     assert unexplained(False, environment_diff(logged, current))
+
+
+def test_end_tokens_are_a_fact_on_each_backend():
+    from clarity_chat.replay import facts_from_call
+
+    call = {"model": {}, "client": {}}
+    llama = {"backend": "llama.cpp", "model_file": {"eog_tokens": [{"id": 2}, {"id": 0}]}}
+    hf = {"backend": "transformers", "eos_token_id": [2]}
+    assert facts_from_call(call, llama)["end_tokens"] == [0, 2]
+    assert facts_from_call(call, hf)["end_tokens"] == [2]
+    fewer = {**llama, "model_file": {"eog_tokens": [{"id": 2}]}}
+    diffs = environment_diff(facts_from_call(call, llama), facts_from_call(call, fewer))
+    assert set(diffs) == {"end_tokens"}
+    assert unexplained(False, diffs) is False  # another end token can change a reply
+
+
+def test_end_tokens_an_older_log_lacks_are_listed_as_not_recorded():
+    from clarity_chat.replay import facts_from_call
+
+    call = {"model": {}, "client": {}}
+    old = facts_from_call(call, {"backend": "llama.cpp", "model_file": {}})
+    now = facts_from_call(call, {"backend": "llama.cpp", "model_file": {"eog_tokens": [{"id": 2}]}})
+    assert "end_tokens" in not_recorded(old, now)

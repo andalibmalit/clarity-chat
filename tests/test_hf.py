@@ -155,6 +155,26 @@ def test_both_backends_get_the_same_ids_and_greedy_outputs_are_compared(tmp_path
         print(f"  transformers: {hf['output_text']!r}")
 
 
+def test_each_backend_stops_on_its_own_end_tokens(tmp_path):
+    """llama.cpp also stops on tokens it recognizes by name: SmolLM2's <|endoftext|> (0) as well
+    as <|im_end|> (2), where Transformers stops on generation_config.json's 2 alone. Each is
+    shown and compared as a fact; this test notices if either backend changes its set."""
+    from clarity_chat.replay import facts_from_call
+
+    session = Session(REPO, logs_dir=tmp_path)
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    found = {}
+    try:
+        for backend in ("llama.cpp", "transformers"):
+            session.new_conversation(profile(folder, "smol-chat", backend))
+            server = session.backend.server_record
+            found[backend] = facts_from_call({"model": {}}, server)["end_tokens"]
+    finally:
+        session.close()
+    assert found == {"llama.cpp": [0, 2], "transformers": [2]}
+
+
 def test_olmo_3_instruct_on_mps_repeats_and_replays(tmp_path):
     """The model the experiments use: same seed twice, then a replay after a reload.
     Loads about 15 GB once per session; the first session is closed before the second

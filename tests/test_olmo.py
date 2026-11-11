@@ -97,6 +97,37 @@ def test_raw_text_mode_on_both_models(session, profile):
         assert "\nUser:" not in record["output_text"]
 
 
+def on_transformers(folder: Path, base: str) -> str:
+    """A copy of profiles/<base>.toml on the Transformers backend (needs `uv sync --extra hf`)."""
+    pytest.importorskip("torch")
+    text = (REPO / "profiles" / f"{base}.toml").read_text(encoding="utf-8")
+    path = folder / f"{base}-transformers.toml"
+    path.write_text(text.replace('backend = "llama.cpp"', 'backend = "transformers"'), "utf-8")
+    return str(path)
+
+
+@pytest.mark.parametrize(
+    ("profile", "llama_cpp", "transformers"),
+    [
+        ("4-raw-instruct", [100257, 100265], [100257, 100265]),
+        # The base model's generation_config.json lists no end token, so Transformers takes the
+        # tokenizer's, <|endoftext|>; llama.cpp also finds <|im_end|> by name.
+        ("5-raw-base", [100257, 100265], [100257]),
+    ],
+)
+def test_each_backend_stops_on_its_own_end_tokens(
+    session, tmp_path, profile, llama_cpp, transformers
+):
+    from clarity_chat.replay import facts_from_call
+
+    found = {}
+    for name in (profile, on_transformers(tmp_path, profile)):
+        session.new_conversation(name)
+        server = session.backend.server_record
+        found[server["backend"]] = facts_from_call({"model": {}}, server)["end_tokens"]
+    assert found == {"llama.cpp": llama_cpp, "transformers": transformers}
+
+
 def test_switching_models_restarts_the_server(session):
     session.new_conversation("4-raw-instruct")
     instruct_path = session.backend.server_record["props"]["model_path"]
