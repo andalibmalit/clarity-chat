@@ -340,6 +340,19 @@ def test_regen_command_shows_the_regen_seed(chat):
     assert "seed 43 (regen)" in "".join(output)
 
 
+def test_regen_n_shows_a_header_and_a_status_for_each_reply(chat):
+    loop, output, _, _, _ = chat
+    loop.handle("Hi")
+    output.clear()
+    loop.handle("/regen 2")
+    text = "".join(output)
+    assert "— reply 1 of 2, seed 43 —\n two" in text
+    assert "— reply 2 of 2, seed 44 —\n three" in text
+    assert "reply 1: [" in text and "seed 43 (regen)" in text
+    assert "reply 2: [" in text and "seed 44 (regen)" in text
+    assert text.endswith("/branches lists them.\n")
+
+
 def test_edit_command_prefills_the_last_message(chat, tiny_tokenizer):
     loop, output, backend, inputs, defaults = chat
     loop.handle("Hi thre")

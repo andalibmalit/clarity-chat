@@ -502,16 +502,13 @@ class Session:
         conversation.head = user.turn_id
         return self.call(user, seed=seed, on_text=on_text, cancel=cancel)
 
-    def regen(
-        self, on_text: Callable[[str], None] | None = None, cancel: threading.Event | None = None
-    ) -> CallOutcome:
-        """Another reply to the current message, as a new branch. Its seed is the first
-        reply's seed plus k, where k counts this and earlier regenerations of that message."""
+    def regen_seed(self) -> int:
+        """The next regeneration's seed: the first reply's seed plus k, where k counts this
+        and earlier regenerations of the current message."""
         conversation = self._require_conversation()
         reply = conversation.current_reply("regenerate")
         assert reply.parent_id is not None
-        user = conversation.turns[reply.parent_id]
-        replies = conversation.replies_to(user.turn_id)
+        replies = conversation.replies_to(reply.parent_id)
         first = next((t for t in replies if t.regen_of is None), replies[0])
         if first.seed is None or first.call_id is None:
             raise ConfigError("The first reply to this message has no seed to start from.")
@@ -521,6 +518,19 @@ class Session:
                 f"The next regeneration seed, {seed}, is above {SEED_MAX}. Edit the message or "
                 "start a new conversation instead."
             )
+        return seed
+
+    def regen(
+        self, on_text: Callable[[str], None] | None = None, cancel: threading.Event | None = None
+    ) -> CallOutcome:
+        """Another reply to the current message, as a new branch, with `regen_seed()`."""
+        conversation = self._require_conversation()
+        seed = self.regen_seed()
+        reply = conversation.current_reply("regenerate")
+        assert reply.parent_id is not None
+        user = conversation.turns[reply.parent_id]
+        replies = conversation.replies_to(user.turn_id)
+        first = next((t for t in replies if t.regen_of is None), replies[0])
         return self.call(
             user,
             seed=Setting(seed, "regen"),

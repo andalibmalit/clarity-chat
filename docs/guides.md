@@ -135,6 +135,10 @@ Each call is its own conversation. Profiles are read once, at the start, so edit
 
 `/regen` and `/edit` add a branch next to the reply or message they replace, and `/undo` steps back so your next message starts one. Nothing is overwritten. `/branches` lists every place on the current path where the conversation branches, with each option's turn ID, and `/switch TURN_ID` goes to that branch's newest reply. Switching sends nothing; your next message continues from there.
 
+## Sample several replies
+
+`/regen 4` asks for four more replies to your last message, one after another. Each is a new branch with its own logged seed: the first reply's seed plus 1, 2, 3 and 4, so each can be replayed. The terminal shows a header before each reply and its seed, and `/branches` then lists them all. Ctrl-C stops the reply being written and skips the rest. With `--json`, a `reply_start` event comes before each reply, so a script can tell their text apart.
+
 ## Resume a conversation
 
 `clarity chats` lists your conversations. To continue one, pass its ID:

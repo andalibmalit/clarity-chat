@@ -391,13 +391,20 @@ class ChatLoop:
         except (ContextError, ConfigError) as e:
             self.write(f"! {e}\n")
             return True
-        if name in ("say", "regen", "edit"):
+        if name in ("say", "edit"):
             self.write("\n")
-            for warning in result["warnings"]:
-                self.write(f"! {warning}\n")
-            if result["call"].get("flags"):
-                self.write("! flags: " + ", ".join(result["call"]["flags"]) + "\n")
-            self.write(format_status(result["call"]) + "\n")
+            self.show_call(result)
+        elif name == "regen":
+            self.write("\n")
+            replies = result["replies"]
+            for k, reply in enumerate(replies, 1):
+                if len(replies) > 1:
+                    self.write(f"reply {k}: ")
+                self.show_call(reply)
+            if result.get("stopped"):
+                self.write(f"! Stopped. {result['stopped']}\n")
+            if len(replies) > 1:
+                self.write("/branches lists them.\n")
         elif name == "quit":
             return False
         elif name == "help":
@@ -447,9 +454,20 @@ class ChatLoop:
             self.write("Cancelled.\n" if result["cancelled"] else "Nothing to cancel.\n")
         return True
 
+    def show_call(self, result: dict[str, Any]) -> None:
+        """A finished call's warnings, flags and status line."""
+        for warning in result["warnings"]:
+            self.write(f"! {warning}\n")
+        if result["call"].get("flags"):
+            self.write("! flags: " + ", ".join(result["call"]["flags"]) + "\n")
+        self.write(format_status(result["call"]) + "\n")
+
     def on_event(self, event: dict[str, Any]) -> None:
         if event["event"] == "text":
             self.write(event["text"])
+        elif event["event"] == "reply_start" and event["n"] > 1:
+            gap = "\n\n" if event["k"] > 1 else ""
+            self.write(f"{gap}— reply {event['k']} of {event['n']}, seed {event['seed']} —\n")
         elif event["event"] == "record" and event["record"]["type"] == "torn_line":
             self.write(f"\n! {torn_message(event['record'], "this conversation's log")}\n")
 

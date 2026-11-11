@@ -37,7 +37,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/prompt repr` | The same, with each line shown as a Python string, so spaces, tabs and newlines are visible. |
 | `/settings` | Every setting, its value and origin; the fixed values sent for the backend's other fields; the model's recommended values; what wasn't applied; the context size and stop strings; the end-of-reply tokens llama.cpp read from the model file. |
 | `/set NAME [VALUE]` | Change a setting for this chat only, for example `/set temperature 0.7`, `/set seed random` or `/set samplers top_k temperature`. It's checked like a profile's value, its origin is `chat`, and it's logged. With no value, the setting goes back to the profile's. |
-| `/regen` | Another reply to your last message, as a new branch. The k-th regeneration uses the first reply's seed plus k. |
+| `/regen [N]` | N more replies to your last message (default 1), one after another, each a new branch. The k-th regeneration of a message uses its first reply's seed plus k. A cancel stops the reply being written and the rest; a failure stops the rest and is reported with the replies already made. The current reply is then the last one made. |
 | `/edit [TEXT]` | Replace your last message and get a new reply, as a new branch. With no text, the input is prefilled with your last message. The new message uses the chat's seed: the profile's, unless you changed it with `/set`. |
 | `/undo` | Go back past the last exchange; your next message starts a new branch. Nothing is deleted. |
 | `/history` | The conversation so far on the current branch, from its start to where you are, with each reply's marks and notes. |
@@ -67,9 +67,10 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `event` | Sent when | Other fields |
 |---|---|---|
 | `text` | reply text streams in | `text` |
+| `reply_start` | before each reply of `/regen N` | `k` (which reply, from 1), `n`, `seed` |
 | `status` | a model is starting or ready | `status`, and `profile`, `log` or `conversation_id` |
 | `record` | a record is appended to the log | `record`: exactly what was written. Record events are the log, in order. |
-| `result` | a command finished | `command`, `id`, and `result`: what the command returns. It may repeat records already sent as `record` events. |
+| `result` | a command finished | `command`, `id`, and `result`: what the command returns. It may repeat records already sent as `record` events. `say` and `edit` return `call` and `warnings`; `regen` returns `replies`, a list of those, and `stopped` (why it stopped early) if a reply failed. |
 | `error` | a command failed, or a line wasn't a command | `command` and `id` (for a command), `type` (`ConfigError`, `ContextError`, `BackendError`, `CancelledBeforeReply` or `InputError`) and `message` |
 
 Commands run one at a time, in order. `cancel` runs as soon as it's read, so it can stop a reply that's being written; its result names the command it stopped (`"cancelled": true, "command": "say"`) or gives a `reason` it stopped nothing. Send it after the command has started (after its first event): a `cancel` read while the command is still queued finds nothing running. End of input quits, like `quit`. Input is UTF-8, whatever the console's encoding; a line that isn't is an `InputError`. Output is ASCII: other characters are written as `\u` escapes.
