@@ -279,3 +279,19 @@ def test_resume_shows_the_conversations_warnings(new_session, fetched_root):
 def _with_unread(prepared):
     prepared.unread_kwargs = ["made_up_kwarg"]
     return prepared
+
+
+def test_resume_refuses_logprobs_on_a_llama_cpp_conversation(new_session):
+    """A hand-edited log can't make a llama.cpp chat claim logprobs it never records: on
+    llama.cpp the setting would be ignored silently (code review, verifier A)."""
+    session, _ = new_session([" one"])
+    session.new_conversation("text")
+    session.say("a")
+    session.conversation.log.append(
+        {"type": "settings", "conversation_id": "c", "name": "logprobs", "value": 5,
+         "chat_settings": {"logprobs": 5}}
+    )  # fmt: skip
+    resumed, backend = new_session()
+    with pytest.raises(ConfigError, match="Transformers backend for now"):
+        resumed.resume(session.conversation.log.path)
+    assert backend.ctx_sizes == []
