@@ -218,8 +218,10 @@ def format_resume(result: dict[str, Any]) -> str:
             "continues after the last reply. /branches shows the others."
         )
     if record["profile_file"] != "same":
-        state = "has changed" if record["profile_file"] == "changed" else "is gone"
-        lines.append(f"! The profile's file {state} since; this chat uses the profile as logged.")
+        state = {"changed": "has changed since", "missing": "is gone"}.get(
+            record["profile_file"], "is outside the project folder, so it wasn't read"
+        )
+        lines.append(f"! The profile's file {state}; this chat uses the profile as logged.")
     if record["ctx_size"]["origin"] != "log":
         lines.append(
             f"! The log doesn't say its context size: using {record['ctx_size']['value']} "
