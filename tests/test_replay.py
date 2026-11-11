@@ -455,3 +455,16 @@ def test_a_replay_whose_text_differs_from_its_ids_logs_the_decoded_text(make_ses
     record = session.replay_current()
     assert "text_differs_from_ids" in record["flags"]
     assert "decoded_output_text" in record
+
+
+@pytest.mark.parametrize(
+    ("differs", "unexplained_"),
+    [({"client": 1}, True), ({"libraries": 1}, True), ({"machine": 1}, False), ({"env": 1}, False)],
+)
+def test_a_machine_or_environment_change_can_explain_a_different_output(differs, unexplained_):
+    """Only Clarity's own commit and the tokenizer libraries can't change a replay's output:
+    the machine and PyTorch's environment variables can."""
+    from clarity_chat.replay import unexplained
+
+    assert unexplained(False, differs) is unexplained_
+    assert unexplained(True, differs) is False
