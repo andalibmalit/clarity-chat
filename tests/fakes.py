@@ -30,6 +30,7 @@ class FakeBackend:
         self.start_warnings: list[str] = []
         self.result_flags: list[str] = []  # e.g. "check_failed:echo", added to every reply
         self.not_applied: list[dict[str, Any]] = []  # reported with every reply
+        self.logprobs: dict[str, Any] | None = None  # returned with every reply
 
     @property
     def n_ctx(self) -> int:
@@ -112,4 +113,5 @@ class FakeBackend:
             request={"n_predict": settings["max_tokens"], "seed": settings["seed"], "stop": stop},
             flags=list(self.result_flags),
             not_applied=list(self.not_applied),
+            logprobs=self.logprobs,
         )
