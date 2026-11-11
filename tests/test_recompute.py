@@ -17,7 +17,8 @@ TORCH, TRANSFORMERS = installed("torch"), installed("transformers")
 
 VOCAB = 8
 DIFFERENT = "different weights: this is a different model"
-UNKNOWN = "unknown: pass repo= and revision="
+UNKNOWN = "unknown: pass revision="
+GGUF = "the export ran on a GGUF file, not on these weights"
 
 
 def write_export(path: Path, calls: list[dict], conditions: dict | None = None) -> Path:
@@ -38,7 +39,7 @@ def write_export(path: Path, calls: list[dict], conditions: dict | None = None) 
         "calls": len(calls),
         "conditions": [{"conditions": found, "call_ids": [c["call_id"] for c in calls]}],
     }
-    lines = [json.dumps(row) for row in [header, *calls]]
+    lines = [json.dumps(row, ensure_ascii=False) for row in [header, *calls]]  # as export does
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
 
@@ -46,18 +47,22 @@ def write_export(path: Path, calls: list[dict], conditions: dict | None = None) 
 def stand_in(
     *,
     name: str = "org/tiny",
-    revision: str | None = "a" * 40,
     dtype: str = "bfloat16",
     attn: str = "sdpa",
     eos: list[int] | None = None,
+    device: str = "cpu",
 ):
-    """A model with only what the facts read: config, dtype, device, generation_config."""
+    """A model with only what the facts read: config, dtype, device, generation_config. Like
+    a real Transformers 5 model, its config names the repo but not the commit."""
     return SimpleNamespace(
-        config=SimpleNamespace(name_or_path=name, _commit_hash=revision, _attn_implementation=attn),
+        config=SimpleNamespace(name_or_path=name, _attn_implementation=attn),
         dtype=f"torch.{dtype}",
-        device=SimpleNamespace(type="cpu"),
+        device=SimpleNamespace(type=device),
         generation_config=SimpleNamespace(eos_token_id=[7] if eos is None else eos),
     )
+
+
+PINS = {"revision": "a" * 40}
 
 
 def test_the_module_imports_without_torch():
@@ -70,7 +75,7 @@ def facts(report) -> dict[str, dict]:
 
 
 def test_the_same_conditions_list_nothing_as_different(tmp_path):
-    report = check(write_export(tmp_path / "e.jsonl", []), stand_in())
+    report = check(write_export(tmp_path / "e.jsonl", []), stand_in(), **PINS)
     assert [f["fact"] for f in report.groups[0]["facts"] if not f["same"]] == []
 
 
@@ -78,12 +83,15 @@ def test_the_same_conditions_list_nothing_as_different(tmp_path):
     ("model", "kwargs", "fact", "says"),
     [
         (stand_in(name="org/other"), {}, "weights", DIFFERENT),
-        (stand_in(revision="b" * 40), {}, "weights", DIFFERENT),
-        (stand_in(name="/home/me/finetune", revision=None), {}, "weights", UNKNOWN),
-        (stand_in(name="org/other"), {"repo": "org/tiny", "revision": "a" * 40}, "weights", None),
-        (stand_in(dtype="float32"), {}, "precision", "bfloat16"),
-        (stand_in(attn="eager"), {}, "attention", "sdpa"),
-        (stand_in(eos=[2]), {}, "end tokens", "[7]"),
+        (stand_in(), {"revision": "b" * 40}, "weights", DIFFERENT),
+        (stand_in(), {}, "weights", UNKNOWN),
+        (stand_in(name="/home/me/finetune"), PINS, "weights", UNKNOWN),
+        (stand_in(name="org/other"), {"repo": "org/tiny", **PINS}, "weights", None),
+        (stand_in(), PINS, "weights", None),
+        (stand_in(dtype="float32"), PINS, "precision", "bfloat16"),
+        (stand_in(attn="eager"), PINS, "attention", "sdpa"),
+        (stand_in(device="mps"), PINS, "device", "cpu"),
+        (stand_in(eos=[2]), PINS, "end tokens", "[7]"),
     ],
 )  # fmt: skip
 def test_each_fact_that_differs_is_named(tmp_path, model, kwargs, fact, says):
@@ -93,6 +101,7 @@ def test_each_fact_that_differs_is_named(tmp_path, model, kwargs, fact, says):
         assert found["same"]
     else:
         assert not found["same"] and says in str(report)
+        assert f"{fact}: the same" not in str(report)
 
 
 def test_versions_and_backend_are_compared(tmp_path):
@@ -104,14 +113,59 @@ def test_versions_and_backend_are_compared(tmp_path):
         "end_tokens": [7],
         "machine": None,
     }
-    report = check(write_export(tmp_path / "e.jsonl", [], llama), stand_in())
+    report = check(write_export(tmp_path / "e.jsonl", [], llama), stand_in(), **PINS)
     assert not facts(report)["backend"]["same"]
     other = write_export(tmp_path / "f.jsonl", [])
     header = json.loads(other.read_text(encoding="utf-8"))
     header["conditions"][0]["conditions"]["torch"] = "0.0.1"
     other.write_text(json.dumps(header) + "\n", encoding="utf-8")
-    report = check(other, stand_in())
+    report = check(other, stand_in(), **PINS)
     assert not facts(report)["torch"]["same"] and facts(report)["transformers"]["same"]
+
+
+def test_a_gguf_isnt_the_same_weights_and_torch_facts_dont_apply(tmp_path):
+    """A llama.cpp call ran on a converted (maybe quantized) file, never on these weights."""
+    llama = {
+        "backend": "llama.cpp",
+        "weights": {"repo": "org/tiny", "revision": "a" * 40, "gguf_sha256": "0" * 64},
+        "end_tokens": [7],
+        "machine": None,
+    }
+    report = check(write_export(tmp_path / "e.jsonl", [], llama), stand_in(), **PINS)
+    text = str(report)
+    assert facts(report)["weights"]["same"] is False and GGUF in text
+    assert "weights: the same" not in text and "not recorded" not in text
+    assert {"precision", "device", "attention", "torch", "transformers"}.isdisjoint(facts(report))
+
+
+def test_the_torch_version_is_the_loaded_ones(tmp_path, monkeypatch):
+    """Linux and Windows wheels carry a local tag (+cu128, +cpu) in torch.__version__, which
+    the logged value has and the package metadata doesn't."""
+    export = write_export(tmp_path / "e.jsonl", [])
+    header = json.loads(export.read_text(encoding="utf-8"))
+    header["conditions"][0]["conditions"]["torch"] = "9.9.9+cu128"
+    export.write_text(json.dumps(header) + "\n", encoding="utf-8")
+    monkeypatch.setitem(sys.modules, "torch", SimpleNamespace(__version__="9.9.9+cu128"))
+    assert facts(check(export, stand_in(), **PINS))["torch"]["same"]
+
+
+def test_a_log_instead_of_an_export_is_a_clear_error(tmp_path):
+    log = tmp_path / "log.jsonl"
+    log.write_text(json.dumps({"type": "conversation", "schema_version": 1}) + "\n", "utf-8")
+    with pytest.raises(ValueError, match="isn't a Clarity export"):
+        check(log, stand_in())
+    later = write_export(tmp_path / "e.jsonl", [])
+    header = json.loads(later.read_text(encoding="utf-8"))
+    later.write_text(json.dumps({**header, "format_version": 2}) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="format 2"):
+        check(later, stand_in())
+
+
+def test_a_line_separator_inside_a_message_is_read(tmp_path):
+    """The export writes U+2028 raw (ensure_ascii=False); str.splitlines would split there."""
+    row = {**call("c1", None), "output_text": "one\u2028two\u0085three"}
+    report = check(write_export(tmp_path / "e.jsonl", [row]), stand_in(), **PINS)
+    assert report.calls[0]["call_id"] == "c1"
 
 
 def call(call_id: str, logprobs: dict | None) -> dict:
@@ -126,7 +180,17 @@ def test_a_call_without_probabilities_gets_the_facts_and_a_reason(tmp_path, logp
         stand_in(),
     )
     assert report.calls == [{"call_id": "c1", "measured": None, "why": report.calls[0]["why"]}]
-    assert "logprobs" in report.calls[0]["why"]
+    why = report.calls[0]["why"]
+    if logprobs:  # probabilities were on; the call was cancelled
+        assert "cancelled" in why and "/set" not in why
+    else:
+        assert "/set logprobs" in why
+
+
+def test_a_llama_cpp_call_isnt_told_to_turn_probabilities_on(tmp_path):
+    llama = {"backend": "llama.cpp", "weights": {"repo": "org/tiny"}, "end_tokens": [7]}
+    report = check(write_export(tmp_path / "e.jsonl", [call("c1", None)], llama), stand_in())
+    assert "/set" not in report.calls[0]["why"] and "llama.cpp" in report.calls[0]["why"]
 
 
 def test_the_report_gives_numbers_not_verdicts(tmp_path):
@@ -134,6 +198,7 @@ def test_the_report_gives_numbers_not_verdicts(tmp_path):
         check(
             write_export(tmp_path / "e.jsonl", [call("c1", None)]),
             stand_in(dtype="float32"),
+            **PINS,
         )
     ).lower()
     for word in ("safe", "ok", "pass", "fail", "acceptable", "negligible", "threshold"):
@@ -156,8 +221,20 @@ def fixed_model(table):
             self.dtype = torch.bfloat16
             self.device = torch.device("cpu")
             self.seen: list[int] = []
+            self.kept: list[int | None] = []
 
-        def forward(self, input_ids, attention_mask=None, past_key_values=None, use_cache=True):
+        def get_input_embeddings(self):
+            return SimpleNamespace(num_embeddings=len(table))
+
+        def forward(
+            self,
+            input_ids,
+            attention_mask=None,
+            past_key_values=None,
+            use_cache=True,
+            logits_to_keep=None,
+        ):
+            self.kept.append(logits_to_keep)
             ids = input_ids[0].tolist()
             if past_key_values is not None:
                 assert past_key_values == self.seen, "the cache wasn't passed back"
@@ -187,6 +264,67 @@ def test_recomputing_under_the_same_scores_gives_a_gap_of_0_and_no_changes(tmp_p
     report = check(write_export(tmp_path / "e.jsonl", [row]), model)
     measured = report.calls[0]["measured"]
     assert measured == {"steps": 3, "largest_gap": 0.0, "top_changed": 0}
+    assert model.kept[0] == 1, "the prompt pass keeps only the last position, as generate does"
+
+
+def test_bf16_scores_go_through_the_shared_reduction(tmp_path):
+    """Logged values came from transformers_hf.log_softmax (CPU, float32); bf16 scores reduced
+    any other way differ from them."""
+    torch = pytest.importorskip("torch")
+    table = torch.randn(VOCAB, VOCAB, generator=torch.Generator().manual_seed(1)) * 8
+    table = table.to(torch.bfloat16)
+    model, _ = fixed_model(table)
+    row = call("c1", logged_from(table, [1, 2], [3, 4, 5], torch))
+    report = check(write_export(tmp_path / "e.jsonl", [row]), model)
+    assert report.calls[0]["measured"]["largest_gap"] == 0.0
+
+
+def test_a_tie_for_the_top_choice_isnt_a_change(tmp_path):
+    """The logged top came from torch.topk, which may list either of two tied tokens first."""
+    torch = pytest.importorskip("torch")
+    table = torch.zeros(VOCAB, VOCAB)
+    table[:, 5] = table[:, 6] = 4.0  # 5 and 6 tie after every token
+    logged = logged_from(table, [1, 2], [6, 6], torch)
+    for entry in logged["tokens"]:
+        entry["top"] = [[6, entry["top"][0][1]]]  # topk put the later one first
+    model, _ = fixed_model(table)
+    report = check(
+        write_export(tmp_path / "e.jsonl", [call("c1", logged) | {"output_ids": [6, 6]}]), model
+    )
+    assert report.calls[0]["measured"]["top_changed"] == 0
+
+
+def test_ids_outside_the_models_vocabulary_get_the_facts_and_a_reason(tmp_path):
+    torch = pytest.importorskip("torch")
+    table = torch.randn(VOCAB, VOCAB, generator=torch.Generator().manual_seed(0))
+    logged = logged_from(table, [1, 2], [3, 4, 5], torch)
+    row = {**call("c1", logged), "prompt_ids": [1, VOCAB + 100]}
+    model, _ = fixed_model(table)
+    report = check(write_export(tmp_path / "e.jsonl", [row]), model)
+    assert report.calls[0]["measured"] is None and "vocabulary" in report.calls[0]["why"]
+    assert report.groups[0]["facts"]
+
+
+def test_each_conditions_group_gets_its_own_facts_and_calls(tmp_path):
+    """A resumed conversation can span two server starts with different conditions."""
+    torch = pytest.importorskip("torch")
+    table = torch.randn(VOCAB, VOCAB, generator=torch.Generator().manual_seed(0))
+    model, _ = fixed_model(table)
+    rows = [call(c, logged_from(table, [1, 2], [3, 4, 5], torch)) for c in ("c1", "c2")]
+    path = write_export(tmp_path / "e.jsonl", rows)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    header = json.loads(lines[0])
+    first = header["conditions"][0]["conditions"]
+    header["conditions"] = [
+        {"conditions": first, "call_ids": ["c1"]},
+        {"conditions": {**first, "dtype": "float32"}, "call_ids": ["c2"]},
+    ]
+    path.write_text("\n".join([json.dumps(header), *lines[1:]]) + "\n", encoding="utf-8")
+    report = check(path, model)
+    assert [g["call_ids"] for g in report.groups] == [["c1"], ["c2"]]
+    precision = [{f["fact"]: f for f in g["facts"]}["precision"]["same"] for g in report.groups]
+    assert precision == [True, False]
+    assert [c["call_id"] for c in report.calls] == ["c1", "c2"]
 
 
 def test_one_changed_score_gives_the_exact_gap_and_change_count(tmp_path):

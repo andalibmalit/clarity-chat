@@ -40,7 +40,8 @@ def make(fetched_root, tiny_tokenizer):
 
 
 def read_export(path: Path) -> tuple[dict, list[dict]]:
-    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    lines = path.read_text(encoding="utf-8").split("\n")  # not splitlines: U+2028 is raw
+    rows = [json.loads(line) for line in lines if line]
     return rows[0], rows[1:]
 
 
