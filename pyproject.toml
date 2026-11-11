@@ -58,7 +58,7 @@ explicit-preview-rules = true
 include = ["src", "tests"]
 
 [tool.ty.analysis]
-# torch comes with the optional `hf` extra, which CI doesn't install.
+# torch comes with the optional `hf` extra; a base install has no torch to resolve.
 allowed-unresolved-imports = ["torch"]
 
 [tool.pytest.ini_options]
