@@ -219,6 +219,11 @@ def test_server_warnings_are_shown_once(batch):
     assert output.count("! build differs") == 1
 
 
+def test_flagged_calls_are_shown_on_screen(batch):
+    _, _, _, output = batch(setup=lambda b: setattr(b, "result_flags", ["incomplete_output_ids"]))
+    assert output.count("flags: incomplete_output_ids") == 4  # one line per call, named
+
+
 # --- the command --------------------------------------------------------------------------
 
 
