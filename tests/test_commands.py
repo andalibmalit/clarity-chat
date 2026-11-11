@@ -167,3 +167,17 @@ def test_a_cancel_stops_the_reply_being_written_and_the_rest(commands):
     calls_made = [r["call"] for r in result["replies"]]
     assert [call["stop_type"] for call in calls_made] == ["eos", "cancelled"]
     assert len(backend.calls) == 3  # say, then two regenerations: the third never started
+
+
+def test_commands_that_parse_names_ignore_edge_spaces_from_scripts(commands):
+    """--json passes args as sent; a leading space mustn't make an empty setting name or a
+    label /unmark can't find."""
+    c, _ = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    c.run("set", " temperature 0.5 ", lambda e: None)
+    conversation = c.session.conversation
+    assert conversation is not None and conversation.chat_settings["temperature"] == 0.5
+    marked = c.run("mark", " landed ", lambda e: None)["records"]
+    assert marked[0]["label"] == "landed"
+    assert c.run("unmark", "landed", lambda e: None)["records"]

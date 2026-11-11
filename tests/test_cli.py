@@ -254,3 +254,11 @@ def test_ctrl_c_during_a_command_that_cant_be_cancelled_still_stops_clarity(loop
     backend.start = start
     with pytest.raises(KeyboardInterrupt):
         chat.handle("/profile big")
+
+
+def test_say_sends_its_text_exactly_like_a_plain_line(loop, tiny_tokenizer):
+    """Owner's decision (2026-11-11): only the one space after /say is dropped."""
+    chat, _, backend = loop
+    chat.handle("/say  hi  ")
+    sent = tiny_tokenizer.decode(backend.calls[-1]["token_ids"])
+    assert sent.endswith("User:  hi  \nAssistant:")
