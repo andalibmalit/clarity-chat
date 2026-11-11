@@ -167,6 +167,13 @@ def test_logprobs_change_no_output_on_transformers(session, tmp_path):
         checks_ok(records[n])
     assert records[0]["output_ids"] == records[5]["output_ids"]
     assert len(records[5]["logprobs"]["tokens"]) == len(records[5]["output_ids"])
+    # The recompute check's own loop on the same loaded model: gap 0 on the model and
+    # device the experiments use, not only on SmolLM2.
+    from clarity_chat.recompute import measure
+
+    measured = measure(records[5], session.backend.model, "transformers")["measured"]
+    assert measured is not None
+    assert (measured["largest_gap"], measured["top_changed"]) == (0.0, 0), measured
 
 
 def test_switching_models_restarts_the_server(session):
