@@ -46,6 +46,8 @@ Clarity writes files only visibly. Shipped files stay read-only; the user's own 
 - State your assumptions in each step report. Ask before decisions that are hard to undo.
 - A step is done when its tests pass. Write tests with the change, and run ruff, ty and pytest before every commit.
   Show the command and its output in the step report.
+- For behaviour the plan fixes (record fields, refusals, command results and events, replay, resume, reading old logs), write the test first and see it fail; the step report quotes that failure.
+- An offline test never skips in CI. A test that needs a model or torch goes on a live tier, and the plan marks its behaviour "live only".
 - A bug fix starts with a failing test, committed before the fix.
 - Each release follows its approved plan in `notes/plans/`. If the build departs from the plan, update the plan in the same step and say so.
 - A release is done when `CONTRIBUTING.md`'s release checklist is complete. I may run the live tests while building, to catch my own bugs, and ask before `-m olmo` (it loads 15 GB). The owner runs them again for the release checklist, pushes and tags.
