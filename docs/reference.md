@@ -159,7 +159,7 @@ Each table is one model, and its name is the model's name in profiles and `clari
 
 Every flag that affects output must be set explicitly. The shipped `server.toml` sets them all, with comments, and Clarity names any that is missing or has the wrong value. These values are fixed: one slot (`parallel = 1`), no prompt cache, no context shift, and `fit = "off"`.
 
-Refused: `auto` and `-1` as values; the flags `model`, `host`, `port`, `api-key`, `api-key-file`, `slots`, `no-slots`, `ui`, `no-ui`, `webui` and `no-webui` (Clarity sets these), `context-shift`, `override-kv`, `lora`, `control-vector`, `model-draft`, `backend-sampling`; and any flag starting with `hf-`, `models-`, `spec-`, `ui-`, `webui-`, `lora-` or `control-vector-`.
+Only these flags are allowed: the ones the shipped `server.toml` sets (`ctx-size`, `n-gpu-layers`, `flash-attn`, `cache-type-k`, `cache-type-v`, `batch-size`, `ubatch-size`, `fit`, `parallel`, `no-context-shift`, `swa-full`, `ctx-checkpoints`, `cache-ram`, `no-cache-idle-slots`, `cache-reuse`, `threads`, `threads-batch`, `log-verbosity`, `no-jinja`, `chat-template`), and `kv-unified` or `no-kv-unified` (exactly one). Any other flag is refused, including another name for an allowed one, so a new flag is added on purpose, with a test. Clarity passes `--model`, `--host`, `--port`, `--no-slots` and `--no-webui` itself. `auto` and `-1` are refused as values.
 
 Unless `n-gpu-layers` is 0, Clarity stops if llama.cpp puts the model on the CPU.
 
