@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from clarity_chat.backends import BackendError
 from clarity_chat.commands import Commands
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import CancelledBeforeReply, Session
@@ -167,6 +168,22 @@ def test_a_cancel_stops_the_reply_being_written_and_the_rest(commands):
     calls_made = [r["call"] for r in result["replies"]]
     assert [call["stop_type"] for call in calls_made] == ["eos", "cancelled"]
     assert len(backend.calls) == 3  # say, then two regenerations: the third never started
+
+
+@pytest.mark.parametrize("how", ["failure", "cancel"])
+def test_a_first_reply_that_fails_or_is_cancelled_before_it_starts_raises(commands, how):
+    """With no reply made, there's nothing to return: the error reaches the caller, so
+    --json sends an error event rather than an empty list."""
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    if how == "failure":
+        backend.fail_with = "server gone"
+    else:
+        backend.on_call = lambda: c.run("cancel", "", lambda e: None)
+    with pytest.raises(BackendError) as raised:
+        c.run("regen", "3", lambda e: None)
+    assert isinstance(raised.value, CancelledBeforeReply) == (how == "cancel")
 
 
 def test_a_cancel_before_a_later_reply_starts_ends_like_any_other_cancel(commands):
