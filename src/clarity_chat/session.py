@@ -45,6 +45,7 @@ from clarity_chat.render import (
     build_prompt,
     chat_template_source,
     library_versions,
+    message_spans,
     unread_kwargs,
 )
 from clarity_chat.replay import (
@@ -669,9 +670,22 @@ class Session:
         tokenizer = prepared.tokenizer if prepared else self.tokenizer
         template_tokenizer = prepared.template_tokenizer if prepared else self.template_tokenizer
         assert tokenizer is not None
-        path = conversation.path_to(user_turn.turn_id)
-        turns = [(t.role, t.text) for t in path if t.origin != "priming"]
+        turns = [(t.role, t.text) for t in prompt_turns(conversation, user_turn)]
         return build_prompt(tokenizer, conversation.profile, turns, template_tokenizer)
+
+    def message_spans(self, user_turn: Turn, prompt: Prompt) -> list[dict] | dict[str, str]:
+        """Where each message sits in `prompt` (render.message_spans), with turn IDs."""
+        conversation = self._require_conversation()
+        assert self.tokenizer is not None
+        path = prompt_turns(conversation, user_turn)
+        return message_spans(
+            self.tokenizer,
+            conversation.profile,
+            [(t.role, t.text) for t in path],
+            [t.turn_id for t in path],
+            prompt,
+            self.template_tokenizer,
+        )
 
     @staticmethod
     def resolve_settings(
@@ -745,6 +759,7 @@ class Session:
                 prompt_ids=prompt.ids,
                 n_prompt_client=len(prompt.ids),
                 special_tokens_in_content=prompt.special_in_content,
+                message_spans=self.message_spans(user_turn, prompt),
             )
             new_message = self.tokenizer.special_tokens_in(user_turn.text)
             if new_message:
@@ -1210,6 +1225,12 @@ def annotate_log(
     log = LogFile(path)
     log.on_append = on_record
     return annotate_call(log, about, kind, text, "review")
+
+
+def prompt_turns(conversation: Conversation, user_turn: Turn) -> list[Turn]:
+    """The turns a prompt for `user_turn` holds: its path, without the profile's priming
+    (which the profile renders itself)."""
+    return [t for t in conversation.path_to(user_turn.turn_id) if t.origin != "priming"]
 
 
 def result_fields(result: Result) -> tuple[dict[str, Any], str | None]:
