@@ -253,3 +253,54 @@ def test_the_command_lines_paths_still_work(commands, fetched_root):
     log = c.session.conversation.log.path
     c.run("resume", str(log), lambda e: None, paths=True)
     assert c.run("resume", log.stem, lambda e: None)["conversation_id"] == log.stem
+
+
+def test_a_name_is_never_looked_up_in_the_working_folder(
+    commands, fetched_root, tmp_path, monkeypatch
+):
+    """A typed name or ID means profiles/ or local/profiles/, and logs/; not a file that
+    happens to sit in the folder Clarity runs from."""
+    import shutil
+
+    c, _ = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    log = c.session.conversation.log.path
+    here = tmp_path / "cwd"
+    here.mkdir()
+    shutil.copy(fetched_root / "profiles" / "text.toml", here / "evil.toml")
+    shutil.copy(log, here / "planted")
+    monkeypatch.chdir(here)
+    with pytest.raises(ConfigError, match="not a path"):
+        c.run("profile", "evil.toml", lambda e: None)
+    with pytest.raises(ConfigError, match="No conversation"):
+        c.run("resume", "planted", lambda e: None)
+
+
+def test_new_after_a_resume_doesnt_read_a_logged_profile_outside_the_project(
+    fetched_root, tmp_path, tiny_tokenizer
+):
+    """A log is untrusted: its profile path can name any .toml file. /new starts the logged
+    profile by name from the project instead."""
+    import shutil
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    shutil.copy(fetched_root / "profiles" / "text.toml", outside / "text.toml")
+
+    def commands():
+        backend = FakeBackend([" Hello!", " Again."], tokenizer=tiny_tokenizer)
+        loader = lambda r, v: tiny_tokenizer  # noqa: E731
+        return Commands(Session(fetched_root, backend=backend, tokenizer_loader=loader))
+
+    first = commands()
+    first.run("profile", str(outside / "text.toml"), lambda e: None, paths=True)
+    first.run("say", "Hi", lambda e: None)
+    conversation_id = first.session.conversation.conversation_id
+    text = (outside / "text.toml").read_text(encoding="utf-8")
+    (outside / "text.toml").write_text("private_key_name = 1\n" + text, encoding="utf-8")
+    second = commands()
+    second.run("resume", conversation_id, lambda e: None)
+    started = second.run("new", "", lambda e: None)  # reads profiles/text.toml
+    assert started["profile"] == "text"
+    assert second.session.conversation.profile.path.parent == fetched_root / "profiles"
