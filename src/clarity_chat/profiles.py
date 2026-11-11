@@ -310,12 +310,15 @@ def _text_or_file(
     value: object,
     key: str,
     base: Path,
+    root: Path,
     files: dict[str, str],
     where: str,
     logged: dict[str, str] | None,
 ) -> str:
     """A string used verbatim, or `{ file = "..." }` read byte for byte, relative to the
-    profile (or, for a profile from a log, the file's text as logged)."""
+    profile (or, for a profile from a log, the file's text as logged). The file must be in
+    the project folder, after following links: a profile from someone else mustn't put a
+    file from elsewhere on your computer into a prompt and its log."""
     if isinstance(value, str):
         return value
     if isinstance(value, dict) and set(value) == {"file"} and isinstance(value["file"], str):
@@ -327,6 +330,11 @@ def _text_or_file(
             path = base / value["file"]
             if not path.is_file():
                 raise ConfigError(f"{where}: {key} file {value['file']!r} not found ({path}).")
+            if not path.resolve().is_relative_to(root.resolve()):
+                raise ConfigError(
+                    f"{where}: {key} file {value['file']!r} is outside the project folder "
+                    f"({root}). Copy it into the project, for example into local/."
+                )
             text = read_text(path)
         files[value["file"]] = text
         return text
@@ -427,12 +435,12 @@ def load_profile(
     if mode == "chat":
         if "system" in data:
             profile.system = _text_or_file(
-                data["system"], "system", base, files, where, logged_files
+                data["system"], "system", base, root, files, where, logged_files
             )
         if "priming" in data:
             priming = data["priming"]
             if isinstance(priming, dict):
-                text = _text_or_file(priming, "priming", base, files, where, logged_files)
+                text = _text_or_file(priming, "priming", base, root, files, where, logged_files)
                 try:
                     priming_data = tomllib.loads(text)
                 except tomllib.TOMLDecodeError as e:
@@ -470,10 +478,10 @@ def load_profile(
                 )
         profile.user_name, profile.assistant_name = data["user_name"], data["assistant_name"]
         profile.header = _text_or_file(
-            data.get("header", ""), "header", base, files, where, logged_files
+            data.get("header", ""), "header", base, root, files, where, logged_files
         )
         profile.priming_text = _text_or_file(
-            data.get("priming", ""), "priming", base, files, where, logged_files
+            data.get("priming", ""), "priming", base, root, files, where, logged_files
         )
     return profile
 
