@@ -582,7 +582,11 @@ def cmd_chat_json(root: Path, profile: str | None, resume: str | None, on_server
     atexit.register(session.close)
     first = [{"command": "profile", "args": profile}] if profile else []
     first += [{"command": "resume", "args": resume}] if resume else []
-    chat = JsonChat(session, sys.stdin.buffer, sys.stdout)
+    # The raw stream, not the buffered one: the reader thread is still blocked reading when
+    # a script keeps the input open, and holding the buffered stream's lock there made
+    # Python's shutdown abort ("Fatal Python error", status -6).
+    stdin = getattr(sys.stdin.buffer, "raw", sys.stdin.buffer)
+    chat = JsonChat(session, stdin, sys.stdout)
     try:
         chat.run(first)  # bytes: UTF-8 always
     finally:
