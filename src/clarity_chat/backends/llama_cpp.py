@@ -433,7 +433,10 @@ class LlamaServer:
             return "".join(self.output)
 
     def _drain(self, stream: Any) -> None:
-        with self.log_path.open("a", encoding="utf-8", newline="") as log:
+        # Private, like the chat's log: the server's output can hold prompt text.
+        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0)
+        fd = os.open(self.log_path, flags, 0o600)
+        with open(fd, "a", encoding="utf-8", newline="") as log:
             for raw in iter(stream.readline, b""):
                 line = API_KEY_LINE.sub(API_KEY_REDACTED, raw.decode("utf-8", errors="replace"))
                 with self._output_lock:

@@ -75,7 +75,7 @@ class LogFile:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         flags = os.O_RDWR | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0)
         with _append_lock:
-            fd = os.open(self.path, flags, 0o644)
+            fd = os.open(self.path, flags, 0o600)  # private conversations: yours only
             try:
                 if sys.platform != "win32":
                     # Another process's write can be half visible (Linux): the check for a
