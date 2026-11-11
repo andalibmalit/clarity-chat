@@ -394,6 +394,36 @@ def test_the_context_size_goes_into_the_servers_flags_and_a_new_size_restarts(mo
     assert sizes == [16384, 4096]
 
 
+def test_a_file_replaced_under_a_running_server_restarts_it(monkeypatch, root):
+    """`fetch` replaces a GGUF by rename, so the path stays the same while the bytes change.
+    The running server still has the old file open."""
+    import os
+
+    from clarity_chat.backends import llama_cpp
+    from clarity_chat.profiles import load_models, load_server_config
+
+    started = []
+
+    def start(server):
+        started.append(server.gguf)
+        server.proc = type("Running", (), {"poll": lambda self: None})()
+        return {}
+
+    monkeypatch.setattr(llama_cpp.LlamaServer, "start", start)
+    monkeypatch.setattr(llama_cpp.LlamaServer, "stop", lambda server: None)
+    backend = llama_cpp.LlamaCppBackend(load_server_config(root), root / "logs")
+    model = load_models(root)["tiny"]
+    weights = root / "m.gguf"
+    weights.write_bytes(b"old weights")
+    backend.start(model, weights, 8192)
+    assert backend.start(model, weights, 8192) is None  # the same file: kept
+    fetched = root / "m.gguf.part"
+    fetched.write_bytes(b"new weights")
+    os.replace(fetched, weights)
+    assert backend.start(model, weights, 8192) is not None
+    assert len(started) == 2
+
+
 def test_a_size_above_the_training_context_names_the_limit(monkeypatch, root):
     from clarity_chat.profiles import ConfigError
 
