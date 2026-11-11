@@ -3,6 +3,7 @@ so it must keep it to its scratch root and to SmolLM2 whatever the agent's steps
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -37,7 +38,11 @@ def repo(tmp_path: Path) -> Path:
         weights.parent.mkdir(parents=True)
         weights.write_bytes(b"GGUF " + name.encode())
         os.utime(weights, ns=(1_000_000_123, 1_000_000_123))
-        gguf = {"path": f"models/{name}/{name}-bf16.gguf", "size": weights.stat().st_size}
+        gguf = {
+            "path": f"models/{name}/{name}-bf16.gguf",
+            "size": weights.stat().st_size,
+            "sha256": hashlib.sha256(weights.read_bytes()).hexdigest(),
+        }
         models[name] = {"name": name, "gguf": {**gguf, "mtime_ns": 1_000_000_123}}
     lock = {"schema_version": 1, "models": models}
     (fake / "models.lock").write_text(json.dumps(lock), encoding="utf-8")
@@ -244,8 +249,6 @@ def test_a_link_anywhere_in_the_root_is_refused_before_anything_is_written(
 
 def test_the_roots_weights_are_checked_by_hash_and_replaced(root, repo):
     """Clarity checks only size and time at start, and both can be set by hand."""
-    import hashlib
-
     weights = root / "models" / SMOL / f"{SMOL}-bf16.gguf"
     lock = json.loads((repo / "models.lock").read_text(encoding="utf-8"))
     original = (repo / "models" / SMOL / f"{SMOL}-bf16.gguf").read_bytes()
@@ -257,16 +260,14 @@ def test_the_roots_weights_are_checked_by_hash_and_replaced(root, repo):
     assert weights.read_bytes() == original and weights.stat().st_mtime_ns == 1_000_000_123
 
 
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["replay", "x", "c1"],  # LOG is a path to Clarity, so a bare name means ./x
-        ["chat", "--resume", "../outside.jsonl"],
-    ],
-)
-def test_relative_paths_are_judged_from_the_root(root, argv):
+def test_relative_paths_are_judged_from_the_root(root, monkeypatch):
+    """Clarity runs in the root, so a relative path means a file there, wherever the agent
+    runs the driver from."""
+    monkeypatch.chdir(root.parent)
+    qa.check_clarity_args(root, ["replay", "logs/a.jsonl", "c1"])
+    qa.check_clarity_args(root, ["chat", "--resume", "logs/a.jsonl"])
     with pytest.raises(qa.Refused):
-        qa.check_clarity_args(root, argv)
+        qa.check_clarity_args(root, ["chat", "--resume", "../outside.jsonl"])
 
 
 def test_a_timed_ctrl_c_and_a_malformed_json_step(tmp_path):
