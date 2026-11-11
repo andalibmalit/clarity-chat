@@ -279,3 +279,25 @@ def test_the_start_takes_a_path_but_input_lines_dont(make, fetched_root):
     assert started["result"]["profile"] == "text"
     refused = next(e for e in events if e.get("id") == 1)
     assert refused["event"] == "error" and "not a path" in refused["message"]
+
+
+@pytest.mark.parametrize("first", [["--profile", "no-such-profile"], []])
+def test_quitting_with_input_still_open_exits_cleanly(root, first):
+    """A script keeps Clarity's input open while it waits. The reader thread is then blocked
+    reading it at exit, and Python's shutdown aborted (status -6, "Fatal Python error")."""
+    import subprocess
+    import sys
+
+    code = "import sys; from clarity_chat.cli import main; sys.exit(main(sys.argv[1:]))"
+    argv = [sys.executable, "-c", code, "--root", str(root), "chat", "--json", *first]
+    with subprocess.Popen(
+        argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    ) as process:
+        assert process.stdin is not None
+        if not first:  # no start: quit by command, input left open
+            process.stdin.write(b'{"command": "quit"}\n')
+            process.stdin.flush()
+        process.wait(timeout=60)
+        err = process.stderr.read().decode() if process.stderr else ""
+    assert "Fatal Python error" not in err
+    assert process.returncode == (1 if first else 0)
