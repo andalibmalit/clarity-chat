@@ -69,8 +69,19 @@ def deep_diff(old: Any, new: Any, path: str = "") -> list[dict[str, Any]]:
 
 def not_recorded(logged: dict[str, Any], now: dict[str, Any]) -> list[str]:
     """Facts the logged call didn't record (an older version of Clarity), so they can't be
-    compared. Listed in the replay record, so the gap is visible."""
-    return sorted(name for name in now if logged.get(name) is None and now[name] is not None)
+    compared, and machine values known on one side only (`machine.macos.chip`: a sandbox
+    hides the chip's name; a newer Clarity records a new key). Listed in the replay record,
+    so the gap is visible."""
+    names = [name for name in now if logged.get(name) is None and now[name] is not None]
+    if logged.get("machine") is not None and now.get("machine") is not None:
+        found = deep_diff(logged["machine"], now["machine"])
+        names += [f"machine.{d['path']}" for d in found if one_sided(d)]
+    return sorted(names)
+
+
+def one_sided(diff: dict[str, Any]) -> bool:
+    """A value known on one side only: unknown, not different."""
+    return (diff["logged"] in (None, "(missing)")) != (diff["now"] in (None, "(missing)"))
 
 
 def environment_diff(logged: dict[str, Any], now: dict[str, Any]) -> dict[str, list[dict]]:
@@ -81,6 +92,8 @@ def environment_diff(logged: dict[str, Any], now: dict[str, Any]) -> dict[str, l
     skipped = set(not_recorded(logged, now))
     for name in sorted((set(logged) | set(now)) - skipped):
         found = deep_diff(logged.get(name), now.get(name))
+        if name == "machine":  # values known on one side only are not recorded, above
+            found = [d for d in found if not one_sided(d)]
         if found:
             diffs[name] = found[:MAX_DIFFS] + (
                 [{"path": "…", "logged": f"{len(found) - MAX_DIFFS} more", "now": ""}]
