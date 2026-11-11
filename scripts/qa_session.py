@@ -4,12 +4,12 @@
         [--steps STEPS] -- CLARITY_ARGS...
 
 Runs `clarity --root ROOT CLARITY_ARGS` in a pseudo-terminal (macOS and Linux), types
-each line of STEPS once the output has gone quiet, and writes everything printed to FILE.
-A step line `<ctrl-c>` sends Ctrl-C; `<wait N>` waits N more seconds; lines starting
-with `#` are skipped. `--init` first makes ROOT a scratch project that uses this
-checkout's config, profiles and fetched models, so a QA chat never writes to the
-checkout's own `logs/`. It runs only Clarity, so the owner can allowlist it to reach
-the GPU (the sandbox hides it).
+each line of STEPS once the output has gone quiet, then Ctrl-D, and writes everything
+printed to FILE. A step line `<ctrl-c>` sends Ctrl-C; `<wait N>` waits N more seconds;
+lines starting with `#` are skipped. `--init` first makes ROOT a scratch project that
+uses this checkout's config, profiles and fetched models, so a QA chat never writes to
+the checkout's own `logs/`. It runs inside the sandbox, on the CPU: the scratch root's
+`server.toml` sets `n-gpu-layers = 0` (the live tests cover the GPU).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import os
 import pty
 import select
 import shutil
-import subprocess
+import signal
 import sys
 import time
 from pathlib import Path
@@ -39,7 +39,16 @@ def init_root(root: Path) -> None:
         shutil.copy(REPO / name, root / name)
     server = (REPO / "server.toml").read_text(encoding="utf-8")
     llama = (REPO / "vendor" / "llama.cpp").as_posix()
-    server = server.replace('llama_cpp_dir = "vendor/llama.cpp"', f'llama_cpp_dir = "{llama}"')
+    for old, new in (
+        ('llama_cpp_dir = "vendor/llama.cpp"', f'llama_cpp_dir = "{llama}"'),
+        (  # the sandbox hides the GPU
+            'n-gpu-layers = "all"          # every layer on the GPU (Metal on a Mac)',
+            "n-gpu-layers = 0              # QA runs on the CPU, inside the sandbox",
+        ),
+    ):
+        if old not in server:
+            raise SystemExit(f"server.toml has no {old!r} to rewrite; update init_root.")
+        server = server.replace(old, new)
     (root / "server.toml").write_text(server, encoding="utf-8", newline="\n")
     for name in ("profiles", "prompts", "models"):
         link = root / name
@@ -67,6 +76,22 @@ def read_until_quiet(fd: int, log: BinaryIO, timeout: float) -> None:
             return
 
 
+def parse_steps(path: Path) -> list[str]:
+    """The steps, checked before anything starts, so a typo can't stop a session midway."""
+    steps = []
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        if line.startswith("#"):
+            continue
+        if line.startswith("<") and line != "<ctrl-c>":
+            try:
+                assert line.startswith("<wait ") and line.endswith(">")
+                float(line[6:-1])
+            except (AssertionError, ValueError):
+                raise SystemExit(f"{path}:{n}: unknown step {line!r}") from None
+        steps.append(line)
+    return steps
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, required=True)
@@ -76,26 +101,24 @@ def main() -> int:
     parser.add_argument("clarity_args", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     clarity_args = [a for a in args.clarity_args if a != "--"]
-    # Allowlisted outside the sandbox, so it stays narrow: scratch paths only (never the
-    # checkout's own logs/), and only the commands a QA pass uses (no fetch: no downloads).
+    # Scratch paths only (never the checkout's own logs/), and only the commands a QA pass
+    # uses (no fetch: no downloads).
     for path in (args.root, args.out, args.steps):
         if path is not None and not path.resolve().is_relative_to(QA_DIR):
             parser.error(f"{path} must be inside {QA_DIR}")
     if not clarity_args or clarity_args[0] not in QA_COMMANDS:
         parser.error(f"the Clarity command must be one of {sorted(QA_COMMANDS)}")
+    steps = parse_steps(args.steps) if args.steps else []
     if args.init:
         init_root(args.root)
-    steps = []
-    if args.steps:
-        for line in args.steps.read_text(encoding="utf-8").splitlines():
-            if not line.startswith("#"):
-                steps.append(line)
     clarity = Path(sys.executable).parent / "clarity"
     argv = [str(clarity), "--root", str(args.root), *clarity_args]
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    primary, secondary = pty.openpty()
-    proc = subprocess.Popen(argv, stdin=secondary, stdout=secondary, stderr=secondary)
-    os.close(secondary)
+    # pty.fork: the child leads its own session with the pty as its terminal, so Ctrl-C
+    # typed into the pty reaches it as SIGINT, as in a real terminal.
+    pid, primary = pty.fork()
+    if pid == 0:
+        os.execv(argv[0], argv)
     with args.out.open("wb") as log:
         log.write(f"$ clarity --root {args.root} {' '.join(clarity_args)}\n".encode())
         read_until_quiet(primary, log, STEP_TIMEOUT_S)
@@ -108,15 +131,26 @@ def main() -> int:
             else:
                 os.write(primary, step.encode() + b"\r")
             read_until_quiet(primary, log, STEP_TIMEOUT_S)
-        try:
-            proc.wait(timeout=30)
-        except subprocess.TimeoutExpired:
-            proc.terminate()
-            proc.wait(timeout=30)
-        read_until_quiet(primary, log, 1.0)
-        log.write(f"\n[qa exit status {proc.returncode}]\n".encode())
+        if steps:
+            log.write(b"\n[qa end: ctrl-d]\n")
+            os.write(primary, b"\x04")  # end of input: the chat quits as a user's would
+        read_until_quiet(primary, log, STEP_TIMEOUT_S)
+        status = wait(pid)
+        log.write(f"\n[qa exit status {status}]\n".encode())
     os.close(primary)
     return 0
+
+
+def wait(pid: int) -> int:
+    """The child's exit status; stopped with SIGTERM if it doesn't end within 30 s."""
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        done, status = os.waitpid(pid, os.WNOHANG)
+        if done:
+            return os.waitstatus_to_exitcode(status)
+        time.sleep(0.2)
+    os.kill(pid, signal.SIGTERM)
+    return os.waitstatus_to_exitcode(os.waitpid(pid, 0)[1])
 
 
 if __name__ == "__main__":
