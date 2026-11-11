@@ -21,7 +21,7 @@ Every command, key and record field a user sees. For task-based instructions, se
 
 Exit status:
 - `0`: success, or `replay` found the output identical.
-- `1`: a configuration or backend error (printed as `clarity: …`), a stopped `run`, a `replay` whose output differs, or a `verify` that failed.
+- `1`: a configuration or backend error (printed as `clarity: …`), a stopped `run`, a `replay` whose output differs, a `verify` that failed, or a `chat --json` session ended by an unexpected error.
 - `2`: wrong command-line arguments.
 - `130`: interrupted with Ctrl-C.
 
@@ -72,7 +72,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `status` | a model is starting or ready | `status`, and `profile`, `log` or `conversation_id` |
 | `record` | a record is appended to the log | `record`: exactly what was written. Record events are the log, in order. |
 | `result` | a command finished | `command`, `id`, and `result`: what the command returns. It may repeat records already sent as `record` events. `say` and `edit` return `call` and `warnings`; `regen` returns `replies`, a list of those, and `stopped` (why it stopped early) if a reply failed. |
-| `error` | a command failed, or a line wasn't a command | `command` and `id` (for a command), `type` (`ConfigError`, `ContextError`, `BackendError`, `CancelledBeforeReply` or `InputError`) and `message` |
+| `error` | a command failed, or a line wasn't a command | `command` and `id` (for a command), `type` (`ConfigError`, `ContextError`, `BackendError`, `CancelledBeforeReply` or `InputError`; any other type is an unexpected error, after which the session quits) and `message` |
 
 Commands run one at a time, in order. `cancel` runs as soon as it's read, so it can stop a reply that's being written; its result names the command it stopped (`"cancelled": true, "command": "say"`) or gives a `reason` it stopped nothing. Send it after the command has started (after its first event): a `cancel` read while the command is still queued finds nothing running. End of input quits, like `quit`. Input is UTF-8, whatever the console's encoding; a line that isn't is an `InputError`. Output is ASCII: other characters are written as `\u` escapes.
 

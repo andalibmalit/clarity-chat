@@ -17,6 +17,7 @@ Two headings are Clarity's own, used when they apply:
 - `/regen N` makes N more replies to your last message, each a new branch with its own logged seed. With `--json`, a `reply_start` event (`k`, `n`, `seed`) comes before each.
 
 ### Fixed
+- With `--json`, an unexpected error in a command (a bug, or a full disk) ended the session with a traceback and no `error` event. It now sends an `error` event naming the command and the error, quits, and exits with status 1. A line nested too deeply to parse stopped Clarity reading input; it's now an `InputError` like any other line that isn't a command.
 - Replay and resume of a call whose log lacks its `server_start` record (a trimmed or hand-edited log) compared the wrong backend's facts and reported empty ones as differences, which could hide an unexplained difference. The call's own backend now decides, and what the log lacks is listed as not recorded.
 - A Transformers replay judged its stop type, and recorded `eos_token_id`, from the end tokens in today's model files rather than the logged ones it was generated with. A model revision that changed only `generation_config.json` made an identical replay report `stop_type: none`.
 - `/say` in the terminal sent its text with the spaces at its start and end removed, while a plain line and `--json` sent them; now all three send the text exactly. Through `--json`, spaces around another command's arguments made `/set` name an empty setting and `/mark` store a label `/unmark` couldn't find; they're now ignored, as in the terminal.
