@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Security
+- `clarity replay --logged-flags` passed a log's flags to llama-server unchecked, and Clarity's own `--host 127.0.0.1`, `--no-slots` and `--no-webui` came before them, where a later flag wins. A shared or hand-edited log could make the replayed server listen on the network, re-enable `/slots` and the web UI, add a key, or turn on its shell tool. Logged flags now go through the allowed-list checks, and Clarity's own flags come last.
+
 ### Added
 - Each call records `message_spans`: where each message, and the text the chat template or profile wrote around it, sits in the prompt, in characters and in tokens. A template that rewrites a message gets none for that call, with the reason.
 - Token probabilities on the Transformers backend: the `logprobs` setting (0 to 20, off by default) records each reply token's log-probability and its N likeliest alternatives, from the model's raw scores before any sampler. `/probs` summarizes the current reply's least likely tokens. A llama.cpp profile refuses the setting until v0.4.0.

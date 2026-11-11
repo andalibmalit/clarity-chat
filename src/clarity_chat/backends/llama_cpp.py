@@ -459,17 +459,18 @@ class LlamaServer:
         attempts = []
         for _ in range(3):  # a free port can be taken between choosing it and binding it
             self.port = free_port()
+            # Clarity's own flags come last: llama-server takes the last value of a flag.
             argv = [
                 str(binary),
                 "--model",
                 str(self.gguf),
+                *self.config.flag_argv(),
                 "--host",
                 "127.0.0.1",
                 "--port",
                 str(self.port),
                 "--no-slots",  # /slots would show prompts to anyone holding the key
                 "--no-webui",  # the built-in web UI is public even with a key
-                *self.config.flag_argv(),
             ]
             error = self._launch(argv, env)
             if error is None:
