@@ -458,3 +458,22 @@ def test_a_replay_whose_text_differs_from_its_ids_logs_the_decoded_text(make_ses
     record = session.replay_current()
     assert "text_differs_from_ids" in record["flags"]
     assert "decoded_output_text" in record
+
+
+def test_a_machine_value_unknown_on_one_side_is_not_recorded_not_a_difference():
+    """A sandbox hides the chip's name (None), and a newer Clarity may record a new machine
+    key. Neither is a difference, so a replay that differs is still flagged unexplained."""
+    from clarity_chat.replay import environment_diff, not_recorded
+
+    machine = {"os": "Darwin", "macos": {"chip": "Apple M2 Max", "build": "25G332"}}
+    for logged, now in [
+        (machine, {**machine, "macos": {**machine["macos"], "chip": None}}),
+        ({**machine, "macos": {**machine["macos"], "chip": None}}, machine),
+        ({"os": "Darwin", "macos": machine["macos"]}, {**machine, "gpu_cores": 30}),
+    ]:
+        diffs = environment_diff({"machine": logged}, {"machine": now})
+        assert diffs == {} and unexplained(False, diffs)
+        missing = not_recorded({"machine": logged}, {"machine": now})
+        assert any(name.startswith("machine.") for name in missing), missing
+    other = {**machine, "macos": {**machine["macos"], "chip": "Apple M3"}}
+    assert "machine" in environment_diff({"machine": machine}, {"machine": other})
