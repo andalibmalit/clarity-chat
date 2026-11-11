@@ -212,6 +212,8 @@ def run_batch(
                     raise RunError(f"Cancelled (Ctrl-C) during {where}.")
                 if failed:
                     raise RunError(f"Call {call['call_id']} ({where}) failed {failed}.")
+                if call["flags"]:  # flag names only, never reply text
+                    warn(f"{call['call_id']} ({where}): flags: {', '.join(call['flags'])}")
                 for warning in outcome.warnings:
                     warn(warning)
                 replies[i, name, seed] = Reply(
