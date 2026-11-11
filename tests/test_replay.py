@@ -405,3 +405,14 @@ def test_a_call_whose_server_record_is_missing_lists_facts_as_not_recorded(backe
     assert diffs == {}, diffs
     assert unexplained(False, diffs)
     assert "weights" not in not_recorded(logged, now)
+
+
+def test_a_replay_whose_text_differs_from_its_ids_logs_the_decoded_text(make_session):
+    """`text_differs_from_ids` promises `decoded_output_text` beside it, in a replay too."""
+    session, backend = make_session([" Hello!", " Hello!"])
+    session.new_conversation("text")
+    session.say("Hi")
+    backend.tokenizer = None  # the fake then returns IDs that don't decode to its text
+    record = session.replay_current()
+    assert "text_differs_from_ids" in record["flags"]
+    assert "decoded_output_text" in record
