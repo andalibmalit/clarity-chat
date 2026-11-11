@@ -169,6 +169,29 @@ def test_a_cancel_stops_the_reply_being_written_and_the_rest(commands):
     assert len(backend.calls) == 3  # say, then two regenerations: the third never started
 
 
+def test_a_cancel_before_a_later_reply_starts_ends_like_any_other_cancel(commands):
+    """Cancelled before reply 2's first token: the same result as a cancel mid-reply or
+    between replies, with no `stopped`, and the head at the last completed reply."""
+    c, backend = commands
+    backend.replies = [" first", " a", " b", " c"]
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    calls = []
+
+    def cancel_before_the_second():
+        calls.append(1)
+        if len(calls) == 2:
+            c.run("cancel", "", lambda e: None)
+
+    backend.on_call = cancel_before_the_second
+    result = c.run("regen", "3", lambda e: None)
+    assert "stopped" not in result
+    assert [r["call"]["output_text"] for r in result["replies"]] == [" a"]
+    conversation = c.session.conversation
+    assert conversation is not None
+    assert conversation.turns[conversation.head].text == " a"
+
+
 def test_commands_that_parse_names_ignore_edge_spaces_from_scripts(commands):
     """--json passes args as sent; a leading space mustn't make an empty setting name or a
     label /unmark can't find."""
