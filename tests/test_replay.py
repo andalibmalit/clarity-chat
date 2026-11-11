@@ -319,6 +319,45 @@ def test_end_tokens_an_older_log_lacks_are_listed_as_not_recorded():
     assert "end_tokens" in not_recorded(old, now)
 
 
+@pytest.mark.parametrize(
+    ("change", "error"),
+    [
+        ({"no-context-shift": None}, "must set ['no-context-shift']"),
+        ({"cache-reuse": 256}, "cache-reuse must be 0"),
+        ({"parallel": 4}, "parallel must be 1"),
+        ({"log-verbosity": 0}, "log-verbosity must be"),
+        ({"flash-attn": "maybe"}, 'flash-attn must be "on" or "off"'),
+        ({"kv-unified": True, "no-kv-unified": True}, "exactly one of kv-unified"),
+    ],
+)
+def test_logged_flags_get_every_check_server_toml_gets(fetched_root, capsys, change, error):
+    """Every Clarity release required these flags and values, so only a log Clarity didn't
+    write fails; it would otherwise start a server with context shift or cache reuse on."""
+    import json
+
+    from clarity_chat.profiles import load_server_config
+
+    log = fetched_root / "logs" / "x.jsonl"
+    log.parent.mkdir()
+    flags = {**load_server_config(fetched_root).flags, **change}
+    flags = {k: v for k, v in flags.items() if v is not None}
+    rows = [
+        {"type": "server_start", "server_id": "server-1", "backend": "llama.cpp", "flags": flags},
+        {
+            "type": "call",
+            "call_id": "call-1",
+            "conversation_id": "c",
+            "backend": {"backend": "llama.cpp", "server_id": "server-1"},
+            "output_ids": [1],
+            "stop_type": "eos",
+        },
+    ]
+    log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    argv = ["--root", str(fetched_root), "replay", str(log), "call-1", "--logged-flags"]
+    assert cli.main(argv) == 1
+    assert error in capsys.readouterr().err
+
+
 def test_logged_flags_outside_the_allowed_list_are_refused(fetched_root, capsys):
     """A shared or hand-edited log must not reach llama-server's argv: later flags win there,
     so `host`, `slots`, `webui`, `api-key` or `tools` would undo Clarity's own."""
