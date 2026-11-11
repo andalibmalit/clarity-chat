@@ -7,7 +7,8 @@ backend chats with OLMo 3, to decide which one a steered model should run on. M4
 faster llama.cpp gets on a quantized copy of the same model.
 
 Needs the built llama-server and OLMo 3 Instruct fetched (M3's Transformers half also needs
-`uv sync --extra hf`). Measures and prints; asserts only that the servers started.
+`uv sync --extra hf`). Measures and prints; asserts only that the servers started. Each test
+prints the power source and Low Power Mode first: on battery or in Low Power Mode, speeds drop.
 """
 
 from __future__ import annotations
@@ -44,6 +45,24 @@ def _weights() -> Path | None:
 
 if (WEIGHTS := _weights()) is None:
     pytestmark = [pytest.mark.measure, pytest.mark.skip(reason=f"{MODEL} isn't fetched")]
+
+
+def power_state() -> str:
+    """The power source and Low Power Mode, from `pmset`; "unknown" off macOS or if hidden."""
+    try:
+        battery = subprocess.run(["pmset", "-g", "batt"], capture_output=True, text=True)
+        settings = subprocess.run(["pmset", "-g"], capture_output=True, text=True)
+    except OSError:
+        return "power source unknown, Low Power Mode unknown"
+    source = re.search(r"drawing from '([^']+)'", battery.stdout)
+    low = re.search(r"^\s*lowpowermode\s+([01])\b", settings.stdout, re.MULTILINE)
+    low_power = {"0": "off", "1": "on"}[low.group(1)] if low else "unknown"
+    return f"power source {source.group(1) if source else 'unknown'}, Low Power Mode {low_power}"
+
+
+@pytest.fixture(autouse=True)
+def print_power_state():
+    print(f"\n{power_state()}")
 
 
 def server(tmp_path: Path, **flags) -> LlamaServer:
@@ -209,12 +228,11 @@ def test_m3_backend_speed(tmp_path, backend):
         )
 
 
-@pytest.mark.parametrize("quant", ["bf16", "F16", "Q8_0", "Q4_K_M"])
+@pytest.mark.parametrize("quant", ["bf16", "Q8_0", "Q4_K_M"])
 def test_m4_quantized_speed(tmp_path, quant):
     """M3 compared the backends on the same unquantized weights. This is llama.cpp alone,
     on the fetched bf16 file and on copies llama-quantize makes of it. Every reply is 128
-    tokens (the end token is ignored), and the copies are deleted afterwards. The F16 copy
-    (as big as the original) shows whether bf16 itself is slow on this GPU."""
+    tokens (the end token is ignored), and the copies are deleted afterwards."""
     config = load_server_config(REPO)
     assert WEIGHTS is not None
     weights = WEIGHTS
