@@ -95,7 +95,8 @@ def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict
     llama-server's build, flags and /props, or PyTorch's and Transformers' versions.
 
     `end_tokens` are the IDs a reply stops on. Each backend finds its own, and they can differ:
-    llama.cpp also stops on tokens it recognizes by name, such as SmolLM2's <|endoftext|>."""
+    llama.cpp also stops on tokens it recognizes by name, such as SmolLM2's <|endoftext|>
+    and <reponame>."""
     server = server or {}
     if server.get("backend") == "transformers":
         eos = server.get("eos_token_id")
