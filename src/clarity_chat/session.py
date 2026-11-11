@@ -132,6 +132,9 @@ class Conversation:
     warnings: list[str] = field(default_factory=list)  # shown when it starts, and logged
     chat_settings: dict[str, Any] = field(default_factory=dict)  # set with /set
     resumed: bool = False  # rebuilt from its log: /switch checks the prompt renders the same
+    # The model's recommended values the settings came from, as logged; None for a new
+    # conversation, whose calls log today's models.lock.
+    logged_recommended: dict[str, Any] | None = None
 
     @property
     def settings(self) -> dict[str, Setting]:
@@ -743,7 +746,11 @@ class Session:
                     },
                 },
             },
-            "recommended": self.model_lock.get("recommended") if profile.use_recommended else None,
+            "recommended": (
+                (conversation.logged_recommended or self.model_lock.get("recommended"))
+                if profile.use_recommended
+                else None
+            ),
             "template": self.template,
             "libraries": library_versions(),
             "client": client_git(),
@@ -1044,6 +1051,11 @@ class Session:
             chat_settings=chat,
             ctx_size=ctx_size,
             resumed=True,
+            # The settings are the logged ones, so their source is too.
+            logged_recommended=next(
+                (c["recommended"] for c in reversed(state.calls.values()) if c.get("recommended")),
+                None,
+            ),
         )
         for t in state.turns:
             call = state.calls.get(t.get("call_id") or "")
