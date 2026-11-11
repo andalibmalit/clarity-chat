@@ -232,3 +232,16 @@ def test_probs_shows_the_reply_on_screen_after_a_failed_message(commands):
     result = commands.run("probs", "", lambda e: None)
     assert result["call_id"] == first["call_id"]
     assert "unavailable" not in result
+
+
+def test_a_transformers_replay_uses_the_logged_end_tokens(tiny_tokenizer):
+    """generate stops on the logged request's eos_token_id; the replay's stop type and
+    backend_settings must say the same, even if today's model files list others."""
+    torch = pytest.importorskip("torch")
+    backend = stand_in_backend(torch, tiny_tokenizer)
+    first = backend.complete([1, 2], {**SETTINGS, "logprobs": 0}, [])
+    assert first.stop_type == "eos"
+    backend.eos_ids, backend.eos_from = [99], "generation_config.json"  # a later revision
+    again = backend.complete([1, 2], SETTINGS, [], request=first.request)
+    assert again.stop_type == "eos"
+    assert again.backend_settings["eos_token_id"]["value"] == [257]
