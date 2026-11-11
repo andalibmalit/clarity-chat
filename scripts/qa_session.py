@@ -10,15 +10,15 @@ seconds after the step before it was typed, without waiting for quiet (to cancel
 while it streams); `<wait N>` waits N more seconds; lines starting with `#` are skipped.
 Clarity runs in ROOT, so relative paths in CLARITY_ARGS are relative to ROOT.
 
-The owner allowlists this script to run outside the sandbox, which blocks pseudo-
-terminals and hides the GPU, so it keeps Clarity to the scratch root and to SmolLM2
-whatever the steps say. Every run rewrites the root's models.toml, models.lock and
-profiles from this checkout, listing SmolLM2 only (Clarity loads models by name through
-models.lock), and checks that server.toml differs from the checkout's in its flags only,
-that the weights match models.lock's sha256, and that nothing in the root is a link
-(Clarity and the driver follow links, so one could reach a private folder). `--init`
-also resets server.toml. Arguments are parsed with Clarity's own parser and steps with
-its own command splitter, so they are checked as Clarity will read them.
+The owner allowlists this script to run outside the sandbox, which blocks
+pseudo-terminals and hides the GPU, so it keeps Clarity to the scratch root and to
+SmolLM2 whatever the steps say. Every run rewrites the root's models.toml, models.lock
+and profiles from this checkout, listing SmolLM2 only (Clarity loads models by name
+through models.lock), and checks that server.toml differs from the checkout's in its
+flags only, that the weights match models.lock's sha256, and that nothing in the root is
+a link (Clarity and the driver follow links, so one could reach a private folder).
+`--init` also resets server.toml. Arguments are parsed with Clarity's own parser and
+steps with its own command splitter, so they are checked as Clarity will read them.
 """
 
 from __future__ import annotations
