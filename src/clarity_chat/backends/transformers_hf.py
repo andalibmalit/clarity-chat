@@ -8,7 +8,8 @@ Every `GenerationConfig` field that can change the output is set explicitly; Tra
 otherwise fills unset fields from the model's `generation_config.json` and then from its
 own defaults (`top_k` 50, for one). The model's own `generation_config` is replaced by an
 empty one at load, and after every call the effective config is checked field by field.
-Only `eos_token_id` comes from the model's `generation_config.json`, and it is logged.
+Only `eos_token_id` comes from the model: from its `generation_config.json`, or from its
+tokenizer if that file lists none. Both the IDs and their source are logged.
 
 Transformers applies its processors in a fixed order: repetition penalty, then
 temperature, top_k, top_p and min_p. A profile whose `samplers` lists them in another
@@ -28,6 +29,7 @@ from typing import Any
 from clarity_chat.backends import BackendError, Result
 from clarity_chat.logs import machine, new_id
 from clarity_chat.profiles import ConfigError, ModelEntry
+from clarity_chat.render import from_pretrained
 
 NAME = "transformers"
 # Set, not left to the library: with None Transformers picks sdpa but falls back to eager
@@ -69,8 +71,6 @@ NEUTRAL_CONFIG: dict[str, Any] = {
     "use_cache": True,
     "cache_implementation": None,
     "output_scores": False,
-    "output_logits": False,
-    "return_dict_in_generate": False,
 }
 # Fields that can't change a single greedy or sampled sequence without an assistant model
 # (speculative decoding), beams, compilation or batching; their values are only logged.
@@ -119,6 +119,30 @@ def torch_env() -> dict[str, str]:
     }
 
 
+TOKENIZER_END = "tokenizer (generation_config.json has none)"
+
+
+def end_tokens(weights: Path) -> tuple[list[int], str]:
+    """The IDs a reply stops on, and where they came from: `generation_config.json` if it
+    lists any, else the tokenizer's end token. OLMo 3 base's file lists none, and Qwen3.5-9B
+    ships no file; Transformers' own fallback, `config.json`, would give Qwen the wrong stop."""
+    from transformers import AutoTokenizer, GenerationConfig
+
+    if (weights / "generation_config.json").is_file():
+        eos = GenerationConfig.from_pretrained(weights).eos_token_id
+        ids = [eos] if isinstance(eos, int) else list(eos or [])
+        if ids:
+            return ids, "generation_config.json"
+    tokenizer: Any = from_pretrained(AutoTokenizer, weights)
+    eos = tokenizer.eos_token_id
+    if eos is None:
+        raise ConfigError(
+            f"{weights}: no end token in generation_config.json or the tokenizer, so a reply "
+            "would never stop."
+        )
+    return [eos], TOKENIZER_END
+
+
 def generation_values(
     settings: dict[str, Any], stop: list[str], eos_ids: list[int]
 ) -> dict[str, Any]:
@@ -139,7 +163,45 @@ def generation_values(
         "stop_strings": list(stop) or None,
         "eos_token_id": list(eos_ids),
         "pad_token_id": eos_ids[0],
+        # With logprobs on, generate also returns each step's logits, before any processor.
+        "output_logits": settings["logprobs"] > 0,
+        "return_dict_in_generate": settings["logprobs"] > 0,
     }
+
+
+LOGPROBS_VIEW = "raw logits, before any sampler"
+LOGPROBS_CHUNK = 256  # steps reduced at once; each step's logits are a vocabulary of float32s
+
+
+def log_softmax(rows: Any) -> Any:
+    """Log-probabilities from logits, always on the CPU in float32. On MPS, log_softmax over
+    a batch of rows can differ in the last bits from the same row alone, so a reduction on the
+    GPU would depend on how the rows were batched; on the CPU it doesn't. We infer that only
+    the logits then depend on the device, and a recompute (`clarity_chat.recompute`) reduces
+    the same way."""
+    import torch
+
+    return torch.log_softmax(rows.float().cpu(), dim=-1)
+
+
+def reduce_logits(logits: Any, ids: list[int], n: int) -> dict[str, Any]:
+    """Each generated token's log-probability, and the n likeliest tokens with theirs, from
+    the logits `generate` returned (one tensor per step, taken before any processor)."""
+    import torch
+
+    if len(logits) != len(ids):
+        return {"unavailable": f"{len(logits)} steps of logits for {len(ids)} tokens"}
+    tokens = []
+    for start in range(0, len(ids), LOGPROBS_CHUNK):
+        logprobs = log_softmax(torch.cat(logits[start : start + LOGPROBS_CHUNK]))
+        chosen = torch.tensor(ids[start : start + LOGPROBS_CHUNK])
+        picked = logprobs.gather(1, chosen[:, None])[:, 0].tolist()
+        top = torch.topk(logprobs, n, dim=-1)
+        rows = zip(picked, top.indices.tolist(), top.values.tolist(), strict=True)
+        for token, (logprob, top_ids, top_values) in zip(chosen.tolist(), rows, strict=True):
+            pairs = [[i, v] for i, v in zip(top_ids, top_values, strict=True)]
+            tokens.append({"id": token, "logprob": logprob, "top": pairs})
+    return {"view": LOGPROBS_VIEW, "n": n, "tokens": tokens}
 
 
 def active_samplers(settings: dict[str, Any]) -> list[str]:
@@ -246,6 +308,7 @@ class TransformersBackend:
         self.model_entry: ModelEntry | None = None
         self.weights: Path | None = None
         self.eos_ids: list[int] = []
+        self.eos_from = ""
         self.record: dict[str, Any] | None = None
 
     @property
@@ -285,17 +348,14 @@ class TransformersBackend:
                 "PYTORCH_ENABLE_MPS_FALLBACK is set, so operations MPS lacks would run on the "
                 'CPU without notice. Unset it, or set device = "cpu".'
             )
-        generation_file = weights / "generation_config.json"
-        if not generation_file.is_file():
-            raise ConfigError(f"{generation_file} is missing: no eos_token_id to stop on.")
-        own = GenerationConfig.from_pretrained(weights)
-        eos = own.eos_token_id
-        self.eos_ids = [eos] if isinstance(eos, int) else list(eos or [])
-        if not self.eos_ids:
-            raise ConfigError(f"{generation_file} has no eos_token_id.")
-        self.tokenizer = AutoTokenizer.from_pretrained(weights)
-        loaded = AutoModelForCausalLM.from_pretrained(
-            weights, dtype=torch.bfloat16, attn_implementation=ATTN_IMPLEMENTATION
+        self.eos_ids, self.eos_from = end_tokens(weights)
+        tokenizer: Any = from_pretrained(AutoTokenizer, weights)
+        self.tokenizer = tokenizer
+        loaded = from_pretrained(
+            AutoModelForCausalLM,
+            weights,
+            dtype=torch.bfloat16,
+            attn_implementation=ATTN_IMPLEMENTATION,
         )
         attention = getattr(loaded.config, "_attn_implementation", None)
         if attention != ATTN_IMPLEMENTATION:
@@ -309,6 +369,12 @@ class TransformersBackend:
         self._check_positions(model.name, loaded)
         self.model, self.model_entry, self.weights = loaded, model, weights
         warnings = []
+        if self.eos_from == TOKENIZER_END:
+            (eos,) = self.eos_ids
+            warnings.append(
+                f"{model.name}'s generation_config.json lists no end token, so replies stop on "
+                f"the tokenizer's: {self.tokenizer.convert_ids_to_tokens(eos)} ({eos})."
+            )
         deterministic = torch.are_deterministic_algorithms_enabled()
         if deterministic:
             # Clarity never turns it on (it makes nothing in inference deterministic on MPS or
@@ -334,6 +400,7 @@ class TransformersBackend:
             "torch": torch.__version__,
             "transformers": transformers.__version__,
             "eos_token_id": self.eos_ids,
+            "eos_token_id_from": self.eos_from,
             "max_position_embeddings": getattr(loaded.config, "max_position_embeddings", None),
             "env_torch_kept": env,
             "deterministic_algorithms": deterministic,
@@ -377,7 +444,14 @@ class TransformersBackend:
             else generation_values(settings, stop, self.eos_ids)
         )
         seed = request["seed"] if request is not None else settings["seed"]
-        logged_request = {"generation_config": values, "seed": seed, "device": self.device}
+        # A replay takes it from the logged request (absent before v0.2.1: off).
+        n_logprobs = request.get("logprobs", 0) if request is not None else settings["logprobs"]
+        logged_request = {
+            "generation_config": values,
+            "seed": seed,
+            "device": self.device,
+            "logprobs": n_logprobs,
+        }
         try:
             config = GenerationConfig(**values)
             effective, _ = self.model._prepare_generation_config(config)
@@ -387,9 +461,13 @@ class TransformersBackend:
                 Result(text="", token_ids=[], stop_type="none", request=logged_request),
             ) from e
         check = check_config(effective.to_dict(), values)
+        # The end tokens generate stops on: the logged ones on a replay, not today's.
+        eos = values["eos_token_id"]
+        eos_ids = [eos] if isinstance(eos, int) else list(eos)
+        eos_origin = "log" if request is not None else self.eos_from
         backend_settings = {
             k: {"value": v, "origin": "backend"} for k, v in NEUTRAL_CONFIG.items()
-        } | {"eos_token_id": {"value": self.eos_ids, "origin": "model"}}
+        } | {"eos_token_id": {"value": eos_ids, "origin": eos_origin}}
         stop_words = values["stop_strings"] or []
         ids: list[int] = []
         shown = 0
@@ -433,7 +511,7 @@ class TransformersBackend:
                 torch.mps.manual_seed(seed)
             inputs = torch.tensor([token_ids], device=self.device)
             with torch.inference_mode():
-                self.model.generate(
+                output = self.model.generate(
                     inputs,
                     attention_mask=torch.ones_like(inputs),
                     generation_config=config,
@@ -448,6 +526,15 @@ class TransformersBackend:
                 Result(text="", token_ids=list(ids), stop_type="none", request=logged_request),
             ) from e
         ended = time.perf_counter()
+        logprobs = None
+        if values.get("output_logits") and n_logprobs > 0:
+            # The cancel is raised inside generate, so a cancelled call returns no logits.
+            if cancelled:
+                logprobs = {"unavailable": "cancelled"}
+            else:
+                with torch.inference_mode():
+                    logprobs = reduce_logits(output.logits, ids, n_logprobs)
+                del output
         first = first_token_at[0] if first_token_at else ended
         # llama-server's names; prompt_ms here is the time to the first generated token.
         timings = {
@@ -460,7 +547,7 @@ class TransformersBackend:
         text, word = cut_at_stop(full, stop_words)
         if cancelled:
             stop_type = "cancelled"
-        elif ids and ids[-1] in self.eos_ids:
+        elif ids and ids[-1] in eos_ids:
             stop_type = "eos"
         elif word:
             stop_type = "word"
@@ -490,6 +577,7 @@ class TransformersBackend:
             not_applied=not_applied(settings),
             flags=flags,
             checks={"generation_config": check},
+            logprobs=logprobs,
         )
 
     def _check_positions(self, name: str, loaded: Any) -> None:

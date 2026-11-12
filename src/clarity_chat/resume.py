@@ -35,16 +35,26 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
     the turn before it."""
     if not records or records[0].get("type") != "conversation":
         first = records[0].get("type") if records else "nothing"
-        hint = " A batch run's calls.jsonl can't be resumed." if first == "run" else ""
+        hint = " A batch run's calls.jsonl can't be resumed or exported." if first == "run" else ""
         raise ConfigError(f"{where} starts with {first}, not a conversation record.{hint}")
     out = Rebuilt(records[0])
     roles: dict[str, dict[str, Any]] = {}
     failed: dict[str, dict[str, Any]] = {}  # calls with no reply, by ID
+    resumed = moved_after_resume = False
     for record in records:
         kind = record.get("type")
+        if kind == "resume":
+            resumed = True
+        elif kind in ("turn", "head") and resumed:
+            moved_after_resume = True  # a newer Clarity logged where the head went
         if kind == "conversation" and record is not records[0]:
             raise ConfigError(f"{where} holds more than one conversation.")
         if kind == "turn":
+            parent = record.get("parent_id")
+            if parent is not None and parent not in roles:  # an edited log: a cycle loops
+                raise ConfigError(
+                    f"{where}: turn {record['turn_id']}'s parent {parent} isn't an earlier turn."
+                )
             out.turns.append(record)
             roles[record["turn_id"]] = record
             out.head, out.failed_call = record["turn_id"], None
@@ -64,8 +74,9 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
         out.unanswered = {"turn_id": last["turn_id"], "text": last["text"]}
     if out.head is not None and roles[out.head]["role"] == "user":
         out.head = roles[out.head]["parent_id"]
-    # v0.1.0 logged neither /undo nor a failed call's move back: the head is a guess.
-    out.head_guessed = "ctx_size" not in out.start
+    # v0.1.0 logged neither /undo nor a failed call's move back: the head is a guess, until
+    # a later Clarity resumed the log and logged a turn or a head move.
+    out.head_guessed = "ctx_size" not in out.start and not moved_after_resume
     return out
 
 

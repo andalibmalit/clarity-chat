@@ -154,16 +154,22 @@ def test_values_of_secret_looking_variables_are_never_logged(monkeypatch):
 COMMIT = "f477f795cb071baf5b8af6488378366a72034ac4"
 
 
-def test_a_clean_matching_server_has_no_start_warnings():
-    assert start_warnings("b1-f477f79", COMMIT, {"dirty": False}, {}) == []
+def test_a_clean_server_has_no_start_warnings():
+    assert start_warnings({"dirty": False}, {}) == []
 
 
 def test_start_warnings_name_what_you_can_act_on():
-    warnings = start_warnings("b1-0000000", COMMIT, {"dirty": True}, {"GGML_X": "1"})
-    text = " ".join(warnings)
-    assert "rebuild llama-server" in text
+    text = " ".join(start_warnings({"dirty": True}, {"GGML_X": "1"}))
     assert "uncommitted changes" in text
     assert "GGML_X" in text
+
+
+def test_a_server_built_from_another_commit_is_an_error(monkeypatch, root):
+    from clarity_chat.profiles import ConfigError
+
+    with pytest.raises(ConfigError, match="rebuild llama-server"):
+        started_server(monkeypatch, root, STARTUP_GPU, build_info="b1-0000000")
+    started_server(monkeypatch, root, STARTUP_GPU, build_info="b1-" + COMMIT[:7])
 
 
 def test_config_files_are_found(monkeypatch, tmp_path):
@@ -235,17 +241,12 @@ class FakeStream:
         yield from self.lines
 
 
-class PropsFail:
+class ExitedServer:
+    """A server whose process exited once the reply was in."""
+
     url = "http://127.0.0.1:1"
     headers = {"Authorization": "Bearer test-key"}
-
-    def get_props(self):
-        import httpx
-
-        raise httpx.ConnectError("server gone")
-
-    def check_props(self, props):
-        return []
+    proc = type("Exited", (), {"poll": lambda self: 1})()
 
 
 def fake_backend(monkeypatch, root, lines):
@@ -255,7 +256,7 @@ def fake_backend(monkeypatch, root, lines):
     from clarity_chat.profiles import load_server_config
 
     backend = llama_cpp.LlamaCppBackend(load_server_config(root), root / "logs")
-    monkeypatch.setattr(backend, "server", PropsFail())  # only what complete() uses
+    monkeypatch.setattr(backend, "server", ExitedServer())  # only what complete() uses
     encoded = [line if isinstance(line, str) else "data: " + json.dumps(line) for line in lines]
     monkeypatch.setattr(llama_cpp.httpx, "stream", lambda *a, **k: FakeStream(encoded))
     return backend
@@ -273,12 +274,12 @@ FINAL = {
 }
 
 
-def test_a_props_failure_after_the_reply_is_a_failed_check_not_a_lost_reply(monkeypatch, root):
+def test_a_server_gone_after_the_reply_is_a_failed_check_not_a_lost_reply(monkeypatch, root):
     backend = fake_backend(monkeypatch, root, [{"content": "Hi", "tokens": [5]}, FINAL])
     result = backend.complete([1, 2], SETTINGS, [])
     assert result.text == "Hi"
-    assert result.checks["server_props"]["ok"] is False
-    assert "check_failed:server_props" in result.flags
+    assert result.checks["server_running"] == {"ok": False, "exit_code": 1}
+    assert "check_failed:server_running" in result.flags
 
 
 def test_a_malformed_stream_chunk_is_a_backend_error_with_the_partial_reply(monkeypatch, root):
@@ -288,7 +289,7 @@ def test_a_malformed_stream_chunk_is_a_backend_error_with_the_partial_reply(monk
     assert caught.value.partial is not None and caught.value.partial.text == "Hi"
 
 
-def started_server(monkeypatch, root, startup, props_ok=True, on_change=None):
+def started_server(monkeypatch, root, startup, props_ok=True, on_change=None, build_info=None):
     """A LlamaServer.start() with every outside step faked: what it launched, and the record."""
     import json
     from pathlib import Path
@@ -314,7 +315,7 @@ def started_server(monkeypatch, root, startup, props_ok=True, on_change=None):
     props = {
         "model_path": str(root / "model.gguf"),
         "default_generation_settings": {"n_ctx": config.ctx_size},
-        "build_info": "b1-" + config.llama_cpp_commit[:7],
+        "build_info": build_info or "b1-" + config.llama_cpp_commit[:7],
     }
     monkeypatch.setattr(server, "get_props", lambda: props)
     monkeypatch.setattr(server, "check_props", lambda p: [] if props_ok else ["n_ctx differs"])
@@ -337,7 +338,8 @@ def test_end_of_reply_tokens_are_logged(monkeypatch, root):
     _, _, record = started_server(monkeypatch, root, STARTUP_GPU)
     assert '"eog_tokens": [{"id": 100257, "text": "<|endoftext|>"}, {"id": 100265' in record
     windows = STARTUP_GPU.replace("\n", "\r\n")
-    assert [t["id"] for t in eog_tokens(windows)] == [100257, 100265]
+    assert [t["id"] for t in eog_tokens(windows) or []] == [100257, 100265]
+    assert eog_tokens("no such line") is None  # not found, which isn't "no end tokens"
 
 
 def test_the_server_key_goes_in_the_environment_and_is_never_logged(monkeypatch, root):
@@ -348,6 +350,13 @@ def test_the_server_key_goes_in_the_environment_and_is_never_logged(monkeypatch,
     assert '"api_key": "random per start; value not logged"' in record
     assert {"--no-slots", "--no-webui"} <= set(launched["argv"])
     assert server.headers == {"Authorization": f"Bearer {server.api_key}"}
+
+
+def test_clarity_s_own_flags_come_last_so_no_configured_flag_overrides_them(monkeypatch, root):
+    _, launched, _ = started_server(monkeypatch, root, STARTUP_GPU)
+    argv = launched["argv"]
+    assert argv[-6:-4] == ["--host", "127.0.0.1"] and argv[-4] == "--port"
+    assert argv[-2:] == ["--no-slots", "--no-webui"]
 
 
 def test_each_start_draws_a_new_key(monkeypatch, root):
@@ -387,11 +396,42 @@ def test_the_context_size_goes_into_the_servers_flags_and_a_new_size_restarts(mo
     monkeypatch.setattr(llama_cpp.LlamaServer, "stop", lambda server: None)
     backend = llama_cpp.LlamaCppBackend(load_server_config(root), root / "logs")
     model = load_models(root)["tiny"]
+    (root / "m.gguf").write_bytes(b"weights")
     backend.start(model, root / "m.gguf", 16384)
     assert backend.n_ctx == 16384 and backend.config.ctx_size == 8192  # server.toml untouched
     assert backend.start(model, root / "m.gguf", 16384) is None
     backend.start(model, root / "m.gguf", 4096)
     assert sizes == [16384, 4096]
+
+
+def test_a_file_replaced_under_a_running_server_restarts_it(monkeypatch, root):
+    """`fetch` replaces a GGUF by rename, so the path stays the same while the bytes change.
+    The running server still has the old file open."""
+    import os
+
+    from clarity_chat.backends import llama_cpp
+    from clarity_chat.profiles import load_models, load_server_config
+
+    started = []
+
+    def start(server):
+        started.append(server.gguf)
+        server.proc = type("Running", (), {"poll": lambda self: None})()
+        return {}
+
+    monkeypatch.setattr(llama_cpp.LlamaServer, "start", start)
+    monkeypatch.setattr(llama_cpp.LlamaServer, "stop", lambda server: None)
+    backend = llama_cpp.LlamaCppBackend(load_server_config(root), root / "logs")
+    model = load_models(root)["tiny"]
+    weights = root / "m.gguf"
+    weights.write_bytes(b"old weights")
+    backend.start(model, weights, 8192)
+    assert backend.start(model, weights, 8192) is None  # the same file: kept
+    fetched = root / "m.gguf.part"
+    fetched.write_bytes(b"new weights")
+    os.replace(fetched, weights)
+    assert backend.start(model, weights, 8192) is not None
+    assert len(started) == 2
 
 
 def test_a_size_above_the_training_context_names_the_limit(monkeypatch, root):
@@ -498,3 +538,71 @@ def test_the_server_is_recorded_when_launched_and_cleared_once_it_exits(root):
         "model_path": str(root / "model.gguf"),
     }
     assert heard[-1] is None and server.proc is not None and server.proc.poll() is not None
+
+
+def test_the_server_log_is_readable_only_by_you(root):
+    """llama-server's output can hold prompt text, so its log is private like the chat's."""
+    import io
+    import os
+
+    from clarity_chat.backends.llama_cpp import LlamaServer
+    from clarity_chat.profiles import load_server_config
+
+    server = LlamaServer(load_server_config(root), root / "model.gguf", root / "logs")
+    server.log_path.parent.mkdir(parents=True)
+    server._drain(io.BytesIO(b"main: ready\n"))
+    if os.name != "nt":
+        assert server.log_path.stat().st_mode & 0o777 == 0o600
+
+
+# Each setting and the request field that carries it.
+REQUEST_FIELD = {
+    "temperature": "temperature",
+    "top_k": "top_k",
+    "top_p": "top_p",
+    "min_p": "min_p",
+    "repeat_penalty": "repeat_penalty",
+    "repeat_last_n": "repeat_last_n",
+    "presence_penalty": "presence_penalty",
+    "frequency_penalty": "frequency_penalty",
+    "seed": "seed",
+    "max_tokens": "n_predict",
+    "samplers": "samplers",
+}
+
+
+def any_settings():
+    from hypothesis import strategies as st
+
+    unit = st.floats(0, 1, allow_nan=False)
+    return st.fixed_dictionaries(
+        {
+            "temperature": st.floats(0, 2, allow_nan=False),
+            "top_k": st.integers(0, 200),
+            "top_p": unit,
+            "min_p": unit,
+            "repeat_penalty": st.floats(0.5, 2, allow_nan=False),
+            "repeat_last_n": st.integers(0, 512),
+            "presence_penalty": st.floats(-2, 2, allow_nan=False),
+            "frequency_penalty": st.floats(-2, 2, allow_nan=False),
+            "seed": st.integers(0, 2**31 - 1),
+            "max_tokens": st.integers(1, 4096),
+            "samplers": st.permutations(["top_k", "top_p", "min_p", "temperature"]),
+        }
+    )
+
+
+def test_each_setting_reaches_its_own_request_field():
+    """What the record says was set is what was sent: no swapped field, no fixed value. The
+    echo check can't catch either, since it compares the request with the server's echo."""
+    from hypothesis import given
+    from hypothesis import settings as hypothesis_settings
+
+    @hypothesis_settings(max_examples=200, deadline=None)
+    @given(any_settings())
+    def check(settings):
+        request = build_request([1], settings, ["\nUser:"])
+        for name, field in REQUEST_FIELD.items():
+            assert request[field] == settings[name], (name, field)
+
+    check()

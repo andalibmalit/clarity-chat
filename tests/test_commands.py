@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from clarity_chat.backends import BackendError
 from clarity_chat.commands import Commands
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import CancelledBeforeReply, Session
@@ -85,3 +86,220 @@ def test_one_command_at_a_time_and_an_early_cancel_still_lands(commands):
         c.run("say", "Hi", lambda e: None)
     backend.on_call = None
     assert c.run("say", "Hi", lambda e: None)["call"]["output_text"] == " Again."
+
+
+def test_regen_n_makes_n_branches_with_consecutive_seeds(commands):
+    c, backend = commands
+    backend.replies = [" first", " a", " b", " c"]
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    events: list[dict] = []
+    result = c.run("regen", "3", events.append)
+    starts = [e for e in events if e["event"] == "reply_start"]
+    assert [(e["k"], e["n"], e["seed"]) for e in starts] == [(1, 3, 43), (2, 3, 44), (3, 3, 45)]
+    calls = [r["call"] for r in result["replies"]]
+    assert [call["settings"]["seed"]["value"] for call in calls] == [43, 44, 45]
+    assert [call["output_text"] for call in calls] == [" a", " b", " c"]
+    conversation = c.session.conversation
+    assert conversation is not None
+    assert conversation.turns[conversation.head].text == " c"  # the head is the last reply
+    assert "stopped" not in result
+
+
+def test_plain_regen_returns_a_list_of_one(commands):
+    c, _ = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    result = c.run("regen", "", lambda e: None)
+    assert len(result["replies"]) == 1 and result["replies"][0]["call"]["regen_of"]
+
+
+@pytest.mark.parametrize("args", ["0", "-1", "two", "1.5", "²", "٣"])
+def test_regen_n_must_be_a_positive_whole_number(commands, args):
+    c, _ = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    with pytest.raises(ConfigError, match=r"/regen \[N\]"):
+        c.run("regen", args, lambda e: None)
+
+
+def test_a_failure_after_the_first_reply_stops_the_rest_and_keeps_the_replies(commands):
+    c, backend = commands
+    backend.replies = [" first", " a", " b"]
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    calls = []
+
+    def fail_on_second():
+        calls.append(1)
+        if len(calls) == 2:
+            backend.fail_with = "server gone"
+
+    original = backend.complete
+
+    def complete(*args, **kwargs):
+        fail_on_second()
+        return original(*args, **kwargs)
+
+    backend.complete = complete
+    result = c.run("regen", "3", lambda e: None)
+    assert [r["call"]["output_text"] for r in result["replies"]] == [" a"]
+    assert result["stopped"].startswith("Reply 2 of 3: server gone")
+    conversation = c.session.conversation
+    assert conversation is not None
+    assert conversation.turns[conversation.head].text == " a"
+
+
+def test_a_cancel_stops_the_reply_being_written_and_the_rest(commands):
+    c, backend = commands
+    backend.replies = [" first", " a", " longer reply", " c"]
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    calls = []
+
+    def cancel_the_second():
+        calls.append(1)
+        if len(calls) == 2:
+            backend.cancel_after = 3
+            c.run("cancel", "", lambda e: None)
+
+    backend.on_call = cancel_the_second
+    result = c.run("regen", "3", lambda e: None)
+    calls_made = [r["call"] for r in result["replies"]]
+    assert [call["stop_type"] for call in calls_made] == ["eos", "cancelled"]
+    assert len(backend.calls) == 3  # say, then two regenerations: the third never started
+
+
+@pytest.mark.parametrize("how", ["failure", "cancel"])
+def test_a_first_reply_that_fails_or_is_cancelled_before_it_starts_raises(commands, how):
+    """With no reply made, there's nothing to return: the error reaches the caller, so
+    --json sends an error event rather than an empty list."""
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    if how == "failure":
+        backend.fail_with = "server gone"
+    else:
+        backend.on_call = lambda: c.run("cancel", "", lambda e: None)
+    with pytest.raises(BackendError) as raised:
+        c.run("regen", "3", lambda e: None)
+    assert isinstance(raised.value, CancelledBeforeReply) == (how == "cancel")
+
+
+def test_a_cancel_before_a_later_reply_starts_ends_like_any_other_cancel(commands):
+    """Cancelled before reply 2's first token: the same result as a cancel mid-reply or
+    between replies, with no `stopped`, and the head at the last completed reply."""
+    c, backend = commands
+    backend.replies = [" first", " a", " b", " c"]
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    calls = []
+
+    def cancel_before_the_second():
+        calls.append(1)
+        if len(calls) == 2:
+            c.run("cancel", "", lambda e: None)
+
+    backend.on_call = cancel_before_the_second
+    result = c.run("regen", "3", lambda e: None)
+    assert "stopped" not in result
+    assert [r["call"]["output_text"] for r in result["replies"]] == [" a"]
+    conversation = c.session.conversation
+    assert conversation is not None
+    assert conversation.turns[conversation.head].text == " a"
+
+
+def test_commands_that_parse_names_ignore_edge_spaces_from_scripts(commands):
+    """--json passes args as sent; a leading space mustn't make an empty setting name or a
+    label /unmark can't find."""
+    c, _ = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    c.run("set", " temperature 0.5 ", lambda e: None)
+    conversation = c.session.conversation
+    assert conversation is not None and conversation.chat_settings["temperature"] == 0.5
+    marked = c.run("mark", " landed ", lambda e: None)["records"]
+    assert marked[0]["label"] == "landed"
+    assert c.run("unmark", "landed", lambda e: None)["records"]
+
+
+@pytest.mark.parametrize(
+    ("name", "args"),
+    [
+        ("profile", "PROFILES/text.toml"),
+        ("profile", "../profiles/text"),
+        ("resume", "LOG"),
+        ("resume", "../logs/LOGNAME"),
+    ],
+)
+def test_a_command_takes_names_and_ids_not_paths(commands, fetched_root, name, args):
+    """From v0.3.0 the browser sends commands too, and the trust statement counts them as
+    untrusted: a path could make Clarity read any .toml or append to any log. The command
+    line's --profile and --resume, typed by you, keep their paths."""
+    c, _ = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    log = c.session.conversation.log.path
+    args = args.replace("PROFILES", str(fetched_root / "profiles")).replace("LOGNAME", log.stem)
+    with pytest.raises(ConfigError, match="not a path"):
+        c.run(name, args.replace("LOG", str(log)), lambda e: None)
+
+
+def test_the_command_lines_paths_still_work(commands, fetched_root):
+    c, _ = commands
+    profile = str(fetched_root / "profiles" / "text.toml")
+    assert c.run("profile", profile, lambda e: None, paths=True)["profile"] == "text"
+    c.run("say", "Hi", lambda e: None)
+    log = c.session.conversation.log.path
+    c.run("resume", str(log), lambda e: None, paths=True)
+    assert c.run("resume", log.stem, lambda e: None)["conversation_id"] == log.stem
+
+
+def test_a_name_is_never_looked_up_in_the_working_folder(
+    commands, fetched_root, tmp_path, monkeypatch
+):
+    """A typed name or ID means profiles/ or local/profiles/, and logs/; not a file that
+    happens to sit in the folder Clarity runs from."""
+    import shutil
+
+    c, _ = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    log = c.session.conversation.log.path
+    here = tmp_path / "cwd"
+    here.mkdir()
+    shutil.copy(fetched_root / "profiles" / "text.toml", here / "evil.toml")
+    shutil.copy(log, here / "planted")
+    monkeypatch.chdir(here)
+    with pytest.raises(ConfigError, match="not a path"):
+        c.run("profile", "evil.toml", lambda e: None)
+    with pytest.raises(ConfigError, match="No conversation"):
+        c.run("resume", "planted", lambda e: None)
+
+
+def test_new_after_a_resume_doesnt_read_a_logged_profile_outside_the_project(
+    fetched_root, tmp_path_factory, tiny_tokenizer
+):
+    """A log is untrusted: its profile path can name any .toml file. /new starts the logged
+    profile by name from the project instead."""
+    import shutil
+
+    outside = tmp_path_factory.mktemp("outside")  # not under fetched_root
+    shutil.copy(fetched_root / "profiles" / "text.toml", outside / "text.toml")
+
+    def commands():
+        backend = FakeBackend([" Hello!", " Again."], tokenizer=tiny_tokenizer)
+        loader = lambda r, v: tiny_tokenizer  # noqa: E731
+        return Commands(Session(fetched_root, backend=backend, tokenizer_loader=loader))
+
+    first = commands()
+    first.run("profile", str(outside / "text.toml"), lambda e: None, paths=True)
+    first.run("say", "Hi", lambda e: None)
+    conversation_id = first.session.conversation.conversation_id
+    text = (outside / "text.toml").read_text(encoding="utf-8")
+    (outside / "text.toml").write_text("private_key_name = 1\n" + text, encoding="utf-8")
+    second = commands()
+    second.run("resume", conversation_id, lambda e: None)
+    started = second.run("new", "", lambda e: None)  # reads profiles/text.toml
+    assert started["profile"] == "text"
+    assert second.session.conversation.profile.path.parent == fetched_root / "profiles"

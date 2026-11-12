@@ -158,11 +158,9 @@ def check_generation_settings(request: dict, gs: dict) -> dict[str, dict[str, An
         if gs[name] != expected:
             mismatched[name] = {"expected": expected, "got": gs[name]}
     unaccounted = sorted(set(gs) - set(request) - set(EXPECTED_UNSENT))
-    not_echoed = sorted(set(NEUTRAL_REQUEST) - set(gs))
     return {
         "settings_echo": {"ok": not mismatched, "mismatched": mismatched},
         "unaccounted_settings": {"ok": not unaccounted, "keys": unaccounted},
-        "not_echoed": {"ok": True, "keys": not_echoed},  # sent, but the server doesn't report them
     }
 
 
@@ -186,9 +184,11 @@ BUFFER_RE = re.compile(r"(\S+) model buffer size = +([\d.]+) MiB")
 EOG_RE = re.compile(r"EOG token += (\d+) '(.*)'\r?$", re.MULTILINE)
 
 
-def eog_tokens(startup_output: str) -> list[dict[str, Any]]:
-    """The tokens that end a reply, as llama.cpp read them from the GGUF (its startup log)."""
-    return [{"id": int(m[1]), "text": m[2]} for m in EOG_RE.finditer(startup_output)]
+def eog_tokens(startup_output: str) -> list[dict[str, Any]] | None:
+    """The tokens that end a reply, as llama.cpp read them from the GGUF (its startup log).
+    None if the log has no such line (a llama.cpp update may change it): unknown, not none."""
+    found = [{"id": int(m[1]), "text": m[2]} for m in EOG_RE.finditer(startup_output)]
+    return found or None
 
 
 # "graph: nodes = 1131, splits = 2, …", or "graph (pp bs=512, tg bs=1): … splits = 2 / 3, …"
@@ -348,16 +348,20 @@ def server_env() -> tuple[dict[str, str], list[str], dict[str, str]]:
     return env, sorted(removed), kept
 
 
-def start_warnings(
-    build_info: str, pinned_commit: str, checkout: dict[str, Any], kept: dict[str, str]
-) -> list[str]:
+def stale_build(build_info: str, pinned_commit: str) -> str | None:
+    """The binary is what runs, so one built from another commit is an error, like a checkout
+    at another commit. build_info ends in the short commit it was built from."""
+    if pinned_commit.startswith(build_info.rsplit("-", 1)[-1] or "?"):
+        return None
+    return (
+        f"llama-server reports build {build_info!r}, but server.toml pins "
+        f"{pinned_commit[:12]}: rebuild llama-server at that commit (docs/getting-started.md)."
+    )
+
+
+def start_warnings(checkout: dict[str, Any], kept: dict[str, str]) -> list[str]:
     """Facts about this server that you can act on and that could change its output."""
     warnings = []
-    if not pinned_commit.startswith(build_info.rsplit("-", 1)[-1] or "?"):
-        warnings.append(
-            f"build_info {build_info!r} doesn't match the checkout commit "
-            f"{pinned_commit[:12]}: rebuild llama-server."
-        )
     if checkout.get("dirty"):
         warnings.append(
             "The llama.cpp checkout has uncommitted changes, so this server can't be rebuilt "
@@ -429,7 +433,10 @@ class LlamaServer:
             return "".join(self.output)
 
     def _drain(self, stream: Any) -> None:
-        with self.log_path.open("a", encoding="utf-8", newline="") as log:
+        # Private, like the chat's log: the server's output can hold prompt text.
+        flags = os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_BINARY", 0)
+        fd = os.open(self.log_path, flags, 0o600)
+        with open(fd, "a", encoding="utf-8", newline="") as log:
             for raw in iter(stream.readline, b""):
                 line = API_KEY_LINE.sub(API_KEY_REDACTED, raw.decode("utf-8", errors="replace"))
                 with self._output_lock:
@@ -457,17 +464,18 @@ class LlamaServer:
         attempts = []
         for _ in range(3):  # a free port can be taken between choosing it and binding it
             self.port = free_port()
+            # Clarity's own flags come last: llama-server takes the last value of a flag.
             argv = [
                 str(binary),
                 "--model",
                 str(self.gguf),
+                *self.config.flag_argv(),
                 "--host",
                 "127.0.0.1",
                 "--port",
                 str(self.port),
                 "--no-slots",  # /slots would show prompts to anyone holding the key
                 "--no-webui",  # the built-in web UI is public even with a key
-                *self.config.flag_argv(),
             ]
             error = self._launch(argv, env)
             if error is None:
@@ -508,7 +516,11 @@ class LlamaServer:
                 "llama-server is not the server the client started: " + "; ".join(problems)
             )
         build_info = str(props.get("build_info", ""))
-        warnings = start_warnings(build_info, self.config.llama_cpp_commit, checkout, kept)
+        stale = stale_build(build_info, self.config.llama_cpp_commit)
+        if stale:
+            self.stop()
+            raise ConfigError(stale)
+        warnings = start_warnings(checkout, kept)
         self.record = {
             "type": "server_start",
             "server_id": self.server_id,
@@ -631,6 +643,7 @@ class LlamaCppBackend:
         self.on_server = on_server
         self.server: LlamaServer | None = None
         self.model: ModelEntry | None = None
+        self.weights_identity: tuple[int, int, int] | None = None  # of the running server's file
 
     @property
     def n_ctx(self) -> int:
@@ -638,22 +651,36 @@ class LlamaCppBackend:
 
     @property
     def server_record(self) -> dict[str, Any] | None:
-        return self.server.record if self.server else None
+        # A server that failed to start has an empty record: report it as none.
+        return (self.server.record or None) if self.server else None
 
     def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
         """Start llama-server with `weights` and a context of `ctx_size`. The old server stops
         first, so two models never share memory. Returns the new server_start record, or None
         if the same GGUF already runs at that size."""
+        # `fetch` replaces a file by rename: same path, new bytes, while the server still has
+        # the old ones open. Its inode, size and modification time tell the two apart without
+        # hashing (fetch and verify hash). An overwrite in place isn't covered.
+        st = weights.stat()
+        identity = (st.st_ino, st.st_size, st.st_mtime_ns)
         server = self.server
-        if server and server.gguf == weights.absolute() and server.config.ctx_size == ctx_size:
-            if server.proc and server.proc.poll() is None:
-                return None
+        if (
+            server
+            and server.gguf == weights.absolute()
+            and server.config.ctx_size == ctx_size
+            and self.weights_identity == identity
+            and server.proc
+            and server.proc.poll() is None
+        ):
+            return None
         self.close()
         self.model = model
         # The size goes into the flags, so argv, the /props check and the log all agree.
         config = dataclasses.replace(self.config, flags={**self.config.flags, "ctx-size": ctx_size})
         self.server = LlamaServer(config, weights, self.logs_dir, self.on_server)
-        return self.server.start()
+        record = self.server.start()
+        self.weights_identity = identity
+        return record
 
     def describe(self) -> dict[str, Any]:
         record = self.server_record or {}
@@ -774,14 +801,15 @@ class LlamaCppBackend:
             "ok": timings.get("cache_n") == 0,
             "cache_n": timings.get("cache_n"),
         }
-        # The reply is complete; a failure here is a failed check, never a lost reply.
-        try:
-            props_problems = self.server.check_props(self.server.get_props())
-        except (httpx.HTTPError, ValueError) as e:
-            props_problems = [f"/props failed after the reply: {type(e).__name__}: {e}"]
-        except KeyboardInterrupt:
-            props_problems = ["/props check interrupted (Ctrl-C) after the reply"]
-        checks["server_props"] = {"ok": not props_problems, "problems": props_problems}
+        # /props was checked at start. Nothing can change a running server's model or context
+        # (server.toml allows no router flags and no --props), and its key keeps other
+        # clients out, so what's left to check is that the process is still the one started.
+        # The reply is complete: a failure here is a failed check, never a lost reply.
+        proc = self.server.proc
+        exit_code = proc.poll() if proc is not None else "never started"
+        checks["server_running"] = {"ok": exit_code is None}
+        if exit_code is not None:
+            checks["server_running"]["exit_code"] = exit_code
 
         flags = []
         if final.get("truncated"):

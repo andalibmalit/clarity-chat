@@ -40,6 +40,7 @@ class Result:
     not_applied: list[dict[str, Any]] = field(default_factory=list)
     flags: list[str] = field(default_factory=list)
     checks: dict[str, dict[str, Any]] = field(default_factory=dict)  # name -> {ok, ...}
+    logprobs: dict[str, Any] | None = None  # with the logprobs setting on (Transformers only)
 
 
 class Backend(Protocol):

@@ -9,6 +9,7 @@ record, whether it succeeded, failed or was cancelled.
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import threading
@@ -28,7 +29,9 @@ from clarity_chat.profiles import (
     Profile,
     ServerConfig,
     Setting,
+    check_backend_settings,
     check_samplers,
+    check_server_flags,
     check_setting,
     load_defaults,
     load_models,
@@ -44,6 +47,7 @@ from clarity_chat.render import (
     build_prompt,
     chat_template_source,
     library_versions,
+    message_spans,
     unread_kwargs,
 )
 from clarity_chat.replay import (
@@ -129,6 +133,9 @@ class Conversation:
     warnings: list[str] = field(default_factory=list)  # shown when it starts, and logged
     chat_settings: dict[str, Any] = field(default_factory=dict)  # set with /set
     resumed: bool = False  # rebuilt from its log: /switch checks the prompt renders the same
+    # The model's recommended values the settings came from, as logged; None for a new
+    # conversation, whose calls log today's models.lock.
+    logged_recommended: dict[str, Any] | None = None
 
     @property
     def settings(self) -> dict[str, Setting]:
@@ -306,6 +313,7 @@ class Session:
 
         from clarity_chat.backends.llama_cpp import LlamaCppBackend
 
+        check_server_flags(flags, "the logged server_start's flags")
         self.close()
         self.server_config = dataclasses.replace(self.server_config, flags=flags)
         backend = LlamaCppBackend(self.server_config, self.logs_dir, self.on_server)
@@ -319,7 +327,7 @@ class Session:
             self.backend = backend
         return backend
 
-    def _load_tokenizer(self, repo: str, revision: str) -> Tokenizer:
+    def load_tokenizer(self, repo: str, revision: str) -> Tokenizer:
         if (repo, revision) not in self._tokenizers:
             self._tokenizers[repo, revision] = self.tokenizer_loader(repo, revision)
         return self._tokenizers[repo, revision]
@@ -327,9 +335,9 @@ class Session:
     def tokenizers_for(self, profile: Profile, model: ModelEntry) -> tuple[Tokenizer, Tokenizer]:
         """The model's tokenizer, which always tokenizes, and the tokenizer whose chat
         template renders chat mode (the profile's template_repo, else the model's)."""
-        tokenizer = self._load_tokenizer(model.tokenizer_repo, model.tokenizer_revision)
+        tokenizer = self.load_tokenizer(model.tokenizer_repo, model.tokenizer_revision)
         if profile.mode == "chat" and profile.template_repo and profile.template_revision:
-            return tokenizer, self._load_tokenizer(profile.template_repo, profile.template_revision)
+            return tokenizer, self.load_tokenizer(profile.template_repo, profile.template_revision)
         return tokenizer, tokenizer
 
     def prepare(self, profile_name: str, logged: dict[str, Any] | None = None) -> Prepared:
@@ -502,16 +510,17 @@ class Session:
         conversation.head = user.turn_id
         return self.call(user, seed=seed, on_text=on_text, cancel=cancel)
 
-    def regen(
-        self, on_text: Callable[[str], None] | None = None, cancel: threading.Event | None = None
-    ) -> CallOutcome:
-        """Another reply to the current message, as a new branch. Its seed is the first
-        reply's seed plus k, where k counts this and earlier regenerations of that message."""
+    def regen_seed(self) -> int:
+        """The next regeneration's seed: the first reply's seed plus k, where k counts this
+        and earlier regenerations of the current message."""
+        return self._regen_start()[3]
+
+    def _regen_start(self) -> tuple[Turn, Turn, Turn, int]:
+        """The current reply, its message, that message's first reply, and the next seed."""
         conversation = self._require_conversation()
         reply = conversation.current_reply("regenerate")
         assert reply.parent_id is not None
-        user = conversation.turns[reply.parent_id]
-        replies = conversation.replies_to(user.turn_id)
+        replies = conversation.replies_to(reply.parent_id)
         first = next((t for t in replies if t.regen_of is None), replies[0])
         if first.seed is None or first.call_id is None:
             raise ConfigError("The first reply to this message has no seed to start from.")
@@ -521,6 +530,13 @@ class Session:
                 f"The next regeneration seed, {seed}, is above {SEED_MAX}. Edit the message or "
                 "start a new conversation instead."
             )
+        return reply, conversation.turns[reply.parent_id], first, seed
+
+    def regen(
+        self, on_text: Callable[[str], None] | None = None, cancel: threading.Event | None = None
+    ) -> CallOutcome:
+        """Another reply to the current message, as a new branch, with `regen_seed()`."""
+        reply, user, first, seed = self._regen_start()
         return self.call(
             user,
             seed=Setting(seed, "regen"),
@@ -572,6 +588,7 @@ class Session:
         trial = {**conversation.profile.settings}
         trial.update({k: Setting(v, "chat") for k, v in chat.items()})
         check_samplers(trial, "/set")
+        check_backend_settings(trial, conversation.profile.backend, "/set")
         conversation.chat_settings = chat
         return conversation.log.append(
             {
@@ -587,7 +604,7 @@ class Session:
         """The conversation from its start to `head`: each turn with its current marks and
         notes. What a front end needs to draw the chat, without reading the log."""
         conversation = self._require_conversation()
-        notes = marks_and_notes(read_records(conversation.log.path))
+        notes = marks_and_notes(read_records(conversation.log.path, annotation_line))
         return [
             {
                 "turn_id": t.turn_id,
@@ -657,9 +674,22 @@ class Session:
         tokenizer = prepared.tokenizer if prepared else self.tokenizer
         template_tokenizer = prepared.template_tokenizer if prepared else self.template_tokenizer
         assert tokenizer is not None
-        path = conversation.path_to(user_turn.turn_id)
-        turns = [(t.role, t.text) for t in path if t.origin != "priming"]
+        turns = [(t.role, t.text) for t in prompt_turns(conversation, user_turn)]
         return build_prompt(tokenizer, conversation.profile, turns, template_tokenizer)
+
+    def message_spans(self, user_turn: Turn, prompt: Prompt) -> list[dict] | dict[str, str]:
+        """Where each message sits in `prompt` (render.message_spans), with turn IDs."""
+        conversation = self._require_conversation()
+        assert self.tokenizer is not None
+        path = prompt_turns(conversation, user_turn)
+        return message_spans(
+            self.tokenizer,
+            conversation.profile,
+            [(t.role, t.text) for t in path],
+            [t.turn_id for t in path],
+            prompt,
+            self.template_tokenizer,
+        )
 
     @staticmethod
     def resolve_settings(
@@ -717,7 +747,11 @@ class Session:
                     },
                 },
             },
-            "recommended": self.model_lock.get("recommended") if profile.use_recommended else None,
+            "recommended": (
+                (conversation.logged_recommended or self.model_lock.get("recommended"))
+                if profile.use_recommended
+                else None
+            ),
             "template": self.template,
             "libraries": library_versions(),
             "client": client_git(),
@@ -733,6 +767,7 @@ class Session:
                 prompt_ids=prompt.ids,
                 n_prompt_client=len(prompt.ids),
                 special_tokens_in_content=prompt.special_in_content,
+                message_spans=self.message_spans(user_turn, prompt),
             )
             new_message = self.tokenizer.special_tokens_in(user_turn.text)
             if new_message:
@@ -884,10 +919,15 @@ class Session:
         name = described.get("backend", "llama.cpp")
         device = described.get("device") if name == "transformers" else None
         weights = self.weights_for(name, entry)
-        backend = self.use_backend(name, device)
-        backend.start(model, weights, call["n_ctx"])  # the call's own size, as logged
+        previous = self.backend
+        try:
+            backend = self.use_backend(name, device)
+            backend.start(model, weights, call["n_ctx"])  # the call's own size, as logged
+        except (ConfigError, BackendError) as e:
+            self._restore(previous, e)  # as start_model does: the conversation stays usable
+            raise
         self.model, self.model_lock, self.weights = model, entry, weights
-        tokenizer = self._load_tokenizer(
+        tokenizer = self.load_tokenizer(
             call["model"]["tokenizer_repo"], call["model"]["tokenizer_revision"]
         )
         values = {k: v["value"] for k, v in call["settings"].items()}
@@ -935,6 +975,7 @@ class Session:
                     "timings",
                 )
             },
+            **{k: fields[k] for k in ("decoded_output_text", "logprobs") if k in fields},
         }
         if not comparison["identical"]:
             record["logged_output_text"] = call["output_text"]
@@ -982,7 +1023,8 @@ class Session:
             raise ConfigError(f"{path} can't be resumed: a record lacks or mangles {e}.") from e
 
     def _resume(self, path: Path) -> dict[str, Any]:
-        state = rebuild(list(read_records(path)), str(path))
+        records = list(read_records(path))
+        state = rebuild(records, str(path))
         start = state.start
         prepared = self.prepare(start["profile"]["name"], logged=start["profile"])
         profile_file, now = self._profile_now(start["profile"])
@@ -999,6 +1041,7 @@ class Session:
         chat = {k: check_setting(k, v, f"{path}: /set") for k, v in state.chat_settings.items()}
         merged = {**prepared.profile.settings, **{k: Setting(v, "chat") for k, v in chat.items()}}
         check_samplers(merged, f"{path}: /set")
+        check_backend_settings(merged, prepared.profile.backend, f"{path}: /set")
         # Everything from the log is built before the model starts, so a log that can't be
         # read leaves the current conversation and its model as they were.
         log = LogFile(path)
@@ -1010,6 +1053,16 @@ class Session:
             chat_settings=chat,
             ctx_size=ctx_size,
             resumed=True,
+            # The settings are the logged ones, so their source is too.
+            # Failed calls too: a chat whose only call failed still logged them.
+            logged_recommended=next(
+                (
+                    r["recommended"]
+                    for r in reversed(records)
+                    if r.get("type") == "call" and r.get("recommended")
+                ),
+                None,
+            ),
         )
         for t in state.turns:
             call = state.calls.get(t.get("call_id") or "")
@@ -1066,9 +1119,13 @@ class Session:
 
     def _profile_now(self, logged: dict[str, Any]) -> tuple[str, Prepared | None]:
         """The profile's file today (at its logged path, else by name in this project),
-        prepared, and whether it matches the logged text: same, changed or missing."""
+        prepared, and whether it matches the logged text: same, changed or missing. A log is
+        untrusted, so a path or name that leads outside the project folder isn't read."""
         path = Path(logged["path"])
         name = str(path) if path.is_file() else logged["name"]
+        found = path if path.is_file() else profile_path(self.root, name)
+        if not found.resolve().is_relative_to(self.root.resolve()):
+            return "outside the project folder", None
         try:
             now = self.prepare(name)
         except ConfigError:  # gone, or no longer loads
@@ -1112,6 +1169,16 @@ class Session:
 MARK_DEFAULT = "interesting"
 
 
+ANNOTATION_TYPES = ("mark", "unmark", "note", "torn_line")
+
+
+def annotation_line(raw: bytes) -> bool:
+    """A `read_records` filter for the records `marks_and_notes` reads. Call records, the
+    bulk of a long log, are passed over unread. A damaged line that isn't one of these
+    is passed over too, as the chat list does; resume and replay still read every line."""
+    return any(f'"type": "{kind}"'.encode() in raw for kind in ANNOTATION_TYPES)
+
+
 def marks_and_notes(
     records: Iterable[dict[str, Any]],
 ) -> dict[str, dict[str, list[dict[str, Any]]]]:
@@ -1149,7 +1216,7 @@ def annotate_call(
     with the label, or the only label there is) or `note` (replacing the reply's current
     note) about one reply. `about` has its conversation_id, call_id and turn_id. `origin`
     is "live" (in a chat) or "review" (`clarity mark`, `clarity note` afterwards)."""
-    current = marks_and_notes(read_records(log.path)).get(about["turn_id"], {})
+    current = marks_and_notes(read_records(log.path, annotation_line)).get(about["turn_id"], {})
     base = {"type": kind, **about, "origin": origin}
     if kind == "mark":
         return [log.append({**base, "mark_id": new_id("mark"), "label": text or MARK_DEFAULT})]
@@ -1187,7 +1254,12 @@ def annotate_log(
     if not path.is_file():
         raise ConfigError(f"Log file {path} not found.")
     call = None
-    for record in read_records(path):
+    wanted = json.dumps({"call_id": call_id}, ensure_ascii=False)[1:-1].encode()  # as logged
+
+    def parse(raw: bytes) -> bool:
+        return wanted in raw and b'"type": "call"' in raw or b'"type": "torn_line"' in raw
+
+    for record in read_records(path, parse):
         if record.get("type") == "call" and record.get("call_id") == call_id:
             call = record
     if call is None:
@@ -1198,6 +1270,12 @@ def annotate_log(
     log = LogFile(path)
     log.on_append = on_record
     return annotate_call(log, about, kind, text, "review")
+
+
+def prompt_turns(conversation: Conversation, user_turn: Turn) -> list[Turn]:
+    """The turns a prompt for `user_turn` holds: its path, without the profile's priming
+    (which the profile renders itself)."""
+    return [t for t in conversation.path_to(user_turn.turn_id) if t.origin != "priming"]
 
 
 def result_fields(result: Result) -> tuple[dict[str, Any], str | None]:
@@ -1222,5 +1300,6 @@ def result_fields(result: Result) -> tuple[dict[str, Any], str | None]:
         "response": {k: v for k, v in response.items() if k != "generation_settings"},
         "flags": list(result.flags),
         "checks": dict(result.checks),
+        **({"logprobs": result.logprobs} if result.logprobs is not None else {}),
     }
     return fields, server_prompt

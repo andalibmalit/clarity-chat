@@ -177,3 +177,21 @@ def fake_fetch(root: Path, name: str = "tiny") -> Path:
 def fetched_root(root: Path) -> Path:
     fake_fetch(root)
     return root
+
+
+# The only skips CI allows: behaviour Windows doesn't have, tested on the other two.
+CI_SKIPS = ("no SIGTERM handler semantics on Windows", "Windows only emulates O_APPEND")
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """In CI, an offline test that skips fails instead, unless its reason is in CI_SKIPS: an
+    offline test never skips there (CLAUDE.md). Without this, a torch that fails to import on
+    one system, or any new skip, would pass CI with tests unrun."""
+    outcome = yield
+    report = outcome.get_result()
+    if not (os.environ.get("CI") and report.skipped) or hasattr(report, "wasxfail"):
+        return
+    if not any(reason in str(report.longrepr) for reason in CI_SKIPS):
+        report.outcome = "failed"
+        report.longrepr = f"Skipped in CI, where offline tests must run: {report.longrepr}"

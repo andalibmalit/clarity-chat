@@ -139,6 +139,19 @@ def test_the_v0_1_0_golden_log_resumes(new_session, tmp_path):
     assert kinds(path, "resume")[0]["compared_with_call"] == "call-78a5a5886108"
 
 
+def test_a_v0_1_0_head_is_a_guess_only_until_a_newer_clarity_moves_it(new_session, tmp_path):
+    path = Path(shutil.copy(GOLDEN, tmp_path / GOLDEN.name))
+    session, _ = new_session()
+    session.resume(path)
+    session.close()
+    session, _ = new_session([" Sure."])
+    assert session.resume(path)["head_guessed"] is True  # resumed, but nothing moved the head
+    session.say("Still there?")  # logs turn records: the head is exact from here
+    session.close()
+    session, _ = new_session()
+    assert session.resume(path)["head_guessed"] is False
+
+
 def test_the_terminal_resumes_and_says_what_differs(new_session, fetched_root, tmp_path):
     path = Path(shutil.copy(GOLDEN, tmp_path / GOLDEN.name))
     session, _ = new_session()
@@ -272,10 +285,69 @@ def test_resume_shows_the_conversations_warnings(new_session, fetched_root):
     resumed, backend = new_session()
     backend.start_warnings = []
     resumed.prepare = lambda name, logged=None, _p=resumed.prepare: _with_unread(_p(name, logged))
-    result = Commands(resumed).run("resume", str(session.conversation.log.path), lambda e: None)
+    result = Commands(resumed).run("resume", session.conversation.log.path.stem, lambda e: None)
     assert any("never reads template_kwargs" in w for w in result["warnings"])
 
 
 def _with_unread(prepared):
     prepared.unread_kwargs = ["made_up_kwarg"]
     return prepared
+
+
+def test_resume_refuses_logprobs_on_a_llama_cpp_conversation(new_session):
+    """A hand-edited log can't make a llama.cpp chat claim logprobs it never records: on
+    llama.cpp the setting would be ignored silently (code review, verifier A)."""
+    session, _ = new_session([" one"])
+    session.new_conversation("text")
+    session.say("a")
+    session.conversation.log.append(
+        {"type": "settings", "conversation_id": "c", "name": "logprobs", "value": 5,
+         "chat_settings": {"logprobs": 5}}
+    )  # fmt: skip
+    resumed, backend = new_session()
+    with pytest.raises(ConfigError, match="Transformers backend for now"):
+        resumed.resume(session.conversation.log.path)
+    assert backend.ctx_sizes == []
+
+
+def test_a_logged_profile_path_outside_the_project_isnt_read(new_session, fetched_root, tmp_path):
+    """A log is untrusted: its profile path mustn't make resume read a file elsewhere."""
+    session, _ = new_session([" Hello!"])
+    session.new_conversation("text")
+    session.say("Hi")
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.toml"
+    outside.write_text("not = 'a profile Clarity should open'\n", encoding="utf-8")
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    rows[0]["profile"]["path"] = outside.as_posix()
+    log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    resumed, _ = new_session([" Again."])
+    record = resumed.resume(log)
+    assert record["profile_file"] == "outside the project folder"
+
+
+def test_a_resumed_call_records_the_logged_recommended_values_after_a_failed_start(
+    new_session, fetched_root
+):
+    """The only call before resuming failed, so no completed call holds `recommended`."""
+    from clarity_chat.models import read_lock, write_lock_entry
+
+    text = (fetched_root / "profiles" / "text.toml").read_text(encoding="utf-8")
+    (fetched_root / "profiles" / "rec.toml").write_text(
+        "use_recommended = true\n" + text, encoding="utf-8"
+    )
+    session, backend = new_session([" Hello!"])
+    session.new_conversation("rec")
+    backend.fail_with = "server gone"
+    with pytest.raises(Exception, match="server gone"):
+        session.say("Hi")
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    logged = next(r for r in read_records(log) if r["type"] == "call")["recommended"]
+    entry = read_lock(fetched_root)["models"]["tiny"]
+    entry["recommended"] = {**entry["recommended"], "values": {"temperature": 0.1}}
+    write_lock_entry(fetched_root, "tiny", entry)  # a later fetch changed it
+    resumed, _ = new_session([" Again."])
+    resumed.resume(log)
+    assert resumed.say("Hi again").record["recommended"] == logged

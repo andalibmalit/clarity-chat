@@ -8,11 +8,59 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-11
+
+Live tests on an M2 Max (macOS), 2026-11-11: `-m live` 17 passed (including a quantized copy that repeats and replays, and converting twice to the same file), `-m hf` 13 passed (greedy output identical on llama.cpp and Transformers; logged probabilities equal a step-by-step recompute on the CPU and MPS, and the recompute check gives a gap of 0 with the same model), `-m olmo` 11 passed (OLMo 3's logged probabilities equal the recompute check's own loop on MPS). All three again after the last replay fix, with the same results.
+
+### Security
+- A model folder whose config names its own Python code made Transformers ask on the terminal whether to run it, and a "y" typed in the chat would have. Clarity now refuses such a model with a clear error and never runs a model's own code. With `--json`, the question also broke the event stream.
+- Resuming a log whose profile path or name leads outside the project folder no longer reads that file; the resume says so instead. A log is untrusted input.
+- A profile's `{ file = "PATH" }` could name any file on your computer, which then went into the prompt and the log. A profile from someone else could use that to put, say, a private key into a log you might share. Prompt files must now be inside the project folder.
+- Logs, llama-server's output logs and a batch run's files are now created readable only by you on Linux and macOS (mode 0600). They hold private conversations and were readable by other accounts on the machine. Files from earlier versions keep their mode; `chmod 600` changes them.
+- `clarity replay --logged-flags` passed a log's flags to llama-server unchecked, and Clarity's own `--host 127.0.0.1`, `--no-slots` and `--no-webui` came before them, where a later flag wins. A shared or hand-edited log could make the replayed server listen on the network, re-enable `/slots` and the web UI, add a key, or turn on its shell tool. Logged flags now get every check `server.toml`'s get, and Clarity's own flags come last.
+
+### Added
+- `clarity_chat.recompute.check(export, model)`, for a notebook: lists each condition that differs between an export and the loaded model, and, for replies logged with `logprobs`, recomputes their probabilities step by step and reports the largest gap and how many top choices changed.
+- `clarity export ID` and `/export` write a conversation to `logs/exports/ID.jsonl` for a notebook: a header with the conditions its calls were computed under, then one line per reply with exact token IDs, message spans (worked out and checked for older logs), marks, notes, settings and facts.
+- Each call records `message_spans`: where each message, and the text the chat template or profile wrote around it, sits in the prompt, in characters and in tokens. A template that rewrites a message gets none for that call, with the reason.
+- Token probabilities on the Transformers backend: the `logprobs` setting (0 to 20, off by default) records each reply token's log-probability and its N likeliest alternatives, from the model's raw scores before any sampler. `/probs` summarizes the current reply's least likely tokens. A llama.cpp profile refuses the setting until v0.4.0.
+- `/regen N` makes N more replies to your last message, each a new branch with its own logged seed. With `--json`, a `reply_start` event (`k`, `n`, `seed`) comes before each.
+
 ### Fixed
+- Replay and resume counted a machine value that one side couldn't read (the chip's name, which a sandbox hides) or didn't record (a newer key) as a difference, so an output that differed for no recorded reason wasn't flagged `unexplained_difference`. Such values are now listed under `not_recorded`.
+- With `--json`, Clarity aborted when it quit while its input was still open, as a script's usually is: "Fatal Python error … daemon threads" and exit status -6 (SIGABRT) instead of 0 or 1. It now exits with its own status.
+- Resuming a hand-edited log whose turns' parents formed a loop could hang. Resume and export now refuse a log whose turn names a parent that isn't an earlier turn, and name that turn.
+- With `--json`, an unexpected error in a command (a bug, or a full disk) ended the session with a traceback and no `error` event. It now sends an `error` event naming the command and the error, quits, and exits with status 1. A line nested too deeply to parse stopped Clarity reading input; it's now an `InputError` like any other line that isn't a command.
+- Replay and resume of a call whose log lacks its `server_start` record (a trimmed or hand-edited log) compared the wrong backend's facts and reported empty ones as differences, which could hide an unexplained difference. The call's own backend now decides, and what the log lacks is listed as not recorded.
+- A Transformers replay judged its stop type, and recorded `eos_token_id`, from the end tokens in today's model files rather than the logged ones it was generated with. A model revision that changed only `generation_config.json` made an identical replay report `stop_type: none`.
+- `/say` in the terminal sent its text with the spaces at its start and end removed, while a plain line and `--json` sent them; now all three send the text exactly. Through `--json`, spaces around another command's arguments made `/set` name an empty setting and `/mark` store a label `/unmark` couldn't find; they're now ignored, as in the terminal.
+- If llama-server had to restart for `/replay` (it had stopped, or its model file was fetched again) and the restart failed, the next message crashed the chat. Now the conversation's model starts again, or the chat says to start a new conversation.
+- In the terminal, Ctrl-C during a call cancels it wherever the call is. Before, it cancelled only while the reply streamed; at any other moment (building the prompt, the checks after the reply, computing token probabilities) it quit the chat, and the reply on screen could be missing from the log. During a command that can't be cancelled, such as a model start, Ctrl-C still stops Clarity.
+- The Transformers backend refused models whose `generation_config.json` lists no end token (OLMo 3 base) or that ship none (Qwen3.5-9B). It now takes the tokenizer's end token, says so at start, and logs where the IDs came from (`server_start.eos_token_id_from`); `/settings` shows it.
+- A model fetched again while its llama-server was running kept the old server, so calls ran the old file while the record named the new one. A server is now kept only if its file is unchanged (same inode, size and modification time); otherwise it restarts.
+- `server.toml` now accepts only a fixed list of flags, the ones it ships with, and refuses any other. Before, it refused a list of known-bad flags, so flags such as `gpu-layers` (another name for `n-gpu-layers`), `grp-attn-n`, `override-tensor`, `special` and `docker-repo` were passed to llama-server.
+- On Windows, `clarity chats` or `clarity replay` with output sent to a file or a pipe crashed on a title or reply the system's code page can't hold, such as Japanese or an emoji. Redirected output is now UTF-8 on every system.
+- A v0.1.0 log that was resumed and continued still said its head was a guess at every later resume. It says so now only until a newer Clarity logs a message or a head move in it.
+- If llama-server's startup log had no end-of-reply line (a llama.cpp update could change it), `model_file.eog_tokens` recorded an empty list, which reads as "no end tokens". It's now null, and `/settings` says the tokens weren't found.
+- After a resume, each call recorded the model's `recommended` values from today's `models.lock`, while its settings came from the log. If a later fetch had changed them, a setting with origin `model` didn't match the `recommended` beside it. A resumed conversation's calls now record the logged values.
+- A batch run (`clarity run`) logged a call's flags, such as `incomplete_output_ids`, but didn't show them, so a flagged sample went unnoticed unless someone read `calls.jsonl`. Each flagged call is now named on screen with its flags (never its reply).
+- `server.toml` accepted `false` for `kv-unified`, `no-kv-unified` and `no-jinja`, which left the flag out so llama-server's default applied. It also accepted `threads` or `threads-batch` of 0 or less, which llama-server reads as every core. Both are now refused.
 - `server.toml` now refuses every adapter and control-vector flag. Before, only `lora` and `control-vector` were refused, and `lora-scaled`, `lora-init-without-apply`, `control-vector-scaled` and `control-vector-layer-range` were passed to llama-server. A reply made with one of them has the flag in its `server_start` record.
+- A replay flagged `text_differs_from_ids` now logs `decoded_output_text`, as the call does.
 
 ### Changed
+- The `2-system` and `3-primed` profiles and their placeholder files, `prompts/system.txt` and `prompts/priming.toml`, are gone. They only held placeholder text. Put your own system prompt or priming in a profile in `local/profiles/`; `docs/guides.md` shows both.
+- `clarity chat --json` with a `--profile` or `--resume` that fails now sends the error and quits with exit status 1, as the terminal does. It used to carry on with no conversation and exit 0.
+- A llama-server built from a commit other than the one `server.toml` pins is now an error at start, not a warning. The binary is what runs, and a checkout at another commit was already an error.
+- After each call, Clarity checks that the llama-server process it started is still running, in place of a second `/props` request. `/props` is still checked once after start; nothing can change a running server's model or context.
+- Replay and resume compare one more fact, `end_tokens`: the IDs a reply stops on. The backends can differ here (llama.cpp also stops on tokens it recognizes by name), and the difference is now shown rather than hidden. Logs from v0.1.0 made with llama.cpp list it under `not_recorded`; v0.2.0 llama.cpp logs and every Transformers log already hold it.
+- `/history`, `/mark`, `/unmark`, `/note`, `clarity mark` and `clarity note` read only the records they need, not every call record, which made them 3 to 5 times faster on long logs in a measurement on made-up logs of 45 to 225 MB. A damaged line of another type no longer stops them; resume and replay still refuse it.
 - Docs: the README, the design doc and the citation abstract now state the limits of their claims: replay covers completed calls, the same-output tests ran on two model families on one Apple Silicon Mac, and "No silent fallbacks" names its two flagged cases. The README, the package description and the citation title now share one tagline.
+
+### Migration
+- In a chat and through `--json`, `/resume` takes a conversation ID and `/profile` a profile name; a path is refused. Commands will also come from the browser in v0.3.0, which mustn't make Clarity read any `.toml` file or append to any log. `clarity chat --resume PATH` and `--profile PATH`, which you type, still take paths.
+- With `--json`, the `regen` command's result is now `{"replies": [{"call", "warnings"}, …]}`, also for a plain `/regen`, in place of one `call` and `warnings`. Read `replies[0]` where a script read the result itself.
+- The check after each llama.cpp call is renamed: `checks.server_props` is now `checks.server_running` (with `exit_code` when the process has exited). `checks.not_echoed` is gone: it could never fail, and the same list follows from the logged request and `generation_settings`. A reader that looks for either key finds it missing in new logs.
 
 ## [0.2.0] - 2026-11-10
 
@@ -72,6 +120,7 @@ The first release.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - A llama-server that Clarity starts and checks itself, and a Transformers backend for the same weights.
 
-[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/andalibmalit/clarity-chat/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/andalibmalit/clarity-chat/releases/tag/v0.1.0

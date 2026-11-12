@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from clarity_chat.cli import ChatLoop, visible_lines
@@ -61,6 +63,20 @@ def test_settings_lists_the_end_of_reply_tokens(loop):
     backend.record = {**backend.record, "model_file": {"eog_tokens": [{"id": 2, "text": "</s>"}]}}
     chat.handle("/settings")
     assert "end-of-reply tokens (from the model file): 2 '</s>'" in "".join(output)
+    output.clear()
+    backend.name = "llama.cpp"
+    backend.record = {**backend.record, "model_file": {"eog_tokens": None}}
+    chat.handle("/settings")
+    assert "end-of-reply tokens: not found in llama-server's startup log" in "".join(output)
+
+
+def test_settings_shows_where_the_transformers_end_tokens_came_from(loop):
+    chat, output, backend = loop
+    backend.name = "transformers"
+    origin = "tokenizer (generation_config.json has none)"
+    backend.record = {**backend.record, "eos_token_id": [257], "eos_token_id_from": origin}
+    chat.handle("/settings")
+    assert f"eos_token_id = [257]  {origin}" in "".join(output)
 
 
 def test_settings_gives_the_reason_a_setting_was_not_applied(loop):
@@ -203,3 +219,88 @@ def test_title_and_chats_in_the_terminal(loop, fetched_root, capsys):
     assert f"{chat.session.conversation.conversation_id}  text  Made-up greeting" in text
     assert cli.main(["--root", str(fetched_root), "chats"]) == 0
     assert "Made-up greeting" in capsys.readouterr().out
+
+
+def test_redirected_output_is_utf8_whatever_the_locale(loop, fetched_root, monkeypatch):
+    """Windows writes pipes and files in its ANSI code page, which can't hold every title."""
+    import io
+    import sys
+
+    from clarity_chat import cli
+
+    chat, _, _ = loop
+    chat.handle("Hi")
+    chat.handle("/title 日本語 → made-up 🙂")
+    out = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(out, encoding="cp1252"))
+    assert cli.main(["--root", str(fetched_root), "chats"]) == 0
+    sys.stdout.flush()
+    assert "日本語 → made-up 🙂".encode() in out.getvalue()
+
+
+def test_ctrl_c_during_a_call_cancels_it_and_the_chat_goes_on(loop):
+    """Ctrl-C anywhere in a call, not only while the stream is read, cancels the call
+    (docs/reference.md): the chat keeps running and the log keeps the call."""
+    import signal
+
+    from clarity_chat.logs import read_records
+
+    chat, output, backend = loop
+    backend.on_call = lambda: signal.raise_signal(signal.SIGINT)
+    try:
+        keep_going = chat.handle("Hi")
+    except KeyboardInterrupt:
+        pytest.fail("Ctrl-C escaped the call and would quit the chat")
+    assert keep_going is True
+    assert "No reply was added" in "".join(output)
+    conversation = chat.session.conversation
+    assert conversation is not None
+    calls = [r for r in read_records(conversation.log.path) if r["type"] == "call"]
+    assert calls and calls[-1]["stop_type"] == "cancelled"
+    backend.on_call = None
+    output.clear()
+    assert chat.handle("Again") is True and "! " not in "".join(output)
+
+
+def test_ctrl_c_during_a_command_that_cant_be_cancelled_still_stops_clarity(loop, fetched_root):
+    """A model start can't be cancelled, so Ctrl-C keeps its old effect there."""
+    import signal
+
+    chat, _, backend = loop
+    text = (fetched_root / "profiles" / "text.toml").read_text(encoding="utf-8")
+    (fetched_root / "profiles" / "big.toml").write_text("ctx_size = 4096\n" + text, "utf-8")
+    original = backend.start
+
+    def start(*args):
+        signal.raise_signal(signal.SIGINT)
+        return original(*args)
+
+    backend.start = start
+    with pytest.raises(KeyboardInterrupt):
+        chat.handle("/profile big")
+
+
+def test_say_sends_its_text_exactly_like_a_plain_line(loop, tiny_tokenizer):
+    """Owner's decision (2026-11-11): only the one space after /say is dropped."""
+    chat, _, backend = loop
+    chat.handle("/say  hi  ")
+    sent = tiny_tokenizer.decode(backend.calls[-1]["token_ids"])
+    assert sent.endswith("User:  hi  \nAssistant:")
+
+
+def test_the_terminal_starts_from_a_profile_path(fetched_root, tiny_tokenizer):
+    """--profile PATH and --resume PATH come from the command line, which you type."""
+    backend = FakeBackend([" Hello!"], tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    path = str(fetched_root / "profiles" / "text.toml")
+    output: list[str] = []
+    chat = ChatLoop(session, path, read=lambda default: "", write=output.append)
+    chat.start()
+    assert "Ready:" in "".join(output)
+    chat.handle("Hi")
+    assert session.conversation is not None
+    log = str(session.conversation.log.path)
+    again = ChatLoop(session, "text", read=lambda default: "", write=output.append, resume=log)
+    again.start()
+    assert session.conversation is not None
+    assert session.conversation.conversation_id == Path(log).stem

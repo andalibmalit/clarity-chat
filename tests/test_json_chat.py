@@ -137,6 +137,7 @@ EVERY_COMMAND = [
     ("say", lambda s: "Hi"),
     ("prompt", lambda s: ""),
     ("settings", lambda s: ""),
+    ("probs", lambda s: ""),
     ("set", lambda s: "temperature 0.9"),
     ("regen", lambda s: ""),
     ("edit", lambda s: "Hi again"),
@@ -148,6 +149,7 @@ EVERY_COMMAND = [
     ("note", lambda s: "made-up note"),
     ("title", lambda s: "made-up title"),
     ("replay", lambda s: ""),
+    ("export", lambda s: ""),
     ("undo", lambda s: ""),
     ("cancel", lambda s: ""),
     ("resume", lambda s: s.conversation.conversation_id),
@@ -213,3 +215,89 @@ def test_cancel_says_what_it_stopped_or_why_not(make):
     replayed = events[-1]
     assert replayed["event"] == "error" and "cancelled" in replayed["message"].lower()
     assert not [r for r in read_records(session.conversation.log.path) if r["type"] == "replay"]
+
+
+def test_deeply_nested_input_is_an_input_error_and_reading_goes_on(make):
+    session, _ = make([" Hi."])
+    events = run(session, ["[" * 100_000, line("help", id=2)])
+    errors = [e for e in events if e["event"] == "error"]
+    assert [e["type"] for e in errors] == ["InputError"]
+    assert any(e.get("id") == 2 and e["event"] == "result" for e in events)
+
+
+def test_an_unexpected_error_is_reported_and_ends_the_session(make):
+    session, backend = make([" Hi."])
+
+    def fail():
+        raise OSError("disk full")
+
+    backend.on_call = fail
+    stdout = io.StringIO()
+    stdin = io.BytesIO((line("say", "Hi", id=1) + "\n" + line("help", id=2) + "\n").encode())
+    chat = JsonChat(session, stdin, stdout)
+    chat.run([{"command": "profile", "args": "text"}])
+    events = [json.loads(x) for x in stdout.getvalue().splitlines()]
+    assert chat.failed  # so `clarity chat --json` exits with status 1
+    error = events[-1]
+    assert error == {
+        "event": "error",
+        "command": "say",
+        "id": 1,
+        "type": "OSError",
+        "message": "disk full",
+    }
+    assert not any(e.get("id") == 2 for e in events)  # the session ended there
+
+
+def test_a_failed_start_from_the_command_line_ends_the_session_with_status_1(
+    fetched_root, monkeypatch, capsys
+):
+    """As in the terminal: if --profile can't start, nothing after it runs, and the exit
+    status says so."""
+    from clarity_chat import cli
+
+    raw = b'{"command": "help"}\n'
+    monkeypatch.setattr("sys.stdin", io.TextIOWrapper(io.BytesIO(raw), encoding="utf-8"))
+    argv = ["--root", str(fetched_root), "chat", "--json", "--profile", "no-such-profile"]
+    done = []
+    thread = threading.Thread(target=lambda: done.append(cli.main(argv)), daemon=True)
+    thread.start()
+    thread.join(10)
+    assert done == [1], "clarity chat --json hung, or exited 0 after a failed start"
+    events = [json.loads(x) for x in capsys.readouterr().out.splitlines()]
+    assert [e["event"] for e in events if e["event"] != "status"] == ["error"]
+    assert events[-1]["command"] == "profile" and events[-1]["type"] == "ConfigError"
+
+
+def test_the_start_takes_a_path_but_input_lines_dont(make, fetched_root):
+    session, _ = make([" Hello!"])
+    path = str(fetched_root / "profiles" / "text.toml")
+    events = run(
+        session, [line("profile", path, id=1)], first=[{"command": "profile", "args": path}]
+    )
+    started = next(e for e in events if e["event"] == "result")
+    assert started["result"]["profile"] == "text"
+    refused = next(e for e in events if e.get("id") == 1)
+    assert refused["event"] == "error" and "not a path" in refused["message"]
+
+
+@pytest.mark.parametrize("first", [["--profile", "no-such-profile"], []])
+def test_quitting_with_input_still_open_exits_cleanly(root, first):
+    """A script keeps Clarity's input open while it waits. The reader thread is then blocked
+    reading it at exit, and Python's shutdown aborted (status -6, "Fatal Python error")."""
+    import subprocess
+    import sys
+
+    code = "import sys; from clarity_chat.cli import main; sys.exit(main(sys.argv[1:]))"
+    argv = [sys.executable, "-c", code, "--root", str(root), "chat", "--json", *first]
+    with subprocess.Popen(
+        argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    ) as process:
+        assert process.stdin is not None
+        if not first:  # no start: quit by command, input left open
+            process.stdin.write(b'{"command": "quit"}\n')
+            process.stdin.flush()
+        process.wait(timeout=60)
+        err = process.stderr.read().decode() if process.stderr else ""
+    assert "Fatal Python error" not in err
+    assert process.returncode == (1 if first else 0)

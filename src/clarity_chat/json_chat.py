@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import queue
 import threading
+import traceback
 from typing import IO, Any
 
 from clarity_chat.backends import BackendError
@@ -37,6 +38,8 @@ class JsonChat:
         self.stdin, self.stdout = stdin, stdout
         self.write_lock = threading.Lock()
         self.closed = False  # the reader of stdout went away: stop writing, then quit
+        self.failed = False  # the start failed, or an unexpected error ended the session
+        self.starts: list[dict[str, Any]] = []  # the --profile or --resume commands
 
     def emit(self, event: dict[str, Any]) -> None:
         """Write one event. Never raises: a log record's event is sent after the record is
@@ -52,8 +55,10 @@ class JsonChat:
             self.closed = True
 
     def run(self, first: list[dict[str, Any]]) -> None:
-        """Run the `first` commands (from --profile or --resume), then each input line."""
+        """Run the `first` commands (from --profile or --resume), then each input line. If a
+        first command fails, the session ends there, as the terminal's does."""
         pending: queue.Queue[dict[str, Any] | None] = queue.Queue()
+        self.starts = list(first)
         for command in first:
             pending.put(command)
         threading.Thread(target=self.read, args=(pending,), daemon=True).start()
@@ -90,7 +95,7 @@ class JsonChat:
             return {"error": f"Not UTF-8: {e}"}
         try:
             command = json.loads(text)
-        except ValueError as e:
+        except (ValueError, RecursionError) as e:  # RecursionError: nested too deeply
             return {"error": f"Not JSON: {e}"}
         if (
             not isinstance(command, dict)
@@ -104,10 +109,19 @@ class JsonChat:
         """Run one command and send its result or error. Returns False to quit."""
         name = command["command"]
         tag = {"command": name, **({"id": command["id"]} if "id" in command else {})}
+        start = any(command is s for s in self.starts)  # --profile or --resume, not input
         try:
-            result = self.commands.run(name, command.get("args", ""), self.emit)
+            result = self.commands.run(name, command.get("args", ""), self.emit, paths=start)
         except (ConfigError, ContextError, BackendError) as e:
             self.emit({"event": "error", **tag, "type": type(e).__name__, "message": str(e)})
+            if start:
+                self.failed = True
+                return False
             return True
+        except Exception as e:  # a bug or a full disk: tell the client, then quit
+            traceback.print_exc()
+            self.emit({"event": "error", **tag, "type": type(e).__name__, "message": str(e)})
+            self.failed = True
+            return False
         self.emit({"event": "result", **tag, "result": result})
         return name != "quit"

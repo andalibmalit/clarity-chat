@@ -26,7 +26,7 @@ Clarity's live tests have run on Apple Silicon (Metal) only. Its offline tests r
    git -C vendor/llama.cpp checkout f477f795cb071baf5b8af6488378366a72034ac4
    ```
 
-   Clarity refuses to start the server if the checkout is at another commit, because a different build can give different output. If the checkout is right but the built `llama-server` comes from another commit, Clarity warns you to rebuild it.
+   Clarity refuses to start the server if the checkout is at another commit, because a different build can give different output. If the checkout is right but the built `llama-server` comes from another commit, Clarity stops and asks you to rebuild it.
 
 3. Build `llama-server`:
 
@@ -236,5 +236,5 @@ flowchart LR
 ## Next steps
 
 - Write your own profile: see [Write a profile](guides.md#write-a-profile).
-- Fetch the OLMo 3 models (`uv run clarity fetch olmo-3-7b-instruct`, then `olmo-3-7b-base`) and try the five OLMo 3 profiles in `profiles/` (`1a-stock` to `5-raw-base`), which compare a stock chat, a system prompt, priming messages and a plain document. `2-system` and `3-primed` read placeholder text from `prompts/`; replace it with your own first.
+- Fetch the OLMo 3 models (`uv run clarity fetch olmo-3-7b-instruct`, then `olmo-3-7b-base`) and try the four OLMo 3 profiles in `profiles/`: `1a-stock` (no system message, so OLMo 3's template writes its own), `1b-blank` (a blank one, so none), `4-raw-instruct` (the instruct model continuing a plain document) and `5-raw-base` (the base model on the same document).
 - Read [Design](design.md) for why Clarity works the way it does.

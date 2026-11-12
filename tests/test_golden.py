@@ -70,3 +70,12 @@ def test_every_golden_log_resumes(golden, fetched_root, tiny_tokenizer):
 def test_the_v0_2_0_golden_log_holds_every_new_record_type():
     kinds = {r["type"] for r in read_records(GOLDEN / "v0.2.0.jsonl")}
     assert {"head", "unmark", "settings", "title", "resume", "torn_line"} <= kinds
+
+
+def test_the_v0_2_1_golden_log_holds_the_new_call_fields():
+    calls = [r for r in read_records(GOLDEN / "v0.2.1.jsonl") if r["type"] == "call"]
+    assert all(isinstance(c["message_spans"], list) for c in calls)
+    assert any("tokens" in (c.get("logprobs") or {}) for c in calls)
+    assert all("logprobs" in c["settings"] for c in calls)
+    regens = [c for c in calls if c.get("regen_of")]
+    assert len(regens) == 4 and regens[-1]["stop_type"] == "cancelled"
