@@ -1162,3 +1162,78 @@ def test_json_settings_carry_the_vector(session):
     assert result["steering"]["file"] == "local/vectors/calm.gguf"
     assert result["steering"]["layers"] == [1, 2]
     assert result["settings"]["steering_scale"] == {"value": 4.0, "origin": "profile"}
+
+
+# --- review findings (checkpoint 1) -----------------------------------------------------
+
+
+def test_an_extra_pass_after_the_reply_isnt_a_failed_check(hf, monkeypatch):
+    """On MPS, Transformers 5.22.2 reads the stop decision one step late (DeferredStopCheck):
+    a reply that ends on an end token or stop word runs one more forward pass, then undoes
+    it. Every pass was steered, so the check must stay ok."""
+    backend, steer = hf
+    original = backend.model.generate
+
+    def one_more(inputs, **kwargs):
+        output = original(inputs, **kwargs)
+        backend.model(inputs)  # the pass Transformers runs and then undoes
+        return output
+
+    monkeypatch.setattr(backend.model, "generate", one_more)
+    result = backend.complete(PROMPT, SETTINGS, [], steering=steer)
+    n = len(result.token_ids)
+    assert result.checks["steering"]["ok"], result.checks["steering"]
+    assert result.checks["steering"]["model_passes"] == n + 1
+    assert result.checks["steering"]["forward_passes"] == {"1": n + 1, "2": n + 1}
+
+
+def test_a_replay_whose_request_and_steering_disagree_is_refused(hf):
+    """The backend sends a logged request exactly as logged, or raises."""
+    from clarity_chat.backends import BackendError
+
+    backend, steer = hf
+    steered_result = backend.complete(PROMPT, SETTINGS, [], steering=steer)
+    plain = backend.complete(PROMPT, SETTINGS, [])
+    with pytest.raises(BackendError, match="steering"):
+        backend.complete(PROMPT, SETTINGS, [], request=steered_result.request)
+    with pytest.raises(BackendError, match="steering"):
+        backend.complete(PROMPT, SETTINGS, [], request=plain.request, steering=steer)
+    old = {k: v for k, v in plain.request.items() if k != "steering"}  # before v0.2.2
+    backend.complete(PROMPT, SETTINGS, [], request=old)
+
+
+def test_a_logged_scale_of_0_is_refused(session):
+    path, record, _ = steered_call(session)
+    doctor(path, record["call_id"], lambda row: row["request"]["steering"].update(scale=0.0))
+    with pytest.raises(ConfigError, match="logged steering"):
+        session.replay(path, record["call_id"])
+
+
+def test_a_scale_that_overflows_bf16_is_refused(tmp_path):
+    """Finite in float32 but infinite once cast to the model's dtype: NaN logits otherwise."""
+    model, _ = tiny("llama")
+    path = write(tmp_path / "v.gguf", {1: np.full(WIDTH, 2.0, np.float32)})
+    v = load(path, sha(path.read_bytes()))
+    with pytest.raises(ConfigError, match="isn't finite"), applied(model, v, 1.7e38):
+        pass
+
+
+def test_steering_for_never_drops_a_vector_silently(session):
+    """A non-zero scale with no vector must fail loudly, not send an unsteered call."""
+    from clarity_chat.session import Session
+
+    session.new_conversation(steered(session.root, name="plain", steering="", scale=None))
+    assert session.conversation is not None
+    with pytest.raises(AssertionError):
+        Session.steering_for(session.conversation.profile, {"steering_scale": 2.0})
+
+
+@pytest.mark.parametrize("value", [10**400, -(10**400)])
+def test_an_integer_too_large_for_a_float_is_refused_not_a_crash(value):
+    """A JSON log can hold one; TOML can't."""
+    from clarity_chat.profiles import check_setting
+
+    with pytest.raises(ConfigError, match="must be"):
+        check_setting("steering_scale", value, "log")
+    with pytest.raises(ConfigError, match="must be"):
+        check_setting("temperature", value, "log")
