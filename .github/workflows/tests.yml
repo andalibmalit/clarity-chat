@@ -34,3 +34,15 @@ jobs:
       # runners crash with an illegal instruction in the first bf16 matmul on the CPU.
       - run: uv run python scripts/cpu_info.py
       - run: uv run pytest
+        if: matrix.os != 'windows-latest'
+      # Windows only: some GitHub Windows VMs (Xeon Platinum 8573C, model 207, with AMX)
+      # crash with an illegal instruction (0xc000001d) in oneDNN's AMX bf16 kernel, a
+      # PyTorch/oneDNN bug reported by several projects but not upstream (our two crashes
+      # were in that kernel; their hosts' CPU wasn't captured). Capping oneDNN below AMX
+      # avoids it; on the AMD hosts we've seen, PyTorch uses AVX2 anyway, so the
+      # cap changes nothing there. No test is skipped. Clarity's own handling of such hosts
+      # (logging ONEDNN_*, refusing instead of crashing) is planned for v0.7.0.
+      - run: uv run pytest
+        if: matrix.os == 'windows-latest'
+        env:
+          ONEDNN_MAX_CPU_ISA: AVX512_CORE_BF16
