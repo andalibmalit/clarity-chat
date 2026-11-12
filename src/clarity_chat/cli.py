@@ -106,9 +106,10 @@ def format_settings(view: dict[str, Any]) -> str:
     if view["steering"]:
         steering = view["steering"]
         blocks = ", ".join(str(n) for n in steering["layers"])
+        off = view["settings"]["steering_scale"]["value"] == 0
         lines.append(
             f"steering vector {steering['file']} (sha256 {steering['sha256'][:12]}…, "
-            f"blocks {blocks})"
+            f"blocks {blocks})" + ("  (off: steering_scale 0)" if off else "")
         )
     lines.append(f"backend {view['backend']}: fixed values for its other sampling fields")
     for name, entry in view["backend_settings"].items():

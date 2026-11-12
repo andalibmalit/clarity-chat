@@ -140,7 +140,13 @@ def logged_steering(call: dict[str, Any]) -> dict[str, Any] | str:
     recorded". A call logged before v0.2.2, or on llama.cpp, wasn't steered."""
     request = call.get("request")
     steering = request.get("steering") if isinstance(request, dict) else None
-    return steering if isinstance(steering, dict) else "none"
+    if steering is None:
+        return "none"
+    if not isinstance(steering, dict):  # a log is untrusted: never read it as unsteered
+        raise ConfigError(
+            f"Call {call.get('call_id')}'s logged steering isn't one Clarity writes: {steering!r}."
+        )
+    return steering
 
 
 def export_call(

@@ -112,9 +112,10 @@ def prepare_root(root: Path, repo: Path = REPO, init: bool = False) -> None:
             raise Refused(f"{target} must be the steering vector file, or not exist yet.")
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(vector, target)
-    if "[settings]" not in hf:
+    header = re.compile(r"^\[settings\]$", re.MULTILINE)  # the table, not a mention of it
+    if not header.search(hf):
         raise Refused("profiles/smol-chat.toml has no [settings] table for steering_scale.")
-    steer = hf.replace("[settings]", "[settings]\nsteering_scale = 4.0", 1) + (
+    steer = header.sub("[settings]\nsteering_scale = 4.0", hf, count=1) + (
         f'\n[steering]\nfile = "local/vectors/{vector.name}"\nsha256 = "{sha256_file(vector)}"\n'
     )
     (profiles / "smol-steer-hf.toml").write_text(steer, encoding="utf-8", newline="\n")

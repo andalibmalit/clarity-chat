@@ -389,6 +389,11 @@ def _steering(table: object, root: Path, where: str) -> SteeringTable:
         )
     if sha256 is not None and not isinstance(sha256, str):
         raise ConfigError(f"{where}: [steering] sha256 must be a string.")
+    if "\\" in file:  # logged as written, so it must work on every system
+        raise ConfigError(
+            f"{where}: write the [steering] file with / between folders, "
+            f'such as "local/vectors/calm.gguf", on every system.'
+        )
     steering_path(root, file, where)
     return SteeringTable(file, sha256, table.get("layers"))
 
