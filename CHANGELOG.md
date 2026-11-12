@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Fixed
+- `clarity chat --json` read its input one byte at a time, about half a second of CPU per megabyte of commands. It now reads whatever has arrived, up to 64 KB at a time.
+
 ## [0.2.1] - 2026-11-11
 
 Live tests on an M2 Max (macOS), 2026-11-11: `-m live` 17 passed (including a quantized copy that repeats and replays, and converting twice to the same file), `-m hf` 13 passed (greedy output identical on llama.cpp and Transformers; logged probabilities equal a step-by-step recompute on the CPU and MPS, and the recompute check gives a gap of 0 with the same model), `-m olmo` 11 passed (OLMo 3's logged probabilities equal the recompute check's own loop on MPS). All three again after the last replay fix, with the same results.

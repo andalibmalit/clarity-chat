@@ -23,6 +23,7 @@ import json
 import queue
 import threading
 import traceback
+from collections.abc import Iterator
 from typing import IO, Any
 
 from clarity_chat.backends import BackendError
@@ -75,7 +76,7 @@ class JsonChat:
         """Read input lines. `cancel` runs here at once; everything else, including a line
         that isn't a command, waits its turn."""
         try:
-            for line in self.stdin:
+            for line in self.lines():
                 if not line.strip():
                     continue
                 command = self.parse(line)
@@ -85,6 +86,23 @@ class JsonChat:
                     pending.put(command)
         finally:
             pending.put(None)  # however reading ends, the main loop isn't left waiting
+
+    def lines(self) -> Iterator[bytes]:
+        """Input lines, read in chunks of whatever has arrived (up to 64 KB). Iterating
+        raw stdin reads one byte at a time; a blocking read(65536) would wait for a full
+        chunk and hold back a `cancel`. The last line may have no newline."""
+        read = getattr(self.stdin, "read1", self.stdin.read)
+        parts: list[bytes] = []  # the line so far, joined once its newline arrives
+        while chunk := read(65536):
+            first, *lines = chunk.split(b"\n")
+            parts.append(first)
+            if lines:
+                yield b"".join(parts)
+                *whole, last = lines
+                yield from whole
+                parts = [last]
+        if line := b"".join(parts):
+            yield line
 
     @staticmethod
     def parse(line: bytes) -> dict[str, Any]:
