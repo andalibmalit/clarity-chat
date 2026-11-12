@@ -83,8 +83,8 @@ def load(path: Path, sha256: str | None) -> Vector:
             data = f.read(MAX_BYTES + 1)
     except FileNotFoundError:
         raise ConfigError(f"The vector file {path} doesn't exist.") from None
-    except OSError as e:
-        raise ConfigError(f"Can't read the vector file {path}: {e}") from None
+    except (OSError, ValueError) as e:  # ValueError: a NUL in the path
+        raise ConfigError(f"Can't read the vector file {path!r}: {e}") from None
     if len(data) > MAX_BYTES:
         raise ConfigError(f"{path} is over 16 MB; a control vector is smaller. Is it a model file?")
     actual = hashlib.sha256(data).hexdigest()

@@ -1309,3 +1309,9 @@ def test_clarity_starts_without_numpy():
     code = "import sys, clarity_chat.cli; print('numpy' in sys.modules)"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "False"
+
+
+def test_load_refuses_a_path_open_cant_take():
+    """A notebook calls load directly, without the project's path check."""
+    with pytest.raises(ConfigError, match="Can't read the vector file"):
+        load(Path("local/vectors/a\0b.gguf"), "0" * 64)
