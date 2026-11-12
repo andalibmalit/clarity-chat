@@ -8,5 +8,5 @@ What the next releases hold. Each release has a written plan, and the next is pl
 - **v0.5.0, thinking models.** Reasoning stored with each reply, and the extra samplers these models use.
 - **v0.6.0, Linux.** CUDA, Vulkan and CPU builds, with the GPU driver and CUDA version logged. Check, on a real CUDA and Vulkan run, how the GPU placement check reads llama.cpp's `CUDA_Host` and `Vulkan_Host` buffers.
 - **v0.7.0, Windows.**
-- **1.0.** Cross-platform, and easy to install for people who don't use a terminal. Before 1.0 is approved, a deep multi-agent review of the whole project (ultrareview).
+- **1.0.** Cross-platform, and easy to install for people who don't use a terminal. Before 1.0, a full-project review by parallel agents, each finding independently checked, plus a QA pass.
 - **Later, not scheduled.** Live probe readings, when an experiment needs them. Steering on llama.cpp through its control vectors, and comparing a steered reply across the two backends.
