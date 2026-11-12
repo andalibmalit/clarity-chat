@@ -431,3 +431,51 @@ def test_steering_smollm2_with_repengs_vector(tmp_path, device):
     zero = steered(folder, "smol-chat", "local/vectors/zero.gguf", zero_sha, "4.0", **on)
     real = steered(folder, "smol-chat", "local/vectors/repeng.gguf", REPENG_SHA256, "4.0", **on)
     check_steering(root, tmp_path, zero, real, "Tell me about rivers.")
+
+
+def test_the_recompute_check_on_a_steered_export(tmp_path):
+    """C1, as a notebook would run it: under `applied` with the call's vector, scale and
+    blocks, a gap of 0 and no changed top choices; without it, steering is listed and the
+    numbers move."""
+    import shutil
+
+    import torch
+    from transformers import AutoModelForCausalLM
+
+    from clarity_chat.export import export_log
+    from clarity_chat.recompute import check
+    from clarity_chat.steering import applied, load
+
+    root = project(tmp_path)
+    shutil.copy(REPENG, root / "local" / "vectors" / "repeng.gguf")
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    name = steered(
+        folder, "smol-chat", "local/vectors/repeng.gguf", REPENG_SHA256, "4.0", device='"cpu"'
+    )
+    text = (
+        Path(name).read_text(encoding="utf-8").replace("[settings]", "[settings]\nlogprobs = 5", 1)
+    )
+    Path(name).write_text(text, encoding="utf-8")
+    session = Session(root, logs_dir=tmp_path / "logs")
+    try:
+        session.new_conversation(name)
+        session.say("Name three rivers.")
+        assert session.conversation is not None
+        export = Path(export_log(session, session.conversation.log.path)["path"])
+    finally:
+        session.close()
+    model = load_models(REPO)[MODEL]
+    pins = {"repo": model.repo, "revision": model.revision}
+    weights = source_weights(REPO, lock_entry(REPO, model))
+    loaded = AutoModelForCausalLM.from_pretrained(
+        weights, dtype=torch.bfloat16, attn_implementation="sdpa"
+    )
+    with applied(loaded, load(REPENG, REPENG_SHA256), 4.0):
+        same = check(export, loaded, **pins)
+    plain = check(export, loaded, **pins)
+    assert [f["fact"] for f in same.groups[0]["facts"] if not f["same"]] == [], str(same)
+    measured = same.calls[0]["measured"]
+    assert measured["largest_gap"] == 0.0 and measured["top_changed"] == 0
+    assert [f["fact"] for f in plain.groups[0]["facts"] if not f["same"]] == ["steering"]
+    assert plain.calls[0]["measured"]["largest_gap"] > 0

@@ -967,3 +967,132 @@ def test_logged_steering_on_a_llama_cpp_call_is_refused(session):
     doctor(path, record["call_id"], lambda row: row.update(backend={"backend": "llama.cpp"}))
     with pytest.raises(ConfigError, match="Transformers backend"):
         session.replay(path, record["call_id"])
+
+
+# --- steering in the export and the recompute check (C1) --------------------------------
+
+
+def read_export(path):
+    import json
+
+    rows = [json.loads(line) for line in Path(path).read_text(encoding="utf-8").split("\n") if line]
+    return rows[0], rows[1:]
+
+
+def test_the_export_carries_each_calls_steering_and_splits_the_conditions(session):
+    from clarity_chat.export import export_log
+
+    session.new_conversation(steered(session.root))
+    first = session.say("Hi").record
+    session.set_setting("steering_scale", "0")
+    session.say("Again")
+    session.set_setting("steering_scale", "-4")
+    session.say("Once more")
+    assert session.conversation is not None
+    header, rows = read_export(export_log(session, session.conversation.log.path)["path"])
+    logged = first["request"]["steering"]
+    assert [row["steering"] for row in rows] == [logged, "none", {**logged, "scale": -4.0}]
+    pinned = {k: logged[k] for k in ("sha256", "scale", "layers")}
+    assert [g["conditions"]["steering"] for g in header["conditions"]] == [
+        pinned,
+        "none",
+        {**pinned, "scale": -4.0},
+    ]
+    assert [g["call_ids"] for g in header["conditions"]] == [[r["call_id"]] for r in rows]
+    assert "Some calls were steered; apply the same vector with" in header["note"]
+    assert "`clarity_chat.steering.applied`" in header["note"]
+
+
+def test_an_unsteered_export_says_none_and_no_steering_note(session):
+    from clarity_chat.export import export_log
+
+    session.new_conversation(steered(session.root, name="plain", steering="", scale=None))
+    session.say("Hi")
+    assert session.conversation is not None
+    header, rows = read_export(export_log(session, session.conversation.log.path)["path"])
+    assert [row["steering"] for row in rows] == ["none"]
+    assert header["conditions"][0]["conditions"]["steering"] == "none"
+    assert "steered" not in header["note"]
+
+
+def recompute_export(tmp_path, steering):
+    """A one-call export for the tiny Llama below, its conditions as export writes them."""
+    import json
+
+    from clarity_chat.backends.transformers_hf import torch_env
+    from clarity_chat.logs import machine
+    from clarity_chat.recompute import installed, torch_version
+
+    entry = {"id": 3, "logprob": -2.0, "top": [[3, -2.0]]}
+    row = {
+        "call_id": "c1",
+        "prompt_ids": [1, 2],
+        "output_ids": [3, 4],
+        "logprobs": {"view": "raw logits, before any sampler", "n": 1, "tokens": [entry] * 2},
+    }
+    conditions = {
+        "backend": "transformers",
+        "weights": {"repo": "org/tiny", "revision": "a" * 40},
+        "device": "cpu",
+        "dtype": "bfloat16",
+        "attn_implementation": "sdpa",
+        "torch": torch_version(),
+        "transformers": installed("transformers"),
+        "end_tokens": [],
+        "env": torch_env(),
+        "deterministic_algorithms": False,
+        "machine": machine(),
+        "steering": steering,
+    }
+    header = {
+        "type": "export",
+        "format_version": 1,
+        "calls": 1,
+        "conditions": [{"conditions": conditions, "call_ids": ["c1"]}],
+    }
+    path = tmp_path / f"e{len(list(tmp_path.iterdir()))}.jsonl"
+    path.write_text(json.dumps(header) + "\n" + json.dumps(row) + "\n", encoding="utf-8")
+    return path
+
+
+def test_the_recompute_check_compares_steering_both_ways(tmp_path):
+    from clarity_chat.recompute import check
+
+    model, _ = tiny("llama")
+    model.config.name_or_path = "org/tiny"
+    model.generation_config.eos_token_id = []
+    v = vector(tmp_path, blocks=(1, 2))
+    pinned = {"sha256": v.sha256, "scale": 4.0, "layers": [1, 2]}
+    steered_export = recompute_export(tmp_path, pinned)
+    plain_export = recompute_export(tmp_path, "none")
+
+    def steering_fact(export):
+        report = check(export, model, revision="a" * 40)
+        assert report.calls[0]["measured"] is not None  # measured each time
+        fact = next(f for f in report.groups[0]["facts"] if f["fact"] == "steering")
+        return fact, report
+
+    fact, report = steering_fact(steered_export)
+    assert fact["same"] is False and fact["here"] == "none" and "steering: " in str(report)
+    assert steering_fact(plain_export)[0]["same"] is True
+    with applied(model, v, 4):
+        assert steering_fact(steered_export)[0]["same"] is True
+        fact, _ = steering_fact(plain_export)
+        assert fact["same"] is False and fact["here"] == pinned
+    with applied(model, v, 2.0):
+        assert steering_fact(steered_export)[0]["same"] is False
+
+
+def test_an_export_from_before_steering_reads_as_unsteered(tmp_path):
+    import json
+
+    from clarity_chat.recompute import check
+
+    model, _ = tiny("llama")
+    path = recompute_export(tmp_path, "none")
+    lines = path.read_text(encoding="utf-8").split("\n")
+    header = json.loads(lines[0])
+    del header["conditions"][0]["conditions"]["steering"]
+    path.write_text("\n".join([json.dumps(header), *lines[1:]]), encoding="utf-8")
+    fact = next(f for f in check(path, model).groups[0]["facts"] if f["fact"] == "steering")
+    assert fact == {"fact": "steering", "export": "none", "here": "none", "same": True}

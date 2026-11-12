@@ -11,6 +11,7 @@ Two headings are Clarity's own, used when they apply:
 ### Added
 - Steering on the Transformers backend: a profile's `[steering]` table names a vector file made by another tool, pinned by its sha256, and `steering_scale` in `[settings]` sets how strongly it's added. `/set steering_scale` changes it between replies without reloading. The vector is checked against the model before the first message. A llama.cpp profile with `[steering]` is refused for now.
 - Each steered call records its vector's file, sha256, scale and blocks in `request.steering`, and checks that each steered block ran once per generated token (`checks.steering`). Replay applies the same vector, and refuses if the file is gone or changed. Clarity before v0.2.2 ignores `request.steering`, so it replays a steered call unsteered.
+- The export records each call's steering, or `"none"`, and steering joins its conditions, so a change of scale starts a new group. The recompute check compares the export's steering with what `clarity_chat.steering.applied` has added to the model.
 - `clarity_chat.steering` reads a steering vector made by another tool, such as repeng (llama.cpp's control-vector GGUF), checks it against its pinned sha256 and the model, and applies it to a loaded Transformers model in a notebook: `load`, `check` and `applied`. Clarity never makes vectors.
 
 ### Fixed
