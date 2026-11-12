@@ -33,6 +33,7 @@ SETTING_NAMES = (
     "seed",
     "max_tokens",
     "samplers",
+    "logprobs",
 )
 SAMPLER_NAMES = ("penalties", "top_k", "top_p", "min_p", "temperature")
 
@@ -148,6 +149,7 @@ SETTING_RANGES: dict[str, tuple[str, float | None, float | None, str]] = {
     "repeat_last_n": ("integer", 0, None, "an integer >= 0"),
     "max_tokens": ("integer", 1, None, "an integer >= 1"),
     "seed": ("integer", 0, SEED_MAX, f'"random" or an integer from 0 to {SEED_MAX}'),
+    "logprobs": ("integer", 0, 20, "an integer from 0 (off) to 20"),
 }
 
 
@@ -209,6 +211,15 @@ def resolve_settings(
         resolved[name] = Setting(values[name], origin)
     check_samplers(resolved, where)
     return resolved
+
+
+def check_backend_settings(resolved: dict[str, Setting], backend: str, where: str) -> None:
+    """Refuse a setting the backend can't honour, rather than return a reply without it."""
+    if backend == "llama.cpp" and resolved["logprobs"].value > 0:
+        raise ConfigError(
+            f"{where}: logprobs is {resolved['logprobs'].value}, but token probabilities run "
+            "on the Transformers backend for now; llama.cpp's come in v0.4.0."
+        )
 
 
 def check_samplers(resolved: dict[str, Setting], where: str) -> None:
@@ -299,12 +310,15 @@ def _text_or_file(
     value: object,
     key: str,
     base: Path,
+    root: Path,
     files: dict[str, str],
     where: str,
     logged: dict[str, str] | None,
 ) -> str:
     """A string used verbatim, or `{ file = "..." }` read byte for byte, relative to the
-    profile (or, for a profile from a log, the file's text as logged)."""
+    profile (or, for a profile from a log, the file's text as logged). The file must be in
+    the project folder, after following links: a profile from someone else mustn't put a
+    file from elsewhere on your computer into a prompt and its log."""
     if isinstance(value, str):
         return value
     if isinstance(value, dict) and set(value) == {"file"} and isinstance(value["file"], str):
@@ -316,6 +330,11 @@ def _text_or_file(
             path = base / value["file"]
             if not path.is_file():
                 raise ConfigError(f"{where}: {key} file {value['file']!r} not found ({path}).")
+            if not path.resolve().is_relative_to(root.resolve()):
+                raise ConfigError(
+                    f"{where}: {key} file {value['file']!r} is outside the project folder "
+                    f"({root}). Copy it into the project, for example into local/."
+                )
             text = read_text(path)
         files[value["file"]] = text
         return text
@@ -394,6 +413,7 @@ def load_profile(
         raise ConfigError(f"{where}: use_recommended must be true or false.")
     # With use_recommended, the session resolves again once it knows the model's values.
     settings = resolve_settings(raw_settings, defaults, where)
+    check_backend_settings(settings, data["backend"], where)
     files: dict[str, str] = {}
     base = path.parent
     logged_files = logged["files"] if logged is not None else None
@@ -415,12 +435,12 @@ def load_profile(
     if mode == "chat":
         if "system" in data:
             profile.system = _text_or_file(
-                data["system"], "system", base, files, where, logged_files
+                data["system"], "system", base, root, files, where, logged_files
             )
         if "priming" in data:
             priming = data["priming"]
             if isinstance(priming, dict):
-                text = _text_or_file(priming, "priming", base, files, where, logged_files)
+                text = _text_or_file(priming, "priming", base, root, files, where, logged_files)
                 try:
                     priming_data = tomllib.loads(text)
                 except tomllib.TOMLDecodeError as e:
@@ -458,10 +478,10 @@ def load_profile(
                 )
         profile.user_name, profile.assistant_name = data["user_name"], data["assistant_name"]
         profile.header = _text_or_file(
-            data.get("header", ""), "header", base, files, where, logged_files
+            data.get("header", ""), "header", base, root, files, where, logged_files
         )
         profile.priming_text = _text_or_file(
-            data.get("priming", ""), "priming", base, files, where, logged_files
+            data.get("priming", ""), "priming", base, root, files, where, logged_files
         )
     return profile
 
@@ -556,31 +576,15 @@ REQUIRED_VALUES = {
     "cache-reuse": 0,
     "no-cache-idle-slots": True,
 }
-# Set by the client (including the per-start key, --no-slots and --no-webui), or never wanted
-# (another model, overrides, router mode, a draft model).
-FORBIDDEN_FLAGS = {
-    "model",
-    "host",
-    "port",
-    "context-shift",
-    "override-kv",
-    "lora",
-    "control-vector",
-    "models-dir",
-    "models-preset",
-    "model-draft",
-    "spec-type",
-    "backend-sampling",
-    "api-key",
-    "api-key-file",
-    "slots",
-    "no-slots",
-    "ui",
-    "no-ui",
-    "webui",
-    "no-webui",
-}
-FORBIDDEN_PREFIXES = ("hf-", "models-", "spec-", "ui-", "webui-", "lora-", "control-vector-")
+# Every flag server.toml may set: the required ones, plus the few the shipped file uses. Any
+# other flag is refused, including aliases, so a new one is added deliberately, with a reason
+# and a test. Clarity itself passes --model, --host, --port, --no-slots and --no-webui.
+ALLOWED_FLAGS = {*REQUIRED_FLAGS, "kv-unified", "no-kv-unified", "no-jinja", "chat-template"}
+# Allowed switches that must be true when set: false would leave the flag out, and
+# llama.cpp's default would decide.
+TRUE_ONLY_FLAGS = {"kv-unified", "no-kv-unified", "no-jinja"}
+# llama-server reads 0 or less as "every core", which depends on the machine.
+POSITIVE_FLAGS = {"threads", "threads-batch"}
 
 
 @dataclass(frozen=True)
@@ -613,6 +617,34 @@ class ServerConfig:
         }
 
 
+def check_flags(flags: object, where: str) -> None:
+    """Every flag is on the allowed list, with an explicit value. Also run on a log's flags
+    before `replay --logged-flags` starts a server with them: a shared or hand-edited log
+    must not add a flag server.toml couldn't (such as `host` or `tools`)."""
+    if not isinstance(flags, dict):
+        raise ConfigError(f"{where}: [flags] must be a table.")
+    for name, value in flags.items():
+        if name not in ALLOWED_FLAGS:
+            raise ConfigError(
+                f"{where}: flag {name!r} isn't in Clarity's allowed list (docs/reference.md); "
+                "ask for it to be added, with a reason."
+            )
+        if not isinstance(value, (bool, int, str)):
+            raise ConfigError(f"{where}: flag {name!r} must be true/false, a number or a string.")
+        if value == "auto" or (not isinstance(value, bool) and value in ("-1", -1)):
+            raise ConfigError(f"{where}: flag {name!r} must be explicit, not {value!r}.")
+        if name in TRUE_ONLY_FLAGS and value is not True:
+            raise ConfigError(
+                f"{where}: {name} must be true when set (false would leave the flag out, "
+                "so llama-server's default would apply); remove it instead."
+            )
+        if name in POSITIVE_FLAGS and not (_integer(value) or 0) > 0:
+            raise ConfigError(
+                f"{where}: {name} must be a positive integer (llama-server reads 0 or less "
+                "as every core, which depends on the machine)."
+            )
+
+
 def load_server_config(root: Path) -> ServerConfig:
     path = root / "server.toml"
     data = read_toml(path)
@@ -622,17 +654,24 @@ def load_server_config(root: Path) -> ServerConfig:
     if unknown or not allowed <= set(data):
         raise ConfigError(f"{where}: needs exactly the keys {sorted(allowed)}; unknown: {unknown}.")
     flags = data["flags"]
-    if not isinstance(flags, dict):
-        raise ConfigError(f"{where}: [flags] must be a table.")
-    for name, value in flags.items():
-        if name.startswith("-") or len(name) < 3:
-            raise ConfigError(f"{where}: write flags by their long name without dashes: {name!r}.")
-        if name in FORBIDDEN_FLAGS or name.startswith(FORBIDDEN_PREFIXES):
-            raise ConfigError(f"{where}: flag {name!r} is not allowed here.")
-        if not isinstance(value, (bool, int, str)):
-            raise ConfigError(f"{where}: flag {name!r} must be true/false, a number or a string.")
-        if value == "auto" or (not isinstance(value, bool) and value in ("-1", -1)):
-            raise ConfigError(f"{where}: flag {name!r} must be explicit, not {value!r}.")
+    check_server_flags(flags, where)
+    timeout = data["startup_timeout_s"]
+    if _number(timeout) is None or timeout <= 0:
+        raise ConfigError(f"{where}: startup_timeout_s must be a positive number.")
+    return ServerConfig(
+        path=path,
+        llama_cpp_dir=(root / data["llama_cpp_dir"]).resolve(),
+        llama_cpp_commit=check_commit(data["llama_cpp_commit"], f"{where}: llama_cpp_commit"),
+        startup_timeout_s=float(timeout),
+        flags=dict(flags),
+    )
+
+
+def check_server_flags(flags: object, where: str) -> None:
+    """server.toml's flags are complete and exact. Also run on a log's flags before
+    `replay --logged-flags` starts a server with them; every release required the same."""
+    check_flags(flags, where)
+    assert isinstance(flags, dict)
     missing = [name for name in REQUIRED_FLAGS if name not in flags]
     if missing:
         raise ConfigError(f"{where}: [flags] must set {missing} explicitly.")
@@ -660,13 +699,3 @@ def load_server_config(root: Path) -> ServerConfig:
         )
     if flags["flash-attn"] not in ("on", "off"):
         raise ConfigError(f'{where}: flash-attn must be "on" or "off".')
-    timeout = data["startup_timeout_s"]
-    if _number(timeout) is None or timeout <= 0:
-        raise ConfigError(f"{where}: startup_timeout_s must be a positive number.")
-    return ServerConfig(
-        path=path,
-        llama_cpp_dir=(root / data["llama_cpp_dir"]).resolve(),
-        llama_cpp_commit=check_commit(data["llama_cpp_commit"], f"{where}: llama_cpp_commit"),
-        startup_timeout_s=float(timeout),
-        flags=dict(flags),
-    )

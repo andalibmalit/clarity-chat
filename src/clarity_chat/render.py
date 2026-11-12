@@ -6,8 +6,11 @@ tokenizer and `add_special_tokens=False`; backends only ever receive token IDs.
 
 from __future__ import annotations
 
+import bisect
 import json
 import os
+import secrets
+from collections.abc import Sequence
 from dataclasses import dataclass
 from functools import cache, cached_property
 from importlib.metadata import version
@@ -39,6 +42,20 @@ def library_versions() -> dict[str, str]:
     return {name: version(name) for name in ("transformers", "tokenizers", "jinja2")}
 
 
+def from_pretrained(cls: Any, folder: Path, **kwargs: Any) -> Any:
+    """`cls.from_pretrained(folder)` without the folder's own Python code. Without
+    trust_remote_code=False, Transformers asks on stdin whether to run it, and a "y" typed
+    in the chat would. Clarity runs only its own code and locked libraries."""
+    try:
+        return cls.from_pretrained(folder, trust_remote_code=False, **kwargs)
+    except ValueError as e:
+        if "custom code" not in str(e):
+            raise
+        raise ConfigError(
+            f"{folder} needs its own Python code to load, which Clarity doesn't run."
+        ) from e
+
+
 @dataclass
 class Tokenizer:
     """A Hugging Face tokenizer, loaded from a local folder, plus where it came from."""
@@ -53,7 +70,7 @@ class Tokenizer:
 
         config_path = folder / "tokenizer_config.json"
         config = json.loads(read_text(config_path)) if config_path.is_file() else {}
-        tok = AutoTokenizer.from_pretrained(folder, local_files_only=True)
+        tok = from_pretrained(AutoTokenizer, folder, local_files_only=True)
         return cls(tok=tok, source=source or {"path": folder.as_posix()}, config=config)
 
     @classmethod
@@ -270,3 +287,159 @@ def build_prompt(
     ids, bos = tokenize(tokenizer, text, "chat")
     found = special_in_content(tokenizer, profile, turns)
     return Prompt(text=text, ids=ids, bos=bos, template=template_info, special_in_content=found)
+
+
+# --- where each message sits in a call's prompt ----------------------------------------------
+
+Part = tuple[dict[str, Any], str]  # what a stretch of prompt text is, and the text
+
+
+def message_spans(
+    tokenizer: Tokenizer,
+    profile: Profile,
+    turns: list[tuple[str, str]],
+    turn_ids: Sequence[str | None],
+    prompt: Prompt,
+    template: Tokenizer | None = None,
+) -> list[dict[str, Any]] | dict[str, str]:
+    """Where each message, and the text around it, sits in `prompt`: a list of entries that
+    covers every prompt token in order, each with half-open `chars` (in `prompt.text`) and
+    `tokens` (in `prompt.ids`) ranges. Or `{"unavailable": reason}`: never a guess, and never
+    an error, since a call must not fail over its spans."""
+    try:
+        if profile.mode == "text":
+            parts: list[Part] | str = _text_parts(profile, turns, turn_ids)
+        else:
+            parts = _chat_parts(template or tokenizer, profile, turns, turn_ids, prompt.text)
+        if isinstance(parts, str):
+            return {"unavailable": parts}
+        if "".join(text for _, text in parts) != prompt.text:
+            return {"unavailable": "the parts don't rebuild the prompt text"}
+        merged: list[Part] = []
+        for info, text in parts:  # neighbouring template or profile text is one entry
+            if merged and info["kind"] != "message" and merged[-1][0] == info:
+                merged[-1] = (info, merged[-1][1] + text)
+            else:
+                merged.append((info, text))
+        return _token_ranges(tokenizer, merged, prompt)
+    except Exception as e:  # a template that fails on placeholders, an odd tokenizer
+        return {"unavailable": f"{type(e).__name__}: {e}"}
+
+
+def _labels(
+    profile: Profile, turns: list[tuple[str, str]], turn_ids: Sequence[str | None]
+) -> list[dict[str, Any]]:
+    """Each chat message's entry fields, in chat_messages' order."""
+    labels: list[dict[str, Any]] = []
+    if profile.system is not None:
+        labels.append({"role": "system", "source": "system"})
+    for i, m in enumerate(profile.priming_messages):
+        labels.append({"role": m["role"], "source": f"priming {i + 1}"})
+    for (role, _), turn_id in zip(turns, turn_ids, strict=True):
+        labels.append({"role": role, "turn_id": turn_id})
+    return labels
+
+
+def _text_parts(
+    profile: Profile, turns: list[tuple[str, str]], turn_ids: Sequence[str | None]
+) -> list[Part]:
+    """render_text's pieces: the profile's header, names and line ends, and each message."""
+    profile_text = {"kind": "profile"}
+    parts: list[Part] = [(profile_text, profile.header)]
+    # Priming is free text, usually lines from both speakers: no role.
+    parts.append(({"kind": "message", "source": "priming"}, profile.priming_text))
+    for (role, text), turn_id in zip(turns, turn_ids, strict=True):
+        name = f"{profile.user_name}: " if role == "user" else f"{profile.assistant_name}:"
+        parts.append((profile_text, name))
+        parts.append(({"kind": "message", "role": role, "turn_id": turn_id}, text))
+        parts.append((profile_text, "\n"))
+    parts.append((profile_text, f"{profile.assistant_name}:"))
+    return [(info, text) for info, text in parts if text or info.get("turn_id") is not None]
+
+
+def _chat_parts(
+    template: Tokenizer,
+    profile: Profile,
+    turns: list[tuple[str, str]],
+    turn_ids: Sequence[str | None],
+    rendered: str,
+) -> list[Part] | str:
+    """The chat template's own text and each message, found by rendering again with each
+    message replaced by a unique placeholder. Proved by rebuilding `rendered` exactly: each
+    message as written, else stripped of edge whitespace (marked `trimmed`)."""
+    messages = chat_messages(profile, turns)
+    nonce = secrets.token_hex(6)
+    # Mixed case, so a template that upper- or lowercases content changes every placeholder,
+    # even when the random part is all digits.
+    marks = [f"Clarity{nonce}M{i}z" for i in range(len(messages))]
+    placeheld = template.tok.apply_chat_template(
+        [{**m, "content": mark} for m, mark in zip(messages, marks, strict=True)],
+        tokenize=False,
+        add_generation_prompt=True,
+        **profile.template_kwargs,
+    )
+    pieces, end = [], 0
+    for i, mark in enumerate(marks):
+        at = placeheld.find(mark)
+        if at < end or placeheld.count(mark) != 1:
+            return f"the chat template changes, leaves out, repeats or reorders message {i + 1}"
+        pieces.append(placeheld[end:at])
+        end = at + len(mark)
+    pieces.append(placeheld[end:])
+    parts: list[Part] = []
+    pos = 0
+    labels = _labels(profile, turns, turn_ids)
+    for i, (message, label) in enumerate(zip(messages, labels, strict=True)):
+        parts.append(({"kind": "template"}, pieces[i]))
+        if not rendered.startswith(pieces[i], pos):
+            return f"the chat template writes other text around message {i + 1}"
+        pos += len(pieces[i])
+        content = message["content"]
+        for text in dict.fromkeys([content, content.strip()]):
+            if rendered.startswith(text + pieces[i + 1], pos):
+                break
+        else:
+            return f"the chat template changes message {i + 1} ({label['role']}) itself"
+        entry = {"kind": "message", **label, **({"trimmed": True} if text != content else {})}
+        parts.append((entry, text))
+        pos += len(text)
+    if rendered[pos:] != pieces[-1]:
+        return "the chat template writes other text after the last message"
+    parts.append(({"kind": "template"}, pieces[-1]))
+    return [(info, text) for info, text in parts if text or info["kind"] == "message"]
+
+
+def _token_ranges(
+    tokenizer: Tokenizer, parts: list[Part], prompt: Prompt
+) -> list[dict[str, Any]] | dict[str, str]:
+    """Characters to tokens, with the fast tokenizer's offsets. A token belongs to the part
+    its first character is in; a part whose last token runs past its end says so."""
+    encoded = tokenizer.tok(prompt.text, add_special_tokens=False, return_offsets_mapping=True)
+    ids, offsets = encoded["input_ids"], encoded["offset_mapping"]
+    bos = 1 if prompt.bos.get("prepended") else 0
+    if ids != prompt.ids[bos:]:
+        return {"unavailable": "tokenizing with offsets gave other IDs than the prompt's"}
+    reached = 0
+    for start, end in offsets:
+        if start > reached or end < start:
+            return {"unavailable": "the tokenizer's character offsets leave gaps"}
+        reached = max(reached, end)
+    if reached != len(prompt.text):
+        return {"unavailable": "the tokenizer's character offsets don't reach the end"}
+    bounds, pos = [], 0
+    for _, text in parts:
+        bounds.append((pos, pos + len(text)))
+        pos += len(text)
+    owner, k = [], 0
+    for start, _ in offsets:
+        while k < len(bounds) - 1 and not bounds[k][0] <= start < bounds[k][1]:
+            k += 1
+        owner.append(k)
+    entries = [{"kind": "bos", "chars": [0, 0], "tokens": [0, 1]}] if bos else []
+    for k, ((info, _), (first, last)) in enumerate(zip(parts, bounds, strict=True)):
+        start, end = bisect.bisect_left(owner, k), bisect.bisect_right(owner, k)
+        entry = {**info, "chars": [first, last], "tokens": [start + bos, end + bos]}
+        if end > start and offsets[end - 1][1] > last:
+            entry["edge_token"] = "end"
+        entries.append(entry)
+    return entries

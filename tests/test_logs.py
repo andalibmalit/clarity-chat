@@ -192,3 +192,11 @@ def test_a_torn_line_naming_a_complete_line_hides_nothing(tmp_path):
     with path.open("ab") as f:
         f.write(b"\n" + json.dumps(false_alarm).encode() + b"\n")
     assert [r["type"] for r in read_records(path)] == ["note", "call", "torn_line"]
+
+
+def test_a_new_log_is_readable_only_by_you(tmp_path):
+    """Logs hold private conversations: mode 0600 on Linux and macOS."""
+    path = tmp_path / "logs" / "c.jsonl"
+    LogFile(path).append({"type": "x"})
+    if os.name != "nt":
+        assert path.stat().st_mode & 0o777 == 0o600

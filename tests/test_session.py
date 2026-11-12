@@ -364,3 +364,32 @@ def test_a_cancel_while_the_prompt_is_built_is_logged_like_any_early_cancel(make
         session.say("a", cancel=cancel)
     call = records(session, "call")[-1]
     assert call["cancelled_during"] == "prompt" and "cancelled" in call["flags"]
+
+
+class Echoing(FakeBackend):
+    """Reports the prompt back as llama-server does: decoded from what it received, or, to
+    stand for a server that received something else, `echo`."""
+
+    echo: str | None = None
+
+    def complete(self, token_ids, *args, **kwargs):
+        result = super().complete(token_ids, *args, **kwargs)
+        received = self.echo if self.echo is not None else self.tokenizer.decode(token_ids)
+        result.response = {**result.response, "prompt": received}
+        return result
+
+
+@pytest.mark.parametrize("echo", [None, "A prompt the server made up."])
+def test_the_prompt_echo_check_compares_the_servers_decoding(fetched_root, tiny_tokenizer, echo):
+    backend = Echoing([" Hello!"], tokenizer=tiny_tokenizer)
+    backend.echo = echo
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    session.new_conversation("text")
+    record = session.say("Hi").record
+    check = record["checks"]["prompt_echo"]
+    if echo is None:
+        assert check == {"ok": True} and "check_failed:prompt_echo" not in record["flags"]
+    else:
+        assert check["ok"] is False and check["server"] == echo
+        assert check["client"] == tiny_tokenizer.decode(record["prompt_ids"])
+        assert "check_failed:prompt_echo" in record["flags"]

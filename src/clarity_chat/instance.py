@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from clarity_chat.files import write_text_atomic
 from clarity_chat.profiles import ConfigError
 
 if sys.platform == "win32":
@@ -51,12 +52,7 @@ def read_info(root: Path) -> dict[str, Any]:
 
 def write_info(root: Path, info: dict[str, Any]) -> None:
     """Replace clarity.json in one step, readable only by you (it will hold a server key)."""
-    path = root / "local" / "clarity.json"
-    tmp = path.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(info, f, indent=1)
-    os.replace(tmp, path)
+    write_text_atomic(root / "local" / "clarity.json", json.dumps(info, indent=1), private=True)
 
 
 class Held:

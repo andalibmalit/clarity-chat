@@ -1,6 +1,6 @@
 [project]
 name = "clarity-chat"
-version = "0.2.0"
+version = "0.2.1"
 description = "Clarity: a chat client for exact, replayable prompting experiments with local LLMs."
 readme = "README.md"
 license = "Apache-2.0"
@@ -58,7 +58,7 @@ explicit-preview-rules = true
 include = ["src", "tests"]
 
 [tool.ty.analysis]
-# torch comes with the optional `hf` extra, which CI doesn't install.
+# torch comes with the optional `hf` extra; a base install has no torch to resolve.
 allowed-unresolved-imports = ["torch"]
 
 [tool.pytest.ini_options]

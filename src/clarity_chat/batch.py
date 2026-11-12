@@ -212,6 +212,8 @@ def run_batch(
                     raise RunError(f"Cancelled (Ctrl-C) during {where}.")
                 if failed:
                     raise RunError(f"Call {call['call_id']} ({where}) failed {failed}.")
+                if call["flags"]:  # flag names only, never reply text
+                    warn(f"{call['call_id']} ({where}): flags: {', '.join(call['flags'])}")
                 for warning in outcome.warnings:
                     warn(warning)
                 replies[i, name, seed] = Reply(
@@ -252,7 +254,8 @@ def run_batch(
         "calls": "calls.jsonl",
         "openings": key_openings,
     }
-    write_text_atomic(run_dir / "key.json", json.dumps(key, indent=2, ensure_ascii=False) + "\n")
+    key_text = json.dumps(key, indent=2, ensure_ascii=False) + "\n"
+    write_text_atomic(run_dir / "key.json", key_text, private=True)
     blind_path = run_dir / "blind.md"
-    write_text_atomic(blind_path, "\n".join(blind))
+    write_text_atomic(blind_path, "\n".join(blind), private=True)
     return blind_path

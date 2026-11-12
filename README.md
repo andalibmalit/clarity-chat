@@ -34,6 +34,7 @@ The same call on the same machine and llama.cpp build gives the same output. Liv
 - Chat mode, through the model's chat template, and text mode, where the model continues a plain document.
 - Branches in a chat (`/regen`, `/edit`, `/undo`), and marks and notes on replies, during a chat or afterwards.
 - Replay of any completed call, with a list of everything recorded that changed since.
+- Export of a conversation to one JSON Lines file a notebook can load, with exact token IDs, where each message sits in the prompt, and marks and notes.
 - Blind batch runs for comparing setups.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - A llama-server that Clarity starts and checks itself, and a Transformers backend that runs the same weights in-process (`uv sync --extra hf`).

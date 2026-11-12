@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import io
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -55,6 +56,28 @@ def visible_lines(text: str) -> list[str]:
     return lines
 
 
+def format_probs(result: dict[str, Any]) -> str:
+    """A summary of a reply's token probabilities; --json gets every token."""
+    import math
+
+    if "unavailable" in result:
+        return f"No token probabilities for this reply: {result['unavailable']}."
+    tokens = result["logprobs"]["tokens"]
+    lines = [
+        f"{len(tokens)} tokens in {result['call_id']} ({result['logprobs']['view']}). "
+        f"The {len(result['least_likely'])} least likely chosen, in reply order:"
+    ]
+    for t in result["least_likely"]:
+        others = ", ".join(
+            f"{o['text']!r} {math.exp(o['logprob']):.1%}" for o in t["top"] if o["id"] != t["id"]
+        )
+        lines.append(
+            f"  #{t['index']} {t['text']!r} {math.exp(t['logprob']):.1%}"
+            + (f"   model's likeliest others: {others}" if others else "")
+        )
+    return "\n".join(lines)
+
+
 def format_prompt(record: dict[str, Any] | None, as_repr: bool) -> str:
     if record is None or "prompt_text" not in record:
         return "No call yet."
@@ -82,10 +105,13 @@ def format_settings(view: dict[str, Any]) -> str:
         lines.append(f"  {name:<{width}}  {value!r:<44} {setting['origin']}{note}")
     lines.append(f"backend {view['backend']}: fixed values for its other sampling fields")
     for name, entry in view["backend_settings"].items():
-        lines.append(f"  {name} = {entry['value']!r}")
+        origin = "" if entry["origin"] == "backend" else f"  {entry['origin']}"
+        lines.append(f"  {name} = {entry['value']!r}{origin}")
     if view["eog_tokens"]:
         listed = ", ".join(f"{t['id']} {t['text']!r}" for t in view["eog_tokens"])
         lines.append(f"end-of-reply tokens (from the model file): {listed}")
+    elif view["backend"] == "llama.cpp":
+        lines.append("end-of-reply tokens: not found in llama-server's startup log")
     recommended = view["recommended"]
     if recommended:
         source = recommended["source"]
@@ -192,8 +218,10 @@ def format_resume(result: dict[str, Any]) -> str:
             "continues after the last reply. /branches shows the others."
         )
     if record["profile_file"] != "same":
-        state = "has changed" if record["profile_file"] == "changed" else "is gone"
-        lines.append(f"! The profile's file {state} since; this chat uses the profile as logged.")
+        state = {"changed": "has changed since", "missing": "is gone"}.get(
+            record["profile_file"], "is outside the project folder, so it wasn't read"
+        )
+        lines.append(f"! The profile's file {state}; this chat uses the profile as logged.")
     if record["ctx_size"]["origin"] != "log":
         lines.append(
             f"! The log doesn't say its context size: using {record['ctx_size']['value']} "
@@ -328,11 +356,11 @@ class ChatLoop:
     def start(self) -> None:
         if self.resume is not None:
             self.write(f"Resuming {self.resume} …\n")
-            result = self.commands.run("resume", self.resume, self.on_event)
+            result = self.commands.run("resume", self.resume, self.on_event, paths=True)
             self.write(format_resume(result) + "\n")
             return
         self.write(f"Starting profile {self.profile_name} …\n")
-        result = self.commands.run("profile", self.profile_name, self.on_event)
+        result = self.commands.run("profile", self.profile_name, self.on_event, paths=True)
         for warning in result["warnings"]:
             self.write(f"! {warning}\n")
         self.write(
@@ -362,7 +390,8 @@ class ChatLoop:
             name = {"exit": "quit", "q": "quit"}.get(name, name)
             if name == "edit":
                 return self.edit(raw)  # the new message exactly as typed
-            return self.command(name, raw.strip())
+            # A message goes as typed, like a plain line; other commands parse their args.
+            return self.command(name, raw if name == "say" else raw.strip())
         if not line.strip():
             return True
         return self.command("say", line)
@@ -370,7 +399,7 @@ class ChatLoop:
     def command(self, name: str, args: str) -> bool:
         """Run a registry command and show its result. Returns False to quit."""
         try:
-            result = self.commands.run(name, args, self.on_event)
+            result = self.run_cancellable(name, args)
         except CancelledBeforeReply as e:
             offered = name in ("say", "edit")
             self.write(
@@ -390,13 +419,20 @@ class ChatLoop:
         except (ContextError, ConfigError) as e:
             self.write(f"! {e}\n")
             return True
-        if name in ("say", "regen", "edit"):
+        if name in ("say", "edit"):
             self.write("\n")
-            for warning in result["warnings"]:
-                self.write(f"! {warning}\n")
-            if result["call"].get("flags"):
-                self.write("! flags: " + ", ".join(result["call"]["flags"]) + "\n")
-            self.write(format_status(result["call"]) + "\n")
+            self.show_call(result)
+        elif name == "regen":
+            self.write("\n")
+            replies = result["replies"]
+            for k, reply in enumerate(replies, 1):
+                if len(replies) > 1:
+                    self.write(f"reply {k}: ")
+                self.show_call(reply)
+            if result.get("stopped"):
+                self.write(f"! Stopped. {result['stopped']}\n")
+            if len(replies) > 1:
+                self.write("/branches lists them.\n")
         elif name == "quit":
             return False
         elif name == "help":
@@ -405,6 +441,8 @@ class ChatLoop:
             self.write(format_prompt(result["call"], as_repr=args == "repr") + "\n")
         elif name == "settings":
             self.write(format_settings(result) + "\n")
+        elif name == "probs":
+            self.write(format_probs(result) + "\n")
         elif name in ("new", "profile"):
             self.write(
                 f"New conversation {result['conversation_id']} with profile "
@@ -442,13 +480,45 @@ class ChatLoop:
             self.write(annotated(result["records"]) + ".\n")
         elif name == "replay":
             self.write(format_replay(result["replay"]) + "\n")
+        elif name == "export":
+            self.write(format_export(result) + "\n")
         elif name == "cancel":  # in the terminal, Ctrl-C cancels; between calls, nothing runs
             self.write("Cancelled.\n" if result["cancelled"] else "Nothing to cancel.\n")
         return True
 
+    def show_call(self, result: dict[str, Any]) -> None:
+        """A finished call's warnings, flags and status line."""
+        for warning in result["warnings"]:
+            self.write(f"! {warning}\n")
+        if result["call"].get("flags"):
+            self.write("! flags: " + ", ".join(result["call"]["flags"]) + "\n")
+        self.write(format_status(result["call"]) + "\n")
+
+    def run_cancellable(self, name: str, args: str) -> dict[str, Any]:
+        """Run a command with Ctrl-C mapped to /cancel, so a call is cancelled wherever it
+        is, not only while the stream is read. A command that can't be cancelled (a model
+        start) keeps Ctrl-C's usual effect, so a long load can still be stopped."""
+        import signal
+
+        def cancel(signum: int, frame: Any) -> None:
+            if not self.commands.run("cancel", "", lambda e: None)["cancelled"]:
+                raise KeyboardInterrupt
+
+        try:
+            previous = signal.signal(signal.SIGINT, cancel)
+        except ValueError:  # not the main thread: leave Ctrl-C as it is
+            return self.commands.run(name, args, self.on_event)
+        try:
+            return self.commands.run(name, args, self.on_event)
+        finally:
+            signal.signal(signal.SIGINT, previous)
+
     def on_event(self, event: dict[str, Any]) -> None:
         if event["event"] == "text":
             self.write(event["text"])
+        elif event["event"] == "reply_start" and event["n"] > 1:
+            gap = "\n\n" if event["k"] > 1 else ""
+            self.write(f"{gap}— reply {event['k']} of {event['n']}, seed {event['seed']} —\n")
         elif event["event"] == "record" and event["record"]["type"] == "torn_line":
             self.write(f"\n! {torn_message(event['record'], "this conversation's log")}\n")
 
@@ -512,11 +582,16 @@ def cmd_chat_json(root: Path, profile: str | None, resume: str | None, on_server
     atexit.register(session.close)
     first = [{"command": "profile", "args": profile}] if profile else []
     first += [{"command": "resume", "args": resume}] if resume else []
+    # The raw stream, not the buffered one: the reader thread is still blocked reading when
+    # a script keeps the input open, and holding the buffered stream's lock there made
+    # Python's shutdown abort ("Fatal Python error", status -6).
+    stdin = getattr(sys.stdin.buffer, "raw", sys.stdin.buffer)
+    chat = JsonChat(session, stdin, sys.stdout)
     try:
-        JsonChat(session, sys.stdin.buffer, sys.stdout).run(first)  # bytes: UTF-8 always
+        chat.run(first)  # bytes: UTF-8 always
     finally:
         session.close()
-    return 0
+    return 1 if chat.failed else 0
 
 
 def cmd_run(
@@ -540,6 +615,19 @@ def cmd_run(
         session.close()
     print(f"Done. Share {blind}.\nKeep {run_dir / 'key.json'} closed until rating is done.")
     return 0
+
+
+def format_export(result: dict[str, Any]) -> str:
+    """Where an export went, and what it holds."""
+    replaced = " (replaced the earlier export)" if result["replaced"] else ""
+    left_out = result["failed_calls_left_out"]
+    failed = f"; {left_out} failed call(s) left out" if left_out else ""
+    if torn := result["calls_without_a_turn_left_out"]:
+        failed += f"; {torn} call(s) left out: the log has no record of their reply"
+    return (
+        f"Wrote {result['path']}{replaced}: {result['calls']} call(s){failed}. Before "
+        "recomputing it in a notebook, run clarity_chat.recompute.check (docs/guides.md)."
+    )
 
 
 def say_if_torn(log_path: Path) -> Callable[[dict[str, Any]], None]:
@@ -623,6 +711,21 @@ def cmd_verify(root: Path, names: list[str]) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows writes pipes and files in its ANSI code page, which can't hold every title or
+    # reply; consoles are UTF-8 already. PowerShell 5.1 may still show the bytes wrongly.
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper) and not stream.isatty():
+            stream.reconfigure(encoding="utf-8")
+    parser, chat = build_parser()
+    args = parser.parse_args(argv)
+    if args.command == "chat" and not (args.json or args.profile or args.resume):
+        chat.error("one of --profile or --resume is required (or --json, to start by command)")
+    return run_command(args)
+
+
+def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
+    """Clarity's command line, and its `chat` subcommand's parser. scripts/qa_session.py
+    parses with it too, so it checks the arguments exactly as Clarity will read them."""
     parser = argparse.ArgumentParser(
         prog="clarity",
         description="Clarity: what you see is exactly what the model got.",
@@ -676,13 +779,19 @@ def main(argv: list[str] | None = None) -> int:
         else:
             annotate.add_argument("text", help="one argument: quote it if it has spaces")
     commands.add_parser("chats", help="list your conversations in logs/, newest first")
+    export = commands.add_parser(
+        "export", help="write a conversation for a notebook (logs/exports/ID.jsonl)"
+    )
+    export.add_argument("conversation", help="its ID (from `clarity chats`) or log file")
+    export.add_argument("--out", type=Path, help="where to write it instead")
     fetch = commands.add_parser("fetch", help="download (and convert) a model from models.toml")
     fetch.add_argument("name")
     verify = commands.add_parser("verify", help="re-hash fetched models against models.lock")
     verify.add_argument("names", nargs="*")
-    args = parser.parse_args(argv)
-    if args.command == "chat" and not (args.json or args.profile or args.resume):
-        chat.error("one of --profile or --resume is required (or --json, to start by command)")
+    return parser, chat
+
+
+def run_command(args: argparse.Namespace) -> int:
     try:
         if args.command == "mark":  # a log file is all these need: no project root
             kind = "unmark" if args.remove else "mark"
@@ -712,6 +821,13 @@ def main(argv: list[str] | None = None) -> int:
 
             print(format_chats(list_chats(root / "logs")))
             return 0
+        if args.command == "export":  # reads a log and tokenizers; starts no model
+            from clarity_chat.export import export_log
+
+            session = Session(root)
+            log = session.log_for(args.conversation)
+            print(format_export(export_log(session, log, args.out)))
+            return 0
         if args.command == "fetch":
             return cmd_fetch(root, args.name)
         if args.command == "verify":
@@ -722,8 +838,7 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nclarity: interrupted", file=sys.stderr)
         return 130
-    parser.error(f"unknown command {args.command}")
-    return 2
+    raise AssertionError(f"unknown command {args.command}")  # argparse refuses it first
 
 
 if __name__ == "__main__":

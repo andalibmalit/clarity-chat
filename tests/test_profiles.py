@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from clarity_chat.profiles import (
@@ -148,27 +150,28 @@ def test_server_config_builds_flags(root):
 
 
 @pytest.mark.parametrize(
-    ("line", "message"),
+    "line",
     [
-        ('model = "x.gguf"', "not allowed"),
-        ('hf-repo = "a/b"', "not allowed"),
-        ("context-shift = true", "not allowed"),
-        ('api-key-file = "keys.txt"', "not allowed"),
-        ("webui = true", "not allowed"),
-        ('ui-config = "{}"', "not allowed"),
-        ("slots = true", "not allowed"),
-        # Every spelling of an adapter or a control vector, not only the bare flag.
-        ('lora-scaled = "a.gguf:0.5"', "not allowed"),
-        ("lora-init-without-apply = true", "not allowed"),
-        ('control-vector-scaled = "v.gguf:4"', "not allowed"),
-        ('control-vector-layer-range = "8 24"', "not allowed"),
-        ("-c = 4096", "long name"),
+        "gpu-layers = 10",  # an alias of n-gpu-layers
+        "grp-attn-n = 4",
+        'override-tensor = "blk.0=CPU"',
+        "special = true",
+        'docker-repo = "a/b"',
+        # Flags Clarity sets itself, or that would change the model or how it runs.
+        'model = "x.gguf"',
+        'hf-repo = "a/b"',
+        "context-shift = true",
+        'api-key-file = "keys.txt"',
+        "webui = true",
+        'lora-scaled = "a.gguf:0.5"',
+        'control-vector-scaled = "v.gguf:4"',
+        "-c = 4096",
     ],
 )
-def test_server_config_rejects_flags(root, line, message):
+def test_server_config_refuses_flags_outside_the_allowed_list(root, line):
     path = root / "server.toml"
     path.write_text(path.read_text(encoding="utf-8") + line + "\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match=message):
+    with pytest.raises(ConfigError, match="allowed list"):
         load_server_config(root)
 
 
@@ -181,8 +184,15 @@ def test_server_config_rejects_flags(root, line, message):
         ("ctx-size = 8192\n", "", "must set"),
         ("log-verbosity = 4 ", "log-verbosity = 3 ", "at least 4"),
         ("cache-ram = 0", "cache-ram = false", "need a value"),  # False == 0 in Python
-        ("threads = 8\n", "threads = false\n", "need a value"),
+        ("threads = 8\n", "threads = false\n", "positive integer"),
         ('n-gpu-layers = "all"', "n-gpu-layers = -1", "explicit"),
+        # false would leave the flag out, so llama.cpp's default would decide
+        ("no-kv-unified = true", "no-kv-unified = false", "must be true"),
+        ("no-kv-unified = true", "kv-unified = false", "must be true"),
+        ("no-jinja = true", "no-jinja = false", "must be true"),
+        # llama-server reads 0 or less as "every core", which depends on the machine
+        ("threads = 8\n", "threads = 0\n", "positive integer"),
+        ("threads-batch = 8", "threads-batch = -2", "positive integer"),
     ],
 )
 def test_server_config_requires_explicit_values(root, old, new, message):
@@ -223,3 +233,23 @@ def test_a_name_in_both_profile_folders_is_an_error(root):
     (own / "text.toml").write_text("", encoding="utf-8")
     with pytest.raises(ConfigError, match="Rename one of them"):
         load_profile(root, "text", load_defaults(root))
+
+
+@pytest.mark.parametrize("how", ["relative", "absolute", "symlink"])
+def test_a_prompt_file_outside_the_project_folder_is_refused(root, how):
+    """A profile from someone else mustn't put, say, ~/.ssh/id_rsa into a prompt and a log."""
+    outside = root.parent / f"{root.name}-outside.txt"
+    outside.write_text("secret", encoding="utf-8")
+    if how == "relative":
+        ref = f"../../{outside.name}"
+    elif how == "absolute":
+        ref = outside.as_posix()
+    else:
+        if os.name == "nt":  # creating a symlink needs extra rights on Windows
+            return
+        (root / "prompts").mkdir()
+        (root / "prompts" / "link.txt").symlink_to(outside)
+        ref = "../prompts/link.txt"
+    write_profile(root, "p", BASE + f'header = {{ file = "{ref}" }}\n')
+    with pytest.raises(ConfigError, match="outside the project folder"):
+        load_profile(root, "p", load_defaults(root))

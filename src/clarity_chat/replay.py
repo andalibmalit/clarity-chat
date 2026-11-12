@@ -69,8 +69,19 @@ def deep_diff(old: Any, new: Any, path: str = "") -> list[dict[str, Any]]:
 
 def not_recorded(logged: dict[str, Any], now: dict[str, Any]) -> list[str]:
     """Facts the logged call didn't record (an older version of Clarity), so they can't be
-    compared. Listed in the replay record, so the gap is visible."""
-    return sorted(name for name in now if logged.get(name) is None and now[name] is not None)
+    compared, and machine values known on one side only (`machine.macos.chip`: a sandbox
+    hides the chip's name; a newer Clarity records a new key). Listed in the replay record,
+    so the gap is visible."""
+    names = [name for name in now if logged.get(name) is None and now[name] is not None]
+    if logged.get("machine") is not None and now.get("machine") is not None:
+        found = deep_diff(logged["machine"], now["machine"])
+        names += [f"machine.{d['path']}" for d in found if one_sided(d)]
+    return sorted(names)
+
+
+def one_sided(diff: dict[str, Any]) -> bool:
+    """A value known on one side only: unknown, not different."""
+    return (diff["logged"] in (None, "(missing)")) != (diff["now"] in (None, "(missing)"))
 
 
 def environment_diff(logged: dict[str, Any], now: dict[str, Any]) -> dict[str, list[dict]]:
@@ -81,6 +92,8 @@ def environment_diff(logged: dict[str, Any], now: dict[str, Any]) -> dict[str, l
     skipped = set(not_recorded(logged, now))
     for name in sorted((set(logged) | set(now)) - skipped):
         found = deep_diff(logged.get(name), now.get(name))
+        if name == "machine":  # values known on one side only are not recorded, above
+            found = [d for d in found if not one_sided(d)]
         if found:
             diffs[name] = found[:MAX_DIFFS] + (
                 [{"path": "…", "logged": f"{len(found) - MAX_DIFFS} more", "now": ""}]
@@ -92,10 +105,19 @@ def environment_diff(logged: dict[str, Any], now: dict[str, Any]) -> dict[str, l
 
 def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict[str, Any]:
     """The facts a replay compares, as the log recorded them. Each backend has its own:
-    llama-server's build, flags and /props, or PyTorch's and Transformers' versions."""
+    llama-server's build, flags and /props, or PyTorch's and Transformers' versions.
+
+    `end_tokens` are the IDs a reply stops on. Each backend finds its own, and they can differ:
+    llama.cpp also stops on tokens it recognizes by name, such as SmolLM2's <|endoftext|>
+    and <reponame>."""
+    # The call names its backend; a log missing the server record still gets the right facts,
+    # and what it lacks is None (not recorded) rather than an empty value that differs.
     server = server or {}
-    if server.get("backend") == "transformers":
+    backend = (call.get("backend") or {}).get("backend") or server.get("backend")
+    if backend == "transformers":
+        eos = server.get("eos_token_id")
         return {
+            "end_tokens": sorted(eos) if eos is not None else None,
             "torch": server.get("torch"),
             "transformers": server.get("transformers"),
             "device": server.get("device"),
@@ -108,14 +130,22 @@ def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict
             "client": call.get("client"),
             "libraries": call.get("libraries"),
         }
+    eog = (server.get("model_file") or {}).get("eog_tokens")
     return {
+        "end_tokens": sorted(t["id"] for t in eog) if eog is not None else None,
         "build_info": server.get("build_info"),
-        "llama_cpp": {k: v for k, v in (server.get("llama_cpp") or {}).items() if k != "dir"},
+        "llama_cpp": (
+            {k: v for k, v in server["llama_cpp"].items() if k != "dir"}
+            if server.get("llama_cpp") is not None
+            else None
+        ),
         "flags": server.get("flags"),
         "graph_splits": server.get("graph_splits"),
-        "props": {
-            k: v for k, v in (server.get("props") or {}).items() if k not in PROPS_NOT_COMPARED
-        },
+        "props": (
+            {k: v for k, v in server["props"].items() if k not in PROPS_NOT_COMPARED}
+            if server.get("props") is not None
+            else None
+        ),
         "env": server.get("env_llama_ggml_kept"),
         "machine": server.get("machine"),
         "gguf_sha256": call["model"].get("gguf_sha256"),

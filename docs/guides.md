@@ -12,8 +12,11 @@ A chat-mode profile uses the model's chat template:
 backend = "llama.cpp"
 model = "smollm2-135m-instruct"   # a name from models.toml
 mode = "chat"
-system = { file = "../prompts/system.txt" }   # or a string; leave out for none
-priming = { file = "../prompts/priming.toml" } # earlier messages placed before the conversation
+system = "You answer in one sentence."    # or { file = "PATH" }; leave out for none
+priming = [                                # earlier messages placed before the conversation
+  { role = "user", content = "What's a token?" },
+  { role = "assistant", content = "A piece of text the model reads as one unit." },
+]
 
 [settings]
 temperature = 0.6
@@ -39,7 +42,13 @@ The model sees the header, the priming text, one line per turn, and a final `Ass
 Tips:
 - Unknown keys and setting names are errors, so most typos stop the profile from loading. Keys inside `template_kwargs` can't be checked against a fixed list, because the chat template defines them. Instead, Clarity warns when a conversation starts if the template never reads one of them.
 - File paths are relative to the profile, and files are read byte for byte. A trailing newline your editor added is part of the prompt; `/prompt repr` shows it.
-- A priming file holds only `[[messages]]` tables, each with `role` (`"user"` or `"assistant"`) and `content`. See `prompts/priming.toml`.
+- A priming file holds only `[[messages]]` tables, each with `role` (`"user"` or `"assistant"`) and `content`:
+
+  ```toml
+  [[messages]]
+  role = "user"
+  content = "What's a token?"
+  ```
 - Template options such as `enable_thinking` go in a `[template_kwargs]` table.
 - Settings you leave out come from the model if `use_recommended = true`, and otherwise from `defaults.toml`, whose values turn every sampler off.
 
@@ -135,6 +144,29 @@ Each call is its own conversation. Profiles are read once, at the start, so edit
 
 `/regen` and `/edit` add a branch next to the reply or message they replace, and `/undo` steps back so your next message starts one. Nothing is overwritten. `/branches` lists every place on the current path where the conversation branches, with each option's turn ID, and `/switch TURN_ID` goes to that branch's newest reply. Switching sends nothing; your next message continues from there.
 
+## Sample several replies
+
+`/regen 4` asks for four more replies to your last message, one after another. Each is a new branch with its own logged seed: the first reply's seed plus 1, 2, 3 and 4, so each can be replayed. The terminal shows a header before each reply and its seed, and `/branches` then lists them all. Ctrl-C stops the reply being written and skips the rest. With `--json`, a `reply_start` event comes before each reply, so a script can tell their text apart.
+
+## See a reply's token probabilities
+
+On a Transformers profile, `/set logprobs 5` records, for each token of the next replies, the probability the model gave it and its five likeliest alternatives. `/probs` then summarizes the current reply: the ten tokens the model thought least likely, in reply order, each with the model's likeliest other tokens. The probabilities are the model's own, from its raw scores before any sampler: a token picked at temperature 1.2 shows the probability the model gave it, not the reshaped one. Every number is in the call's `logprobs` field in the log, and `/probs` with `--json` returns all of them. `/set logprobs 0` turns it off. llama.cpp profiles refuse the setting for now.
+
+## Take a conversation to a notebook
+
+`/export`, or `uv run clarity export ID` afterwards, writes the conversation to `logs/exports/ID.jsonl`: exact token IDs, where each message sits in the prompt, marks, notes and settings for every reply. Its fields are in [Export](reference.md#export).
+
+Numbers you recompute in a notebook are only comparable with the logged ones under the same conditions: the same weights, precision, device, attention implementation, library versions, PyTorch environment variables, deterministic-algorithms setting and machine. So run the check first, with the model you loaded:
+
+```python
+from clarity_chat.recompute import check
+
+report = check("logs/exports/ID.jsonl", model, repo="ORG/NAME", revision="COMMIT")
+print(report)
+```
+
+It lists each condition that differs from the export's. Transformers doesn't keep the commit a model was loaded from, so pass `revision`, the commit in the export's header, or the weights read "unknown". Pass `repo` too when you loaded the model from a local folder. A llama.cpp conversation ran on a GGUF file, so its weights never read as the same as a Transformers model's. For replies logged with `logprobs` on, it also recomputes each reply token's log-probability and reports the largest gap from the logged value, and how many steps' top choice changed. It recomputes step by step with the cache, as generation ran. In bf16, one pass over the whole reply gives different numbers even with nothing changed, because the two ways add things up in a different order and bf16 rounds differently: in one 60-token run of SmolLM2 on a CPU, the gap was 0.139, about as large as loading the model in float32 (0.133). In float32 it's far smaller: in another 60-token SmolLM2 run on a CPU, one pass gave a gap of 0.177 in bf16 and 0.0000145 in float32. With the same weights, precision, device, attention implementation and library versions on the same CPU, the gap was exactly 0 in our tests. The check gives facts and numbers, not a verdict: whether a difference matters depends on your experiment. It needs the `hf` extra.
+
 ## Resume a conversation
 
 `clarity chats` lists your conversations. To continue one, pass its ID:
@@ -143,7 +175,7 @@ Each call is its own conversation. Profiles are read once, at the start, so edit
 uv run clarity chat --resume CONVERSATION_ID
 ```
 
-A path to its log file works too. In a chat, `/resume ID` does the same. The conversation continues where it left off, with its profile, settings, `/set` values and context size as they were logged, and new records go to the same log. Clarity lists what differs today, such as an edited profile file or a new llama.cpp build, and checks that the current reply's prompt still renders to the same token IDs. `/history` shows the conversation so far. To pick up today's profile instead, start a new conversation with `/new`.
+A path to its log file works too. In a chat, `/resume ID` does the same, by ID only. The conversation continues where it left off, with its profile, settings, `/set` values and context size as they were logged, and new records go to the same log. Clarity lists what differs today, such as an edited profile file or a new llama.cpp build, and checks that the current reply's prompt still renders to the same token IDs. `/history` shows the conversation so far. To pick up today's profile instead, start a new conversation with `/new`.
 
 ## Label replies after the fact
 

@@ -155,6 +155,83 @@ def test_both_backends_get_the_same_ids_and_greedy_outputs_are_compared(tmp_path
         print(f"  transformers: {hf['output_text']!r}")
 
 
+def test_each_backend_stops_on_its_own_end_tokens(tmp_path):
+    """llama.cpp also stops on tokens it recognizes by name: SmolLM2's <|endoftext|> (0) and
+    <reponame> (4, a fill-in-the-middle token) as well as <|im_end|> (2), where Transformers
+    stops on generation_config.json's 2 alone. Each is shown and compared as a fact; this test
+    notices if either backend changes its set."""
+    from clarity_chat.replay import facts_from_call
+
+    session = Session(REPO, logs_dir=tmp_path)
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    found = {}
+    try:
+        for backend in ("llama.cpp", "transformers"):
+            session.new_conversation(profile(folder, "smol-chat", backend))
+            server = session.backend.server_record
+            found[backend] = facts_from_call({"model": {}}, server)["end_tokens"]
+    finally:
+        session.close()
+    assert found == {"llama.cpp": [0, 2, 4], "transformers": [2]}
+
+
+def recompute_logprobs(backend, prompt_ids: list[int], output_ids: list[int]) -> list[float]:
+    """Each reply token's log-probability, recomputed as generation ran: the prompt in one
+    pass, then one token per step with the cache."""
+    import torch
+
+    from clarity_chat.backends.transformers_hf import log_softmax
+
+    model, device = backend.model, backend.device
+    found = []
+    with torch.inference_mode():
+        ids = torch.tensor([prompt_ids], device=device)
+        out = model(ids, attention_mask=torch.ones_like(ids), use_cache=True)
+        mask_length = len(prompt_ids)
+        for token in output_ids:
+            logprobs = log_softmax(out.logits[:, -1, :])
+            found.append(logprobs[0, token].item())
+            mask_length += 1
+            out = model(
+                torch.tensor([[token]], device=device),
+                attention_mask=torch.ones(1, mask_length, dtype=torch.long, device=device),
+                past_key_values=out.past_key_values,
+                use_cache=True,
+            )
+    return found
+
+
+@pytest.mark.parametrize("device", ["cpu", "mps"])
+@pytest.mark.parametrize("temperature", ["0.0", "0.8"])
+def test_logprobs_change_no_output_and_match_a_step_by_step_recompute(
+    tmp_path, device, temperature
+):
+    session = Session(REPO, logs_dir=tmp_path)
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    records = {}
+    try:
+        for n in (0, 5):
+            name = profile(folder, "smol-chat", device=f'"{device}"', temperature=temperature)
+            with open(name, "a", encoding="utf-8") as f:
+                f.write(f"logprobs = {n}\n")  # [settings] is the file's last table
+            session.new_conversation(name)
+            records[n] = session.say("Name three rivers.").record
+            checks_ok(records[n])
+        logged = records[5]["logprobs"]
+        recomputed = recompute_logprobs(
+            session.backend, records[5]["prompt_ids"], records[5]["output_ids"]
+        )
+    finally:
+        session.close()
+    assert records[0]["output_ids"] == records[5]["output_ids"]
+    assert "logprobs" not in records[0]
+    assert logged["view"] == "raw logits, before any sampler" and logged["n"] == 5
+    assert [t["id"] for t in logged["tokens"]] == records[5]["output_ids"]
+    assert [t["logprob"] for t in logged["tokens"]] == recomputed
+
+
 def test_olmo_3_instruct_on_mps_repeats_and_replays(tmp_path):
     """The model the experiments use: same seed twice, then a replay after a reload.
     Loads about 15 GB once per session; the first session is closed before the second
@@ -184,3 +261,43 @@ def test_olmo_3_instruct_on_mps_repeats_and_replays(tmp_path):
     finally:
         other.close()
     assert replayed["identical"], replayed
+
+
+def test_the_recompute_check_on_an_export_of_a_chat_with_probabilities(tmp_path):
+    """C2, as a notebook would run it: the model loaded fresh in bf16 on the CPU gives a gap
+    of 0 and no changed top choices; a float32 load is named as a different precision and
+    moves the numbers."""
+    import torch
+    from transformers import AutoModelForCausalLM
+
+    from clarity_chat.export import export_log
+    from clarity_chat.recompute import check
+
+    model = load_models(REPO)[MODEL]
+    pins = {"repo": model.repo, "revision": model.revision}
+    session = Session(REPO, logs_dir=tmp_path)
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    try:
+        name = profile(folder, "smol-chat", device='"cpu"', temperature="0.8")
+        with open(name, "a", encoding="utf-8") as f:
+            f.write("logprobs = 5\n")  # [settings] is the file's last table
+        session.new_conversation(name)
+        session.say("Name three rivers.")
+        assert session.conversation is not None
+        export = Path(export_log(session, session.conversation.log.path)["path"])
+    finally:
+        session.close()
+    weights = source_weights(REPO, lock_entry(REPO, model))
+    reports = {}
+    for dtype in (torch.bfloat16, torch.float32):
+        loaded = AutoModelForCausalLM.from_pretrained(
+            weights, dtype=dtype, attn_implementation="sdpa"
+        )
+        reports[dtype] = check(export, loaded, **pins)
+    same, wider = reports[torch.bfloat16], reports[torch.float32]
+    assert [f["fact"] for f in same.groups[0]["facts"] if not f["same"]] == [], str(same)
+    measured = same.calls[0]["measured"]
+    assert measured["largest_gap"] == 0.0 and measured["top_changed"] == 0
+    assert [f["fact"] for f in wider.groups[0]["facts"] if not f["same"]] == ["precision"]
+    assert wider.calls[0]["measured"]["largest_gap"] > 0

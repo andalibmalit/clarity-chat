@@ -1,8 +1,9 @@
 """Every chat command in one table, for the terminal, `clarity chat --json` and the web UI.
 
 `Commands(session).run(name, args, emit)` runs one command and returns a JSON-able result.
-`emit` receives events while it runs: `text` (reply text as it streams), `status` (a model
-starting, ready) and `record` (every record appended to the log). Errors are raised
+`emit` receives events while it runs: `text` (reply text as it streams), `reply_start`
+(before each reply of `/regen N`, with `k`, `n` and its `seed`), `status` (a model starting,
+ready) and `record` (every record appended to the log). Errors are raised
 (ConfigError, ContextError, BackendError); each front end shows them its own way.
 
 Commands run one at a time, except `cancel`, which runs during a call.
@@ -10,16 +11,20 @@ Commands run one at a time, except `cancel`, which runs during a call.
 
 from __future__ import annotations
 
+import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+from clarity_chat.backends import BackendError
 from clarity_chat.logs import list_chats
-from clarity_chat.profiles import ConfigError
-from clarity_chat.session import CallOutcome, Session
+from clarity_chat.profiles import ConfigError, profile_path
+from clarity_chat.session import CallOutcome, CancelledBeforeReply, Session
 
 Emit = Callable[[dict[str, Any]], None]
+MESSAGE_COMMANDS = {"say", "edit"}  # their args are message text, sent exactly
 
 
 @dataclass(frozen=True)
@@ -38,11 +43,16 @@ class Commands:
         self.busy = threading.Lock()  # held while a command runs: one at a time
         self.cancel_event: threading.Event | None = None  # the running command's
         self.running: str | None = None  # the running command's name
+        # Paths only from the command line (--profile, --resume), which you type. Commands
+        # will also come from the browser (v0.3.0), so they take names and IDs.
+        self.paths = False
 
-    def run(self, name: str, args: str, emit: Emit) -> dict[str, Any]:
+    def run(self, name: str, args: str, emit: Emit, *, paths: bool = False) -> dict[str, Any]:
         command = COMMANDS.get(name)
         if command is None:
             raise ConfigError(f"Unknown command /{name}. /help lists them.")
+        if name not in MESSAGE_COMMANDS:  # a message goes exactly; names and labels don't
+            args = args.strip()
         if command.needs_conversation and self.session.conversation is None:
             raise ConfigError("No conversation is running. Start one with /profile NAME.")
         if command.during_call:
@@ -52,6 +62,7 @@ class Commands:
         # Made before the command starts, so a cancel that arrives early isn't lost.
         self.cancel_event = threading.Event()
         self.running = name
+        self.paths = paths
         self.session.on_record = lambda record: emit({"event": "record", "record": record})
         try:
             return command.run(self, args, emit)
@@ -59,6 +70,7 @@ class Commands:
             self.session.on_record = None
             self.cancel_event = None
             self.running = None
+            self.paths = False
             self.busy.release()
 
     def call(self, emit: Emit, start: Callable[..., CallOutcome]) -> dict[str, Any]:
@@ -80,7 +92,32 @@ def _say(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _regen(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    return c.call(emit, c.session.regen)
+    """N replies to the current message, one after another, each a new branch. A cancel stops
+    the reply being written and the rest, whenever it comes. A failure after the first reply
+    stops the rest and is returned as `stopped`, with the replies already made; the head
+    stays at the last."""
+    # ASCII digits only: str.isdigit() also accepts "²", which int() refuses.
+    n = int(args) if re.fullmatch(r"[0-9]+", args) else 0 if args else 1
+    if n < 1:
+        raise ConfigError("Usage: /regen [N], where N is a whole number of replies, 1 or more.")
+    replies: list[dict[str, Any]] = []
+    for k in range(1, n + 1):
+        if replies and c.cancel_event is not None and c.cancel_event.is_set():
+            break
+        try:
+            emit({"event": "reply_start", "k": k, "n": n, "seed": c.session.regen_seed()})
+            replies.append(c.call(emit, c.session.regen))
+        except CancelledBeforeReply:
+            if not replies:
+                raise
+            break
+        except (BackendError, ConfigError) as e:
+            if not replies:
+                raise
+            return {"replies": replies, "stopped": f"Reply {k} of {n}: {e}"}
+        if replies[-1]["call"]["stop_type"] == "cancelled":
+            break
+    return {"replies": replies}
 
 
 def _edit(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -139,8 +176,12 @@ def _switch(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 def _resume(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     log = needs(args, "/resume ID")
+    if not c.paths and not re.fullmatch(r"[A-Za-z0-9_-]+", log):
+        raise ConfigError("/resume takes a conversation ID from /chats, not a path.")
+    # An ID means logs/ID.jsonl only, never a file of that name in the working folder.
+    path = c.session.log_for(log) if c.paths else c.session.logs_dir / f"{log}.jsonl"
     emit({"event": "status", "status": "starting", "log": log})
-    record = c.session.resume(c.session.log_for(log))
+    record = c.session.resume(path)
     conversation = c.session.conversation
     assert conversation is not None
     emit({"event": "status", "status": "ready", "conversation_id": conversation.conversation_id})
@@ -171,6 +212,63 @@ def _prompt(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return {"call": c.session.conversation.last_call}
 
 
+LEAST_LIKELY = 10  # how many of a reply's least likely chosen tokens /probs lists
+
+
+def _probs(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    """The current reply's token probabilities: the full record, and its least likely
+    chosen tokens with their text and the alternatives the model ranked above them."""
+    conversation = c.session.conversation
+    assert conversation is not None
+    # The reply at head, which is on screen; last_call can be a failed call (for /prompt).
+    head = conversation.turns.get(conversation.head or "")
+    call = conversation.calls.get(head.call_id or "") if head else None
+    if call is None or call.get("turn_id") is None:
+        return {
+            "call_id": None,
+            "logprobs": None,
+            "least_likely": [],
+            "unavailable": "no reply yet",
+        }
+    logprobs = call.get("logprobs")
+    if logprobs is None or "unavailable" in logprobs:
+        reason = (
+            logprobs["unavailable"]
+            if logprobs
+            else "not recorded; on a Transformers profile, /set logprobs 5 records them"
+        )
+        return {
+            "call_id": call["call_id"],
+            "logprobs": logprobs,
+            "least_likely": [],
+            "unavailable": reason,
+        }
+    decode = c.session.tokenizer.decode if c.session.tokenizer else str
+    tokens = logprobs["tokens"]
+    ranked = sorted(range(len(tokens)), key=lambda i: tokens[i]["logprob"])[:LEAST_LIKELY]
+    least = [
+        {
+            "index": i,
+            "id": tokens[i]["id"],
+            "text": decode([tokens[i]["id"]]),
+            "logprob": tokens[i]["logprob"],
+            "top": [{"id": t, "text": decode([t]), "logprob": lp} for t, lp in tokens[i]["top"]],
+        }
+        for i in sorted(ranked)
+    ]
+    return {"call_id": call["call_id"], "logprobs": logprobs, "least_likely": least}
+
+
+def _export(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    from clarity_chat.export import export_log
+
+    if args:  # commands will also come from the browser (v0.3.0): no path from a command
+        raise ConfigError("/export takes no path: it writes to logs/exports/ID.jsonl.")
+    conversation = c.session.conversation
+    assert conversation is not None
+    return export_log(c.session, conversation.log.path)
+
+
 def _settings(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return settings_view(c.session)
 
@@ -182,12 +280,33 @@ def _replay(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 def _new(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     conversation = c.session.conversation
     assert conversation is not None
-    profile = conversation.profile  # its file, so a path works too; else (resumed) its name
-    return _start(c, str(profile.path) if profile.path.is_file() else profile.name, emit)
+    profile = conversation.profile
+    if not conversation.resumed and profile.path.is_file():  # a file you named: a path works
+        return _start(c, str(profile.path), emit)
+    # A resumed conversation's profile path comes from its log, which is untrusted: reuse it
+    # only inside the project, else start the logged name from profiles/ or local/profiles/.
+    root = c.session.root.resolve()
+    if profile.path.is_file() and profile.path.resolve().is_relative_to(root):
+        return _start(c, str(profile.path), emit)
+    return _start(c, named_profile(c, profile.name), emit)
 
 
 def _profile(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    return _start(c, needs(args, "/profile NAME"), emit)
+    name = needs(args, "/profile NAME")
+    return _start(c, name if c.paths else named_profile(c, name), emit)
+
+
+def named_profile(c: Commands, name: str) -> str:
+    """A profile name's file in profiles/ or local/profiles/: never a path, and never a file
+    in the working folder."""
+    if Path(name).name != name or name.startswith(".") or name.endswith(".toml") or "\\" in name:
+        raise ConfigError(
+            "/profile takes a profile name from profiles/ or local/profiles/, not a path."
+        )
+    path = profile_path(c.session.root, name)
+    if not path.is_file():
+        raise ConfigError(f"Profile {name!r} not found in profiles/ or local/profiles/.")
+    return str(path)
 
 
 def _start(c: Commands, profile: str, emit: Emit) -> dict[str, Any]:
@@ -225,6 +344,12 @@ def settings_view(session: Session) -> dict[str, Any]:
             from clarity_chat.backends.llama_cpp import NEUTRAL_REQUEST as neutral
 
         backend_settings = {k: {"value": v, "origin": "backend"} for k, v in neutral.items()}
+        started = session.backend.server_record or {}
+        if "eos_token_id" in started:  # Transformers: the end tokens, and where they came from
+            backend_settings["eos_token_id"] = {
+                "value": started["eos_token_id"],
+                "origin": started.get("eos_token_id_from", "model"),
+            }
     recommended = session.model_lock.get("recommended")
     model_file = (session.backend.server_record or {}).get("model_file") or {}
     return {
@@ -252,6 +377,11 @@ COMMANDS: dict[str, Command] = {
         "the exact prompt text of the last call, its token IDs and their count",
         _prompt,
     ),
+    "probs": Command(
+        "/probs",
+        "the current reply's least likely tokens and the alternatives (needs logprobs on)",
+        _probs,
+    ),
     "settings": Command("/settings", "every setting, its value and where it came from", _settings),
     "set": Command(
         "/set NAME [VALUE]",
@@ -259,8 +389,8 @@ COMMANDS: dict[str, Command] = {
         _set,
     ),
     "regen": Command(
-        "/regen",
-        "another reply to your last message (seed + 1, + 2, …), as a new branch",
+        "/regen [N]",
+        "N more replies to your last message (default 1; seed + 1, + 2, …), each a new branch",
         _regen,
         cancellable=True,
     ),
@@ -302,6 +432,11 @@ COMMANDS: dict[str, Command] = {
         "re-send the current reply's call and compare the output",
         _replay,
         cancellable=True,
+    ),
+    "export": Command(
+        "/export",
+        "write this conversation for a notebook, to logs/exports/ID.jsonl",
+        _export,
     ),
     "title": Command("/title TEXT", "name this conversation in the chat list", _title),
     "chats": Command(

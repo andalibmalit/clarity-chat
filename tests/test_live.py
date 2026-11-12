@@ -62,6 +62,8 @@ def test_server_start_is_logged_with_props_and_gpu_placement(session):
         assert any(b["buffer"].startswith("MTL") for b in placement["model_buffers"]), placement
     assert record["warnings"] == []
     assert "--no-context-shift" in record["argv"]
+    # Read from llama.cpp's startup log: a llama.cpp update that changes the line shows here.
+    assert [t["id"] for t in record["model_file"]["eog_tokens"]] == [0, 2, 4]
 
 
 def test_the_server_refuses_requests_without_its_key(session):
@@ -351,3 +353,61 @@ def test_the_next_start_stops_a_server_a_killed_clarity_left(tmp_path):
         if proc.poll() is None:
             proc.kill()
             proc.wait(timeout=20)
+
+
+def test_a_quantized_copy_repeats_and_replays(session, tmp_path):
+    """Every other same-output test runs bf16. llama-quantize makes a Q4_K_M copy of SmolLM2;
+    a greedy and a seeded request each run twice, then again on a new server, as a replay
+    does."""
+    import subprocess
+
+    config = load_server_config(REPO)
+    tool = config.llama_cpp_dir / "build" / "bin" / "llama-quantize"
+    if not tool.exists():
+        pytest.skip(
+            "llama-quantize isn't built: cmake --build vendor/llama.cpp/build "
+            "--config Release -j 8 --target llama-quantize"
+        )
+    session.new_conversation("smol-text")
+    first = session.say("Tell me about the sea.").record
+    ids, stop = first["prompt_ids"], first["stop"]
+    settings = {name: s["value"] for name, s in first["settings"].items()}
+    requests = {
+        "greedy": {**settings, "temperature": 0.0},
+        "seeded": {**settings, "temperature": 0.8, "seed": 1234},
+    }
+    quantized = tmp_path / f"{MODEL}-Q4_K_M.gguf"
+    bf16 = check_weights_quick(REPO, session.model_lock)
+    subprocess.run(
+        [str(tool), str(bf16), str(quantized), "Q4_K_M"], check=True, capture_output=True
+    )
+    assert session.model is not None
+    backend = LlamaCppBackend(config, tmp_path / "logs")
+    try:
+        backend.start(session.model, quantized, 8192)
+        outputs = {}
+        for name, request in requests.items():
+            outputs[name] = backend.complete(ids, request, stop).token_ids
+            assert backend.complete(ids, request, stop).token_ids == outputs[name], name
+        backend.close()
+        backend.start(session.model, quantized, 8192)
+        for name, request in requests.items():
+            assert backend.complete(ids, request, stop).token_ids == outputs[name], name
+    finally:
+        backend.close()
+
+
+def test_converting_twice_gives_the_same_file(tmp_path, capsys):
+    """fetch's convert step, run twice on SmolLM2 into scratch folders, writes the same bytes.
+    Whether they also equal models.lock's hash is printed, not asserted: the converter's
+    environment may have changed since the model was fetched."""
+    from clarity_chat.models import fetch_convert
+
+    model = load_models(REPO)[MODEL]
+    config = load_server_config(REPO)
+    entries = [fetch_convert(tmp_path / run, model, config) for run in ("a", "b")]
+    first, second = (entry["gguf"]["sha256"] for entry in entries)
+    assert first == second
+    with capsys.disabled():
+        same = first == lock_entry(REPO, model)["gguf"]["sha256"]
+        print(f"\nconverted file equals models.lock's: {same}")
