@@ -33,6 +33,7 @@ module-name = "clarity_chat"
 
 [dependency-groups]
 dev = [
+    "gguf==0.19.0",  # tests write control vectors with the reference writer; never imported by Clarity
     "hypothesis>=6.170.15",
     "pytest>=9.2.0",
     "ruff>=0.17.4",

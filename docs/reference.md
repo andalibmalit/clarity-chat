@@ -270,6 +270,19 @@ Then one line per call that produced a reply, `"type": "call"`, in log order:
 - **Probabilities:** `logprobs`, if the call logged them.
 - **Facts:** `facts`, what replay compares, from the call's own server start: the end tokens, and the build, flags and machine or the library versions, device and precision.
 
+## Steering vectors
+
+A steering vector is a file made by another tool, such as repeng; Clarity applies one and never makes one. The file is llama.cpp's control-vector GGUF: one 1-D float32 tensor named `direction.N` for each block N it steers, all the same length (the model's hidden size), and optionally a `controlvector.model_hint` key naming the model type it was made for. Steering adds the scale times `direction.N` to the output of block N, counting from 0, at every position: the prompt's and the reply's. Block 0 can't be steered: llama.cpp's control-vector loader refuses it, and Clarity keeps a vector usable on both.
+
+Clarity reads the file with its own reader, which accepts only this format: GGUF version 3, little-endian, at most 16 MB, 1 to 1,024 tensors, every value finite. Anything else is refused with what was wrong.
+
+Steering runs on model types `llama` and `olmo3`, the two whose blocks Clarity has checked. Other types, including Qwen3 and Apertus, are refused until they are checked. `llama` admits every Llama-architecture model, such as Hermes 4, though only SmolLM2 has a live test.
+
+In a notebook, `clarity_chat.steering` applies a vector exactly as Clarity does:
+- `load(path, sha256)` reads the file, checks its sha256, and returns a `Vector` with `sha256`, `directions` (block number to a float32 array) and `model_hint`.
+- `check(vector, config, layers=None)` checks the vector against a model's `config.json` (as a dict) and returns the blocks to steer: `layers`, or every block in the file.
+- `with applied(model, vector, scale, layers=None) as runs:` steers a loaded Transformers model inside the block, and `runs` counts how many times each steered block ran. It computes `scale × direction.N` in float32 and casts it once to the model's dtype, as repeng and llama.cpp compute it, then adds it in that dtype. Scale 0 adds nothing. The hooks come off when the block ends, however it ends, and a model already inside `applied` is refused.
+
 ## Call flags
 
 A call's `flags` list marks anything to look at. The terminal shows them after the reply as `! flags: …`.
