@@ -1259,3 +1259,52 @@ def test_a_steering_file_with_a_nul_is_refused_not_a_traceback(root, session):
     doctor(path, record["call_id"], lambda row: row["request"]["steering"].update(file="a\0b"))
     with pytest.raises(ConfigError, match="steering file"):
         session.replay(path, record["call_id"])
+
+
+# --- multi-agent code review findings ----------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", ["calm", [1, 2], True, 4.0])
+def test_the_export_refuses_a_logged_steering_clarity_doesnt_write(session, bad):
+    """A log is untrusted: a mangled steering mustn't export as "none" (unsteered)."""
+    from clarity_chat.export import export_log
+
+    path, record, _ = steered_call(session)
+    doctor(path, record["call_id"], lambda row: row["request"].update(steering=bad))
+    with pytest.raises(ConfigError, match="steering"):
+        export_log(session, path)
+
+
+def test_settings_say_when_the_vector_is_off(session):
+    from clarity_chat.cli import format_settings
+    from clarity_chat.commands import settings_view
+
+    session.new_conversation(steered(session.root))
+    assert "(off: steering_scale 0)" not in format_settings(settings_view(session))
+    session.set_setting("steering_scale", "0")
+    line = next(
+        line
+        for line in format_settings(settings_view(session)).split("\n")
+        if line.startswith("steering vector")
+    )
+    assert line.endswith("(off: steering_scale 0)")
+
+
+def test_a_steering_path_with_backslashes_is_refused(root):
+    """Logged as written, a Windows path wouldn't replay or resume on macOS or Linux."""
+    from clarity_chat.profiles import load_defaults, load_profile
+
+    steer_root(root)
+    table = 'file = "local\\\\vectors\\\\calm.gguf"\nsha256 = "00"'
+    with pytest.raises(ConfigError, match="/"):
+        load_profile(root, steered(root, steering=table), load_defaults(root))
+
+
+def test_clarity_starts_without_numpy():
+    """Only steering needs numpy; `clarity chats` and llama.cpp chats shouldn't load it."""
+    import subprocess
+    import sys
+
+    code = "import sys, clarity_chat.cli; print('numpy' in sys.modules)"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "False"
