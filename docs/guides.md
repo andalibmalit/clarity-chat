@@ -231,6 +231,41 @@ Some settings can't run on Transformers exactly as written; [Settings](reference
 
 The context size comes from the profile's `ctx_size` or `server.toml` here too, so the context guard is the same on both backends. A model with fewer positions than that won't start.
 
+## Steer a chat with a vector
+
+A steering vector nudges a model's replies in a direction, such as calm rather than hurried, by adding a fixed vector to the output of some of its blocks. Clarity applies a vector made by another tool; it never makes one. Steering runs on the Transformers backend, on OLMo 3 and on Llama-architecture models such as SmolLM2.
+
+1. Make a vector elsewhere. [repeng](https://github.com/vgel/repeng) trains one from pairs of contrasting prompts and writes it in llama.cpp's control-vector format, which Clarity reads. Install repeng from git in a separate environment: its PyPI release needs numpy below 2, which Clarity's dependencies don't allow. `tests/fixtures/steering/README.md` has a script that makes a small one for SmolLM2.
+2. Leave the model's last block out (pass `hidden_layers` that stop before it). repeng includes it by default, but on Transformers 5 it reads that block's output after the model's final normalization, which isn't what the vector gets added to.
+3. Copy the file into your project, for example to `local/vectors/calm.gguf`.
+4. Add a `[steering]` table to a Transformers profile, and set `steering_scale`:
+
+   ```toml
+   [steering]
+   file = "local/vectors/calm.gguf"
+
+   [settings]
+   steering_scale = 4.0
+   ```
+
+5. Start a chat with it. Clarity refuses the first time, because the vector isn't pinned yet, and gives the line to add to `[steering]`: `sha256 = "…"`. Add it. From then on, a changed file is refused by a new chat, a resumed one and a replay.
+6. Chat. The status line after each reply ends with `steered ×4.0`, and `/settings` shows the vector's file, hash and blocks. To compare with an unsteered reply, use a fixed seed or temperature 0, `/set steering_scale 0`, then `/edit` with the same message: the new reply is a branch next to the steered one. A negative scale steers the other way.
+
+To steer only some of the vector's blocks, add `layers = [10, 11]` to the table. Block 0 can't be steered: llama.cpp's control-vector loader refuses it, and Clarity keeps a vector usable on both.
+
+Each steered reply logs the vector's file, sha256, scale and blocks, and replays steered. In a notebook, apply the same steering with `clarity_chat.steering` before recomputing or reading activations:
+
+```python
+from pathlib import Path
+
+from clarity_chat.recompute import check
+from clarity_chat.steering import applied, load
+
+vector = load(Path("local/vectors/calm.gguf"), "SHA256")
+with applied(model, vector, 4.0):
+    print(check("logs/exports/ID.jsonl", model, repo="ORG/NAME", revision="COMMIT"))
+```
+
 ## Change the context size or a server flag
 
 For one profile, set `ctx_size = 32768` at the top of the profile. Other profiles keep `ctx-size` from `server.toml`. Starting a conversation with a profile of another size restarts llama-server at that size, and `/settings` shows the size and where it came from.
@@ -270,6 +305,8 @@ Clarity doesn't read activations itself, but a logged call holds everything you 
 3. For a Transformers call, match its `backend.dtype`, `backend.device` and `backend.attn_implementation`, and the `backend.torch` and `backend.transformers` versions.
 4. Run one forward pass over `prompt_ids` followed by `output_ids`, so nothing is re-tokenized.
 5. Check the reading, as below.
+
+For a steered call, run the pass inside `clarity_chat.steering.applied` with the call's `request.steering`; its hooks run before the ones Transformers uses for `output_hidden_states`, so you read the steered values.
 
 Even for a Transformers call, the reading is a new forward pass over the whole sequence, not the one that generated the reply, so small numeric differences are possible. A llama.cpp call is further off, because llama.cpp ran a GGUF (`model.gguf_sha256`) with its own kernels.
 
