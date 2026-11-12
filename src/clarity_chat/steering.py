@@ -23,12 +23,13 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-
-import numpy as np
+from typing import TYPE_CHECKING, Any
 
 from clarity_chat.backends import BackendError
 from clarity_chat.profiles import ConfigError
+
+if TYPE_CHECKING:
+    import numpy as np
 
 MAX_BYTES = 16 * 1024 * 1024  # a 7B model's 32 blocks x 4,096 x 4 bytes is 0.5 MB
 MAX_TENSORS = 1024
@@ -153,6 +154,8 @@ class _Reader:
             raise _Malformed(f"{key!r} has unknown value type {kind}")
 
     def read(self) -> tuple[dict[int, np.ndarray], str | None]:
+        import numpy as np  # here, not at the top: only steering needs it
+
         if len(self.data) < 24:
             raise _Malformed("the file is too short")
         if self.take(4, "the header") != b"GGUF":
@@ -289,6 +292,7 @@ def applied(model: Any, vector: Vector, scale: float, layers: object = None) -> 
     Each `scale x direction.N` is computed in float32 and cast once to the model's dtype,
     as repeng does (llama.cpp keeps it in float32). The hooks run before Transformers' own (which
     record `hidden_states`), so those see the steered values. Scale 0 adds nothing."""
+    import numpy as np
     import torch
 
     if getattr(model, "clarity_steering", None) is not None:
