@@ -10,7 +10,7 @@ Two headings are Clarity's own, used when they apply:
 
 ## [0.2.2] - 2026-11-11
 
-Live tests on an M2 Max (macOS), 2026-11-11: `-m live` 17 passed, `-m hf` 16 passed (steering SmolLM2 with a real repeng vector on the CPU and MPS: a zero vector changes nothing, the vector changes the reply, a cancel leaves the model unsteered, a replay after a reload is identical, and a steered export recomputes with a gap of 0 under `applied`), `-m olmo` 12 passed (the same steering checks on OLMo 3 7B Instruct on MPS, including a reply that ends on its end token).
+Live tests on an M2 Max (macOS), 2026-11-11, at the release commit: `-m live` 17 passed, `-m hf` 17 passed (Transformers refuses MPS with `PYTORCH_ENABLE_MPS_FALLBACK` set, on the real device; steering SmolLM2 with a real repeng vector on the CPU and MPS: a zero vector changes nothing, the vector changes the reply, a cancel leaves the model unsteered, a replay after a reload is identical, and a steered export recomputes with a gap of 0 under `applied`), `-m olmo` 12 passed (the same steering checks on OLMo 3 7B Instruct on MPS, including a reply that ends on its end token).
 
 ### Added
 - Steering on the Transformers backend: a profile's `[steering]` table names a vector file made by another tool, pinned by its sha256, and `steering_scale` in `[settings]` sets how strongly it's added. `/set steering_scale` changes it between replies without reloading. The vector is checked against the model before the first message. A llama.cpp profile with `[steering]` is refused for now.
