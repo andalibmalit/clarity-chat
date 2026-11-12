@@ -39,7 +39,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/prompt` | The exact prompt text of the current reply's call (or of your last message, if its call failed), the BOS decision, and the token IDs. |
 | `/prompt repr` | The same, with each line shown as a Python string, so spaces, tabs and newlines are visible. |
 | `/probs` | A summary of the current reply's token probabilities, if `logprobs` was on: how many tokens, and the 10 least likely chosen tokens in reply order, each with its probability and the model's likeliest other tokens. With `--json`, the result also holds every token's record. Without them, it says why. |
-| `/settings` | Every setting, its value and origin; the fixed values sent for the backend's other fields; the model's recommended values; what wasn't applied; the context size and stop strings; the end-of-reply tokens llama.cpp read from the model file. |
+| `/settings` | Every setting, its value and origin; the fixed values sent for the backend's other fields; the model's recommended values; what wasn't applied; the context size and stop strings; the end-of-reply tokens llama.cpp read from the model file; and a steered profile's vector: its file, the first 12 characters of its sha256, and its blocks, marked off at `steering_scale` 0. |
 | `/set NAME [VALUE]` | Change a setting for this chat only, for example `/set temperature 0.7`, `/set seed random` or `/set samplers top_k temperature`. It's checked like a profile's value, its origin is `chat`, and it's logged. With no value, the setting goes back to the profile's. |
 | `/regen [N]` | N more replies to your last message (default 1), one after another, each a new branch. The k-th regeneration of a message uses its first reply's seed plus k. A cancel stops the reply being written and the rest; a failure stops the rest and is reported with the replies already made. The current reply is then the last one made. |
 | `/edit [TEXT]` | Replace your last message and get a new reply, as a new branch. With no text, the input is prefilled with your last message. The new message uses the chat's seed: the profile's, unless you changed it with `/set`. |
@@ -61,7 +61,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/quit` | Stop the server and exit. `/exit`, `/q` and Ctrl-D also work. |
 | `//text` | Send a message that starts with `/`. |
 
-After each reply, a status line shows the stop reason, the reply length in tokens, the time, the seed (with its origin unless it came from the profile), the context used (prompt plus reply tokens, of the context size) and the call ID. Warnings and [call flags](#call-flags) appear above it, marked `!`. A warning appears when the prompt uses more than 80% of the context.
+After each reply, a status line shows the stop reason, the reply length in tokens, the time, the seed (with its origin unless it came from the profile), the context used (prompt plus reply tokens, of the context size) and the call ID, then, for a steered reply, `steered ×S` with the scale it was steered at. Warnings and [call flags](#call-flags) appear above it, marked `!`. A warning appears when the prompt uses more than 80% of the context.
 
 ## Scripting with --json
 
@@ -86,7 +86,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `regen` | `replies`, a list of `call` and `warnings`, and `stopped` (why it stopped early) if a reply failed. A cancel ends it without `stopped`, whenever it comes. |
 | `prompt` | `call`: the latest call record, which can be a failed one; null before any |
 | `probs` | `call_id`, `logprobs` (the call's record) and `least_likely`: up to 10 entries with `index`, `id`, `text`, `logprob` and `top` (each `id`, `text`, `logprob`). With no probabilities, `least_likely` is empty and `unavailable` says why. |
-| `settings` | `profile`, `settings` (each with its value and origin), `backend`, `backend_settings`, `eog_tokens`, `recommended`, `not_applied`, `ctx_size` and `stop` |
+| `settings` | `profile`, `settings` (each with its value and origin), `backend`, `backend_settings`, `eog_tokens`, `recommended`, `not_applied`, `ctx_size`, `stop`, and `steering` (`file`, `sha256` and `layers` of the profile's vector, or null) |
 | `set` | `record` (the `setting` record) and `setting` (its value and origin) |
 | `undo`, `switch` | `head` and `head_text`, null at the start; `switch` adds `render` |
 | `history` | `head` and `turns` |
@@ -119,6 +119,7 @@ All profiles:
 | `use_recommended` | no | `true` fills unset settings from the model's `generation_config.json` before `defaults.toml`. Default `false`. |
 | `device` | no | Transformers backend only: `"mps"` (default), `"cpu"` or `"cuda"`. |
 | `ctx_size` | no | The context size in tokens: the prompt and the reply together must fit in it. Default: `ctx-size` in `server.toml`. A larger context takes more memory, and a size above what the model was trained on is refused. Starting a profile with another size restarts llama-server; the Transformers backend only checks the new size. |
+| `steering` | no | Transformers backend only: a table naming a [steering vector](#steering-vectors). `file` is its path relative to the project folder, with `/` between folders on every system, and must be inside it. `sha256` is its hash; without it, Clarity refuses the profile and gives the hash to add. `layers`, optional, lists the blocks to steer; the default is every block in the file. A profile with `[steering]` must set `steering_scale` in `settings`. |
 
 Chat mode, all optional:
 
@@ -160,6 +161,7 @@ Settings use the same names on every backend. Each resolved value records its or
 | `max_tokens` | integer ≥ 1: the longest reply | 1024 (a cap, not a neutral value) | |
 | `samplers` | the order and membership of the sampler chain, from `penalties`, `top_k`, `top_p`, `min_p`, `temperature` | all five, in that order | |
 | `logprobs` | integer from 0 to 20. 0 is off. N records, for each token of the reply, its log-probability and the N likeliest tokens with theirs, in the call's `logprobs` field. A log-probability is the natural log of the probability the model gave the token, so 0 is certain and more negative is less likely. The probabilities come from the model's raw scores (logits) before any sampler, so they don't show what temperature, `top_k` or the penalties did. Transformers backend only for now; a llama.cpp profile with it above 0 is refused. While a reply is written, the scores take memory: about 0.4 MB per token for a model with a 100,000-token vocabulary. | 0 | |
+| `steering_scale` | any number; 0 is off. The profile's steering vector is multiplied by it before it's added, and a negative number steers the other way. A profile with `[steering]` must set it; one without must leave it at 0. Transformers backend only. | 0.0 | |
 
 A sampler not listed in `samplers` doesn't run. A setting whose sampler isn't listed must keep its neutral value; anything else is an error when the profile loads.
 
@@ -239,6 +241,7 @@ A `call` record holds:
 - **Request and response:** `request` (what was sent, except the prompt IDs, which are in `prompt_ids`), `backend_settings`, `not_applied`, `generation_settings`, `response`, `timings`, `tokens_evaluated`, `tokens_predicted`.
 - **Output:** `output_text`, `output_ids`, `stop_type` (`eos`, `word`, `limit`, `cancelled` or `none`), `cancelled_during` (`prompt` or `reply`, for a cancelled call), `stopping_word`, `turn_id`.
 - **Probabilities:** `logprobs`, with the `logprobs` setting on (Transformers only): `view` (`raw logits, before any sampler`), `n`, and `tokens`, one per output token: `id`, `logprob` (natural log) and `top`, the `n` likeliest tokens as `[id, logprob]` pairs, likeliest first. A cancelled call has `{"unavailable": "cancelled"}` instead: Transformers returns no scores for a generation stopped part way. A replay of a call with probabilities records them too.
+- **Steering:** on the Transformers backend, `request.steering`: `file`, `sha256`, `scale` and `layers` for a steered call, or null. A call logged before v0.2.2 has no `steering` key, which means it wasn't steered. A steered call that finished adds `checks.steering`: `ok`; `model_passes`, how many forward passes the model ran; and `forward_passes`, how many times each steered block ran (block number to count). It's ok when every block ran once in every pass and there was at least one pass per reply token. On MPS, a reply that ends before `max_tokens` has one pass more than its tokens: Transformers runs it and then undoes it. A cancelled call has no steering check, since a cancel can land mid-pass.
 - **Checks:** `checks`, `flags`, `warnings`, and `error` if the call failed.
 
 `output_ids` include the tokens of a stop string and the end-of-sequence token; `output_text` leaves out the stop string.
@@ -247,6 +250,8 @@ A replay compares the output token IDs and stop type, or the text if the logged 
 - llama.cpp: the build and checkout, server flags, `/props`, `GGML_*` and `LLAMA_*` variables, and the GGUF's sha256.
 - Transformers: the torch and Transformers versions, device, dtype, attention implementation, `PYTORCH_*` and `TORCH_*` variables, deterministic-mode state, and the weights' commit.
 - Both: the machine, the client's commit, and the rendering libraries.
+
+A replay of a steered call applies the logged vector at the logged scale and blocks. It checks the logged steering like a profile's: the file must be inside the project folder, have the logged sha256 and fit the model, or the replay is refused; it never replays a steered call unsteered. Clarity before v0.2.2 ignores `request.steering`, so it replays a steered call unsteered.
 
 `unexplained_difference` is true when the output differs and nothing changed except, at most, the client's commit or the rendering libraries. Neither can change a replay, since it sends the logged IDs and request.
 
@@ -257,8 +262,8 @@ A replay compares the output token IDs and stop type, or the text if the logged 
 The first line is the header, `"type": "export"`:
 - `format_version` (1), `clarity` (`version`, `commit`, `dirty`) and `conversation_id`.
 - `calls` (how many follow), `failed_calls_left_out` (calls that produced no reply) and `calls_without_a_turn_left_out` (calls whose reply's record is missing from the log, as after a crash while it was written; resume carries on without them too).
-- `conditions`: one entry per distinct set of conditions the calls were computed under, since a resumed conversation can span several server starts, machines or builds. Each has `conditions` and `call_ids`, the calls it covers. `conditions` holds `backend`, `weights` (the repo and revision, plus the GGUF's sha256 for llama.cpp), and every fact replay compares except Clarity's own commit and the tokenizer libraries: for llama.cpp, `build_info`, `llama_cpp`, `flags`, `graph_splits`, `props`, `env`, `end_tokens` and `machine`; for Transformers, `torch`, `transformers`, `device`, `dtype`, `attn_implementation`, `env`, `deterministic_algorithms`, `end_tokens` and `machine`. A null is a fact the log didn't record.
-- `note`: "Recomputing these calls under other conditions can give different numbers, sometimes by a tiny amount and sometimes enough to change the likeliest token. Run `clarity_chat.recompute.check` with your loaded model first; it lists what differs."
+- `conditions`: one entry per distinct set of conditions the calls were computed under, since a resumed conversation can span several server starts, machines or builds. Each has `conditions` and `call_ids`, the calls it covers. `conditions` holds `backend`, `weights` (the repo and revision, plus the GGUF's sha256 for llama.cpp), and every fact replay compares except Clarity's own commit and the tokenizer libraries: for llama.cpp, `build_info`, `llama_cpp`, `flags`, `graph_splits`, `props`, `env`, `end_tokens` and `machine`; for Transformers, `torch`, `transformers`, `device`, `dtype`, `attn_implementation`, `env`, `deterministic_algorithms`, `end_tokens` and `machine`. It also holds `steering`: the `sha256`, `scale` and `layers` the calls were steered with, or `"none"`, so a `/set steering_scale` part way through a conversation starts a new group. A null is a fact the log didn't record.
+- `note`: "Recomputing these calls under other conditions can give different numbers, sometimes by a tiny amount and sometimes enough to change the likeliest token. Run `clarity_chat.recompute.check` with your loaded model first; it lists what differs." When any call was steered, it adds: "Some calls were steered; apply the same vector with `clarity_chat.steering.applied` before recomputing them."
 
 Then one line per call that produced a reply, `"type": "call"`, in log order:
 - **Where it sits:** `call_id`, `turn_id` (the reply), `parent_id` (your message), `regen_of`, `edit_of` (your message replaced an earlier one), and `path`, the turn IDs from the start of the conversation to this reply.
@@ -268,7 +273,35 @@ Then one line per call that produced a reply, `"type": "call"`, in log order:
 - **Marks and notes:** `marks` (`label`, `origin`, `time`) and `notes` (`text`, `origin`, `time`), as they are now, after any `unmark` or replaced note.
 - **Model:** `model`, its pins: `name`, `repo`, `revision`, `route`, `gguf_sha256` and `gguf_path`.
 - **Probabilities:** `logprobs`, if the call logged them.
+- **Steering:** `steering`, the call's `request.steering` (`file`, `sha256`, `scale`, `layers`), or `"none"` for a call that wasn't steered, including every call logged before v0.2.2.
 - **Facts:** `facts`, what replay compares, from the call's own server start: the end tokens, and the build, flags and machine or the library versions, device and precision.
+
+## Steering vectors
+
+A steering vector is a file made by another tool, such as repeng; Clarity applies one and never makes one. The file is llama.cpp's control-vector GGUF: one 1-D float32 tensor named `direction.N` for each block N it steers, all the same length (the model's hidden size), and optionally a `controlvector.model_hint` key naming the model type it was made for. Steering adds the scale times `direction.N` to the output of block N, counting from 0, at every position: the prompt's and the reply's. Block 0 can't be steered: llama.cpp keeps no vector for it and its loader refuses `direction.0`, and Clarity keeps a vector usable on both.
+
+Clarity reads the file with its own reader, which accepts only this format: GGUF version 3, little-endian, at most 16 MB, 1 to 1,024 tensors, every value finite. Anything else is refused with what was wrong.
+
+Steering runs on model types `llama` and `olmo3`, the two whose blocks Clarity has checked. Other types, including Qwen3 and Apertus, are refused until they are checked. `llama` admits every Llama-architecture model, such as Hermes 4, though only SmolLM2 has a live test.
+
+A profile names its vector in a `[steering]` table and its scale in `settings`:
+
+```toml
+[steering]
+file = "local/vectors/calm.gguf"   # relative to the project folder
+sha256 = "…"
+layers = [10, 11, 12]              # optional; default: every block in the file
+
+[settings]
+steering_scale = 4.0               # required with [steering]; negative steers the other way
+```
+
+When a conversation starts, resumes or switches profile, and before a batch run, Clarity loads the file, checks its sha256, and checks it against the model's `config.json`: the model type, the width, and that each block exists and is in the file. A vector that changed since the profile pinned it is refused. `/set steering_scale` changes the scale for one conversation without reloading the model.
+
+In a notebook, `clarity_chat.steering` applies a vector exactly as Clarity does:
+- `load(path, sha256)` reads the file, checks its sha256, and returns a `Vector` with `sha256`, `directions` (block number to a float32 array) and `model_hint`.
+- `check(vector, config, layers=None)` checks the vector against a model's `config.json` (as a dict) and returns the blocks to steer: `layers`, or every block in the file.
+- `with applied(model, vector, scale, layers=None) as runs:` steers a loaded Transformers model inside the block, and `runs` counts how many times each steered block ran. It computes `scale × direction.N` in float32 and casts it once to the model's dtype, as repeng does (llama.cpp keeps it in float32), then adds it in that dtype. It expects a model on one device. Scale 0 adds nothing and doesn't mark the model, so the recompute check reads it as unsteered. The hooks come off when the block ends, however it ends, and a model already inside `applied` at a non-zero scale is refused.
 
 ## Call flags
 

@@ -14,6 +14,7 @@ frequency_penalty = 0.0   # 0.0 = off
 seed = "random"           # the client draws a concrete seed per call and logs it
 max_tokens = 1024         # not neutral (nothing is): a cap, so prompt + reply fit the context
 logprobs = 0              # 0 = off; N records each reply token's log-probability and the N likeliest
+steering_scale = 0.0      # 0 = off; a profile with a [steering] vector sets its own
 
 # Order and membership of the sampler chain. A sampler not listed doesn't run.
 samplers = ["penalties", "top_k", "top_p", "min_p", "temperature"]

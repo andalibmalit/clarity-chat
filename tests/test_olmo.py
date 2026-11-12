@@ -183,3 +183,35 @@ def test_switching_models_restarts_the_server(session):
     base_path = session.backend.server_record["props"]["model_path"]
     assert instruct_path.endswith(f"{INSTRUCT}-bf16.gguf")
     assert base_path.endswith(f"{BASE}-bf16.gguf")
+
+
+def test_steering_olmo_3_instruct_on_mps(session, tmp_path):
+    """The four steering checks of tests/test_hf.py on the model the experiments use, with a
+    random direction the test writes across blocks 10 to 20. Loads about 15 GB at a time:
+    the module's session, which may hold a 7B model in llama-server, closes first, and each
+    session here closes before the next starts."""
+    import numpy as np
+
+    session.close()  # a later test that needs it starts its model again
+
+    from tests.test_hf import check_steering, project, steered, write_vector
+
+    try:
+        source_weights(REPO, lock_entry(REPO, load_models(REPO)[INSTRUCT]))
+    except ConfigError as e:
+        pytest.skip(str(e))
+    root = project(tmp_path)
+    rng = np.random.default_rng(0)
+    blocks = {}
+    for n in range(10, 21):
+        v = rng.standard_normal(4096).astype(np.float32)
+        blocks[n] = v / np.linalg.norm(v)
+    vectors = root / "local" / "vectors"
+    zero_sha = write_vector(vectors / "zero.gguf", {n: v * 0 for n, v in blocks.items()}, "olmo3")
+    real_sha = write_vector(vectors / "random.gguf", blocks, "olmo3")
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    short = {"max_tokens": "48"}
+    zero = steered(folder, "1a-stock", "local/vectors/zero.gguf", zero_sha, "8.0", **short)
+    real = steered(folder, "1a-stock", "local/vectors/random.gguf", real_sha, "8.0", **short)
+    check_steering(root, tmp_path, zero, real, "Describe a quiet harbour in two sentences.")

@@ -38,6 +38,7 @@ The same call on the same machine and llama.cpp build gives the same output. Liv
 - Blind batch runs for comparing setups.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - A llama-server that Clarity starts and checks itself, and a Transformers backend that runs the same weights in-process (`uv sync --extra hf`).
+- Steering on the Transformers backend: a vector made by another tool, pinned by its hash, logged with every reply and replayed.
 
 ## Quick start
 

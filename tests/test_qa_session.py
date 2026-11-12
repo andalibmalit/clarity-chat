@@ -32,6 +32,8 @@ def repo(tmp_path: Path) -> Path:
         shutil.copy(REPO / name, fake / name)
     for name in ("smol-chat", "smol-text", "1a-stock"):
         shutil.copy(REPO / "profiles" / f"{name}.toml", fake / "profiles" / f"{name}.toml")
+    (fake / qa.QA_VECTOR).parent.mkdir(parents=True)
+    shutil.copy(REPO / qa.QA_VECTOR, fake / qa.QA_VECTOR)
     models = {}
     for name in (SMOL, "olmo-3-7b-instruct"):
         weights = fake / "models" / name / f"{name}-bf16.gguf"
@@ -64,7 +66,12 @@ def test_the_root_holds_only_smollm2_and_its_profiles(root, repo):
     assert list(lock["models"]) == [SMOL]
     assert list(tomllib.loads((root / "models.toml").read_text(encoding="utf-8"))) == [SMOL]
     profiles = sorted(p.name for p in (root / "profiles").iterdir())
-    assert profiles == ["smol-chat-hf.toml", "smol-chat.toml", "smol-text.toml"]
+    assert profiles == [
+        "smol-chat-hf.toml",
+        "smol-chat.toml",
+        "smol-steer-hf.toml",
+        "smol-text.toml",
+    ]
     hf = tomllib.loads((root / "profiles" / "smol-chat-hf.toml").read_text(encoding="utf-8"))
     assert (hf["backend"], hf["device"], hf["model"]) == ("transformers", "cpu", SMOL)
     # The root's own copy of the weights, with the time models.lock recorded: an agent can
@@ -102,7 +109,7 @@ def test_server_toml_may_change_only_its_flags(root, repo):
 def test_a_server_record_left_in_clarity_json_is_refused(root, repo):
     """Clarity stops the server a crashed run recorded there, outside the sandbox: the agent
     can write that file, so the driver won't run on one."""
-    (root / "local").mkdir()
+    (root / "local").mkdir(exist_ok=True)  # --init made it, for the steering vector
     info = {"pid": 1, "server": {"pid": 1, "port": 1, "api_key": "k", "model_path": "m"}}
     (root / "local" / "clarity.json").write_text(json.dumps(info), encoding="utf-8")
     with pytest.raises(qa.Refused, match="server"):
@@ -220,7 +227,10 @@ def test_ordinary_steps_pass_as_written(tmp_path):
     "plant",
     [
         lambda root, outside: (root / "logs").symlink_to(outside, target_is_directory=True),
-        lambda root, outside: (root / "local").symlink_to(outside, target_is_directory=True),
+        lambda root, outside: (
+            shutil.rmtree(root / "local")  # --init made it, for the steering vector
+            or (root / "local").symlink_to(outside, target_is_directory=True)
+        ),
         lambda root, outside: (
             (root / "defaults.toml").unlink()
             or (root / "defaults.toml").symlink_to(outside / "settings.json")
@@ -277,3 +287,57 @@ def test_a_timed_ctrl_c_and_a_malformed_json_step(tmp_path):
     steps.write_text('{"command": ["resume"], "args": "/abs/x"}\n', encoding="utf-8")
     with pytest.raises(qa.Refused):
         qa.parse_steps(steps, json_mode=True)
+
+
+def test_the_steered_profile_names_the_roots_copy_of_the_vector(root, repo):
+    from clarity_chat.profiles import load_defaults, load_profile
+
+    profile = load_profile(root, "smol-steer-hf", load_defaults(root))
+    assert profile.backend == "transformers" and profile.device == "cpu"
+    assert profile.settings["steering_scale"].value == 4.0
+    assert profile.steering is not None
+    vector = root / profile.steering.file
+    expected = hashlib.sha256((REPO / qa.QA_VECTOR).read_bytes()).hexdigest()
+    assert hashlib.sha256(vector.read_bytes()).hexdigest() == profile.steering.sha256 == expected
+
+
+def test_only_init_puts_the_vector_back(root, repo):
+    """QA renames the vector to see a replay refused; the next run mustn't undo that."""
+    vector = root / "local" / "vectors" / qa.QA_VECTOR.name
+    vector.rename(vector.with_name("moved.gguf"))
+    qa.prepare_root(root, repo, init=False)
+    assert not vector.exists()
+    qa.prepare_root(root, repo, init=True)
+    assert vector.is_file()
+
+
+def test_a_link_at_the_vectors_place_is_refused_before_init_copies_onto_it(root, repo, tmp_path):
+    outside = tmp_path / "outside.gguf"
+    outside.write_bytes(b"not yours")
+    vector = root / "local" / "vectors" / qa.QA_VECTOR.name
+    vector.unlink()
+    vector.symlink_to(outside)
+    with pytest.raises(qa.Refused, match="link"):
+        qa.prepare_root(root, repo, init=True)
+    assert outside.read_bytes() == b"not yours"
+
+
+@pytest.mark.parametrize("folder", [True, False])
+def test_something_other_than_a_file_at_the_vectors_place_is_refused(root, repo, folder):
+    vectors = root / "local" / "vectors"
+    if folder:  # a folder named like the vector: shutil.copy would copy into it
+        (vectors / qa.QA_VECTOR.name).unlink()
+        (vectors / qa.QA_VECTOR.name).mkdir()
+    else:  # local/vectors itself a file
+        shutil.rmtree(vectors)
+        vectors.write_text("x", encoding="utf-8")
+    with pytest.raises(qa.Refused, match="vector"):
+        qa.prepare_root(root, repo, init=True)
+
+
+def test_steering_scale_goes_under_the_settings_header_not_a_mention(root, repo):
+    chat = repo / "profiles" / "smol-chat.toml"
+    chat.write_text("# see [settings] below\n" + chat.read_text(encoding="utf-8"), "utf-8")
+    qa.prepare_root(root, repo, init=False)
+    steer = tomllib.loads((root / "profiles" / "smol-steer-hf.toml").read_text(encoding="utf-8"))
+    assert steer["settings"]["steering_scale"] == 4.0
