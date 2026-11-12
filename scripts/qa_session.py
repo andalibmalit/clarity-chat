@@ -16,9 +16,11 @@ The owner allowlists this script to run outside the sandbox, which blocks
 pseudo-terminals and hides the GPU, so it keeps Clarity to the scratch root and to
 SmolLM2 whatever the steps say. Every run rewrites the root's models.toml, models.lock
 and profiles from this checkout, listing SmolLM2 only (Clarity loads models by name
-through models.lock), and checks that server.toml differs from the checkout's in its
-flags only, that the weights match models.lock's sha256, and that nothing in the root is
-a link (Clarity and the driver follow links, so one could reach a private folder).
+through models.lock), plus `smol-steer-hf`, steered by the repeng test vector that
+`--init` copies into the root's local/vectors/. It checks that server.toml differs from the
+checkout's in its flags only, that the weights match models.lock's sha256, and that
+nothing in the root is a link (Clarity and the driver follow links, so one could reach a
+private folder).
 `--init` also resets server.toml. Arguments are parsed with Clarity's own parser and
 steps with its own command splitter, so they are checked as Clarity will read them.
 """
@@ -45,6 +47,7 @@ QA_DIR = REPO / "notes" / "qa"  # local-only; scratch roots, steps and transcrip
 QA_COMMANDS = {"chat", "chats", "replay", "export"}
 QA_MODEL = "smollm2-135m-instruct"
 QA_PROFILES = ("smol-chat", "smol-text")
+QA_VECTOR = Path("tests") / "fixtures" / "steering" / "smollm2-repeng.gguf"  # made by repeng
 NAMED = {"profile", "resume", "export"}  # chat commands whose argument names a file
 ID = re.compile(r"[A-Za-z0-9_-]+")  # a profile name or conversation ID: never a path
 QUIET_S = 2.0  # output silent this long means the program is waiting for input
@@ -97,6 +100,17 @@ def prepare_root(root: Path, repo: Path = REPO, init: bool = False) -> None:
     chat = (repo / "profiles" / "smol-chat.toml").read_text(encoding="utf-8")
     hf = chat.replace('backend = "llama.cpp"', 'backend = "transformers"\ndevice = "cpu"', 1)
     (profiles / "smol-chat-hf.toml").write_text(hf, encoding="utf-8", newline="\n")
+    # The same, steered by the repeng test vector. --init alone copies the vector into the
+    # root: QA renames it to test a replay whose vector is gone, which a copy made on every
+    # run would undo.
+    vector = repo / QA_VECTOR
+    if init:
+        (root / "local" / "vectors").mkdir(parents=True, exist_ok=True)
+        shutil.copy(vector, root / "local" / "vectors" / vector.name)
+    steer = hf.replace("[settings]", "[settings]\nsteering_scale = 4.0", 1) + (
+        f'\n[steering]\nfile = "local/vectors/{vector.name}"\nsha256 = "{sha256_file(vector)}"\n'
+    )
+    (profiles / "smol-steer-hf.toml").write_text(steer, encoding="utf-8", newline="\n")
     check_server_toml(root, repo, init)
 
 
