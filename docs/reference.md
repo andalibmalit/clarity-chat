@@ -39,7 +39,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/prompt` | The exact prompt text of the current reply's call (or of your last message, if its call failed), the BOS decision, and the token IDs. |
 | `/prompt repr` | The same, with each line shown as a Python string, so spaces, tabs and newlines are visible. |
 | `/probs` | A summary of the current reply's token probabilities, if `logprobs` was on: how many tokens, and the 10 least likely chosen tokens in reply order, each with its probability and the model's likeliest other tokens. With `--json`, the result also holds every token's record. Without them, it says why. |
-| `/settings` | Every setting, its value and origin; the fixed values sent for the backend's other fields; the model's recommended values; what wasn't applied; the context size and stop strings; the end-of-reply tokens llama.cpp read from the model file. |
+| `/settings` | Every setting, its value and origin; the fixed values sent for the backend's other fields; the model's recommended values; what wasn't applied; the context size and stop strings; the end-of-reply tokens llama.cpp read from the model file; and a steered profile's vector: its file, the first 12 characters of its sha256, and its blocks. |
 | `/set NAME [VALUE]` | Change a setting for this chat only, for example `/set temperature 0.7`, `/set seed random` or `/set samplers top_k temperature`. It's checked like a profile's value, its origin is `chat`, and it's logged. With no value, the setting goes back to the profile's. |
 | `/regen [N]` | N more replies to your last message (default 1), one after another, each a new branch. The k-th regeneration of a message uses its first reply's seed plus k. A cancel stops the reply being written and the rest; a failure stops the rest and is reported with the replies already made. The current reply is then the last one made. |
 | `/edit [TEXT]` | Replace your last message and get a new reply, as a new branch. With no text, the input is prefilled with your last message. The new message uses the chat's seed: the profile's, unless you changed it with `/set`. |
@@ -61,7 +61,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/quit` | Stop the server and exit. `/exit`, `/q` and Ctrl-D also work. |
 | `//text` | Send a message that starts with `/`. |
 
-After each reply, a status line shows the stop reason, the reply length in tokens, the time, the seed (with its origin unless it came from the profile), the context used (prompt plus reply tokens, of the context size) and the call ID. Warnings and [call flags](#call-flags) appear above it, marked `!`. A warning appears when the prompt uses more than 80% of the context.
+After each reply, a status line shows the stop reason, the reply length in tokens, the time, the seed (with its origin unless it came from the profile), the context used (prompt plus reply tokens, of the context size) and the call ID, then, for a steered reply, `steered ×S` with the scale it was steered at. Warnings and [call flags](#call-flags) appear above it, marked `!`. A warning appears when the prompt uses more than 80% of the context.
 
 ## Scripting with --json
 
@@ -86,7 +86,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `regen` | `replies`, a list of `call` and `warnings`, and `stopped` (why it stopped early) if a reply failed. A cancel ends it without `stopped`, whenever it comes. |
 | `prompt` | `call`: the latest call record, which can be a failed one; null before any |
 | `probs` | `call_id`, `logprobs` (the call's record) and `least_likely`: up to 10 entries with `index`, `id`, `text`, `logprob` and `top` (each `id`, `text`, `logprob`). With no probabilities, `least_likely` is empty and `unavailable` says why. |
-| `settings` | `profile`, `settings` (each with its value and origin), `backend`, `backend_settings`, `eog_tokens`, `recommended`, `not_applied`, `ctx_size` and `stop` |
+| `settings` | `profile`, `settings` (each with its value and origin), `backend`, `backend_settings`, `eog_tokens`, `recommended`, `not_applied`, `ctx_size`, `stop`, and `steering` (`file`, `sha256` and `layers` of the profile's vector, or null) |
 | `set` | `record` (the `setting` record) and `setting` (its value and origin) |
 | `undo`, `switch` | `head` and `head_text`, null at the start; `switch` adds `render` |
 | `history` | `head` and `turns` |

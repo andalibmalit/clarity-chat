@@ -362,6 +362,13 @@ def settings_view(session: Session) -> dict[str, Any]:
         "not_applied": last.get("not_applied") or [],
         "ctx_size": conversation.ctx_size.to_json(),
         "stop": profile.stop,
+        "steering": {
+            "file": profile.steering.file,
+            "sha256": profile.vector.sha256,
+            "layers": profile.layers,
+        }
+        if profile.steering is not None and profile.vector is not None
+        else None,
     }
 
 

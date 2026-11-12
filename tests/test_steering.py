@@ -1096,3 +1096,69 @@ def test_an_export_from_before_steering_reads_as_unsteered(tmp_path):
     path.write_text("\n".join([json.dumps(header), *lines[1:]]), encoding="utf-8")
     fact = next(f for f in check(path, model).groups[0]["facts"] if f["fact"] == "steering")
     assert fact == {"fact": "steering", "export": "none", "here": "none", "same": True}
+
+
+# --- on screen and in --json (C2) -------------------------------------------------------
+
+
+def test_settings_show_the_scale_and_the_vector(session):
+    from clarity_chat.cli import format_settings
+    from clarity_chat.commands import settings_view
+
+    session.new_conversation(steered(session.root))
+    digest = sha((session.root / "local" / "vectors" / "calm.gguf").read_bytes())
+    view = settings_view(session)
+    assert view["steering"] == {
+        "file": "local/vectors/calm.gguf",
+        "sha256": digest,
+        "layers": [1, 2],
+    }
+    text = format_settings(view)
+    assert f"steering vector local/vectors/calm.gguf (sha256 {digest[:12]}…, blocks 1, 2)" in text
+    scale = next(line for line in text.split("\n") if line.strip().startswith("steering_scale"))
+    assert "4.0" in scale and scale.rstrip().endswith("profile")
+    session.set_setting("steering_scale", "0")
+    scale = next(
+        line
+        for line in format_settings(settings_view(session)).split("\n")
+        if line.strip().startswith("steering_scale")
+    )
+    assert "0.0" in scale and scale.rstrip().endswith("chat")
+
+
+def test_an_unsteered_profile_shows_no_vector(session):
+    from clarity_chat.cli import format_settings
+    from clarity_chat.commands import settings_view
+
+    session.new_conversation(steered(session.root, name="plain", steering="", scale=None))
+    view = settings_view(session)
+    assert view["steering"] is None
+    assert "steering vector" not in format_settings(view)
+
+
+def test_the_status_line_says_what_steered_the_reply(session):
+    from clarity_chat.cli import format_status
+
+    session.new_conversation(steered(session.root))
+    assert format_status(session.say("Hi").record).endswith(" · steered ×4.0]")
+    session.set_setting("steering_scale", "-4")
+    assert format_status(session.say("Again").record).endswith(" · steered ×-4.0]")
+    session.set_setting("steering_scale", "0")
+    assert "steered" not in format_status(session.say("More").record)
+
+
+def test_json_settings_carry_the_vector(session):
+    import io
+    import json
+
+    from clarity_chat.json_chat import JsonChat
+
+    path = session.root / "profiles" / f"{steered(session.root)}.toml"
+    stdout = io.StringIO()
+    stdin = io.BytesIO(b'{"command": "settings", "id": 1}\n')
+    JsonChat(session, stdin, stdout).run([{"command": "profile", "args": str(path)}])
+    events = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    result = next(e for e in events if e.get("id") == 1)["result"]
+    assert result["steering"]["file"] == "local/vectors/calm.gguf"
+    assert result["steering"]["layers"] == [1, 2]
+    assert result["settings"]["steering_scale"] == {"value": 4.0, "origin": "profile"}
