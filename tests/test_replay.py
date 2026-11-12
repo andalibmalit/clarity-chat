@@ -405,7 +405,9 @@ def test_a_failed_server_restart_in_replay_leaves_the_chat_usable(
         server.record = {"type": "server_start", "server_id": server.server_id}
         return server.record
 
-    def complete(self, token_ids, settings, stop, on_text=None, request=None, cancel=None):
+    def complete(
+        self, token_ids, settings, stop, on_text=None, request=None, cancel=None, steering=None
+    ):
         ids = tiny_tokenizer.encode(" ok")
         return Result(text=" ok", token_ids=ids, stop_type="eos", n_prompt=len(token_ids))
 

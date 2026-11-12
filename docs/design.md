@@ -108,6 +108,12 @@ After each call, Clarity checks that the server echoed what was sent and reporte
   - The log-softmax runs on the CPU in float32. On MPS, the same row gave slightly different results (in about the 7th significant digit) depending on how many rows were processed together; on the CPU it didn't. From that test we infer that only the logits depend on the device, and a recompute that reduces the same way gets exactly the same numbers from the same logits. Measured on SmolLM2 on CPU and MPS: the logged probabilities equal a step-by-step recompute with the cache exactly, and turning `logprobs` on doesn't change the reply.
   - Cost: the scores stay in memory until the reply is done, about 0.4 MB per token for a 100,000-token vocabulary, and the log grows by about 0.8 MB per 4,000-token reply at `logprobs = 5` (estimated from the width of the stored numbers).
 - **The recompute check gives facts and numbers, not a verdict.** A notebook that recomputes an export's probabilities under other conditions gets other numbers, so `clarity_chat.recompute.check` lists each condition that differs and measures the largest gap and the changed top choices. It recomputes step by step with the cache, as generation ran, because in bf16 one pass over the whole sequence differs even under the same conditions: the sums run in another order and round differently (one 60-token SmolLM2 run, CPU, bf16: a gap of 0.139 and 2 changed choices, against 0 step by step; in another such run, 0.177 in bf16 and 0.0000145 with no changed choices in float32). It sets no threshold: what matters depends on the experiment.
+- **Steering adds a vector made elsewhere, on Transformers first.** A profile names a control-vector file (llama.cpp's format, as repeng writes it) by path and sha256; Clarity applies it and never makes one. For each call, a forward hook adds the scale times `direction.N` to the output of block N at every position, and comes off when the call ends, however it ends. The vector, scale and blocks are in the call's request, so a replay applies the same ones, and a check confirms each steered block ran once per generated token.
+  - The hooks run before the ones Transformers uses to record `hidden_states`, so a notebook reading activations sees the steered values.
+  - The scaled vector is computed in float32 and cast once to bf16, as repeng and llama.cpp compute it (casting first and scaling in bf16 rounds differently), then added in bf16. llama.cpp adds it in float32 to float32 hidden states: the same sums, not the same numbers. How far apart they land isn't measured.
+  - Block 0 is refused, only because llama.cpp's control-vector loader refuses it; Clarity keeps a vector usable on both. The last block can be steered, but repeng, which steers it by default, reads that block's output after the final norm on Transformers 5, so such a vector is trained on a different quantity than the one it's added to. The guide says to leave it out.
+  - Steering runs on model types `llama` and `olmo3`, whose blocks Clarity has checked return a plain tensor from `model.model.layers`. Other types are refused until checked.
+  - Clarity reads the file with its own small reader rather than the `gguf` package: it parses the bytes it hashed, in one read, and every malformed file gets a message saying what was wrong.
 - Only one model is ever in memory. If a new model fails to start, the previous one is started again, so a bad `/new` or `/profile` leaves you where you were.
 
 ## Conversations and runs
@@ -154,7 +160,7 @@ Left out from the start: tools or agents; metrics or LLM judges; multi-user feat
 
 Also left out:
 - Running two models side by side. Two 7B models in bf16 need about 29 GB, more than a 32 GB laptop can spare.
-- Speculative decoding, LoRA and control vectors, which `server.toml` refuses.
+- Speculative decoding, LoRA and llama.cpp's control vectors, which `server.toml` refuses. Steering runs on the Transformers backend.
 - Live tests on Windows and Linux. Offline CI covers them; the live tests have run on macOS (Metal) only.
 
 ## Changed decisions
@@ -163,6 +169,7 @@ When a choice above changes, the old one, the new one and the reason go here, ne
 
 | Date | Was | Now | Why |
 |---|---|---|---|
+| 2026-11-11 | Steering vectors were left out: `server.toml` refuses llama.cpp's control-vector flags. | A pinned vector made by another tool is added by a hook on the Transformers backend. llama.cpp's control-vector route stays refused. | The owner's experiments need a chat with a steered model that can be replayed. A hook on the in-process backend can be applied, logged, checked and replayed exactly. |
 | 2026-11-11 | A llama-server built from another commit was a warning, as the brief asked. | It's an error at start. | The binary is what runs. A checkout at another commit was already an error, so a binary built from one shouldn't pass with a warning. |
 | 2026-11-11 | `server.toml` refused a list of known-bad flags. | It accepts only the flags it ships with; any other is refused. | A list of bad flags misses new flags and other names for the same flag: `gpu-layers`, `override-tensor` and others got through. A new flag now joins on purpose, with a test. |
 | 2026-11-10 | Clarity never edits any file you write. | Shipped files stay read-only; your own files live in `local/`, and Clarity writes there only visibly. | The web interface needs to save profiles and settings you make in it. Keeping them in `local/` keeps a `git pull` from touching them, and keeps the shipped files a fixed reference. |

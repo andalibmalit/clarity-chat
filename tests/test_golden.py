@@ -46,6 +46,7 @@ def test_every_reply_replays_identically(golden, fetched_root, tiny_tokenizer):
         record = session.replay(golden, call["call_id"])
         assert record["identical"], call["call_id"]
         assert backend.calls[-1]["token_ids"] == call["prompt_ids"]
+        assert backend.calls[-1]["steering"] is None  # logged before steering existed
 
 
 def test_a_reply_can_be_marked_after_the_fact(golden):

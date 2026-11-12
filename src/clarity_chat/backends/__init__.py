@@ -11,9 +11,12 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from clarity_chat.profiles import ModelEntry
+
+if TYPE_CHECKING:
+    from clarity_chat.steering import Steering
 
 
 class BackendError(Exception):
@@ -65,10 +68,13 @@ class Backend(Protocol):
         on_text: Callable[[str], None] | None = None,
         request: dict[str, Any] | None = None,
         cancel: threading.Event | None = None,
+        steering: Steering | None = None,
     ) -> Result:
         """Generate a reply. `request`, for replay, is a logged request body: send it
         exactly as logged, or raise BackendError; never rebuild it from `settings`.
-        `cancel`, set from any thread, stops the call and returns what arrived so far."""
+        `cancel`, set from any thread, stops the call and returns what arrived so far.
+        `steering`: the vector to add, live or on replay; a backend that can't apply it
+        raises BackendError."""
         ...
 
     def describe(self) -> dict[str, Any]:

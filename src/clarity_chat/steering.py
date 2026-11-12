@@ -55,6 +55,25 @@ class Vector:
         return len(next(iter(self.directions.values())))
 
 
+@dataclass(frozen=True)
+class Steering:
+    """What steers one call: the vector, its file as the profile names it, the scale and
+    the blocks. A backend logs `to_json()` as the request's `steering`."""
+
+    file: str
+    vector: Vector
+    scale: float
+    layers: list[int]
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "file": self.file,
+            "sha256": self.vector.sha256,
+            "scale": self.scale,
+            "layers": self.layers,
+        }
+
+
 def load(path: Path, sha256: str | None) -> Vector:
     """Read a control-vector GGUF and check it against its pinned sha256. Doesn't check
     where the file is: Clarity's callers check it's inside the project first."""
