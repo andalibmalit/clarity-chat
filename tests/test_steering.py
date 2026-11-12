@@ -250,6 +250,10 @@ BROKEN = {
         gguf_bytes(tensors=tensor(values=b"")),  # the data isn't there
         "direction.1's data runs past the end",
     ),
+    "a block number past Python's digit limit": (
+        gguf_bytes(tensors=tensor("direction.1" + "0" * 5000)),
+        "isn't a control-vector GGUF (",  # the backstop: int() refuses it with ValueError
+    ),
     "a NaN": (
         gguf_bytes(tensors=tensor(values=np.array([np.nan] + [0] * 7, np.float32).tobytes())),
         "direction.1 has a value that isn't finite",
@@ -765,7 +769,11 @@ def test_a_steered_call_records_its_steering_and_the_check(hf):
         "layers": [1, 2],
     }
     n = len(result.token_ids)
-    assert result.checks["steering"] == {"ok": True, "forward_passes": {"1": n, "2": n}}
+    assert result.checks["steering"] == {
+        "ok": True,
+        "model_passes": n,
+        "forward_passes": {"1": n, "2": n},
+    }
     assert result.token_ids != plain.token_ids
     assert not hasattr(backend.model, "clarity_steering")
     again = backend.complete(PROMPT, SETTINGS, [], request=result.request, steering=steer)

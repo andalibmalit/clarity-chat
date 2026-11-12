@@ -457,6 +457,13 @@ class TransformersBackend:
             "logprobs": n_logprobs,
             "steering": steering.to_json() if steering is not None else None,
         }
+        # A replay sends the logged request exactly: its steering must be the one applied.
+        # A request logged before v0.2.2 has no steering key: unsteered.
+        if request is not None and request.get("steering") != logged_request["steering"]:
+            raise BackendError(
+                f"The logged request's steering {request.get('steering')!r} isn't the "
+                f"steering given ({logged_request['steering']!r})."
+            )
         try:
             config = GenerationConfig(**values)
             effective, _ = self.model._prepare_generation_config(config)
@@ -512,10 +519,15 @@ class TransformersBackend:
         started = time.perf_counter()
         with contextlib.ExitStack() as stack:
             runs: dict[int, int] = {}
+            passes = [0]  # the model's forward passes during this call
             if steering is not None:
                 runs = stack.enter_context(
                     vectors.applied(self.model, steering.vector, steering.scale, steering.layers)
                 )
+                counter = self.model.register_forward_pre_hook(
+                    lambda module, args: passes.__setitem__(0, passes[0] + 1)
+                )
+                stack.callback(counter.remove)
             try:
                 torch.manual_seed(seed)
                 if self.device == "mps":
@@ -574,11 +586,14 @@ class TransformersBackend:
         if not check["ok"]:
             flags.append("check_failed:generation_config")
         checks = {"generation_config": check}
-        # A cancel can land mid-pass, so only a finished call is checked: each steered block
-        # ran once per generated token (the prompt pass makes the first).
+        # A cancel can land mid-pass, so only a finished call is checked: every forward pass
+        # ran each steered block once, and there was a pass per generated token. On MPS,
+        # Transformers reads the stop decision a step late and runs one more pass, which it
+        # then undoes, so the passes can be one more than the tokens.
         if steering is not None and not cancelled:
             checks["steering"] = {
-                "ok": all(n == len(ids) for n in runs.values()),
+                "ok": passes[0] >= len(ids) and all(n == passes[0] for n in runs.values()),
+                "model_passes": passes[0],
                 "forward_passes": {str(block): n for block, n in runs.items()},
             }
             if not checks["steering"]["ok"]:

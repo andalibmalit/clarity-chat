@@ -396,8 +396,11 @@ class Session:
     @staticmethod
     def steering_for(profile: Profile, values: dict[str, Any]) -> steering.Steering | None:
         """What steers a call on this profile with these settings: nothing at scale 0."""
-        if profile.vector is None or values["steering_scale"] == 0:
+        if values["steering_scale"] == 0:
             return None
+        # Every path refuses a non-zero scale without a vector (check_backend_settings); if
+        # one ever slips through, fail rather than send an unsteered call.
+        assert profile.vector is not None, "a non-zero steering_scale with no vector"
         assert profile.steering is not None and profile.layers is not None
         return steering.Steering(
             profile.steering.file, profile.vector, values["steering_scale"], profile.layers
@@ -426,6 +429,8 @@ class Session:
                 f"{where} is on a {backend} call; steering runs on the Transformers backend."
             )
         scale = check_setting("steering_scale", logged["scale"], where)
+        if scale == 0:  # Clarity logs no steering at scale 0
+            raise ConfigError(f"{where} isn't one Clarity writes: its scale is 0.")
         file = logged["file"]
         steering_path(self.root, file, where)
         try:

@@ -131,9 +131,13 @@ def _number(value: object) -> float | None:
     """The value as a float if it's an int or float (TOML has no other numbers), else None."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    if not math.isfinite(value):
+    try:
+        number = float(value)  # an int too large for a float, as a JSON log can hold, fails
+    except OverflowError:
+        return None
+    if not math.isfinite(number):
         return None  # nan passes every range check, and inf has no JSON form
-    return float(value)
+    return number
 
 
 def _integer(value: object) -> int | None:
@@ -389,17 +393,15 @@ def _steering(table: object, root: Path, where: str) -> SteeringTable:
     return SteeringTable(file, sha256, table.get("layers"))
 
 
-def steering_path(root: Path, file: str, where: str) -> Path:
-    """A steering file's path, which must be inside the project folder after following
+def steering_path(root: Path, file: str, where: str) -> None:
+    """Refuse a steering file's path unless it's inside the project folder after following
     links. Checked before the file is touched: a profile or log from someone else mustn't
     reach a file elsewhere on your computer."""
-    path = root / file
-    if not path.resolve().is_relative_to(root.resolve()):
+    if not (root / file).resolve().is_relative_to(root.resolve()):
         raise ConfigError(
             f"{where}: the steering file {file!r} is outside the project folder ({root}). "
             "Copy it into the project, for example into local/vectors/."
         )
-    return path
 
 
 def _messages(value: object, where: str) -> list[dict[str, str]]:
