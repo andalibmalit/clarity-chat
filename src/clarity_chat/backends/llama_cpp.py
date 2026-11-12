@@ -18,13 +18,16 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from clarity_chat.backends import BackendError, Result
 from clarity_chat.logs import git_state, machine, new_id
 from clarity_chat.profiles import ConfigError, ModelEntry, ServerConfig
+
+if TYPE_CHECKING:
+    from clarity_chat.steering import Steering
 
 NAME = "llama.cpp"
 
@@ -699,6 +702,7 @@ class LlamaCppBackend:
         on_text: Callable[[str], None] | None = None,
         request: dict[str, Any] | None = None,
         cancel: threading.Event | None = None,
+        steering: Steering | None = None,
     ) -> Result:
         """`request`: a logged request body (prompt left out) to send exactly as it was,
         for replay; otherwise it is built from `settings` and `stop`. `cancel` is checked
@@ -706,6 +710,8 @@ class LlamaCppBackend:
         reads the prompt (sse_ping_interval), so this returns within about a second even
         then. The server stops once it finishes its current batch of prompt tokens
         (measured: M1)."""
+        if steering is not None:  # a replay routed here would otherwise run unsteered
+            raise BackendError("Steering runs on the Transformers backend for now.")
         if self.server is None:
             raise BackendError("No model loaded.")
         if request is None:

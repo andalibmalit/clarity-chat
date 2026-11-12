@@ -8,6 +8,24 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-11-11
+
+Live tests on an M2 Max (macOS), 2026-11-11, at the release commit: `-m live` 17 passed, `-m hf` 17 passed (Transformers refuses MPS with `PYTORCH_ENABLE_MPS_FALLBACK` set, on the real device; steering SmolLM2 with a real repeng vector on the CPU and MPS: a zero vector changes nothing, the vector changes the reply, a cancel leaves the model unsteered, a replay after a reload is identical, and a steered export recomputes with a gap of 0 under `applied`), `-m olmo` 12 passed (the same steering checks on OLMo 3 7B Instruct on MPS, including a reply that ends on its end token).
+
+### Added
+- Steering on the Transformers backend: a profile's `[steering]` table names a vector file made by another tool, pinned by its sha256, and `steering_scale` in `[settings]` sets how strongly it's added. `/set steering_scale` changes it between replies without reloading. The vector is checked against the model before the first message. A llama.cpp profile with `[steering]` is refused for now.
+- Each steered call records its vector's file, sha256, scale and blocks in `request.steering`, and checks that every forward pass ran each steered block once (`checks.steering`). Replay applies the same vector, and refuses if the file is gone or changed. Clarity before v0.2.2 ignores `request.steering`, so it replays a steered call unsteered.
+- `/settings` shows a steered profile's vector (file, sha256 and blocks), and the status line after a steered reply ends with `steered ×S`. The `--json` `settings` result carries `steering`.
+- The export records each call's steering, or `"none"`, and steering joins its conditions, so a change of scale starts a new group. The recompute check compares the export's steering with what `clarity_chat.steering.applied` has added to the model.
+- `clarity_chat.steering` reads a steering vector made by another tool, such as repeng (llama.cpp's control-vector GGUF), checks it against its pinned sha256 and the model, and applies it to a loaded Transformers model in a notebook: `load`, `check` and `applied`. Clarity never makes vectors.
+
+### Fixed
+- `clarity chat --json` read its input one byte at a time, about half a second of CPU per megabyte of commands. It now reads whatever has arrived, up to 64 KB at a time.
+- A setting in a log holding an integer too large for a float (a hand-edited log, say) made resume and replay stop with an `OverflowError`. It's now refused like any out-of-range value.
+
+### Changed
+- numpy is now a declared dependency (it was already installed with transformers): steering reads and applies vectors with it.
+
 ## [0.2.1] - 2026-11-11
 
 Live tests on an M2 Max (macOS), 2026-11-11: `-m live` 17 passed (including a quantized copy that repeats and replays, and converting twice to the same file), `-m hf` 13 passed (greedy output identical on llama.cpp and Transformers; logged probabilities equal a step-by-step recompute on the CPU and MPS, and the recompute check gives a gap of 0 with the same model), `-m olmo` 11 passed (OLMo 3's logged probabilities equal the recompute check's own loop on MPS). All three again after the last replay fix, with the same results.
@@ -120,7 +138,8 @@ The first release.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - A llama-server that Clarity starts and checks itself, and a Transformers backend for the same weights.
 
-[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/andalibmalit/clarity-chat/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/andalibmalit/clarity-chat/releases/tag/v0.1.0

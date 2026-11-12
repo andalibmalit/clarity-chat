@@ -156,7 +156,7 @@ On a Transformers profile, `/set logprobs 5` records, for each token of the next
 
 `/export`, or `uv run clarity export ID` afterwards, writes the conversation to `logs/exports/ID.jsonl`: exact token IDs, where each message sits in the prompt, marks, notes and settings for every reply. Its fields are in [Export](reference.md#export).
 
-Numbers you recompute in a notebook are only comparable with the logged ones under the same conditions: the same weights, precision, device, attention implementation, library versions, PyTorch environment variables, deterministic-algorithms setting and machine. So run the check first, with the model you loaded:
+Numbers you recompute in a notebook are only comparable with the logged ones under the same conditions: the same weights, precision, device, attention implementation, library versions, PyTorch environment variables, deterministic-algorithms setting, steering and machine. So run the check first, with the model you loaded:
 
 ```python
 from clarity_chat.recompute import check
@@ -165,7 +165,7 @@ report = check("logs/exports/ID.jsonl", model, repo="ORG/NAME", revision="COMMIT
 print(report)
 ```
 
-It lists each condition that differs from the export's. Transformers doesn't keep the commit a model was loaded from, so pass `revision`, the commit in the export's header, or the weights read "unknown". Pass `repo` too when you loaded the model from a local folder. A llama.cpp conversation ran on a GGUF file, so its weights never read as the same as a Transformers model's. For replies logged with `logprobs` on, it also recomputes each reply token's log-probability and reports the largest gap from the logged value, and how many steps' top choice changed. It recomputes step by step with the cache, as generation ran. In bf16, one pass over the whole reply gives different numbers even with nothing changed, because the two ways add things up in a different order and bf16 rounds differently: in one 60-token run of SmolLM2 on a CPU, the gap was 0.139, about as large as loading the model in float32 (0.133). In float32 it's far smaller: in another 60-token SmolLM2 run on a CPU, one pass gave a gap of 0.177 in bf16 and 0.0000145 in float32. With the same weights, precision, device, attention implementation and library versions on the same CPU, the gap was exactly 0 in our tests. The check gives facts and numbers, not a verdict: whether a difference matters depends on your experiment. It needs the `hf` extra.
+It lists each condition that differs from the export's. Transformers doesn't keep the commit a model was loaded from, so pass `revision`, the commit in the export's header, or the weights read "unknown". Pass `repo` too when you loaded the model from a local folder. A llama.cpp conversation ran on a GGUF file, so its weights never read as the same as a Transformers model's. For replies logged with `logprobs` on, it also recomputes each reply token's log-probability and reports the largest gap from the logged value, and how many steps' top choice changed. It recomputes step by step with the cache, as generation ran. In bf16, one pass over the whole reply gives different numbers even with nothing changed, because the two ways add things up in a different order and bf16 rounds differently: in one 60-token run of SmolLM2 on a CPU, the gap was 0.139, about as large as loading the model in float32 (0.133). In float32 it's far smaller: in another 60-token SmolLM2 run on a CPU, one pass gave a gap of 0.177 in bf16 and 0.0000145 in float32. With the same weights, precision, device, attention implementation and library versions on the same CPU, the gap was exactly 0 in our tests. The check gives facts and numbers, not a verdict: whether a difference matters depends on your experiment. For a steered conversation, run the check inside `clarity_chat.steering.applied` with the same vector, scale and blocks; the check compares them with the export's and lists steering if they differ. It needs the `hf` extra.
 
 ## Resume a conversation
 
@@ -231,6 +231,41 @@ Some settings can't run on Transformers exactly as written; [Settings](reference
 
 The context size comes from the profile's `ctx_size` or `server.toml` here too, so the context guard is the same on both backends. A model with fewer positions than that won't start.
 
+## Steer a chat with a vector
+
+A steering vector nudges a model's replies in a direction, such as calm rather than hurried, by adding a fixed vector to the output of some of its blocks. Clarity applies a vector made by another tool; it never makes one. Steering runs on the Transformers backend, on OLMo 3 and on Llama-architecture models such as SmolLM2.
+
+1. Make a vector elsewhere. [repeng](https://github.com/vgel/repeng) trains one from pairs of contrasting prompts and writes a file in llama.cpp's control-vector layout, which Clarity reads (repeng's own docs call its export work in progress). Install repeng from git in a separate environment: its PyPI release needs numpy below 2, which Clarity's dependencies don't allow. `tests/fixtures/steering/README.md` has a script that makes a small one for SmolLM2.
+2. Leave the model's last block out (pass `hidden_layers` that stop before it). repeng includes it by default, but it reads that block's output after the model's final normalization (Transformers' last `hidden_states` entry), which isn't what the vector gets added to.
+3. Copy the file into your project, for example to `local/vectors/calm.gguf`.
+4. Add a `[steering]` table to a Transformers profile, and set `steering_scale`:
+
+   ```toml
+   [steering]
+   file = "local/vectors/calm.gguf"
+
+   [settings]
+   steering_scale = 4.0
+   ```
+
+5. Start a chat with it. Clarity refuses the first time, because the vector isn't pinned yet, and gives the line to add to `[steering]`: `sha256 = "…"`. Add it. From then on, a changed file is refused by a new chat, a resumed one and a replay.
+6. Chat. The status line after each reply ends with `steered ×4.0`, and `/settings` shows the vector's file, hash and blocks. To compare with an unsteered reply, use a fixed seed or temperature 0, `/set steering_scale 0`, then `/edit` with the same message: the new reply is a branch next to the steered one. A negative scale steers the other way. No scale is recommended: it depends on the model and the vector, so try small values and compare.
+
+To steer only some of the vector's blocks, add `layers = [10, 11]` to the table. Block 0 can't be steered ([why](reference.md#steering-vectors)).
+
+Each steered reply logs the vector's file, sha256, scale and blocks, and replays steered. In a notebook, apply the same steering with `clarity_chat.steering` before recomputing or reading activations:
+
+```python
+from pathlib import Path
+
+from clarity_chat.recompute import check
+from clarity_chat.steering import applied, load
+
+vector = load(Path("local/vectors/calm.gguf"), "SHA256")
+with applied(model, vector, 4.0):
+    print(check("logs/exports/ID.jsonl", model, repo="ORG/NAME", revision="COMMIT"))
+```
+
 ## Change the context size or a server flag
 
 For one profile, set `ctx_size = 32768` at the top of the profile. Other profiles keep `ctx-size` from `server.toml`. Starting a conversation with a profile of another size restarts llama-server at that size, and `/settings` shows the size and where it came from.
@@ -270,6 +305,8 @@ Clarity doesn't read activations itself, but a logged call holds everything you 
 3. For a Transformers call, match its `backend.dtype`, `backend.device` and `backend.attn_implementation`, and the `backend.torch` and `backend.transformers` versions.
 4. Run one forward pass over `prompt_ids` followed by `output_ids`, so nothing is re-tokenized.
 5. Check the reading, as below.
+
+For a steered call, run the pass inside `clarity_chat.steering.applied` with the call's `request.steering`; its hooks run before the ones Transformers uses for `output_hidden_states`, so you read the steered values.
 
 Even for a Transformers call, the reading is a new forward pass over the whole sequence, not the one that generated the reply, so small numeric differences are possible. A llama.cpp call is further off, because llama.cpp ran a GGUF (`model.gguf_sha256`) with its own kernels.
 

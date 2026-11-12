@@ -1,6 +1,6 @@
 [project]
 name = "clarity-chat"
-version = "0.2.1"
+version = "0.2.2"
 description = "Clarity: a chat client for exact, replayable prompting experiments with local LLMs."
 readme = "README.md"
 license = "Apache-2.0"
@@ -11,6 +11,7 @@ dependencies = [
     "httpx>=0.28.1",
     "huggingface-hub>=2.4.0",
     "jinja2>=3.1.6",
+    "numpy>=2.5.4",  # steering vectors; also a dependency of transformers
     "prompt-toolkit>=3.0.53",
     "tokenizers>=0.23.3",
     "transformers>=5.22.2",
@@ -33,6 +34,7 @@ module-name = "clarity_chat"
 
 [dependency-groups]
 dev = [
+    "gguf==0.19.0",  # tests write control vectors with the reference writer; never imported by Clarity
     "hypothesis>=6.170.15",
     "pytest>=9.2.0",
     "ruff>=0.17.4",

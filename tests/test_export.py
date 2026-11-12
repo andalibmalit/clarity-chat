@@ -177,9 +177,14 @@ def test_older_calls_get_derived_spans_or_a_reason(make, golden, tmp_path):
     session, _ = make()
     log = Path(shutil.copy(golden, tmp_path / golden.name))
     turns = {r["turn_id"]: r for r in read_records(log) if r["type"] == "turn"}
-    _, rows = read_export(Path(export_log(session, log)["path"]))
+    calls = logged_calls(log)
+    header, rows = read_export(Path(export_log(session, log)["path"]))
     assert rows
+    steered = {g["conditions"]["steering"] != "none" for g in header["conditions"]}
+    assert steered == ({True, False} if golden.stem == "v0.2.2" else {False})
     for row in rows:
+        # "none" for every call logged before steering existed
+        assert row["steering"] == (calls[row["call_id"]]["request"].get("steering") or "none")
         spans = row["message_spans"]
         assert isinstance(spans, list), spans  # every golden call derives today
         for span in spans:
