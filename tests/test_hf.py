@@ -388,6 +388,14 @@ def check_steering(root: Path, tmp_path: Path, zero: str, real: str, message: st
             checks_ok(zeroed)
             assert zeroed["checks"]["steering"]["ok"]
             assert zeroed["output_ids"] == plain["output_ids"]
+        # A reply that ends on its end token: on MPS, Transformers runs one more pass then,
+        # and undoes it. The zero vector keeps the reply ending where an unsteered one does.
+        session.new_conversation(zero)
+        session.set_setting("temperature", "0")
+        session.set_setting("max_tokens", "256")
+        ended = session.say("Reply with one word: yes.").record
+        assert ended["stop_type"] == "eos", ended["output_text"]
+        checks_ok(ended)
         plain = run(real, "0", scale="0")
         steered_record = run(real, "0")
         checks_ok(steered_record)

@@ -300,9 +300,10 @@ def applied(model: Any, vector: Vector, scale: float, layers: object = None) -> 
     deltas = {}
     for n in layers:
         delta = torch.tensor(scale, dtype=torch.float32) * torch.from_numpy(vector.directions[n])
-        if not torch.isfinite(delta).all():
-            raise ConfigError(f"{scale} x direction.{n} isn't finite.")
-        deltas[n] = delta.to(dtype=model.dtype, device=model.device)
+        delta = delta.to(dtype=model.dtype, device=model.device)
+        if not torch.isfinite(delta).all():  # after the cast: bf16 overflows below float32
+            raise ConfigError(f"{scale} x direction.{n} isn't finite in {model.dtype}.")
+        deltas[n] = delta
 
     def hook(n: int, delta: Any) -> Any:
         def add(module: Any, args: Any, output: Any) -> Any:
