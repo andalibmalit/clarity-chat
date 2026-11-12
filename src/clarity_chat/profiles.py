@@ -397,7 +397,11 @@ def steering_path(root: Path, file: str, where: str) -> None:
     """Refuse a steering file's path unless it's inside the project folder after following
     links. Checked before the file is touched: a profile or log from someone else mustn't
     reach a file elsewhere on your computer."""
-    if not (root / file).resolve().is_relative_to(root.resolve()):
+    try:
+        inside = (root / file).resolve().is_relative_to(root.resolve())
+    except (ValueError, OSError):  # a NUL in the path, say
+        inside = False
+    if not inside:
         raise ConfigError(
             f"{where}: the steering file {file!r} is outside the project folder ({root}). "
             "Copy it into the project, for example into local/vectors/."
