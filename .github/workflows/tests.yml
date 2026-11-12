@@ -30,4 +30,7 @@ jobs:
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run ty check
+      # Which CPU this runner has, and what PyTorch thinks it supports: some Windows
+      # runners crash with an illegal instruction in the first bf16 matmul on the CPU.
+      - run: uv run python scripts/cpu_info.py
       - run: uv run pytest
