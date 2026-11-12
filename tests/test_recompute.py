@@ -36,6 +36,7 @@ def write_export(path: Path, calls: list[dict], conditions: dict | None = None) 
         "env": torch_env(),
         "deterministic_algorithms": False,
         "machine": machine(),
+        "steering": "none",
     }
     header = {
         "type": "export",

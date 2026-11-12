@@ -25,6 +25,10 @@ RECOMPUTE_NOTE = (
     "by a tiny amount and sometimes enough to change the likeliest token. Run "
     "`clarity_chat.recompute.check` with your loaded model first; it lists what differs."
 )
+STEERED_NOTE = (
+    " Some calls were steered; apply the same vector with `clarity_chat.steering.applied` "
+    "before recomputing them."
+)
 # Copied from the call record as logged.
 CALL_FIELDS = (
     "call_id",
@@ -91,7 +95,8 @@ def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any
         "conditions": [
             {"conditions": json.loads(key), "call_ids": ids} for key, ids in groups.items()
         ],
-        "note": RECOMPUTE_NOTE,
+        "note": RECOMPUTE_NOTE
+        + (STEERED_NOTE if any(row["steering"] != "none" for row in rows) else ""),
     }
     path = out or session.logs_dir / "exports" / f"{conversation_id}.jsonl"
     replaced = path.exists()
@@ -118,11 +123,24 @@ def conditions(call: dict[str, Any], server: dict[str, Any] | None) -> dict[str,
     pins = ("repo", "revision") + (() if backend == "transformers" else ("gguf_sha256",))
     skip = {"client", "libraries", "weights", "gguf_sha256"}
     facts = facts_from_call(call, server)
+    steering = logged_steering(call)
     return {
         "backend": backend,
         "weights": {k: model.get(k) for k in pins},
         **{k: v for k, v in facts.items() if k not in skip},
+        # What `steering.applied` sets on a model, so the recompute check can compare them.
+        "steering": {k: steering.get(k) for k in ("sha256", "scale", "layers")}
+        if isinstance(steering, dict)
+        else "none",
     }
+
+
+def logged_steering(call: dict[str, Any]) -> dict[str, Any] | str:
+    """A call's steering as logged, or "none": a value, not null, which readers take as "not
+    recorded". A call logged before v0.2.2, or on llama.cpp, wasn't steered."""
+    request = call.get("request")
+    steering = request.get("steering") if isinstance(request, dict) else None
+    return steering if isinstance(steering, dict) else "none"
 
 
 def export_call(
@@ -151,6 +169,7 @@ def export_call(
         ],
         "model": {k: (call.get("model") or {}).get(k) for k in MODEL_PINS},
         **({"logprobs": call["logprobs"]} if "logprobs" in call else {}),
+        "steering": logged_steering(call),
         "facts": facts_from_call(call, server),
     }
 

@@ -168,6 +168,13 @@ def facts(
         ("end tokens", logged.get("end_tokens"), eos),
         ("environment", logged.get("env"), torch_env()),
         ("deterministic algorithms", logged.get("deterministic_algorithms"), deterministic),
+        # What `clarity_chat.steering.applied` has added to the model, if anything. An export
+        # made before v0.2.2 has no steering: nothing could be steered then.
+        (
+            "steering",
+            logged.get("steering", "none"),
+            getattr(model, "clarity_steering", None) or "none",
+        ),
     ]
     if logged.get("backend") != "transformers":  # llama.cpp has none of these
         pairs = [p for p in pairs if p[0] not in TORCH_FACTS]
