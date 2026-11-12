@@ -119,6 +119,7 @@ All profiles:
 | `use_recommended` | no | `true` fills unset settings from the model's `generation_config.json` before `defaults.toml`. Default `false`. |
 | `device` | no | Transformers backend only: `"mps"` (default), `"cpu"` or `"cuda"`. |
 | `ctx_size` | no | The context size in tokens: the prompt and the reply together must fit in it. Default: `ctx-size` in `server.toml`. A larger context takes more memory, and a size above what the model was trained on is refused. Starting a profile with another size restarts llama-server; the Transformers backend only checks the new size. |
+| `steering` | no | Transformers backend only: a table naming a [steering vector](#steering-vectors). `file` is its path relative to the project folder, and must be inside it. `sha256` is its hash; without it, Clarity refuses the profile and gives the hash to add. `layers`, optional, lists the blocks to steer; the default is every block in the file. A profile with `[steering]` must set `steering_scale` in `settings`. |
 
 Chat mode, all optional:
 
@@ -160,6 +161,7 @@ Settings use the same names on every backend. Each resolved value records its or
 | `max_tokens` | integer ≥ 1: the longest reply | 1024 (a cap, not a neutral value) | |
 | `samplers` | the order and membership of the sampler chain, from `penalties`, `top_k`, `top_p`, `min_p`, `temperature` | all five, in that order | |
 | `logprobs` | integer from 0 to 20. 0 is off. N records, for each token of the reply, its log-probability and the N likeliest tokens with theirs, in the call's `logprobs` field. A log-probability is the natural log of the probability the model gave the token, so 0 is certain and more negative is less likely. The probabilities come from the model's raw scores (logits) before any sampler, so they don't show what temperature, `top_k` or the penalties did. Transformers backend only for now; a llama.cpp profile with it above 0 is refused. While a reply is written, the scores take memory: about 0.4 MB per token for a model with a 100,000-token vocabulary. | 0 | |
+| `steering_scale` | any number; 0 is off. The profile's steering vector is multiplied by it before it's added, and a negative number steers the other way. A profile with `[steering]` must set it; one without must leave it at 0. Transformers backend only. | 0.0 | |
 
 A sampler not listed in `samplers` doesn't run. A setting whose sampler isn't listed must keep its neutral value; anything else is an error when the profile loads.
 
@@ -277,6 +279,20 @@ A steering vector is a file made by another tool, such as repeng; Clarity applie
 Clarity reads the file with its own reader, which accepts only this format: GGUF version 3, little-endian, at most 16 MB, 1 to 1,024 tensors, every value finite. Anything else is refused with what was wrong.
 
 Steering runs on model types `llama` and `olmo3`, the two whose blocks Clarity has checked. Other types, including Qwen3 and Apertus, are refused until they are checked. `llama` admits every Llama-architecture model, such as Hermes 4, though only SmolLM2 has a live test.
+
+A profile names its vector in a `[steering]` table and its scale in `settings`:
+
+```toml
+[steering]
+file = "local/vectors/calm.gguf"   # relative to the project folder
+sha256 = "…"
+layers = [10, 11, 12]              # optional; default: every block in the file
+
+[settings]
+steering_scale = 4.0               # required with [steering]; negative steers the other way
+```
+
+When a conversation starts, resumes or switches profile, and before a batch run, Clarity loads the file, checks its sha256, and checks it against the model's `config.json`: the model type, the width, and that each block exists and is in the file. A vector that changed since the profile pinned it is refused. `/set steering_scale` changes the scale for one conversation without reloading the model.
 
 In a notebook, `clarity_chat.steering` applies a vector exactly as Clarity does:
 - `load(path, sha256)` reads the file, checks its sha256, and returns a `Vector` with `sha256`, `directions` (block number to a float32 array) and `model_hint`.

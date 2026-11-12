@@ -9,6 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Added
+- Steering on the Transformers backend: a profile's `[steering]` table names a vector file made by another tool, pinned by its sha256, and `steering_scale` in `[settings]` sets how strongly it's added. `/set steering_scale` changes it between replies without reloading. The vector is checked against the model before the first message. A llama.cpp profile with `[steering]` is refused for now.
 - `clarity_chat.steering` reads a steering vector made by another tool, such as repeng (llama.cpp's control-vector GGUF), checks it against its pinned sha256 and the model, and applies it to a loaded Transformers model in a notebook: `load`, `check` and `applied`. Clarity never makes vectors.
 
 ### Fixed

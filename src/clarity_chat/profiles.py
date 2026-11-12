@@ -11,9 +11,12 @@ import re
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from clarity_chat.files import read_text
+
+if TYPE_CHECKING:
+    from clarity_chat.steering import Vector
 
 
 class ConfigError(Exception):
@@ -34,6 +37,7 @@ SETTING_NAMES = (
     "max_tokens",
     "samplers",
     "logprobs",
+    "steering_scale",
 )
 SAMPLER_NAMES = ("penalties", "top_k", "top_p", "min_p", "temperature")
 
@@ -71,6 +75,7 @@ PROFILE_KEYS_COMMON = {
     "use_recommended",
     "device",
     "ctx_size",
+    "steering",
 }
 # apply_chat_template arguments that Clarity sets, or that would change what it renders or
 # returns behind the logged template (chat_template replaces the template's text).
@@ -150,6 +155,7 @@ SETTING_RANGES: dict[str, tuple[str, float | None, float | None, str]] = {
     "max_tokens": ("integer", 1, None, "an integer >= 1"),
     "seed": ("integer", 0, SEED_MAX, f'"random" or an integer from 0 to {SEED_MAX}'),
     "logprobs": ("integer", 0, 20, "an integer from 0 (off) to 20"),
+    "steering_scale": ("number", None, None, "a finite number; 0 is off"),
 }
 
 
@@ -213,8 +219,17 @@ def resolve_settings(
     return resolved
 
 
-def check_backend_settings(resolved: dict[str, Setting], backend: str, where: str) -> None:
-    """Refuse a setting the backend can't honour, rather than return a reply without it."""
+def check_backend_settings(
+    resolved: dict[str, Setting], backend: str, where: str, steered: bool
+) -> None:
+    """Refuse a setting the backend or profile can't honour, rather than return a reply
+    without it. `steered`: the profile has a [steering] table."""
+    scale = resolved["steering_scale"].value
+    if scale != 0 and not steered:
+        raise ConfigError(
+            f"{where}: steering_scale is {scale}, but this profile has no [steering] vector. "
+            "Set it to 0, or add a [steering] table."
+        )
     if backend == "llama.cpp" and resolved["logprobs"].value > 0:
         raise ConfigError(
             f"{where}: logprobs is {resolved['logprobs'].value}, but token probabilities run "
@@ -251,6 +266,13 @@ def parse_setting(name: str, text: str, where: str) -> Any:
 # --- profiles ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class SteeringTable:
+    file: str  # relative to the project folder, as written
+    sha256: str | None  # None: refused with the file's hash when the vector loads
+    layers: object  # as written; checked against the model when the vector loads
+
+
 @dataclass
 class Profile:
     name: str
@@ -265,6 +287,9 @@ class Profile:
     use_recommended: bool = False  # fill unset settings from the model's generation_config.json
     device: str | None = None  # Transformers backend only: mps (default), cpu or cuda
     ctx_size: int | None = None  # None: server.toml's ctx-size
+    steering: SteeringTable | None = None  # the [steering] table, Transformers only
+    vector: Vector | None = None  # its vector, loaded and checked by Session.prepare
+    layers: list[int] | None = None  # the blocks it steers, from Session.prepare
     # chat mode
     system: str | None = None
     priming_messages: list[dict[str, str]] = field(default_factory=list)
@@ -341,6 +366,33 @@ def _text_or_file(
     raise ConfigError(f'{where}: {key} must be a string or {{ file = "..." }}, got {value!r}.')
 
 
+def _steering(table: object, root: Path, where: str) -> SteeringTable:
+    """The [steering] table. Its file is relative to the project folder, so the same text
+    works in the profile, the log and a replay, and must stay inside it, checked before
+    the file is touched."""
+    if not isinstance(table, dict):
+        raise ConfigError(f"{where}: [steering] must be a table.")
+    unknown = sorted(set(table) - {"file", "sha256", "layers"})
+    if unknown:
+        raise ConfigError(
+            f"{where}: unknown keys {unknown} in [steering]. Allowed: file, sha256, layers."
+        )
+    file, sha256 = table.get("file"), table.get("sha256")
+    if not isinstance(file, str):
+        raise ConfigError(
+            f"{where}: [steering] needs file, the vector's path in the project folder, "
+            'such as "local/vectors/calm.gguf".'
+        )
+    if sha256 is not None and not isinstance(sha256, str):
+        raise ConfigError(f"{where}: [steering] sha256 must be a string.")
+    if not (root / file).resolve().is_relative_to(root.resolve()):
+        raise ConfigError(
+            f"{where}: the steering file {file!r} is outside the project folder ({root}). "
+            "Copy it into the project, for example into local/vectors/."
+        )
+    return SteeringTable(file, sha256, table.get("layers"))
+
+
 def _messages(value: object, where: str) -> list[dict[str, str]]:
     if not isinstance(value, list):
         raise ConfigError(f"{where}: priming must be a list of {{role, content}} tables.")
@@ -403,8 +455,21 @@ def load_profile(
             raise ConfigError(f"{where}: device must be one of {list(DEVICES)}, got {device!r}.")
     elif device is not None:
         raise ConfigError(f'{where}: device applies only to backend = "transformers".')
+    steering = data.get("steering")
+    if steering is not None:
+        if data["backend"] != "transformers":
+            raise ConfigError(
+                f"{where}: steering runs on the Transformers backend for now; llama.cpp's "
+                "control vectors aren't supported yet."
+            )
+        steering = _steering(steering, root, where)
 
     raw_settings = check_settings_table(data.get("settings", {}), where)
+    if steering is not None and "steering_scale" not in raw_settings:
+        raise ConfigError(
+            f"{where}: steering_scale is required in [settings] with [steering]: the number "
+            "the vector is multiplied by, such as 4.0, or 0 for none."
+        )
     ctx_size = data.get("ctx_size")
     if ctx_size is not None and (_integer(ctx_size) is None or ctx_size <= 0):
         raise ConfigError(f"{where}: ctx_size must be a positive integer, got {ctx_size!r}.")
@@ -413,7 +478,7 @@ def load_profile(
         raise ConfigError(f"{where}: use_recommended must be true or false.")
     # With use_recommended, the session resolves again once it knows the model's values.
     settings = resolve_settings(raw_settings, defaults, where)
-    check_backend_settings(settings, data["backend"], where)
+    check_backend_settings(settings, data["backend"], where, steering is not None)
     files: dict[str, str] = {}
     base = path.parent
     logged_files = logged["files"] if logged is not None else None
@@ -430,6 +495,7 @@ def load_profile(
         use_recommended=use_recommended,
         device=device,
         ctx_size=ctx_size,
+        steering=steering,
     )
 
     if mode == "chat":

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from clarity_chat import steering
 from clarity_chat.backends import Backend, BackendError, Result
 from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records
 from clarity_chat.models import check_weights_quick, lock_entry, source_weights
@@ -362,6 +363,8 @@ class Session:
                 profile.raw_settings, self.defaults, str(profile.path), recommended["values"]
             )
         weights = self.weights_for(profile.backend, entry)
+        if profile.steering is not None:
+            self.load_vector(profile, weights)
         tokenizer, template_tokenizer = self.tokenizers_for(profile, model)
         if profile.mode == "chat":
             template = chat_template_source(template_tokenizer, profile)
@@ -372,6 +375,20 @@ class Session:
         return Prepared(
             profile, model, entry, weights, tokenizer, template_tokenizer, template, unread
         )
+
+    def load_vector(self, profile: Profile, weights: Path) -> None:
+        """Load the profile's steering vector and check it against the model's config.json,
+        so every refusal comes before the first message."""
+        assert profile.steering is not None
+        vector = steering.load(self.root / profile.steering.file, profile.steering.sha256)
+        try:
+            config = json.loads((weights / "config.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            raise ConfigError(f"Can't read {weights / 'config.json'}: {e}") from e
+        if not isinstance(config, dict):
+            raise ConfigError(f"{weights / 'config.json'} isn't a JSON object.")
+        profile.layers = steering.check(vector, config, profile.steering.layers)
+        profile.vector = vector
 
     def ctx_size_for(self, profile: Profile) -> Setting:
         """The profile's context size, else server.toml's ctx-size."""
@@ -588,7 +605,8 @@ class Session:
         trial = {**conversation.profile.settings}
         trial.update({k: Setting(v, "chat") for k, v in chat.items()})
         check_samplers(trial, "/set")
-        check_backend_settings(trial, conversation.profile.backend, "/set")
+        steered = conversation.profile.steering is not None
+        check_backend_settings(trial, conversation.profile.backend, "/set", steered)
         conversation.chat_settings = chat
         return conversation.log.append(
             {
@@ -1041,7 +1059,8 @@ class Session:
         chat = {k: check_setting(k, v, f"{path}: /set") for k, v in state.chat_settings.items()}
         merged = {**prepared.profile.settings, **{k: Setting(v, "chat") for k, v in chat.items()}}
         check_samplers(merged, f"{path}: /set")
-        check_backend_settings(merged, prepared.profile.backend, f"{path}: /set")
+        steered = prepared.profile.steering is not None
+        check_backend_settings(merged, prepared.profile.backend, f"{path}: /set", steered)
         # Everything from the log is built before the model starts, so a log that can't be
         # read leaves the current conversation and its model as they were.
         log = LogFile(path)

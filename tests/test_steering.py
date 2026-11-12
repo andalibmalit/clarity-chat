@@ -457,3 +457,245 @@ def test_a_block_that_doesnt_return_a_tensor_is_refused(tmp_path):
     block.forward = lambda *args, **kwargs: (original(*args, **kwargs),)
     with applied(model, vector(tmp_path), 1.0), pytest.raises(BackendError, match="returned tuple"):
         forward(model, torch)
+
+
+# --- the profile table and the setting (B2) ---------------------------------------------
+
+
+def steer_root(root):
+    """A fetched project whose tiny model has Transformers weights (a config.json), and a
+    vector for it in local/vectors/."""
+    import json
+
+    from clarity_chat.models import read_lock, write_lock_entry
+    from tests.conftest import fake_fetch
+
+    fake_fetch(root)
+    weights = root / "models" / "tiny-hf"
+    weights.mkdir(parents=True)
+    config = {"model_type": "llama", "hidden_size": 8, "num_hidden_layers": 4}
+    (weights / "config.json").write_text(json.dumps(config), encoding="utf-8")
+    entry = read_lock(root)["models"]["tiny"]
+    write_lock_entry(root, "tiny", {**entry, "source_dir": "models/tiny-hf"})
+    (root / "local" / "vectors").mkdir(parents=True)
+    path = write(root / "local" / "vectors" / "calm.gguf", directions(1, 2, width=8))
+    return sha(path.read_bytes())
+
+
+def steered(root, name="steered", steering=None, scale="4.0", backend="transformers", extra=""):
+    """A text profile on `backend` with a [steering] table (None: the fixture vector)."""
+    from tests.conftest import TEXT_PROFILE
+
+    if steering is None:
+        digest = sha((root / "local" / "vectors" / "calm.gguf").read_bytes())
+        steering = f'file = "local/vectors/calm.gguf"\nsha256 = "{digest}"'
+    text = TEXT_PROFILE.replace('backend = "llama.cpp"', f'backend = "{backend}"')
+    text = text.replace("[settings]", f"{extra}\n[settings]")
+    if scale is not None:
+        text = text.replace("[settings]", f"[settings]\nsteering_scale = {scale}")
+    if steering != "":
+        text += f"\n[steering]\n{steering}\n"
+    (root / "profiles" / f"{name}.toml").write_text(text, encoding="utf-8", newline="\n")
+    return name
+
+
+@pytest.fixture
+def session(root, tiny_tokenizer):
+    from clarity_chat.session import Session
+    from tests.fakes import FakeBackend
+
+    steer_root(root)
+    backend = FakeBackend([" Hi."] * 20, tokenizer=tiny_tokenizer)
+    backend.name = "transformers"
+    return Session(root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+
+
+def test_the_table_loads_on_transformers_and_the_vector_with_the_session(session):
+    from clarity_chat.profiles import load_defaults, load_profile
+
+    root = session.root
+    profile = load_profile(root, steered(root, extra=""), load_defaults(root))
+    assert profile.steering is not None and profile.steering.file == "local/vectors/calm.gguf"
+    assert profile.settings["steering_scale"].value == 4.0
+    assert profile.settings["steering_scale"].origin == "profile"
+    prepared = session.prepare("steered")
+    assert prepared.profile.vector is not None and prepared.profile.layers == [1, 2]
+    assert prepared.profile.vector.sha256 == profile.steering.sha256
+
+
+def test_layers_picks_blocks_from_the_file(session):
+    root = session.root
+    digest = sha((root / "local" / "vectors" / "calm.gguf").read_bytes())
+    table = f'file = "local/vectors/calm.gguf"\nsha256 = "{digest}"\nlayers = [2]'
+    assert session.prepare(steered(root, steering=table)).profile.layers == [2]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "message"),
+    [
+        ({"backend": "llama.cpp"}, "steering runs on the Transformers backend for now"),
+        ({"steering": 'sha256 = "00"'}, "[steering] needs file"),
+        ({"steering": 'file = "local/vectors/calm.gguf"\nscale = 2'}, "unknown keys ['scale']"),
+        ({"steering": "file = 3"}, "[steering] needs file"),
+        ({"steering": 'file = "local/vectors/calm.gguf"\nsha256 = 5'}, "sha256 must be"),
+        ({"steering": 'file = "/etc/hosts"\nsha256 = "00"'}, "outside the project folder"),
+        ({"steering": 'file = "../calm.gguf"\nsha256 = "00"'}, "outside the project folder"),
+        ({"scale": None}, "steering_scale is required in [settings] with [steering]"),
+        ({"steering": ""}, "steering_scale is 4.0, but this profile has no [steering]"),
+    ],
+)
+def test_the_profile_refuses(root, kwargs, message):
+    from clarity_chat.profiles import load_defaults, load_profile
+
+    steer_root(root)
+    with pytest.raises(ConfigError) as error:
+        load_profile(root, steered(root, **kwargs), load_defaults(root))
+    assert message in str(error.value)
+
+
+def test_a_steering_table_that_isnt_a_table_is_refused(root):
+    from clarity_chat.profiles import load_defaults, load_profile
+    from tests.conftest import TEXT_PROFILE
+
+    text = TEXT_PROFILE.replace('backend = "llama.cpp"', 'backend = "transformers"')
+    text = text.replace("[settings]", 'steering = "calm.gguf"\n[settings]\nsteering_scale = 1')
+    (root / "profiles" / "p.toml").write_text(text, encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"\[steering\] must be a table"):
+        load_profile(root, "p", load_defaults(root))
+
+
+def test_an_explicit_0_is_a_baseline_and_the_default_is_0(root):
+    from clarity_chat.profiles import load_defaults, load_profile
+
+    steer_root(root)
+    defaults = load_defaults(root)
+    assert defaults["steering_scale"] == 0.0
+    assert (
+        load_profile(root, steered(root, scale="0"), defaults).settings["steering_scale"].value
+        == 0.0
+    )
+    assert load_profile(root, "text", defaults).settings["steering_scale"].value == 0.0
+
+
+@pytest.mark.parametrize("value", ["inf", "nan", '"4"', "true"])
+def test_steering_scale_is_any_finite_number(root, value):
+    from clarity_chat.profiles import load_defaults, load_profile
+
+    steer_root(root)
+    with pytest.raises(ConfigError, match="steering_scale must be a finite number"):
+        load_profile(root, steered(root, scale=value), load_defaults(root))
+
+
+def test_use_recommended_keeps_the_profiles_scale(session):
+    root = session.root
+    prepared = session.prepare(steered(root, scale="-2.5", extra="use_recommended = true"))
+    assert prepared.profile.settings["steering_scale"].value == -2.5
+    assert prepared.profile.settings["steering_scale"].origin == "profile"
+    assert prepared.profile.settings["temperature"].origin == "profile"  # TEXT_PROFILE sets it
+    assert prepared.profile.settings["top_p"].origin == "profile"
+
+
+def test_set_steering_scale_is_a_chat_setting(session):
+    from clarity_chat.logs import read_records
+
+    session.new_conversation(steered(session.root))
+    record = session.set_setting("steering_scale", "2")
+    assert record["type"] == "settings" and record["chat_settings"] == {"steering_scale": 2.0}
+    assert session.conversation is not None
+    assert session.conversation.settings["steering_scale"].origin == "chat"
+    with pytest.raises(ConfigError, match="steering_scale must be a finite number"):
+        session.set_setting("steering_scale", "abc")
+    assert any(r["type"] == "settings" for r in read_records(session.conversation.log.path))
+
+
+def test_an_unsteered_profile_takes_only_0(session):
+    hf = steered(session.root, name="plain", steering="", scale=None)
+    session.new_conversation(hf)
+    with pytest.raises(ConfigError, match="this profile has no \\[steering\\]"):
+        session.set_setting("steering_scale", "2")
+    session.set_setting("steering_scale", "0")
+
+
+def change_vector(root):
+    write(root / "local" / "vectors" / "calm.gguf", directions(1, 2, width=8, seed=9))
+
+
+def test_a_changed_vector_is_refused_by_a_new_chat_and_profile(session):
+    from clarity_chat.commands import Commands
+
+    root = session.root
+    steered(root)
+    change_vector(root)
+    with pytest.raises(ConfigError, match="not the pinned"):
+        session.new_conversation("steered")
+    with pytest.raises(ConfigError, match="not the pinned"):
+        Commands(session).run("profile", "steered", lambda e: None)
+
+
+def test_a_changed_vector_is_refused_by_resume(session):
+    root = session.root
+    session.new_conversation(steered(root))
+    session.say("Hi")
+    assert session.conversation is not None
+    path = session.conversation.log.path
+    change_vector(root)
+    with pytest.raises(ConfigError, match="not the pinned"):
+        session.resume(path)
+
+
+def test_a_changed_vector_is_refused_by_a_batch_run(session):
+    from clarity_chat.batch import check_run
+
+    root = session.root
+    steered(root)
+    change_vector(root)
+    with pytest.raises(ConfigError, match="not the pinned"):
+        check_run(session, ["steered", "text"], ["Hi"], 1)
+
+
+def test_resume_refuses_a_logged_scale_with_no_vector(session):
+    """A log is untrusted: a /set steering_scale on an unsteered profile can't come back."""
+    import json
+
+    session.new_conversation(steered(session.root, name="plain", steering="", scale=None))
+    session.say("Hi")
+    assert session.conversation is not None
+    path = session.conversation.log.path
+    session.set_setting("steering_scale", "0")
+    lines = path.read_text(encoding="utf-8").splitlines()
+    record = json.loads(lines[-1])
+    record["value"], record["chat_settings"] = 3.0, {"steering_scale": 3.0}
+    path.write_text("\n".join([*lines[:-1], json.dumps(record)]) + "\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="this profile has no \\[steering\\]"):
+        session.resume(path)
+
+
+@pytest.mark.parametrize(
+    ("table", "message"),
+    [
+        ('file = "local/vectors/calm.gguf"', 'add sha256 = "'),
+        ('file = "local/vectors/gone.gguf"\nsha256 = "00"', "doesn't exist"),
+        ('file = "local/vectors/calm.gguf"\nsha256 = "SHA"\nlayers = [0]', "Block 0 can't"),
+        ('file = "local/vectors/calm.gguf"\nsha256 = "SHA"\nlayers = [99]', "Block 99 doesn't"),
+        ('file = "local/vectors/calm.gguf"\nsha256 = "SHA"\nlayers = [3]', "Block 3 isn't in"),
+        ('file = "local/vectors/calm.gguf"\nsha256 = "SHA"\nlayers = "2"', "layers must be"),
+    ],
+)
+def test_prepare_refuses_before_the_first_message(session, table, message):
+    root = session.root
+    table = table.replace("SHA", sha((root / "local" / "vectors" / "calm.gguf").read_bytes()))
+    with pytest.raises(ConfigError) as error:
+        session.prepare(steered(root, steering=table))
+    assert message in str(error.value)
+
+
+def test_a_model_type_steering_hasnt_been_checked_on_is_refused(session):
+    import json
+
+    config = session.root / "models" / "tiny-hf" / "config.json"
+    config.write_text(
+        json.dumps({"model_type": "qwen3", "hidden_size": 8, "num_hidden_layers": 4}),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="model type 'qwen3'"):
+        session.prepare(steered(session.root))
