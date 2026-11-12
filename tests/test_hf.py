@@ -314,3 +314,120 @@ def test_the_recompute_check_on_an_export_of_a_chat_with_probabilities(tmp_path)
     assert measured["largest_gap"] == 0.0 and measured["top_changed"] == 0
     assert [f["fact"] for f in wider.groups[0]["facts"] if not f["same"]] == ["precision"]
     assert wider.calls[0]["measured"]["largest_gap"] > 0
+
+
+# --- steering -------------------------------------------------------------------------------
+
+REPENG = REPO / "tests" / "fixtures" / "steering" / "smollm2-repeng.gguf"
+REPENG_SHA256 = "ed3236f9f64dc4714b402b9a32f7e209471d3108033eff28dc4ad9230d1724f2"
+
+
+def project(tmp_path: Path) -> Path:
+    """A scratch project folder with this checkout's config and models, so a test's vectors
+    sit inside a project folder without touching your local/."""
+    import shutil
+
+    root = tmp_path / "project"
+    (root / "local" / "vectors").mkdir(parents=True)
+    for name in ("defaults.toml", "server.toml", "models.toml", "models.lock"):
+        shutil.copy(REPO / name, root / name)
+    return root
+
+
+def write_vector(path: Path, blocks: dict, model_type: str) -> str:
+    """Write a vector with gguf's reference writer; returns its sha256."""
+    import hashlib
+
+    import gguf
+
+    writer = gguf.GGUFWriter(path, "controlvector")
+    writer.add_string("controlvector.model_hint", model_type)
+    writer.add_uint32("controlvector.layer_count", len(blocks))
+    for n, values in blocks.items():
+        writer.add_tensor(f"direction.{n}", values)
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+    writer.close()
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def steered(folder: Path, base: str, file: str, sha256: str, scale: str, **extra: str) -> str:
+    """profile(folder, base, ...) with a [steering] table and steering_scale."""
+    path = Path(profile(folder, base, **extra))
+    text = path.read_text(encoding="utf-8").replace(
+        "[settings]", f"[settings]\nsteering_scale = {scale}"
+    )
+    text += f'\n[steering]\nfile = "{file}"\nsha256 = "{sha256}"\n'
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
+def check_steering(root: Path, tmp_path: Path, zero: str, real: str, message: str) -> None:
+    """The four live checks: a zero vector at a non-zero scale changes nothing, greedy and
+    seeded (so the hook path itself adds nothing); the real vector changes the reply; a
+    reply cancelled mid-way leaves the model unsteered; a replay after a reload is steered
+    and identical."""
+    import threading
+
+    session = Session(root, logs_dir=tmp_path / "a")
+    try:
+
+        def run(name: str, temperature: str, scale: str | None = None) -> dict:
+            session.new_conversation(name)
+            session.set_setting("temperature", temperature)
+            if scale is not None:
+                session.set_setting("steering_scale", scale)
+            return session.say(message).record
+
+        for temperature in ("0", "0.8"):  # greedy, then sampled with the profile's seed
+            plain = run(zero, temperature, scale="0")
+            zeroed = run(zero, temperature)
+            assert plain["request"]["steering"] is None
+            assert zeroed["request"]["steering"]["scale"] != 0
+            checks_ok(zeroed)
+            assert zeroed["checks"]["steering"]["ok"]
+            assert zeroed["output_ids"] == plain["output_ids"]
+        plain = run(real, "0", scale="0")
+        steered_record = run(real, "0")
+        checks_ok(steered_record)
+        assert steered_record["output_ids"] != plain["output_ids"]
+        assert session.conversation is not None
+        log = session.conversation.log.path
+        cancel = threading.Event()
+        session.new_conversation(real)
+        session.set_setting("temperature", "0")
+        cut = session.say(message, on_text=lambda text: cancel.set(), cancel=cancel).record
+        assert cut["stop_type"] == "cancelled" and cut["output_ids"]
+        assert "steering" not in cut["checks"]
+        assert run(real, "0", scale="0")["output_ids"] == plain["output_ids"]
+    finally:
+        session.close()
+    other = Session(root, logs_dir=tmp_path / "b")
+    try:
+        replayed = other.replay(log, steered_record["call_id"])
+    finally:
+        other.close()
+    assert replayed["identical"], replayed
+    assert replayed["request"]["steering"] == steered_record["request"]["steering"]
+
+
+@pytest.mark.parametrize("device", ["cpu", "mps"])
+def test_steering_smollm2_with_repengs_vector(tmp_path, device):
+    import shutil
+
+    import numpy as np
+
+    from clarity_chat.steering import load
+
+    root = project(tmp_path)
+    shutil.copy(REPENG, root / "local" / "vectors" / "repeng.gguf")
+    blocks = load(REPENG, REPENG_SHA256).directions
+    zeros = {n: np.zeros_like(v) for n, v in blocks.items()}
+    zero_sha = write_vector(root / "local" / "vectors" / "zero.gguf", zeros, "llama")
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    on = {"device": f'"{device}"'}
+    zero = steered(folder, "smol-chat", "local/vectors/zero.gguf", zero_sha, "4.0", **on)
+    real = steered(folder, "smol-chat", "local/vectors/repeng.gguf", REPENG_SHA256, "4.0", **on)
+    check_steering(root, tmp_path, zero, real, "Tell me about rivers.")

@@ -699,3 +699,271 @@ def test_a_model_type_steering_hasnt_been_checked_on_is_refused(session):
     )
     with pytest.raises(ConfigError, match="model type 'qwen3'"):
         session.prepare(steered(session.root))
+
+
+# --- the hook in the backend, the record and replay (B3) --------------------------------
+
+SETTINGS = {
+    "temperature": 0.0,
+    "top_k": 0,
+    "top_p": 1.0,
+    "min_p": 0.0,
+    "repeat_penalty": 1.0,
+    "repeat_last_n": 64,
+    "presence_penalty": 0.0,
+    "frequency_penalty": 0.0,
+    "seed": 1,
+    "max_tokens": 8,
+    "samplers": ["temperature"],
+    "logprobs": 0,
+    "steering_scale": 0.0,
+}
+
+
+@pytest.fixture
+def hf(tmp_path, tiny_tokenizer):
+    """TransformersBackend on a tiny Llama in bf16 on the CPU, with the tiny tokenizer, and a
+    vector for it on blocks 1 and 2."""
+    torch = pytest.importorskip("torch")
+    import transformers
+
+    from clarity_chat.backends.transformers_hf import TransformersBackend
+    from clarity_chat.steering import Steering
+
+    config = transformers.LlamaConfig(
+        vocab_size=258,
+        hidden_size=WIDTH,
+        intermediate_size=64,
+        num_hidden_layers=4,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        max_position_embeddings=128,
+        eos_token_id=257,
+        bos_token_id=256,
+    )
+    torch.manual_seed(0)
+    backend = TransformersBackend("cpu", 128)
+    backend.model = transformers.LlamaForCausalLM(config).to(torch.bfloat16).eval()
+    backend.tokenizer = tiny_tokenizer.tok
+    backend.eos_ids, backend.eos_from = [257], "generation_config.json"
+    v = vector(tmp_path, blocks=(1, 2))
+    return backend, Steering("local/vectors/v.gguf", v, 40.0, [1, 2])
+
+
+PROMPT = [72, 105, 33, 10]
+
+
+def test_a_steered_call_records_its_steering_and_the_check(hf):
+    backend, steer = hf
+    plain = backend.complete(PROMPT, SETTINGS, [])
+    result = backend.complete(PROMPT, {**SETTINGS, "steering_scale": 40.0}, [], steering=steer)
+    assert plain.request["steering"] is None and "steering" not in plain.checks
+    assert result.request["steering"] == {
+        "file": "local/vectors/v.gguf",
+        "sha256": steer.vector.sha256,
+        "scale": 40.0,
+        "layers": [1, 2],
+    }
+    n = len(result.token_ids)
+    assert result.checks["steering"] == {"ok": True, "forward_passes": {"1": n, "2": n}}
+    assert result.token_ids != plain.token_ids
+    assert not hasattr(backend.model, "clarity_steering")
+    again = backend.complete(PROMPT, SETTINGS, [], request=result.request, steering=steer)
+    assert again.token_ids == result.token_ids and again.request == result.request
+
+
+def test_a_cancelled_call_leaves_the_model_unsteered_and_records_no_check(hf):
+    import threading
+
+    backend, steer = hf
+    plain = backend.complete(PROMPT, SETTINGS, [])
+    cancel = threading.Event()
+    passes = []
+
+    def third(module, args, output):  # a Ctrl-C mid-reply, after three forward passes
+        passes.append(1)
+        if len(passes) == 3:
+            cancel.set()
+
+    handle = backend.model.lm_head.register_forward_hook(third)
+    try:
+        result = backend.complete(PROMPT, SETTINGS, [], cancel=cancel, steering=steer)
+    finally:
+        handle.remove()
+    assert result.stop_type == "cancelled" and result.token_ids  # mid-reply
+    assert "steering" not in result.checks
+    assert result.request["steering"] is not None
+    assert not hasattr(backend.model, "clarity_steering")
+    assert backend.complete(PROMPT, SETTINGS, []).token_ids == plain.token_ids
+
+
+def test_a_failed_generate_leaves_the_model_unsteered(hf, monkeypatch):
+    from clarity_chat.backends import BackendError
+
+    backend, steer = hf
+    plain = backend.complete(PROMPT, SETTINGS, [])
+    original = backend.model.generate
+
+    def fail(*args, **kwargs):
+        assert backend.model.clarity_steering is not None
+        raise RuntimeError("made-up failure")
+
+    monkeypatch.setattr(backend.model, "generate", fail)
+    with pytest.raises(BackendError, match="made-up failure"):
+        backend.complete(PROMPT, SETTINGS, [], steering=steer)
+    monkeypatch.setattr(backend.model, "generate", original)
+    assert not hasattr(backend.model, "clarity_steering")
+    assert backend.complete(PROMPT, SETTINGS, []).token_ids == plain.token_ids
+
+
+def test_a_check_that_fails_is_flagged(hf, monkeypatch):
+    """Say a later Transformers ran a block twice per token: the record says so."""
+    import clarity_chat.steering as steering_module
+
+    backend, steer = hf
+    real = steering_module.applied
+
+    def doubled(*args, **kwargs):
+        context = real(*args, **kwargs)
+        runs = context.__enter__()
+        try:
+            yield runs
+        finally:
+            runs[1] += 1
+            context.__exit__(None, None, None)
+
+    from contextlib import contextmanager
+
+    monkeypatch.setattr(steering_module, "applied", contextmanager(doubled))
+    result = backend.complete(PROMPT, SETTINGS, [], steering=steer)
+    assert result.checks["steering"]["ok"] is False
+    assert "check_failed:steering" in result.flags
+
+
+def test_the_llama_cpp_backend_refuses_steering(root, hf):
+    from clarity_chat.backends import BackendError
+    from clarity_chat.backends.llama_cpp import LlamaCppBackend
+    from clarity_chat.profiles import load_server_config
+
+    _, steer = hf
+    backend = LlamaCppBackend(load_server_config(root), root / "logs")
+    with pytest.raises(BackendError, match="Transformers backend"):
+        backend.complete(PROMPT, SETTINGS, [], steering=steer)
+
+
+def test_the_session_sends_the_profiles_steering_and_logs_it(session):
+    backend = session.backend
+    session.new_conversation(steered(session.root))
+    record = session.say("Hi").record
+    sent = backend.calls[-1]["steering"]
+    assert sent.file == "local/vectors/calm.gguf" and sent.scale == 4.0 and sent.layers == [1, 2]
+    assert record["request"]["steering"] == sent.to_json()
+    session.set_setting("steering_scale", "0")
+    session.say("Again")
+    assert backend.calls[-1]["steering"] is None
+    session.set_setting("steering_scale", "-2")
+    session.say("Once more")
+    assert backend.calls[-1]["steering"].scale == -2.0
+    session.new_conversation(steered(session.root, name="plain", steering="", scale=None))
+    session.say("Hi")
+    assert backend.calls[-1]["steering"] is None
+
+
+def test_a_batch_run_steers_only_the_steered_profiles_calls(session, tmp_path):
+    from clarity_chat.batch import run_batch
+
+    root = session.root
+    steered(root)
+    steered(root, name="plain", steering="", scale=None)
+    (root / "openings.txt").write_text("Hello.\n", encoding="utf-8")
+    run_batch(
+        session,
+        "r",
+        tmp_path / "run",
+        root / "openings.txt",
+        ["steered", "plain"],
+        1,
+        lambda line: None,
+    )
+    sent = {c["settings"]["steering_scale"]: c["steering"] for c in session.backend.calls}
+    assert sent[4.0] is not None and sent[4.0].layers == [1, 2] and sent[0.0] is None
+
+
+def steered_call(session):
+    from clarity_chat.logs import read_records
+
+    session.new_conversation(steered(session.root))
+    record = session.say("Hi").record
+    assert session.conversation is not None
+    path = session.conversation.log.path
+    return path, record, read_records
+
+
+def test_a_steered_call_replays_steered(session):
+    path, record, _ = steered_call(session)
+    session.backend.replies.append(record["output_text"])
+    replay = session.replay(path, record["call_id"])
+    assert replay["identical"]
+    sent = session.backend.calls[-1]["steering"]
+    assert sent.to_json() == record["request"]["steering"]
+
+
+def doctor(path, call_id, change):
+    import json
+
+    lines = path.read_text(encoding="utf-8").splitlines()
+    out = []
+    for line in lines:
+        row = json.loads(line)
+        if row.get("type") == "call" and row.get("call_id") == call_id:
+            change(row)
+        out.append(json.dumps(row))
+    path.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
+def test_a_replay_whose_vector_changed_or_went_is_refused(session):
+    path, record, _ = steered_call(session)
+    change_vector(session.root)
+    with pytest.raises(ConfigError, match="was steered with local/vectors/calm.gguf") as error:
+        session.replay(path, record["call_id"])
+    assert record["request"]["steering"]["sha256"] in str(error.value)
+    (session.root / "local" / "vectors" / "calm.gguf").unlink()
+    with pytest.raises(ConfigError, match="doesn't exist"):
+        session.replay(path, record["call_id"])
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"scale": "4"}, "steering_scale must be a finite number"),
+        ({"scale": float("inf")}, "steering_scale must be a finite number"),
+        ({"layers": [0]}, "Block 0 can't be steered"),
+        ({"layers": [999]}, "Block 999 doesn't exist"),
+        ({"layers": [3]}, "Block 3 isn't in"),
+        ({"layers": "1"}, "layers must be a list"),
+        ({"file": "/etc/hosts"}, "outside the project folder"),
+        ({"file": 5}, "logged steering"),
+        ({"sha256": None}, "logged steering"),
+        ({"extra": 1}, "logged steering"),
+    ],
+)
+def test_a_doctored_logged_steering_is_refused(session, change, message):
+    path, record, _ = steered_call(session)
+    doctor(path, record["call_id"], lambda row: row["request"]["steering"].update(change))
+    with pytest.raises(ConfigError) as error:
+        session.replay(path, record["call_id"])
+    assert message in str(error.value)
+
+
+def test_logged_steering_that_isnt_a_table_is_refused(session):
+    path, record, _ = steered_call(session)
+    doctor(path, record["call_id"], lambda row: row["request"].update(steering=[1, 2]))
+    with pytest.raises(ConfigError, match="logged steering"):
+        session.replay(path, record["call_id"])
+
+
+def test_logged_steering_on_a_llama_cpp_call_is_refused(session):
+    path, record, _ = steered_call(session)
+    doctor(path, record["call_id"], lambda row: row.update(backend={"backend": "llama.cpp"}))
+    with pytest.raises(ConfigError, match="Transformers backend"):
+        session.replay(path, record["call_id"])

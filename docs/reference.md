@@ -241,6 +241,7 @@ A `call` record holds:
 - **Request and response:** `request` (what was sent, except the prompt IDs, which are in `prompt_ids`), `backend_settings`, `not_applied`, `generation_settings`, `response`, `timings`, `tokens_evaluated`, `tokens_predicted`.
 - **Output:** `output_text`, `output_ids`, `stop_type` (`eos`, `word`, `limit`, `cancelled` or `none`), `cancelled_during` (`prompt` or `reply`, for a cancelled call), `stopping_word`, `turn_id`.
 - **Probabilities:** `logprobs`, with the `logprobs` setting on (Transformers only): `view` (`raw logits, before any sampler`), `n`, and `tokens`, one per output token: `id`, `logprob` (natural log) and `top`, the `n` likeliest tokens as `[id, logprob]` pairs, likeliest first. A cancelled call has `{"unavailable": "cancelled"}` instead: Transformers returns no scores for a generation stopped part way. A replay of a call with probabilities records them too.
+- **Steering:** on the Transformers backend, `request.steering`: `file`, `sha256`, `scale` and `layers` for a steered call, or null. A call logged before v0.2.2 has no `steering` key, which means it wasn't steered. A steered call that finished adds `checks.steering`: `ok`, and `forward_passes`, how many times each steered block ran (block number to count). It's ok when each ran once per generated token. A cancelled call has no steering check, since a cancel can land mid-pass.
 - **Checks:** `checks`, `flags`, `warnings`, and `error` if the call failed.
 
 `output_ids` include the tokens of a stop string and the end-of-sequence token; `output_text` leaves out the stop string.
@@ -249,6 +250,8 @@ A replay compares the output token IDs and stop type, or the text if the logged 
 - llama.cpp: the build and checkout, server flags, `/props`, `GGML_*` and `LLAMA_*` variables, and the GGUF's sha256.
 - Transformers: the torch and Transformers versions, device, dtype, attention implementation, `PYTORCH_*` and `TORCH_*` variables, deterministic-mode state, and the weights' commit.
 - Both: the machine, the client's commit, and the rendering libraries.
+
+A replay of a steered call applies the logged vector at the logged scale and blocks. It checks the logged steering like a profile's: the file must be inside the project folder, have the logged sha256 and fit the model, or the replay is refused; it never replays a steered call unsteered. Clarity before v0.2.2 ignores `request.steering`, so it replays a steered call unsteered.
 
 `unexplained_difference` is true when the output differs and nothing changed except, at most, the client's commit or the rendering libraries. Neither can change a replay, since it sends the logged IDs and request.
 

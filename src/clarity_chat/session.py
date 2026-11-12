@@ -41,6 +41,7 @@ from clarity_chat.profiles import (
     parse_setting,
     profile_path,
     resolve_settings,
+    steering_path,
 )
 from clarity_chat.render import (
     Prompt,
@@ -364,7 +365,9 @@ class Session:
             )
         weights = self.weights_for(profile.backend, entry)
         if profile.steering is not None:
-            self.load_vector(profile, weights)
+            profile.vector, profile.layers = self.load_vector(
+                profile.steering.file, profile.steering.sha256, profile.steering.layers, weights
+            )
         tokenizer, template_tokenizer = self.tokenizers_for(profile, model)
         if profile.mode == "chat":
             template = chat_template_source(template_tokenizer, profile)
@@ -376,19 +379,63 @@ class Session:
             profile, model, entry, weights, tokenizer, template_tokenizer, template, unread
         )
 
-    def load_vector(self, profile: Profile, weights: Path) -> None:
-        """Load the profile's steering vector and check it against the model's config.json,
-        so every refusal comes before the first message."""
-        assert profile.steering is not None
-        vector = steering.load(self.root / profile.steering.file, profile.steering.sha256)
+    def load_vector(
+        self, file: str, sha256: str | None, layers: object, weights: Path
+    ) -> tuple[steering.Vector, list[int]]:
+        """Load a steering vector and check it against the model's config.json. Returns it
+        and the blocks it steers. The caller has checked `file` is inside the project."""
+        vector = steering.load(self.root / file, sha256)
         try:
             config = json.loads((weights / "config.json").read_text(encoding="utf-8"))
         except (OSError, ValueError) as e:
             raise ConfigError(f"Can't read {weights / 'config.json'}: {e}") from e
         if not isinstance(config, dict):
             raise ConfigError(f"{weights / 'config.json'} isn't a JSON object.")
-        profile.layers = steering.check(vector, config, profile.steering.layers)
-        profile.vector = vector
+        return vector, steering.check(vector, config, layers)
+
+    @staticmethod
+    def steering_for(profile: Profile, values: dict[str, Any]) -> steering.Steering | None:
+        """What steers a call on this profile with these settings: nothing at scale 0."""
+        if profile.vector is None or values["steering_scale"] == 0:
+            return None
+        assert profile.steering is not None and profile.layers is not None
+        return steering.Steering(
+            profile.steering.file, profile.vector, values["steering_scale"], profile.layers
+        )
+
+    def logged_steering(
+        self, call: dict[str, Any], backend: str, weights: Path
+    ) -> steering.Steering | None:
+        """The steering a logged call was made with, checked like a profile's: a log is
+        untrusted input. A call logged before v0.2.2 has none. A vector that's gone or
+        changed is refused, never replayed unsteered."""
+        request = call.get("request")
+        logged = request.get("steering") if isinstance(request, dict) else None
+        if logged is None:
+            return None
+        where = f"Call {call['call_id']}'s logged steering"
+        if (
+            not isinstance(logged, dict)
+            or set(logged) != {"file", "sha256", "scale", "layers"}
+            or not isinstance(logged["file"], str)
+            or not isinstance(logged["sha256"], str)
+        ):
+            raise ConfigError(f"{where} isn't one Clarity writes: {logged!r}.")
+        if backend != "transformers":
+            raise ConfigError(
+                f"{where} is on a {backend} call; steering runs on the Transformers backend."
+            )
+        scale = check_setting("steering_scale", logged["scale"], where)
+        file = logged["file"]
+        steering_path(self.root, file, where)
+        try:
+            vector, layers = self.load_vector(file, logged["sha256"], logged["layers"], weights)
+        except ConfigError as e:
+            raise ConfigError(
+                f"Call {call['call_id']} was steered with {file} (sha256 {logged['sha256']}), "
+                f"and it can't be used now: {e}"
+            ) from e
+        return steering.Steering(file, vector, scale, layers)
 
     def ctx_size_for(self, profile: Profile) -> Setting:
         """The profile's context size, else server.toml's ctx-size."""
@@ -815,7 +862,12 @@ class Session:
                 )
             else:
                 result = self.backend.complete(
-                    prompt.ids, values, profile.stop, on_text=on_text, cancel=cancel
+                    prompt.ids,
+                    values,
+                    profile.stop,
+                    on_text=on_text,
+                    cancel=cancel,
+                    steering=self.steering_for(profile, values),
                 )
             if result.stop_type == "cancelled" and not result.token_ids:
                 raise CancelledBeforeReply("Cancelled before the reply started.", result)
@@ -937,6 +989,7 @@ class Session:
         name = described.get("backend", "llama.cpp")
         device = described.get("device") if name == "transformers" else None
         weights = self.weights_for(name, entry)
+        steer = self.logged_steering(call, name, weights)
         previous = self.backend
         try:
             backend = self.use_backend(name, device)
@@ -950,7 +1003,12 @@ class Session:
         )
         values = {k: v["value"] for k, v in call["settings"].items()}
         result = self.backend.complete(
-            call["prompt_ids"], values, call["stop"], request=call["request"], cancel=cancel
+            call["prompt_ids"],
+            values,
+            call["stop"],
+            request=call["request"],
+            cancel=cancel,
+            steering=steer,
         )
         if result.stop_type == "cancelled":
             raise ConfigError("Replay cancelled: nothing was compared or logged.")

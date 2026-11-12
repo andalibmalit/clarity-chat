@@ -385,12 +385,21 @@ def _steering(table: object, root: Path, where: str) -> SteeringTable:
         )
     if sha256 is not None and not isinstance(sha256, str):
         raise ConfigError(f"{where}: [steering] sha256 must be a string.")
-    if not (root / file).resolve().is_relative_to(root.resolve()):
+    steering_path(root, file, where)
+    return SteeringTable(file, sha256, table.get("layers"))
+
+
+def steering_path(root: Path, file: str, where: str) -> Path:
+    """A steering file's path, which must be inside the project folder after following
+    links. Checked before the file is touched: a profile or log from someone else mustn't
+    reach a file elsewhere on your computer."""
+    path = root / file
+    if not path.resolve().is_relative_to(root.resolve()):
         raise ConfigError(
             f"{where}: the steering file {file!r} is outside the project folder ({root}). "
             "Copy it into the project, for example into local/vectors/."
         )
-    return SteeringTable(file, sha256, table.get("layers"))
+    return path
 
 
 def _messages(value: object, where: str) -> list[dict[str, str]]:

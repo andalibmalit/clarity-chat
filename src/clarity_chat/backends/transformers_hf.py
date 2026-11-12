@@ -19,6 +19,7 @@ frequency_penalty and repeat_last_n have no Transformers equivalent: not applied
 
 from __future__ import annotations
 
+import contextlib
 import os
 import threading
 import time
@@ -26,6 +27,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from clarity_chat import steering as vectors
 from clarity_chat.backends import BackendError, Result
 from clarity_chat.logs import machine, new_id
 from clarity_chat.profiles import ConfigError, ModelEntry
@@ -429,9 +431,11 @@ class TransformersBackend:
         on_text: Callable[[str], None] | None = None,
         request: dict[str, Any] | None = None,
         cancel: threading.Event | None = None,
+        steering: vectors.Steering | None = None,
     ) -> Result:
         """`cancel` is checked as each token arrives, so it can't stop the prompt pass: a
-        cancel during it takes effect at the first token."""
+        cancel during it takes effect at the first token. `steering` is added to its blocks'
+        outputs for this call only, and taken off however the call ends."""
         if self.model is None:
             raise BackendError("No model loaded.")
         import torch
@@ -451,6 +455,7 @@ class TransformersBackend:
             "seed": seed,
             "device": self.device,
             "logprobs": n_logprobs,
+            "steering": steering.to_json() if steering is not None else None,
         }
         try:
             config = GenerationConfig(**values)
@@ -505,26 +510,32 @@ class TransformersBackend:
 
         cancelled = False
         started = time.perf_counter()
-        try:
-            torch.manual_seed(seed)
-            if self.device == "mps":
-                torch.mps.manual_seed(seed)
-            inputs = torch.tensor([token_ids], device=self.device)
-            with torch.inference_mode():
-                output = self.model.generate(
-                    inputs,
-                    attention_mask=torch.ones_like(inputs),
-                    generation_config=config,
-                    tokenizer=self.tokenizer,
-                    streamer=Collect(),
+        with contextlib.ExitStack() as stack:
+            runs: dict[int, int] = {}
+            if steering is not None:
+                runs = stack.enter_context(
+                    vectors.applied(self.model, steering.vector, steering.scale, steering.layers)
                 )
-        except (KeyboardInterrupt, Cancelled):
-            cancelled = True
-        except Exception as e:
-            raise BackendError(
-                f"Transformers generate failed: {type(e).__name__}: {e}",
-                Result(text="", token_ids=list(ids), stop_type="none", request=logged_request),
-            ) from e
+            try:
+                torch.manual_seed(seed)
+                if self.device == "mps":
+                    torch.mps.manual_seed(seed)
+                inputs = torch.tensor([token_ids], device=self.device)
+                with torch.inference_mode():
+                    output = self.model.generate(
+                        inputs,
+                        attention_mask=torch.ones_like(inputs),
+                        generation_config=config,
+                        tokenizer=self.tokenizer,
+                        streamer=Collect(),
+                    )
+            except (KeyboardInterrupt, Cancelled):
+                cancelled = True
+            except Exception as e:
+                raise BackendError(
+                    f"Transformers generate failed: {type(e).__name__}: {e}",
+                    Result(text="", token_ids=list(ids), stop_type="none", request=logged_request),
+                ) from e
         ended = time.perf_counter()
         logprobs = None
         if values.get("output_logits") and n_logprobs > 0:
@@ -562,6 +573,16 @@ class TransformersBackend:
             flags.append("length")
         if not check["ok"]:
             flags.append("check_failed:generation_config")
+        checks = {"generation_config": check}
+        # A cancel can land mid-pass, so only a finished call is checked: each steered block
+        # ran once per generated token (the prompt pass makes the first).
+        if steering is not None and not cancelled:
+            checks["steering"] = {
+                "ok": all(n == len(ids) for n in runs.values()),
+                "forward_passes": {str(block): n for block, n in runs.items()},
+            }
+            if not checks["steering"]["ok"]:
+                flags.append("check_failed:steering")
         return Result(
             text=text,
             token_ids=ids,
@@ -576,7 +597,7 @@ class TransformersBackend:
             backend_settings=backend_settings,
             not_applied=not_applied(settings),
             flags=flags,
-            checks={"generation_config": check},
+            checks=checks,
             logprobs=logprobs,
         )
 

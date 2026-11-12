@@ -68,6 +68,7 @@ class FakeBackend:
         on_text: Callable[[str], None] | None = None,
         request: dict[str, Any] | None = None,
         cancel: threading.Event | None = None,
+        steering: Any = None,
     ) -> Result:
         self.calls.append(
             {
@@ -75,6 +76,7 @@ class FakeBackend:
                 "settings": dict(settings),
                 "stop": stop,
                 "request": request,
+                "steering": steering,
             }
         )
         if self.fail_with:
@@ -110,7 +112,12 @@ class FakeBackend:
             stopping_word=stopping_word,
             n_prompt=len(token_ids),
             n_predicted=len(reply),
-            request={"n_predict": settings["max_tokens"], "seed": settings["seed"], "stop": stop},
+            request={
+                "n_predict": settings["max_tokens"],
+                "seed": settings["seed"],
+                "stop": stop,
+                **({"steering": steering.to_json()} if steering is not None else {}),
+            },
             flags=list(self.result_flags),
             not_applied=list(self.not_applied),
             logprobs=self.logprobs,
