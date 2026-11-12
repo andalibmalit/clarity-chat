@@ -185,11 +185,14 @@ def test_switching_models_restarts_the_server(session):
     assert base_path.endswith(f"{BASE}-bf16.gguf")
 
 
-def test_steering_olmo_3_instruct_on_mps(tmp_path):
+def test_steering_olmo_3_instruct_on_mps(session, tmp_path):
     """The four steering checks of tests/test_hf.py on the model the experiments use, with a
     random direction the test writes across blocks 10 to 20. Loads about 15 GB at a time:
-    each session closes before the next starts."""
+    the module's session, which may hold a 7B model in llama-server, closes first, and each
+    session here closes before the next starts."""
     import numpy as np
+
+    session.close()  # a later test that needs it starts its model again
 
     from tests.test_hf import check_steering, project, steered, write_vector
 
