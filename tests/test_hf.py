@@ -112,6 +112,19 @@ def test_replay_after_a_reload_on_mps(session, folder, tmp_path):
     assert set(record["differences"]) <= {"client", "libraries"}, record["differences"]
 
 
+def test_mps_with_the_cpu_fallback_switched_on_is_refused_on_the_real_device(monkeypatch, tmp_path):
+    """The offline test fakes MPS being available; this one starts the real device."""
+    monkeypatch.setenv("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+    session = Session(REPO, logs_dir=tmp_path)
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    try:
+        with pytest.raises(ConfigError, match="PYTORCH_ENABLE_MPS_FALLBACK is set"):
+            session.new_conversation(profile(folder, "smol-text"))
+    finally:
+        session.close()
+
+
 def test_same_seed_twice_on_cpu_gives_identical_output_ids(tmp_path):
     session = Session(REPO, logs_dir=tmp_path)
     folder = tmp_path / "profiles"
