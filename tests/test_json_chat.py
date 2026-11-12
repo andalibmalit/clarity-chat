@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import queue
 import threading
 import time
 
@@ -301,3 +302,56 @@ def test_quitting_with_input_still_open_exits_cleanly(root, first):
         err = process.stderr.read().decode() if process.stderr else ""
     assert "Fatal Python error" not in err
     assert process.returncode == (1 if first else 0)
+
+
+class Chunks(io.RawIOBase):
+    """Raw input that hands out the given chunks one read at a time, like a pipe, and
+    counts the reads."""
+
+    def __init__(self, chunks):
+        self.chunks, self.reads = [bytes(c) for c in chunks], 0
+
+    def readable(self):
+        return True
+
+    def readinto(self, buffer):
+        self.reads += 1
+        if not self.chunks:
+            return 0
+        chunk = self.chunks.pop(0)
+        if len(chunk) > len(buffer):
+            chunk, self.chunks[:0] = chunk[: len(buffer)], [chunk[len(buffer) :]]
+        buffer[: len(chunk)] = chunk
+        return len(chunk)
+
+
+def read_all(make, stdin):
+    session, _ = make()
+    pending = queue.Queue()
+    JsonChat(session, stdin, io.StringIO()).read(pending)
+    commands = []
+    while (command := pending.get()) is not None:
+        commands.append(command)
+    return commands
+
+
+def test_input_is_read_in_large_chunks(make):
+    one = (line("settings", "x" * 1000) + "\n").encode()
+    data = one * (1_000_000 // len(one) + 1)
+    stdin = Chunks([data])
+    commands = read_all(make, stdin)
+    assert len(commands) == data.count(b"\n")
+    assert stdin.reads < 100
+
+
+def test_lines_and_characters_split_across_reads_arrive_whole(make):
+    text = (
+        json.dumps({"command": "say", "args": "é", "id": 1}, ensure_ascii=False) + "\n"
+    ).encode()
+    cut = text.index("é".encode()) + 1  # between the character's two bytes
+    chunks = [text[:5], text[5:cut], text[cut:] + line("help", id=2).encode()]
+    commands = read_all(make, Chunks(chunks))  # the last line has no newline
+    assert [(c["command"], c.get("args"), c["id"]) for c in commands] == [
+        ("say", "é", 1),
+        ("help", "", 2),
+    ]
