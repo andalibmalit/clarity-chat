@@ -103,6 +103,13 @@ def format_settings(view: dict[str, Any]) -> str:
         value = setting["value"]
         note = "  (a new seed is drawn and logged for every call)" if value == "random" else ""
         lines.append(f"  {name:<{width}}  {value!r:<44} {setting['origin']}{note}")
+    if view["steering"]:
+        steering = view["steering"]
+        blocks = ", ".join(str(n) for n in steering["layers"])
+        lines.append(
+            f"steering vector {steering['file']} (sha256 {steering['sha256'][:12]}…, "
+            f"blocks {blocks})"
+        )
     lines.append(f"backend {view['backend']}: fixed values for its other sampling fields")
     for name, entry in view["backend_settings"].items():
         origin = "" if entry["origin"] == "backend" else f"  {entry['origin']}"
@@ -276,6 +283,10 @@ def format_status(record: dict[str, Any]) -> str:
         f"{record['n_ctx']:,}",
         record["call_id"],
     ]
+    # What steered this reply, from its record: not the current setting.
+    steering = (record.get("request") or {}).get("steering")
+    if steering:
+        parts.append(f"steered ×{steering['scale']}")
     return "[" + " · ".join(parts) + "]"
 
 
