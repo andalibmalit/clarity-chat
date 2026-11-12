@@ -1246,3 +1246,16 @@ def test_an_integer_too_large_for_a_float_is_refused_not_a_crash(value):
         check_setting("steering_scale", value, "log")
     with pytest.raises(ConfigError, match="must be"):
         check_setting("temperature", value, "log")
+
+
+def test_a_steering_file_with_a_nul_is_refused_not_a_traceback(root, session):
+    """A NUL makes Path.resolve raise ValueError; a profile or log is untrusted input."""
+    from clarity_chat.profiles import load_defaults, load_profile
+
+    table = 'file = "local/vectors/a\\u0000b.gguf"\nsha256 = "00"'
+    with pytest.raises(ConfigError, match="steering file"):
+        load_profile(session.root, steered(session.root, steering=table), load_defaults(root))
+    path, record, _ = steered_call(session)
+    doctor(path, record["call_id"], lambda row: row["request"]["steering"].update(file="a\0b"))
+    with pytest.raises(ConfigError, match="steering file"):
+        session.replay(path, record["call_id"])

@@ -309,3 +309,27 @@ def test_only_init_puts_the_vector_back(root, repo):
     assert not vector.exists()
     qa.prepare_root(root, repo, init=True)
     assert vector.is_file()
+
+
+def test_a_link_at_the_vectors_place_is_refused_before_init_copies_onto_it(root, repo, tmp_path):
+    outside = tmp_path / "outside.gguf"
+    outside.write_bytes(b"not yours")
+    vector = root / "local" / "vectors" / qa.QA_VECTOR.name
+    vector.unlink()
+    vector.symlink_to(outside)
+    with pytest.raises(qa.Refused, match="link"):
+        qa.prepare_root(root, repo, init=True)
+    assert outside.read_bytes() == b"not yours"
+
+
+@pytest.mark.parametrize("folder", [True, False])
+def test_something_other_than_a_file_at_the_vectors_place_is_refused(root, repo, folder):
+    vectors = root / "local" / "vectors"
+    if folder:  # a folder named like the vector: shutil.copy would copy into it
+        (vectors / qa.QA_VECTOR.name).unlink()
+        (vectors / qa.QA_VECTOR.name).mkdir()
+    else:  # local/vectors itself a file
+        shutil.rmtree(vectors)
+        vectors.write_text("x", encoding="utf-8")
+    with pytest.raises(qa.Refused, match="vector"):
+        qa.prepare_root(root, repo, init=True)
