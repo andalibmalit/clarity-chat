@@ -141,6 +141,7 @@ def test_a_gguf_isnt_the_same_weights_and_torch_facts_dont_apply(tmp_path):
     assert facts(report)["weights"]["same"] is False and GGUF in text
     assert "weights: the same" not in text and "not recorded" not in text
     assert {"precision", "device", "attention", "torch", "transformers"}.isdisjoint(facts(report))
+    assert "steering" in facts(report)  # a notebook could steer a model against any export
 
 
 def test_the_torch_version_is_the_loaded_ones(tmp_path, monkeypatch):
