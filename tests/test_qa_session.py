@@ -333,3 +333,11 @@ def test_something_other_than_a_file_at_the_vectors_place_is_refused(root, repo,
         vectors.write_text("x", encoding="utf-8")
     with pytest.raises(qa.Refused, match="vector"):
         qa.prepare_root(root, repo, init=True)
+
+
+def test_steering_scale_goes_under_the_settings_header_not_a_mention(root, repo):
+    chat = repo / "profiles" / "smol-chat.toml"
+    chat.write_text("# see [settings] below\n" + chat.read_text(encoding="utf-8"), "utf-8")
+    qa.prepare_root(root, repo, init=False)
+    steer = tomllib.loads((root / "profiles" / "smol-steer-hf.toml").read_text(encoding="utf-8"))
+    assert steer["settings"]["steering_scale"] == 4.0
