@@ -78,15 +78,14 @@ def test_a_reply_can_be_marked_after_the_fact(golden):
 
 
 def test_every_golden_log_resumes(golden, steerable, tiny_tokenizer):
-    session = Session(
-        steerable,
-        backend=FakeBackend([" More."], tokenizer=tiny_tokenizer),
-        tokenizer_loader=lambda r, v: tiny_tokenizer,
-    )
+    backend = FakeBackend([" More."], tokenizer=tiny_tokenizer)
+    session = Session(steerable, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
     record = session.resume(golden)
     assert record["render"] is None or record["render"]["identical"], record["render"]
     turn = session.say("One more made-up message.").turn
     assert turn is not None and turn.text == " More."
+    # v0.2.2's log ends after /set steering_scale 0: resume keeps it, so no steering.
+    assert backend.calls[-1]["steering"] is None
 
 
 def test_the_v0_2_0_golden_log_holds_every_new_record_type():

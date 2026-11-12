@@ -210,6 +210,7 @@ BROKEN = {
         "the value of x runs past the end",
     ),
     "alignment 0": (gguf_bytes(kvs=kv("general.alignment", u32(4) + u32(0))), "alignment is 0;"),
+    "alignment 4": (gguf_bytes(kvs=kv("general.alignment", u32(4) + u32(4))), "alignment is 4;"),
     "alignment 3": (gguf_bytes(kvs=kv("general.alignment", u32(4) + u32(3))), "alignment is 3;"),
     "alignment not a u32": (
         gguf_bytes(kvs=kv("general.alignment", u32(10) + u64(32))),
