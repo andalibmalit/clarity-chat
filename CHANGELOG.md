@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Added
+- `clarity_chat.steering` reads a steering vector made by another tool, such as repeng (llama.cpp's control-vector GGUF), checks it against its pinned sha256 and the model, and applies it to a loaded Transformers model in a notebook: `load`, `check` and `applied`. Clarity never makes vectors.
+
 ### Fixed
 - `clarity chat --json` read its input one byte at a time, about half a second of CPU per megabyte of commands. It now reads whatever has arrived, up to 64 KB at a time.
 
