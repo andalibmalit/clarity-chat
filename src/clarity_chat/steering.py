@@ -139,18 +139,18 @@ class _Reader:
             item = self.u32(f"the value of {key}")
             count = self.u64(f"the value of {key}")
             if item == _ARRAY:
-                raise _Malformed(f"{key} is an array of arrays")
+                raise _Malformed(f"{key!r} is an array of arrays")
             if item == _STRING:
                 for _ in range(count):  # each string is checked against the bytes left
                     self.string(f"the value of {key}")
             elif item in _SIZES:
                 self.take(count * _SIZES[item], f"the value of {key}")
             else:
-                raise _Malformed(f"{key} has unknown value type {item}")
+                raise _Malformed(f"{key!r} has unknown value type {item}")
         elif kind in _SIZES:
             self.take(_SIZES[kind], f"the value of {key}")
         else:
-            raise _Malformed(f"{key} has unknown value type {kind}")
+            raise _Malformed(f"{key!r} has unknown value type {kind}")
 
     def read(self) -> tuple[dict[int, np.ndarray], str | None]:
         if len(self.data) < 24:
@@ -170,7 +170,7 @@ class _Reader:
         for _ in range(keys):
             key = self.string("a key")
             if key in seen:
-                raise _Malformed(f"the key {key} appears twice")
+                raise _Malformed(f"the key {key!r} appears twice")
             seen.add(key)
             kind = self.u32(f"the type of {key}")
             if key == "general.alignment":
@@ -224,7 +224,9 @@ class _Reader:
             values = np.frombuffer(self.data, dtype="<f4", count=length, offset=begin)
             if not np.isfinite(values).all():
                 raise _Malformed(f"direction.{block} has a value that isn't finite")
-            directions[block] = values.astype(np.float32)  # a copy, in native byte order
+            copy = values.astype(np.float32)  # in native byte order
+            copy.flags.writeable = False  # the sha256 must describe what gets added
+            directions[block] = copy
         return directions, model_hint
 
 
@@ -285,22 +287,25 @@ def applied(model: Any, vector: Vector, scale: float, layers: object = None) -> 
     for the length of the `with` block. Yields how many times each steered block ran.
 
     Each `scale x direction.N` is computed in float32 and cast once to the model's dtype,
-    as repeng and llama.cpp compute it. The hooks run before Transformers' own (which
+    as repeng does (llama.cpp keeps it in float32). The hooks run before Transformers' own (which
     record `hidden_states`), so those see the steered values. Scale 0 adds nothing."""
     import torch
 
     if getattr(model, "clarity_steering", None) is not None:
         raise BackendError("This model is already steered; exit the other `applied` first.")
-    layers = check(vector, model.config.to_dict(), layers)
-    blocks = model.model.layers
+    blocks = model.model.layers  # the count from the model itself, not only its config
+    layers = check(vector, model.config.to_dict() | {"num_hidden_layers": len(blocks)}, layers)
     runs = dict.fromkeys(layers, 0)
     if scale == 0:
         yield runs
         return
     deltas = {}
     for n in layers:
-        delta = torch.tensor(scale, dtype=torch.float32) * torch.from_numpy(vector.directions[n])
-        delta = delta.to(dtype=model.dtype, device=model.device)
+        # Cast on the CPU, then move: the same bits on every device.
+        with np.errstate(over="ignore"):  # an overflow is refused just below
+            scaled = np.float32(scale) * vector.directions[n]
+        delta = torch.from_numpy(scaled).to(model.dtype)
+        delta = delta.to(model.device)
         if not torch.isfinite(delta).all():  # after the cast: bf16 overflows below float32
             raise ConfigError(f"{scale} x direction.{n} isn't finite in {model.dtype}.")
         deltas[n] = delta

@@ -235,8 +235,8 @@ The context size comes from the profile's `ctx_size` or `server.toml` here too, 
 
 A steering vector nudges a model's replies in a direction, such as calm rather than hurried, by adding a fixed vector to the output of some of its blocks. Clarity applies a vector made by another tool; it never makes one. Steering runs on the Transformers backend, on OLMo 3 and on Llama-architecture models such as SmolLM2.
 
-1. Make a vector elsewhere. [repeng](https://github.com/vgel/repeng) trains one from pairs of contrasting prompts and writes it in llama.cpp's control-vector format, which Clarity reads. Install repeng from git in a separate environment: its PyPI release needs numpy below 2, which Clarity's dependencies don't allow. `tests/fixtures/steering/README.md` has a script that makes a small one for SmolLM2.
-2. Leave the model's last block out (pass `hidden_layers` that stop before it). repeng includes it by default, but on Transformers 5 it reads that block's output after the model's final normalization, which isn't what the vector gets added to.
+1. Make a vector elsewhere. [repeng](https://github.com/vgel/repeng) trains one from pairs of contrasting prompts and writes a file in llama.cpp's control-vector layout, which Clarity reads (repeng's own docs call its export work in progress). Install repeng from git in a separate environment: its PyPI release needs numpy below 2, which Clarity's dependencies don't allow. `tests/fixtures/steering/README.md` has a script that makes a small one for SmolLM2.
+2. Leave the model's last block out (pass `hidden_layers` that stop before it). repeng includes it by default, but it reads that block's output after the model's final normalization (Transformers' last `hidden_states` entry), which isn't what the vector gets added to.
 3. Copy the file into your project, for example to `local/vectors/calm.gguf`.
 4. Add a `[steering]` table to a Transformers profile, and set `steering_scale`:
 
@@ -249,9 +249,9 @@ A steering vector nudges a model's replies in a direction, such as calm rather t
    ```
 
 5. Start a chat with it. Clarity refuses the first time, because the vector isn't pinned yet, and gives the line to add to `[steering]`: `sha256 = "…"`. Add it. From then on, a changed file is refused by a new chat, a resumed one and a replay.
-6. Chat. The status line after each reply ends with `steered ×4.0`, and `/settings` shows the vector's file, hash and blocks. To compare with an unsteered reply, use a fixed seed or temperature 0, `/set steering_scale 0`, then `/edit` with the same message: the new reply is a branch next to the steered one. A negative scale steers the other way.
+6. Chat. The status line after each reply ends with `steered ×4.0`, and `/settings` shows the vector's file, hash and blocks. To compare with an unsteered reply, use a fixed seed or temperature 0, `/set steering_scale 0`, then `/edit` with the same message: the new reply is a branch next to the steered one. A negative scale steers the other way. No scale is recommended: it depends on the model and the vector, so try small values and compare.
 
-To steer only some of the vector's blocks, add `layers = [10, 11]` to the table. Block 0 can't be steered: llama.cpp's control-vector loader refuses it, and Clarity keeps a vector usable on both.
+To steer only some of the vector's blocks, add `layers = [10, 11]` to the table. Block 0 can't be steered: llama.cpp keeps no vector for it and its loader refuses `direction.0`, and Clarity keeps a vector usable on both.
 
 Each steered reply logs the vector's file, sha256, scale and blocks, and replays steered. In a notebook, apply the same steering with `clarity_chat.steering` before recomputing or reading activations:
 

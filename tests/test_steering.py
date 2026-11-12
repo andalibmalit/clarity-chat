@@ -117,6 +117,7 @@ def test_a_vector_written_by_gguf_loads_exactly(tmp_path):
     assert sorted(vector.directions) == [2, 3, 5]
     for n, values in written.items():
         assert vector.directions[n].dtype == np.float32
+        assert not vector.directions[n].flags.writeable  # the sha256 describes what's added
         assert np.array_equal(vector.directions[n], values)
     assert vector.model_hint == "llama" and vector.width == WIDTH
     assert vector.sha256 == sha(path.read_bytes())
@@ -199,10 +200,10 @@ BROKEN = {
         "the value of x runs past the end of the file",
     ),
     "a key that isn't UTF-8": (gguf_bytes(kvs=kv(b"\xff\xfe", u32(4) + u32(1))), "isn't UTF-8"),
-    "unknown value type": (gguf_bytes(kvs=kv("x", u32(13))), "x has unknown value type 13"),
+    "unknown value type": (gguf_bytes(kvs=kv("x", u32(13))), "'x' has unknown value type 13"),
     "nested array": (
         gguf_bytes(kvs=kv("x", u32(9) + u32(9) + u64(1) + u32(4) + u64(1) + u32(7))),
-        "x is an array of arrays",
+        "'x' is an array of arrays",
     ),
     "an array past the end": (
         gguf_bytes(kvs=kv("x", u32(9) + u32(12) + u64(2**50))),
@@ -225,7 +226,7 @@ BROKEN = {
     ),
     "a key twice": (
         gguf_bytes(kvs=kv("controlvector.model_hint", u32(8) + text("olmo3"))),
-        "the key controlvector.model_hint appears twice",
+        "the key 'controlvector.model_hint' appears twice",
     ),
     "a tensor not named direction.N": (
         gguf_bytes(tensors=tensor("blk.1")),
@@ -379,11 +380,11 @@ def test_steering_adds_the_scaled_vector_to_one_blocks_output(tmp_path, model):
     assert runs == {2: 1}
     for before, after in zip(plain.hidden_states[:3], steered.hidden_states[:3], strict=True):
         assert torch.equal(before, after)  # the embeddings and blocks 0 and 1
-    delta = (torch.tensor(scale, dtype=torch.float32) * torch.from_numpy(v.directions[2])).to(
+    delta = (torch.tensor(scale, dtype=torch.float32) * torch.tensor(v.directions[2])).to(
         torch.bfloat16
     )
     assert torch.equal(steered.hidden_states[3], plain.hidden_states[3] + delta)
-    other = torch.tensor(scale, dtype=torch.bfloat16) * torch.from_numpy(v.directions[2]).to(
+    other = torch.tensor(scale, dtype=torch.bfloat16) * torch.tensor(v.directions[2]).to(
         torch.bfloat16
     )
     assert not torch.equal(delta, other), "the rounding order makes a difference here"
