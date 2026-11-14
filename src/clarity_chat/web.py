@@ -112,8 +112,8 @@ class Worker:
         self.listeners: list[Callable[[dict[str, Any]], None]] = []  # one per open stream
         self.lock = threading.Lock()
         self.failed: str | None = None  # an unexpected error ended the session
-        self.export_path: Path | None = None  # the export made in this start, if any
-        # The last /export's answer, for the sheet, with the conversation it was for.
+        # This start's last /export answer, for the sheet and Download, with the log it was
+        # for (by its file name: a copied log has the same conversation ID).
         self.exported: tuple[str, dict[str, Any]] | None = None
         self.probs: dict[str, dict[str, Any]] = {}  # /probs by call ID, for Details
         threading.Thread(target=self._loop, daemon=True, name="clarity-worker").start()
@@ -173,6 +173,14 @@ class Worker:
         # fail to answer, ending its thread. The command runs anyway, as a dropped POST's does.
         return await asyncio.shield(asyncio.wrap_future(future))
 
+    def export_now(self) -> dict[str, Any]:
+        """This start's last /export answer if it was for the log that's open, else {}."""
+        conversation = self.commands.session.conversation
+        if self.exported is None or conversation is None:
+            return {}
+        log, answer = self.exported
+        return answer if log == conversation.log.path.stem else {}
+
     def _run(self, name: str, args: str, at_once: bool | None = None) -> dict[str, Any]:
         if self.failed:
             return {"error": self.failed, "type": "Stopped", "stopped": True}
@@ -181,16 +189,15 @@ class Worker:
             result = self.commands.run(name, args, self.emit, at_once=at_once)
         except (ConfigError, ContextError, BackendError) as e:
             if name == "export" and conversation is not None:
-                self.exported = (conversation.conversation_id, {"error": str(e)})
+                self.exported = (conversation.log.path.stem, {"error": str(e)})
             return {"error": str(e), "type": type(e).__name__}
         except Exception as e:  # noqa: BLE001 - as in --json, it ends the session
             self.failed = f"Clarity stopped after an unexpected error: {type(e).__name__}: {e}"
             self.emit({"event": "stopped", "reason": self.failed})
             return {"error": self.failed, "type": "Stopped", "stopped": True}
         if name == "export":
-            self.export_path = Path(result["path"])
             assert conversation is not None
-            self.exported = (conversation.conversation_id, {"result": result})
+            self.exported = (conversation.log.path.stem, {"result": result})
         return {"result": result}
 
 
@@ -407,13 +414,9 @@ def make_app(
     @refusing
     def export(request: Request) -> Response:
         check(request)
-        path, conversation = worker.export_path, worker.commands.session.conversation
-        current = (
-            conversation is not None
-            and path is not None
-            and (path.stem == conversation.conversation_id)
-        )
-        if not current or path is None or not path.is_file():
+        result = worker.export_now().get("result")
+        path = Path(result["path"]) if result else None
+        if path is None or not path.is_file():
             raise Refused(409, NOT_EXPORTED)
         return FileResponse(path, media_type="application/x-ndjson", filename=path.name)
 
@@ -559,6 +562,19 @@ def changing(state: dict[str, Any]) -> dict[str, Any] | None:
     """The running command that changes the chat, or None when nothing does."""
     running = state["running"]
     return None if running is None or running["command"] in READS else running
+
+
+def waits_words(state: dict[str, Any]) -> str | None:
+    """Why a view's controls wait: a model start, a reply, or another command that changes
+    the chat (an export, a switch); None when nothing does."""
+    running = changing(state)
+    if running is None:
+        return None
+    if state["model"] == "starting":
+        return "Waits until the model has started."
+    if running["command"] in REPLY_COMMANDS:
+        return "Waits until the reply is done."
+    return "Waits until the command is done."
 
 
 def starting_profile(state: dict[str, Any], profiles: list[dict[str, Any]]) -> dict | None:
@@ -1296,12 +1312,7 @@ async def _branches(worker: Worker, params: dict[str, str | None]) -> str:
     only", a filter in the page). /branches waits its turn, so it isn't asked mid-reply."""
     state = await result_of(worker, "state")
     if changing(state):
-        waits = (
-            "Waits until the model has started."
-            if state["model"] == "starting"
-            else "Waits until the reply is done."
-        )
-        return templates.get_template("branches.html").render(waits=waits)
+        return templates.get_template("branches.html").render(waits=waits_words(state))
     found = await result_of(worker, "branches", "all")
     ends = [{**e, "label": end_label(e)} for e in found["ends"]]
     marked = [
@@ -1353,19 +1364,11 @@ async def _chats(worker: Worker, params: dict[str, str | None]) -> str:
         groups[group].append(
             {**chat, "date": when, "current": chat["conversation_id"] == state["log_id"]}
         )
-    running = changing(state)
-    waits = None
-    if running is not None:
-        waits = (
-            "Waits until the model has started."
-            if state["model"] == "starting"
-            else "Waits until the reply is done."
-        )
     return templates.get_template("chats.html").render(
         today=groups["today"],
         earlier=groups["earlier"],
         in_chat=state["conversation_id"] is not None,
-        waits=waits,
+        waits=waits_words(state),
     )
 
 
@@ -1391,10 +1394,10 @@ def export_sheet(answer: dict[str, Any]) -> dict[str, Any]:
 
 async def _export(worker: Worker, params: dict[str, str | None]) -> str:
     """The sheet after Export: this start's last /export for the chat that's open."""
-    state = await result_of(worker, "state")
-    if worker.exported is None or worker.exported[0] != state["conversation_id"]:
+    answer = worker.export_now()
+    if not answer:
         raise Refused(409, NOT_EXPORTED)
-    return templates.get_template("export.html").render(**export_sheet(worker.exported[1]))
+    return templates.get_template("export.html").render(**export_sheet(answer))
 
 
 def event_line(event: dict[str, Any]) -> bytes:

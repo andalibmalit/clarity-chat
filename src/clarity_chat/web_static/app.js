@@ -120,13 +120,15 @@ function swap(element, html, prepare = null) {
   element.replaceChildren(...parsed.body.childNodes);
 }
 
-async function download(name = "export.jsonl") {
+async function download() {
+  // Saved under the file's own name, from the response's Content-Disposition.
   const response = await request("/export");
   if (!response.ok) return response.text();
   const blob = await response.blob();
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = name;
+  const named = /filename="?([^";]+)"?/.exec(response.headers.get("Content-Disposition") || "");
+  link.download = named ? named[1] : "export.jsonl";
   link.click();
   URL.revokeObjectURL(link.href);
   return null;
@@ -1025,6 +1027,7 @@ async function showDrawer(opener = null) {
     notice("!", error.message);
     return;
   }
+  if (!opener && $("drawer").hidden) return; // a redraw for a drawer closed meanwhile
   const active = document.activeElement;
   const held = active && $("drawer").contains(active) ? active.dataset.resume || active.className : null;
   swap($("drawer"), html);
@@ -1068,6 +1071,10 @@ async function openChat(row) {
   // Picking a row sends /resume. A refusal before anything starts stays under the row and
   // the chat you were in stays as it was (L6); once open, the drawer closes.
   if (row.getAttribute("aria-disabled") === "true" || clarity.opening) return;
+  if (row.getAttribute("aria-current") === "true") {
+    closeDrawer(true); // the chat that's open: nothing to reopen
+    return;
+  }
   clarity.opening = row.dataset.resume;
   clarity.drawerRefusal = null;
   for (const problem of $("drawer").querySelectorAll(".problem")) problem.hidden = true;
@@ -1349,8 +1356,8 @@ const THREAD = {
   export: () => exportChat(),
   "export-close": () => $("export-sheet").close(),
   download: async () => {
-    // Saved under the export's own name; a refusal shows in the sheet.
-    const why = await download($("export-body").querySelector(".path").textContent.split("/").pop());
+    // A refusal shows in the sheet.
+    const why = await download();
     const refused = $("export-body").querySelector(".refused");
     refused.textContent = why || "";
     refused.hidden = !why;
