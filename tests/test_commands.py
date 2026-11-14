@@ -467,3 +467,14 @@ def test_a_call_id_is_followed_by_any_whitespace(three_replies, gap):
     c, _, (first, _, _) = three_replies
     (note,) = c.run("note", f"{first}{gap}was better", lambda e: None)["records"]
     assert (note["call_id"], note["text"]) == (first, "was better")
+
+
+def test_replaying_a_cancelled_reply_by_its_id_is_refused(three_replies):
+    """Review finding 8: the refusal goes through Session.replay; now tested by ID."""
+    c, backend, _ = three_replies
+    backend.cancel_after = 3
+    cancelled = run(c, "say d")["call"]
+    backend.cancel_after = None
+    run(c, "say e")
+    with pytest.raises(ConfigError, match="was cancelled, so its reply is incomplete"):
+        run(c, f"replay {cancelled['call_id']}")

@@ -206,7 +206,8 @@ def format_branch_ends(result: dict[str, Any]) -> str:
         lines.append("Marked replies, newest mark first:")
     for reply in result["marked"]:
         labels = ", ".join(m["label"] for m in reply["marks"])
-        note = f" (note: {short(reply['note'], 40)})" if reply["note"] else ""
+        texts = "; ".join(n["text"] for n in reply["notes"])
+        note = f" (note: {short(texts, 40)})" if texts else ""
         lines.append(f"   {reply['turn_id']}  {labels}{note}: {short(reply['text'], 50)}")
     return "\n".join(lines)
 
