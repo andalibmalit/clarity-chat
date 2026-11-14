@@ -102,7 +102,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `mark`, `unmark`, `note` | `records`: the records appended |
 | `title` | `record` |
 | `replay` | `replay`: the replay record |
-| `export` | `path`, `replaced`, `calls`, `failed_calls_left_out` and `calls_without_a_turn_left_out` |
+| `export` | `path`, `replaced`, `calls`, `failed_calls_left_out`, `calls_without_a_turn_left_out`, and `steered`: each vector the calls were steered with (`file`, `sha256`) and its `call_ids`, empty if none was |
 | `chats` | `chats`, each with `conversation_id`, `path`, `profile`, `description` (the profile's), `model`, `started`, `title`, `title_set` and `error` |
 | `profiles` | `profiles`, each with `name`, `model`, `model_name` (the last part of the model's tokenizer repo), `backend`, `description`, `steered`, `local` (in `local/profiles/`), `fetched` and `error` (null, or why it doesn't load); and `not_checked`, a sentence on what isn't checked until a start |
 | `profile`, `new` | `conversation_id`, `profile`, `model`, `mode` and `warnings` |
@@ -338,5 +338,6 @@ Checks after each call:
 - `no_cache_reuse`: no prompt tokens came from a cache.
 - `server_running`: the llama-server process Clarity started is still running (`exit_code` if not). Its model and context size are checked through `/props` once, after start. Logs before v0.2.1 have `server_props` here, from a `/props` request after each call.
 - `generation_config` (Transformers): the effective generation config equals what was sent.
+- `steering` (Transformers, a steered call): every forward pass ran each steered block exactly once, and there was a pass for every generated token (`model_passes`, `forward_passes`).
 
 A batch run stops on any error, any `check_failed:*` flag, a cancelled call, or a server restart. Other flags are logged, and each flagged call is named on screen with its flags; other warnings print once.

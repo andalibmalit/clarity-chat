@@ -111,7 +111,20 @@ def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any
         "calls": len(rows),
         "failed_calls_left_out": header["failed_calls_left_out"],
         "calls_without_a_turn_left_out": header["calls_without_a_turn_left_out"],
+        "steered": steered_by_vector(rows),
     }
+
+
+def steered_by_vector(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Each vector the exported calls were steered with (file and sha256), and those calls."""
+    vectors: dict[tuple[str, str], list[str]] = {}
+    for row in rows:
+        if row["steering"] != "none":
+            key = (row["steering"]["file"], row["steering"]["sha256"])
+            vectors.setdefault(key, []).append(row["call_id"])
+    return [
+        {"file": file, "sha256": sha256, "call_ids": ids} for (file, sha256), ids in vectors.items()
+    ]
 
 
 def conditions(call: dict[str, Any], server: dict[str, Any] | None) -> dict[str, Any]:

@@ -83,9 +83,15 @@ def format_prompt(record: dict[str, Any] | None, as_repr: bool) -> str:
     if record is None or "prompt_text" not in record:
         return "No call yet."
     bos = record.get("bos", {})
-    bos_note = "BOS prepended" if bos.get("prepended") else "no BOS prepended"
+    # Read from the token IDs: a chat template can write its own BOS (Llama 3.1's does).
+    starts = bos.get("bos_token_id") is not None and record["prompt_ids"][:1] == [
+        bos["bos_token_id"]
+    ]
+    bos_note = "starts with the start token (BOS)" if starts else "no start token (BOS)"
+    added = "Clarity added it" if bos.get("prepended") else "Clarity added none"
     lines = [
-        f"--- prompt: {record['n_prompt_client']} tokens; {bos_note} ({bos.get('reason')}) ---"
+        f"--- prompt: {record['n_prompt_client']} tokens; {bos_note}; {added} "
+        f"({bos.get('reason')}) ---"
     ]
     if as_repr:
         lines += visible_lines(record["prompt_text"])

@@ -588,7 +588,7 @@ class Session:
             return []
         return [
             f"The chat template never reads template_kwargs {unread}, so they change "
-            "nothing. Check their names against the template (/prompt shows its output)."
+            "nothing. Check their names against the template: the prompt shows its output."
         ]
 
     def start_model(self, prepared: Prepared, ctx_size: Setting) -> dict[str, Any] | None:
@@ -622,7 +622,7 @@ class Session:
             self.conversation = None
             raise BackendError(
                 f"{error} Restarting {self.model.name} for the current conversation failed "
-                f"too ({again}). Start a conversation with /profile NAME."
+                f"too ({again}). Start a conversation with a profile to go on."
             ) from error
 
     def _log_server_start(self) -> None:
@@ -1051,14 +1051,14 @@ class Session:
             if new_message:
                 warnings.append(
                     f"Your message contains {new_message}: the tokenizer reads these as control "
-                    "tokens, not text. /prompt shows the IDs."
+                    "tokens, not text. The prompt's token IDs show them."
                 )
             n_ctx, max_tokens = self.backend.n_ctx, values["max_tokens"]
             if room_left(n_ctx, len(prompt.ids), max_tokens) < 0:
                 raise ContextError(
                     f"The prompt is {len(prompt.ids)} tokens; with max_tokens {max_tokens} it "
                     f"needs more than the context of {n_ctx} tokens. Nothing was sent. Start a "
-                    "new conversation (/new) or lower max_tokens."
+                    "new conversation, or lower max_tokens."
                 )
             if len(prompt.ids) > CONTEXT_WARN_FRACTION * n_ctx:
                 warnings.append(
@@ -1107,7 +1107,7 @@ class Session:
             record["flags"].append("not_applied")
             warnings.append(
                 f"{self.backend.name} can't apply {ignored} as set, so they had no effect or "
-                "ran differently. /settings has the reasons."
+                "ran differently. The settings list has the reasons."
             )
         if prompt.special_in_content:
             record["flags"].append("special_tokens_in_content")
@@ -1199,13 +1199,13 @@ class Session:
         if self.conversation is not None and self.model is not None and self.model.name != name:
             raise ConfigError(
                 f"Call {call_id} used {name}, but this conversation uses {self.model.name}. "
-                f"Replay it with `clarity replay {log_path} {call_id}`."
+                "Resume the conversation it's from to replay it there."
             )
         if self.conversation is not None and call["n_ctx"] != self.backend.n_ctx:
             raise ConfigError(
                 f"Call {call_id} ran with a context of {call['n_ctx']} tokens, but this "
-                f"conversation uses {self.backend.n_ctx}. Replay it with "
-                f"`clarity replay {log_path} {call_id}`."
+                f"conversation uses {self.backend.n_ctx}. Resume the conversation it's from "
+                "to replay it there."
             )
         described = call.get("backend") or {}
         name = described.get("backend", "llama.cpp")

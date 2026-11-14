@@ -61,7 +61,7 @@ class Commands:
         if command.during_call:
             return command.run(self, args, emit)
         if not self.busy.acquire(blocking=False):
-            raise ConfigError("Another command is still running; only /cancel runs now.")
+            raise ConfigError("Another command is still running. Wait for it, or cancel it.")
         # Made before the command starts, so a cancel that arrives early isn't lost.
         self.cancel_event = threading.Event()
         self.running = name
@@ -357,12 +357,17 @@ def _probs(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         return unavailable("failed", "the call failed, so there is no reply")
     logprobs = call.get("logprobs")
     if logprobs is None:
-        on_llama_cpp = (call.get("backend") or {}).get("backend", "llama.cpp") == "llama.cpp"
-        why = "not recorded; on a Transformers profile, /set logprobs 5 records them"
-        return unavailable("llama_cpp" if on_llama_cpp else "off", why)
+        if (call.get("backend") or {}).get("backend", "llama.cpp") == "llama.cpp":
+            return unavailable("llama_cpp", "llama.cpp doesn't record them, for now")
+        why = (
+            "they weren't switched on when it was written, and replaying it won't add them. "
+            "Turn on logprobs for your next message"
+        )
+        return unavailable("off", why)
     if "unavailable" in logprobs:
-        why = logprobs["unavailable"]
-        return unavailable("cancelled" if why == "cancelled" else "other", why)
+        if logprobs["unavailable"] == "cancelled":
+            return unavailable("cancelled", "the reply was stopped, so none were recorded")
+        return unavailable("other", logprobs["unavailable"])
     tokenizer = c.session.tokenizer
     assert tokenizer is not None
     reply = call["output_text"]
