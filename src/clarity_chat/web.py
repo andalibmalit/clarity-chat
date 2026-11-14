@@ -57,10 +57,16 @@ from clarity_chat.session import CONTEXT_WARN_FRACTION, ContextError, Session
 
 PORT = 8765  # fixed, a constant: server.toml describes llama-server only
 STATIC = Path(__file__).parent / "web_static"
-STATIC_FILES = {  # nothing else is served
-    "app.js": "text/javascript",
-    "app.css": "text/css",
-    "clarity-ds.css": "text/css",
+STATIC_FILES = {  # nothing else is served: the name in the URL, its file and type
+    "app.js": ("app.js", "text/javascript"),
+    "app.css": ("app.css", "text/css"),
+    "clarity-ds.css": ("clarity-ds.css", "text/css"),
+    # The publishers' unmodified files, each family with its OFL.txt (fonts/*/).
+    "Rasa-Regular.ttf": ("fonts/rasa/Rasa-Regular.ttf", "font/ttf"),
+    "IBMPlexSans-Regular.woff2": ("fonts/ibm-plex-sans/IBMPlexSans-Regular.woff2", "font/woff2"),
+    "IBMPlexSans-Medium.woff2": ("fonts/ibm-plex-sans/IBMPlexSans-Medium.woff2", "font/woff2"),
+    "IBMPlexSans-SemiBold.woff2": ("fonts/ibm-plex-sans/IBMPlexSans-SemiBold.woff2", "font/woff2"),
+    "IBMPlexMono-Regular.woff2": ("fonts/ibm-plex-mono/IBMPlexMono-Regular.woff2", "font/woff2"),
 }
 VIEWS = {
     "thread",
@@ -304,7 +310,8 @@ def make_app(
         name = request.path_params["file"]
         if name not in STATIC_FILES:
             return PlainTextResponse("Not found.", 404)
-        return FileResponse(STATIC / name, media_type=STATIC_FILES[name])
+        path, media_type = STATIC_FILES[name]
+        return FileResponse(STATIC / path, media_type=media_type)
 
     async def command(request: Request) -> Response:
         try:
