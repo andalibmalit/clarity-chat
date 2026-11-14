@@ -1604,8 +1604,9 @@ def test_a_message_over_the_size_limit_is_refused_with_its_sentence(clarity, pag
     chat_on(page, redirect)
     page.fill("#message", "a" * 70_000)
     page.press("#message", "Enter")
-    page.wait_for_selector("#notice .problem")
-    assert "Nothing was sent" in page.text_content("#notice .problem")  # the context's
+    # Read and judged: the context refuses it, in the thread's failed line (E7).
+    page.wait_for_selector(".problem:has-text('Nothing was sent')", timeout=60_000)
+    assert page.query_selector(".problem:has-text('Too big')") is None
     huge = "a" * (8 * 1024 * 1024 + 1)
     page.evaluate("text => { document.getElementById('message').value = text; }", huge)
     page.press("#message", "Enter")

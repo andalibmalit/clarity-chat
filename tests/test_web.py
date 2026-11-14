@@ -150,7 +150,12 @@ def test_every_response_has_the_security_headers(server):
 
 @pytest.mark.parametrize(
     ("body", "status"),
-    [(b"not json", 400), (b"[1, 2]", 400), (b'{"command": 3}', 400), (b"x" * 70_000, 413)],
+    [
+        (b"not json", 400),
+        (b"[1, 2]", 400),
+        (b'{"command": 3}', 400),
+        (b"x" * (8 * 1024 * 1024 + 1), 413),
+    ],
 )
 def test_a_bad_request_is_refused_and_the_session_goes_on(server, body, status):
     client, _, _ = server
@@ -479,7 +484,7 @@ def test_a_body_over_the_limit_is_refused_before_it_is_all_read():
     with pytest.raises(web.Refused) as refused:
         asyncio.run(web.read_json(request))
     assert refused.value.status == 413
-    assert received[0] == web.MAX_BODY // 4096 + 1  # stopped at the limit
+    assert received[0] == web.MAX_COMMAND // 4096 + 1  # stopped at /command's limit
 
 
 def test_export_serves_only_the_current_chats_file(server):
