@@ -29,7 +29,8 @@ body[data-page="stopped"] .plain[data-for="stopped"] { display: flex; }
 .brandbtn { display: inline-flex; align-items: center; gap: 8px; padding: 5px 9px 5px 7px; border-radius: var(--r-sm); font-weight: 500; color: var(--ink); }
 .brandbtn:hover, .brandbtn[aria-expanded="true"] { background: var(--hover); }
 .brandbtn .logo { width: 22px; height: 22px; color: var(--ink); }
-.top .title { display: inline-flex; align-items: center; gap: 4px; }
+.top .title { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: min(520px, 50vw); }
+#title-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .top .title.fresh { color: var(--muted); font-weight: 400; }
 .menu.appmenu { left: 34px; top: 46px; min-width: 240px; z-index: 9; }
 .menu a.mi { color: var(--ink); text-decoration: none; }
