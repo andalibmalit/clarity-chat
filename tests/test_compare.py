@@ -193,3 +193,45 @@ def test_a_reply_that_stops_where_the_other_goes_on_is_marked_a_prefix(chat):
     again_with_seed(session, 42)
     (pair,) = compare(c)["pairs"]
     assert pair.get("prefix") is True and pair["first_different_token"] == 12
+
+
+def test_the_split_character_counts_characters_not_tokens(chat):
+    """Checkpoint 1, finding 6: é is two tokens in the byte-level test vocabulary."""
+    c, session = chat([" Café au lait", " Hi", " Café noir"])
+    session.say("Hi")
+    session.regen()
+    session.set_setting("temperature", "0.9")
+    again_with_seed(session, 42)
+    (pair,) = compare(c)["pairs"]
+    assert (pair["first_different_token"], pair["first_different_char"]) == (7, 6)
+
+
+def test_same_prompt_is_false_when_a_reply_was_sent_another_prompt(chat):
+    """Checkpoint 1, finding 9 (a resume whose template renders differently does this)."""
+    c, session = chat([" one", " two"])
+    session.say("Hi")
+    session.regen()
+    reply = session.conversation.turns[session.conversation.head]
+    session.conversation.calls[reply.call_id]["prompt_ids"] = [1, 2, 3]
+    assert compare(c)["same_prompt"] is False
+
+
+def test_regen_same_counts_a_seed_made_under_the_settings_now(chat):
+    """Checkpoint 1, finding 11: 0.6, then 0.9, then back to 0.6 has nothing to make."""
+    c, session = chat([" a", " b", " c"])
+    session.say("Hi")
+    session.set_setting("temperature", "0.9")
+    c.run("regen", "same", lambda e: None)
+    session.set_setting("temperature", "")
+    with pytest.raises(ConfigError, match="already has a reply"):
+        c.run("regen", "same", lambda e: None)
+
+
+def test_regen_same_keeps_the_order_seeds_were_first_used(chat):
+    """Checkpoint 1, finding 11: the reference promises first-use order."""
+    c, session = chat([" a", " b", " c", " d", " e", " f"])
+    session.say("Hi")
+    again_with_seed(session, 50)
+    again_with_seed(session, 45)
+    session.set_setting("temperature", "0.9")
+    assert c.run("regen", "same", lambda e: None)["seeds"] == [42, 50, 45]
