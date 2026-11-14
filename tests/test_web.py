@@ -844,3 +844,51 @@ def test_enter_s_redirect_is_deleted_by_a_new_tab_not_the_open_one(fetched_root,
         with client.stream("GET", "/events?tab=tab-2", headers={**AUTH, **SAME}) as stream:
             next(stream.iter_lines())  # the new tab Enter opened
         assert used == ["1", "2"]
+
+
+# --- The whole-branch review (multi-agent, batch 1)
+
+
+def test_a_stream_whose_client_left_before_its_body_leaves_nothing_registered(server):
+    """Finding 6: /events registered its listener and the tab's stream before the body's
+    try/finally, so a client gone before the body started left both, and the next tab was
+    told it isn't live."""
+    import asyncio
+
+    client, _, app = server
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/events",
+        "raw_path": b"/events",
+        "query_string": b"tab=gone",
+        "root_path": "",
+        "client": ("127.0.0.1", 1),
+        "server": ("127.0.0.1", PORT),
+        "headers": [
+            (b"host", f"127.0.0.1:{PORT}".encode()),
+            (b"authorization", f"Bearer {SECRET}".encode()),
+            (b"sec-fetch-site", b"same-origin"),
+        ],
+    }
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            raise OSError("the client has gone")
+
+    async def call():
+        try:
+            await app(scope, receive, send)
+        except OSError:
+            pass
+
+    asyncio.run(call())
+    with client.stream("GET", "/events?tab=next", headers={**AUTH, **SAME}) as stream:
+        lines = [line for _, line in zip(range(2), stream.iter_lines(), strict=False)]
+    assert lines[0] == '{"event": "hello"}', lines
+    assert "not_live" not in lines[1], lines  # the next line is the next event, not a refusal

@@ -287,3 +287,41 @@ def test_the_terminal_names_the_log_to_resume_a_copied_chat(fetched_root, tiny_t
     backend.stopped = True
     loop.handle("Hi")
     assert "/resume my-copy starts it again." in "".join(output)
+
+
+# --- The whole-branch review (multi-agent, batch 1)
+
+
+def test_a_model_file_gone_at_start_says_so_plainly(root):
+    """Finding 9: a GGUF missing at start raised FileNotFoundError, outside the handlers
+    that keep the chat and say what to do."""
+    from clarity_chat.backends import llama_cpp
+    from clarity_chat.profiles import ConfigError, load_models
+
+    backend = llama_cpp.LlamaCppBackend(load_server_config(root), root / "logs")
+    missing = root / "models" / "tiny" / "gone.gguf"
+    caught: Exception | None = None
+    try:
+        backend.start(load_models(root)["tiny"], missing, 512)
+    except Exception as e:  # noqa: BLE001 - which error is the point
+        caught = e
+    assert isinstance(caught, ConfigError), repr(caught)
+    assert str(missing) in str(caught) and "uv run clarity verify tiny" in str(caught)
+
+
+def test_the_reply_is_in_reply_so_far_or_the_turns_at_every_moment(commands):
+    """Finding 7: the reply's turn record cleared reply_so_far before the head moved, so an
+    at-once /state in between saw the reply in neither."""
+    c, _ = commands
+    seen: list[dict] = []
+
+    def emit(event):
+        record = event.get("record") or {}
+        if record.get("type") == "turn" and record.get("role") == "assistant":
+            seen.append(c.run("state", "", lambda e: None))  # at once, as the page's read
+
+    c.run("say", "a", emit)
+    (state,) = seen
+    texts = [t["text"] for t in state["turns"]]
+    assert state["reply_so_far"] == " one" or texts[-1:] == [" one"], state["reply_so_far"]
+    assert not (state["reply_so_far"] and texts[-1:] == [" one"])  # and never both

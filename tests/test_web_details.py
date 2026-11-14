@@ -525,3 +525,21 @@ def test_a_setting_the_backend_couldn_t_apply_is_listed_if_it_could_change_the_r
     fragment = details(client, call["call_id"])
     assert "! 1 setting not applied: presence_penalty. Reason: no equivalent." in fragment
     assert "not applied: repeat_last_n" not in fragment
+
+
+# --- The whole-branch review (multi-agent, batch 1)
+
+
+def test_a_call_without_a_bos_record_says_nothing_about_the_start_token(chat):
+    """Finding 5: a call with no `bos` record (a log another program wrote), with or
+    without prompt IDs: Clarity can't say whether the prompt starts with one, so it says
+    neither (`None == None` read as "starts with a start token")."""
+    client, session = chat
+    call = result(client, "say", "Hi")["call"]
+    logged = session.conversation.calls[call["call_id"]]
+    logged.pop("bos")
+    heading = details(client, call["call_id"]).split("</summary>")[0]
+    assert "start token" not in heading, heading
+    logged.pop("prompt_ids")
+    heading = details(client, call["call_id"]).split("</summary>")[0]
+    assert "start token" not in heading, heading
