@@ -24,6 +24,7 @@ Two headings are Clarity's own, used when they apply:
 - `text` events carry `at` and `end`, the piece's place in the reply, and `/state` gives `reply_end`, so a reader that starts mid-reply joins the stream without dropping or repeating text.
 
 ### Changed
+- Four sentences read the same in the terminal and the page: a model that isn't fetched says "In a new terminal window, in Clarity's folder, run: uv run clarity fetch NAME. Then try again."; a message that doesn't fit ends "Start a new chat, or lower max_tokens."; "Stopped before the reply started." and "Replay stopped: nothing was compared or logged." say stopped, as the Stop button does. `clarity ui` adds "Keep this window open while you use Clarity."
 - Exports are named by their log file (`logs/exports/ID.jsonl`, ID as `clarity chats` lists it), not by the conversation ID, which a copied log keeps, so a copy's export no longer replaces the original's. A log file whose name Clarity wouldn't write needs `clarity export --out`.
 - The reference's checks after each call are a table that also says what each failure means, and covers `generation_config`, `steering` and the older `server_props`. Details in the web interface uses the same words.
 - New dependencies for the web interface: `starlette` and `uvicorn`. Tests of the web interface in a browser use `pytest-playwright`, in its own dependency group (`uv sync --group browser`); a normal install doesn't get it.

@@ -227,7 +227,7 @@ def test_a_cancel_before_the_first_token_is_a_failed_call_with_no_reply(make_ses
         session.say("b", cancel=cancel)
     call = records(session, "call")[-1]
     assert call["stop_type"] == "cancelled" and call["cancelled_during"] == "prompt"
-    assert "Cancelled before the reply started" in call["error"]
+    assert "Stopped before the reply started" in call["error"]
     assert "turn_id" not in call
     assert session.conversation.head == first.turn.turn_id  # the message is a dead branch
     backend.on_call = None

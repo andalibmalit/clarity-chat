@@ -166,7 +166,7 @@ def test_an_early_cancel_offers_the_message_back(loop):
     backend.cancel_after = 0  # Ctrl-C before the first token
     chat.handle("Hi there")
     text = "".join(output)
-    assert "Cancelled before the reply started. No reply was added." in text
+    assert "Stopped before the reply started. No reply was added." in text
     assert "Your message is back in the input" in text
     assert chat.draft == "Hi there"
 

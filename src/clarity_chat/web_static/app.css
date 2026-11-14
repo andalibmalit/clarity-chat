@@ -19,7 +19,8 @@ body { background: var(--paper); color: var(--ink); font-family: var(--sans); fo
 body[data-page="ready"] #app { display: flex; }
 body[data-page="no-key"] .plain[data-for="no-key"],
 body[data-page="not-live"] .plain[data-for="not-live"],
-body[data-page="stopped"] .plain[data-for="stopped"] { display: flex; }
+body[data-page="stopped"] .plain[data-for="stopped"],
+body[data-page="lost"] .plain[data-for="lost"] { display: flex; }
 
 #app { height: 100vh; min-height: 0; }
 .mn { position: relative; min-height: 0; }

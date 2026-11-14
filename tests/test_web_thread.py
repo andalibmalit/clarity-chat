@@ -224,7 +224,7 @@ def test_a_message_cancelled_before_the_reply_started_says_so(chat):
     assert command(client, "say", "Hi").json()["type"] == "CancelledBeforeReply"
     fragment = thread(client)
     assert re.search(
-        r'role="status" data-failed="call-[0-9a-f]+">Cancelled before the reply started.<', fragment
+        r'role="status" data-failed="call-[0-9a-f]+">Stopped before the reply started.<', fragment
     )
     assert "Failed" not in fragment
 

@@ -217,7 +217,7 @@ def test_cancel_says_what_it_stopped_or_why_not(make):
     stopped = next(e for e in events if e.get("id") == "c2")["result"]
     assert stopped == {"cancelled": True, "command": "replay"}
     replayed = events[-1]
-    assert replayed["event"] == "error" and "cancelled" in replayed["message"].lower()
+    assert replayed["event"] == "error" and "replay stopped" in replayed["message"].lower()
     assert not [r for r in read_records(session.conversation.log.path) if r["type"] == "replay"]
 
 

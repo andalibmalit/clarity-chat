@@ -157,6 +157,7 @@ The web interface runs the same chats in a page on your computer. Everything it 
    ```
    Clarity is at http://127.0.0.1:8765/#key=…
    (the link works until Clarity stops). Enter opens it again; Ctrl-C stops Clarity.
+   Keep this window open while you use Clarity.
    ```
 
    Clarity opens the page in your browser. The link holds a secret made for this start, so only a page opened from it can use Clarity. One tab at a time can use it.

@@ -1077,7 +1077,7 @@ class Session:
                 raise ContextError(
                     f"The prompt is {len(prompt.ids)} tokens; with max_tokens {max_tokens} it "
                     f"needs more than the context of {n_ctx} tokens. Nothing was sent. Start a "
-                    "new conversation, or lower max_tokens."
+                    "new chat, or lower max_tokens."
                 )
             if len(prompt.ids) > CONTEXT_WARN_FRACTION * n_ctx:
                 warnings.append(
@@ -1102,7 +1102,7 @@ class Session:
                     steering=self.steering_for(profile, values),
                 )
             if result.stop_type == "cancelled" and not result.token_ids:
-                raise CancelledBeforeReply("Cancelled before the reply started.", result)
+                raise CancelledBeforeReply("Stopped before the reply started.", result)
         except (ContextError, BackendError, ConfigError) as e:
             partial = e.partial if isinstance(e, BackendError) else None
             if partial is not None:
@@ -1256,7 +1256,7 @@ class Session:
             steering=steer,
         )
         if result.stop_type == "cancelled":
-            raise ConfigError("Replay cancelled: nothing was compared or logged.")
+            raise ConfigError("Replay stopped: nothing was compared or logged.")
         fields, server_prompt = result_fields(result)
         self._check_output(call["prompt_ids"], result, server_prompt, fields, tokenizer)
         now_server = self.backend.server_record
