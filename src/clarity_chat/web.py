@@ -47,6 +47,7 @@ from starlette.routing import Route
 from starlette.types import Message, Receive, Scope, Send
 
 from clarity_chat.backends import BackendError
+from clarity_chat.backends.transformers_hf import FIXED_ORDER
 from clarity_chat.commands import CALL_ID, REPLY_COMMANDS, Commands
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.profiles import NEUTRAL, SETTING_HELP, SETTING_RANGES, ConfigError
@@ -937,15 +938,15 @@ async def _compare(worker: Worker, params: dict[str, str | None]) -> str:
 COMMON = ("temperature", "top_p", "max_tokens", "seed")
 SLIDERS = {"temperature": (0, 2, 0.05), "top_p": (0, 1, 0.01), "min_p": (0, 1, 0.01)}
 PENALTY_ROWS = ("repeat_penalty", "repeat_last_n", "presence_penalty", "frequency_penalty")
-OFF = {**NEUTRAL, "logprobs": 0, "steering_scale": 0.0}
+OFF = {"logprobs": 0, "steering_scale": 0.0}  # a sampler at its NEUTRAL value is "neutral"
 
 
-def at_rest(name: str, value: Any) -> str:
-    """ " (off)" for logprobs or steering at 0, " (neutral)" for a sampler at the value that
-    leaves it without effect (temperature 1 isn't off), else nothing."""
+def at_rest(name: str, value: Any) -> str | None:
+    """ "neutral" for a sampler at the value that leaves it without effect (temperature 1
+    isn't off), "off" for logprobs or steering at 0, else None."""
     if name in NEUTRAL:
-        return " (neutral)" if value == NEUTRAL[name] else ""
-    return " (off)" if value == OFF.get(name) else ""
+        return "neutral" if value == NEUTRAL[name] else None
+    return "off" if value == OFF.get(name) else None
 
 
 def setting_row(name: str, setting: dict[str, Any], model: dict[str, Any]) -> dict[str, Any]:
@@ -971,9 +972,10 @@ def setting_row(name: str, setting: dict[str, Any], model: dict[str, Any]) -> di
         row["buttons"].append(("steering_scale 0", "Off (0)"))
     if origin == "chat":
         back = setting["profile"]
+        rest = at_rest(name, back["value"]) if name != "steering_scale" else None
         label = (
-            f"Off ({value_words(back['value'])})"
-            if back["value"] == OFF.get(name) and name != "steering_scale"
+            f"{rest.capitalize()} ({value_words(back['value'])})"
+            if rest
             else f"Back to {value_words(back['value'])} ({back['origin']})"
         )
         row["buttons"].append((name, label))
@@ -990,7 +992,7 @@ def settings_panel(settings: dict[str, Any], waits: bool) -> dict[str, Any]:
     more = ["min_p", "top_k"]
     if "penalties" in samplers:
         more += ["repeat_penalty"] if transformers else list(PENALTY_ROWS)
-    unused = [e for e in settings["not_applied"] if e["name"] in PENALTY_ROWS]
+    unused = [{**e, "value": value_words(e["value"])} for e in settings["not_applied"]]
     return {
         "profile": settings["profile"]["name"],
         "waits": waits,
@@ -1006,6 +1008,7 @@ def settings_panel(settings: dict[str, Any], waits: bool) -> dict[str, Any]:
         "samplers": samplers,
         "samplers_origin": values["samplers"]["origin"],
         "transformers": transformers,
+        "fixed_order": FIXED_ORDER,
         "unused": unused if transformers else [],
     }
 
@@ -1241,7 +1244,7 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
         replaying=replaying,
         waits=running is not None and not replaying,
         settings=[
-            (name, value_words(v["value"]) + at_rest(name, v["value"]), v["origin"])
+            (name, value_words(v["value"]), at_rest(name, v["value"]), v["origin"])
             for name, v in call["settings"].items()
         ],
         seed_drawn=call.get("seed_drawn"),
