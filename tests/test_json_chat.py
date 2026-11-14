@@ -143,6 +143,7 @@ EVERY_COMMAND = [
     ("regen", lambda s: ""),
     ("edit", lambda s: "Hi again"),
     ("history", lambda s: ""),
+    ("compare", lambda s: ""),
     ("branches", lambda s: ""),
     ("switch", lambda s: s.conversation.head),
     ("mark", lambda s: ""),

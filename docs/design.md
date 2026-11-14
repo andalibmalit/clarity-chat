@@ -120,6 +120,8 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 
 **Branches never overwrite.** `/regen`, `/edit` and `/undo` start new branches, and every turn stays in the log with its parent. The k-th `/regen` uses the first reply's seed plus k: with the same seed it would only repeat the reply, and checking that is `/replay`'s job.
 
+**`/compare` groups replies by their logged settings, not their requests.** Each backend logs its own request body, so two calls with the same settings can have requests with different keys. The settings table uses the same names on every backend, with the seed left out, since the seed is what differs between replies made to compare.
+
 **Replay re-sends the logged request, not a rebuilt one.** It sends the logged token IDs and request body, so a later change to how Clarity builds requests can't change a replay. It then lists every recorded fact that differs from the original call, so a different output comes with its likely causes.
 - Cost: replay can't show whether a later fix to how requests are built changes a reply; that takes a new call.
 
