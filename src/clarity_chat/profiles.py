@@ -68,6 +68,7 @@ SEED_MAX = 2**32 - 2  # llama.cpp reads 0xFFFFFFFF (2**32 - 1) as "pick a random
 ORIGINS = ("profile", "model", "default", "backend", "regen", "run", "server.toml", "chat", "log")
 
 PROFILE_KEYS_COMMON = {
+    "description",
     "backend",
     "model",
     "mode",
@@ -287,6 +288,7 @@ class Profile:
     model: str
     mode: str
     settings: dict[str, Setting]
+    description: str | None = None  # one line, shown in lists of profiles and chats
     raw_settings: dict[str, Any] = field(default_factory=dict)  # the [settings] table, checked
     use_recommended: bool = False  # fill unset settings from the model's generation_config.json
     device: str | None = None  # Transformers backend only: mps (default), cpu or cuda
@@ -318,6 +320,10 @@ class Profile:
     @property
     def stop(self) -> list[str]:
         return [f"\n{self.user_name}:"] if self.mode == "text" else []
+
+
+def one_line(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and len(value.splitlines()) == 1
 
 
 def profile_path(root: Path, name_or_path: str) -> Path:
@@ -467,6 +473,9 @@ def load_profile(
     for key in ("backend", "model"):
         if not isinstance(data.get(key), str):
             raise ConfigError(f"{where}: {key} is required (a string).")
+    description = data.get("description")
+    if description is not None and not one_line(description):
+        raise ConfigError(f"{where}: description must be one line of text, got {description!r}.")
     if data["backend"] not in BACKENDS:
         raise ConfigError(f"{where}: backend must be one of {list(BACKENDS)}.")
     device = data.get("device")
@@ -512,6 +521,7 @@ def load_profile(
         model=data["model"],
         mode=mode,
         settings=settings,
+        description=description,
         raw_settings=raw_settings,
         use_recommended=use_recommended,
         device=device,

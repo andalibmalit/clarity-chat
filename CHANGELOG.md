@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Added
+- A profile can have a one-line `description`. `clarity chats` shows it after the profile's name.
+
 ### Output may change
 - The default seed is 42, not `"random"`, so the same message gets the same reply until you change something. A profile that sets no seed now uses 42; `seed = "random"` still draws one per call. A batch run's seeds start at 42, not 333. Resuming a chat that drew random seeds by default shows the seed among the settings that differ today.
 

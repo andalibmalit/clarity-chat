@@ -9,7 +9,7 @@ Every command, key and record field a user sees. For task-based instructions, se
 | `clarity chat --profile NAME` | Chat with `profiles/NAME.toml` or `local/profiles/NAME.toml`. NAME can also be a path to a `.toml` file. |
 | `clarity chat --resume ID` | Continue a logged conversation, as it was logged, and say what differs today. ID is a conversation ID from `clarity chats`, or a log file. See `/resume`. |
 | `clarity chat --json [--profile NAME \| --resume ID]` | Chat from a script or another program: commands in as JSON lines, events out as JSON lines. See [Scripting with --json](#scripting-with---json). |
-| `clarity chats` | List your conversations in `logs/`, newest first: conversation ID (it starts with the local date and time), profile and title. |
+| `clarity chats` | List your conversations in `logs/`, newest first: conversation ID (it starts with the local date and time), profile (with its description, if it has one) and title. |
 | `clarity run --openings FILE --profiles A B … [--seeds N]` | Collect replies for a blind test into `runs/RUN_ID/`. FILE holds openings separated by lines that are exactly `---`. `--seeds N` (default 1) gives N replies per opening and profile, with seeds 42, 43 and so on. |
 | `clarity replay LOG CALL_ID [--logged-flags]` | Re-send a logged call and compare the output. `--logged-flags` starts llama-server with the call's logged flags instead of `server.toml`'s, after the same checks `server.toml`'s get, so a log can't add, drop or change a flag in a way `server.toml` couldn't. |
 | `clarity mark LOG CALL_ID [LABEL] [--remove]` | Label a logged call's reply while reviewing, in `logs/` or a run's `calls.jsonl` (default label `interesting`). Appends one record and starts no server. With `--remove`, appends an `unmark` for each mark it removes: those with that label, or the reply's only label. |
@@ -115,6 +115,7 @@ All profiles:
 | `mode` | yes | `"chat"` (the model's chat template) or `"text"` (a plain document). |
 | `backend` | yes | `"llama.cpp"` or `"transformers"`. |
 | `model` | yes | A model name from `models.toml`. |
+| `description` | no | One line saying what the profile is for, shown in `clarity chats`. It's logged with the profile's file, like every key. |
 | `settings` | no | A table of [settings](#settings). Unset ones come from `defaults.toml`. |
 | `use_recommended` | no | `true` fills unset settings from the model's `generation_config.json` before `defaults.toml`. Default `false`. |
 | `device` | no | Transformers backend only: `"mps"` (default), `"cpu"` or `"cuda"`. |

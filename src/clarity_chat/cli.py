@@ -178,7 +178,8 @@ def format_branches(result: dict[str, Any]) -> str:
 
 
 def format_chats(chats: list[dict[str, Any]]) -> str:
-    """One line per conversation: ID (it starts with the local start time), profile, title."""
+    """One line per conversation: ID (it starts with the local start time), profile and its
+    description, title."""
     if not chats:
         return "No conversations in logs/ yet."
     lines = []
@@ -187,7 +188,8 @@ def format_chats(chats: list[dict[str, Any]]) -> str:
             lines.append(f"{chat['conversation_id']}  can't be read: {chat['error']}")
             continue
         title = chat["title"] if chat["title"] is not None else "(no messages)"
-        lines.append(f"{chat['conversation_id']}  {chat['profile']}  {title}")
+        profile = chat["profile"] + (f": {chat['description']}" if chat["description"] else "")
+        lines.append(f"{chat['conversation_id']}  {profile}  {title}")
     return "\n".join(lines)
 
 
