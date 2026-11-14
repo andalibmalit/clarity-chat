@@ -432,3 +432,87 @@ def test_untrusted_text_in_details_is_escaped(chat):
     failed = result(client, "prompt")["call"]
     raw = raw_details(client, failed["call_id"]).text
     assert "<script>" not in raw and "<img" not in raw and HOSTILE in html.unescape(raw)
+
+
+# --- Checkpoint 4's mutation check
+
+
+def test_details_drawn_during_its_own_replay_offers_stop(chat):
+    """`replaying`: while /replay of this call runs, Replaying… and Stop, not a wait."""
+    import threading
+
+    client, session = chat
+    call = result(client, "say", "Hi")["call"]
+    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 0.3
+    worker = threading.Thread(target=lambda: command(client, "replay", call["call_id"]))
+    worker.start()
+    threading.Event().wait(0.4)
+    try:
+        fragment = details(client, call["call_id"])
+        during = worker.is_alive()
+    finally:
+        worker.join(10)
+    assert during
+    section = fragment.split('data-key="replay"')[1].split("</details>")[0]
+    assert "Replaying…" in section and 'data-action="replay-stop"' in section
+    assert "Waits until the reply is done." not in section
+
+
+@pytest.fixture
+def chat_mode(fetched_root, chat_tokenizer):
+    """The chat profile, on a tokenizer whose template writes role tags and end tokens."""
+    backend = FakeBackend([" Hello!"], tokenizer=chat_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
+    with TestClient(web.make_app(session, SECRET.encode(), port=PORT), base_url=ORIGIN) as client:
+        command(client, "profile", "chat")
+        yield client, session
+
+
+def test_in_chat_mode_the_template_s_text_is_highlighted(chat_mode):
+    """prompt_pieces marks `template` spans, not only `profile` ones."""
+    client, _ = chat_mode
+    call = result(client, "say", "Hi")["call"]
+    fragment = details(client, call["call_id"])
+    assert "Highlighted: text the chat template wrote." in fragment
+    text = fragment.split('<pre class="pre" data-pane="text">')[1].split("</pre>")[0]
+    template = [s for s in call["message_spans"] if s["kind"] == "template"]
+    assert template
+    for span in template:
+        start, end = span["chars"]
+        if end > start:
+            assert f"<mark>{call['prompt_text'][start:end]}</mark>" in text
+    assert "<mark>Hi</mark>" not in text and "<mark>Be brief.</mark>" not in text
+
+
+def test_a_prompt_that_starts_with_the_bos_says_so(fetched_root, bos_tokenizer):
+    """`bos` reads the first prompt ID: text mode on a tokenizer that adds a BOS. Without
+    one, test_what_the_model_got_comes_first… asserts "no start token (BOS)"."""
+    backend = FakeBackend([" Hello!"], tokenizer=bos_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: bos_tokenizer)
+    with TestClient(web.make_app(session, SECRET.encode(), port=PORT), base_url=ORIGIN) as client:
+        command(client, "profile", "text")
+        call = result(client, "say", "Hi")["call"]
+        fragment = details(client, call["call_id"])
+    assert call["prompt_ids"][0] == call["bos"]["bos_token_id"]
+    assert f"{call['n_prompt_client']} tokens · starts with a start token (BOS)" in fragment
+    assert "no start token" not in fragment
+
+
+def test_a_setting_the_backend_couldn_t_apply_is_listed_if_it_could_change_the_reply(chat):
+    """`ignored`: not_applied entries with affects_output, and only those."""
+    client, session = chat
+    session.backend.name = "transformers"
+    session.backend.not_applied = [
+        {
+            "name": "presence_penalty",
+            "value": 0.5,
+            "reason": "no equivalent",
+            "affects_output": True,
+        },
+        {"name": "repeat_last_n", "value": 64, "reason": "whole sequence", "affects_output": False},
+    ]
+    call = result(client, "say", "Hi")["call"]
+    assert [e["name"] for e in call["not_applied"]] == ["presence_penalty", "repeat_last_n"]
+    fragment = details(client, call["call_id"])
+    assert "! 1 setting not applied: presence_penalty. Reason: no equivalent." in fragment
+    assert "not applied: repeat_last_n" not in fragment

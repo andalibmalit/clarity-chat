@@ -238,3 +238,16 @@ def test_values_are_shown_as_python_writes_them():
     assert web.setting_words("min_p", 0.00001) == "min_p 1e-05"
     assert web.setting_words("steering_scale", 1.0) == "steered ×1.0"
     assert web.changed_words({"steering_scale": 0.5}) == "strength 0.5"
+
+
+def test_a_change_then_a_plain_regenerate_doesn_t_claim_the_same_seeds(chat):
+    """Checkpoint 4's mutation check: the divider adds "then chose Again with the same N
+    seeds" only when the new group's seeds are the group before's."""
+    client, session = chat
+    result(client, "set", "temperature 0.3")
+    session.backend.replies = [" Other."]
+    result(client, "regen")
+    compared = result(client, "compare")
+    assert [r["seed"] for r in compared["replies"]] == [42, 43]
+    fragment = view(client, "replies", last_call(client))
+    assert re.findall(r'<p class="divider">(.*?)</p>', fragment) == ["You set temperature to 0.3"]
