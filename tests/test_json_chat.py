@@ -393,3 +393,24 @@ def test_chats_and_profiles_run_as_soon_as_they_are_read(make):
     queued = [pending.get_nowait() for _ in range(pending.qsize())]
     assert [q and q["command"] for q in queued] == ["say", None]
     assert len(stdout.getvalue().splitlines()) == 2  # chats' and profiles' results
+
+
+def test_settings_runs_as_soon_as_it_is_read_while_a_reply_is_written(make):
+    """Review finding 8: --json runs settings at once during a reply, not after it."""
+    session, backend = make()
+    chat = JsonChat(session, io.BytesIO(), io.StringIO())
+    chat.execute({"command": "profile", "args": "text"})
+    backend.piece_delay = 0.3
+    backend.replies = [" A slow reply"]
+    import queue
+    import threading
+
+    pending: queue.Queue = queue.Queue()
+    say = threading.Thread(target=lambda: chat.execute({"command": "say", "args": "Hi"}))
+    say.start()
+    threading.Event().wait(0.4)
+    chat.stdin = io.BytesIO(json.dumps({"command": "settings", "args": ""}).encode() + b"\n")
+    chat.read(pending)
+    say.join(10)
+    queued = [pending.get_nowait() for _ in range(pending.qsize())]
+    assert [q and q["command"] for q in queued] == [None]  # settings ran; nothing waited

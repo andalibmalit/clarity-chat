@@ -473,3 +473,19 @@ def test_every_setting_is_in_the_oldest_log_or_has_its_value_from_before():
     oldest = next(r for r in calls if r["type"] == "call")["settings"]
     missing = set(SETTING_NAMES) - set(oldest) - set(BEFORE_THEY_EXISTED) - {"seed"}
     assert missing == set()
+
+
+def test_the_first_piece_of_each_regen_reply_starts_at_0(commands):
+    """Review finding 8: reply_start resets the position as well as the text."""
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    backend.replies = [" One two.", " Three."]
+    events: list[dict] = []
+    c.run("regen", "2", events.append)
+    firsts = [
+        events[i + 1]
+        for i, e in enumerate(events)
+        if e["event"] == "reply_start" and events[i + 1]["event"] == "text"
+    ]
+    assert [e["at"] for e in firsts] == [0, 0]
