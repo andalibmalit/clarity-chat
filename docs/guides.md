@@ -127,7 +127,7 @@ After every call, Clarity checks that the server's own decoding of the token IDs
 Some repos are gated: Hugging Face gives their files only to accounts the publisher has let in. Meta's Llama 3.1 repos, which `llama-3.1-8b-instruct` and `llama-3.1-8b-base` come from, are gated.
 
 1. Sign in at [huggingface.co](https://huggingface.co), open the model's page ([Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct), [base](https://huggingface.co/meta-llama/Llama-3.1-8B)) and accept its licence. Access isn't always immediate; the page says when you have it.
-2. Run `uv run hf auth login` and follow its prompts. It saves a token where the Hugging Face library finds it. Setting `HF_TOKEN` in your shell works too.
+2. Run `uv run hf auth login` (again, if your login has expired) and follow its prompts. It saves a token where the Hugging Face library finds it. Setting `HF_TOKEN` in your shell works too.
 3. Run `uv run clarity fetch NAME`.
 
 Clarity never asks for or stores the token; the Hugging Face library reads it. Without access, `clarity fetch` stops and says what to do.

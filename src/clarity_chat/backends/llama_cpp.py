@@ -24,7 +24,7 @@ import httpx
 
 from clarity_chat.backends import BackendError, Result
 from clarity_chat.logs import git_state, machine, new_id
-from clarity_chat.profiles import ConfigError, ModelEntry, ServerConfig
+from clarity_chat.profiles import ConfigError, ModelEntry, ServerConfig, run_hint
 
 if TYPE_CHECKING:
     from clarity_chat.steering import Steering
@@ -696,8 +696,7 @@ class LlamaCppBackend:
             st = weights.stat()
         except FileNotFoundError:
             raise ConfigError(
-                f"The model file {weights} is missing. In a new terminal window, in Clarity's "
-                f"folder, run: uv run clarity verify {model.name}."
+                f"The model file {weights} is missing. {run_hint(f'verify {model.name}')}"
             ) from None
         identity = (st.st_ino, st.st_size, st.st_mtime_ns)
         server = self.server

@@ -34,6 +34,7 @@ from clarity_chat.profiles import (
     check_samplers,
     check_server_flags,
     check_setting,
+    fetch_hint,
     load_defaults,
     load_models,
     load_profile,
@@ -439,7 +440,7 @@ class Session:
             if recommended is None:
                 raise ConfigError(
                     f"models.lock has no recommended settings for {model.name}. "
-                    f"Run `clarity fetch {model.name}` again."
+                    f"{fetch_hint(model.name)}"
                 )
             profile.settings = resolve_settings(
                 profile.raw_settings, self.defaults, str(profile.path), recommended["values"]
