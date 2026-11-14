@@ -1597,16 +1597,22 @@ def test_enter_during_a_reply_sends_nothing_and_keeps_the_text(clarity, page):
 
 
 def test_a_message_over_the_size_limit_is_refused_with_its_sentence(clarity, page):
-    """Finding 2: the server's refusals are plain text, which command() read as JSON: the
-    text was lost, "Writing…" stayed, and nothing said why."""
+    """Finding 2 (batch 1), and the Opus review's MUST 1: a long message reaches the
+    command table (here the context refuses it, with its own sentence); one over /command's
+    8 MB limit is refused with the limit named, and the text stays in the box."""
     _, redirect, _ = clarity
     chat_on(page, redirect)
     page.fill("#message", "a" * 70_000)
     page.press("#message", "Enter")
     page.wait_for_selector("#notice .problem")
-    assert "Too big" in page.text_content("#notice .problem")
+    assert "Nothing was sent" in page.text_content("#notice .problem")  # the context's
+    huge = "a" * (8 * 1024 * 1024 + 1)
+    page.evaluate("text => { document.getElementById('message').value = text; }", huge)
+    page.press("#message", "Enter")
+    page.wait_for_selector("#notice .problem:has-text('Too big')")
+    assert "Clarity takes at most 8 MB at a time." in page.text_content("#notice .problem")
     assert page.is_hidden("#writing-box") and page.is_visible("#send")
-    assert page.input_value("#message") == "a" * 70_000
+    assert page.evaluate("document.getElementById('message').value.length") == len(huge)
 
 
 def test_a_closed_panel_stays_closed_when_a_redraw_lands_late(clarity, page):
