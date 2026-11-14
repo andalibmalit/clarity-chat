@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Output may change
+- The default seed is 42, not `"random"`, so the same message gets the same reply until you change something. A profile that sets no seed now uses 42; `seed = "random"` still draws one per call. A batch run's seeds start at 42, not 333. Resuming a chat that drew random seeds by default shows the seed among the settings that differ today.
+
 ## [0.2.2] - 2026-11-11
 
 Live tests on an M2 Max (macOS), 2026-11-11, at the release commit: `-m live` 17 passed, `-m hf` 17 passed (Transformers refuses MPS with `PYTORCH_ENABLE_MPS_FALLBACK` set, on the real device; steering SmolLM2 with a real repeng vector on the CPU and MPS: a zero vector changes nothing, the vector changes the reply, a cancel leaves the model unsteered, a replay after a reload is identical, and a steered export recomputes with a gap of 0 under `applied`), `-m olmo` 12 passed (the same steering checks on OLMo 3 7B Instruct on MPS, including a reply that ends on its end token).

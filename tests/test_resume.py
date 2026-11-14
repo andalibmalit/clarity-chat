@@ -86,6 +86,31 @@ def test_resume_uses_the_logged_profile_and_settings_not_todays(new_session, fet
     assert resumed.say("b").record["settings"]["temperature"]["value"] == 0.6
 
 
+def test_an_old_chat_whose_seed_was_random_by_default_shows_the_new_default(
+    new_session, fetched_root
+):
+    """Before v0.2.3 the default seed was "random"; a chat made then resumes on its own."""
+    (fetched_root / "profiles" / "noseed.toml").write_text(
+        'backend = "llama.cpp"\nmodel = "tiny"\nmode = "text"\nuser_name = "U"\n'
+        'assistant_name = "A"\n',
+        encoding="utf-8",
+    )
+    defaults = fetched_root / "defaults.toml"
+    today = defaults.read_text(encoding="utf-8")
+    defaults.write_text(today.replace("seed = 42 ", 'seed = "random" '), encoding="utf-8")
+    session, _ = new_session([" one"])
+    session.new_conversation("noseed")
+    assert session.say("a").record["seed_drawn"] is True
+    defaults.write_text(today, encoding="utf-8")
+    resumed, _ = new_session([" two"])
+    record = resumed.resume(session.conversation.log.path)
+    assert {
+        "name": "seed",
+        "logged": {"value": "random", "origin": "default"},
+        "today": {"value": 42, "origin": "default"},
+    } in record["settings_differ_today"]
+
+
 def test_a_message_whose_call_never_finished_resumes_before_it(new_session):
     session, _ = new_session([" one"])
     session.new_conversation("text")

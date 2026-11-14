@@ -764,7 +764,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         "--seeds",
         type=int,
         default=1,
-        help="replies per opening and profile; their seeds are 333, 334, … (default 1)",
+        help="replies per opening and profile; their seeds are 42, 43, … (default 1)",
     )
     replay = commands.add_parser(
         "replay", help="re-send a logged call and compare (exit 1 if the output differs)"

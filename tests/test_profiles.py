@@ -28,7 +28,13 @@ def test_defaults_cover_every_setting_with_neutral_values(root):
     assert defaults["temperature"] == 1.0
     assert defaults["top_k"] == 0
     assert defaults["top_p"] == 1.0
-    assert defaults["seed"] == "random"
+    assert defaults["seed"] == 42
+
+
+def test_a_profile_without_a_seed_gets_42_from_the_defaults(root):
+    (root / "profiles" / "noseed.toml").write_text(BASE, encoding="utf-8")
+    seed = load_profile(root, "noseed", load_defaults(root)).settings["seed"]
+    assert (seed.value, seed.origin) == (42, "default")
 
 
 def test_settings_come_from_profile_then_defaults_with_origins(root):

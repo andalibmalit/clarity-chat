@@ -10,7 +10,7 @@ Every command, key and record field a user sees. For task-based instructions, se
 | `clarity chat --resume ID` | Continue a logged conversation, as it was logged, and say what differs today. ID is a conversation ID from `clarity chats`, or a log file. See `/resume`. |
 | `clarity chat --json [--profile NAME \| --resume ID]` | Chat from a script or another program: commands in as JSON lines, events out as JSON lines. See [Scripting with --json](#scripting-with---json). |
 | `clarity chats` | List your conversations in `logs/`, newest first: conversation ID (it starts with the local date and time), profile and title. |
-| `clarity run --openings FILE --profiles A B … [--seeds N]` | Collect replies for a blind test into `runs/RUN_ID/`. FILE holds openings separated by lines that are exactly `---`. `--seeds N` (default 1) gives N replies per opening and profile, with seeds 333, 334 and so on. |
+| `clarity run --openings FILE --profiles A B … [--seeds N]` | Collect replies for a blind test into `runs/RUN_ID/`. FILE holds openings separated by lines that are exactly `---`. `--seeds N` (default 1) gives N replies per opening and profile, with seeds 42, 43 and so on. |
 | `clarity replay LOG CALL_ID [--logged-flags]` | Re-send a logged call and compare the output. `--logged-flags` starts llama-server with the call's logged flags instead of `server.toml`'s, after the same checks `server.toml`'s get, so a log can't add, drop or change a flag in a way `server.toml` couldn't. |
 | `clarity mark LOG CALL_ID [LABEL] [--remove]` | Label a logged call's reply while reviewing, in `logs/` or a run's `calls.jsonl` (default label `interesting`). Appends one record and starts no server. With `--remove`, appends an `unmark` for each mark it removes: those with that label, or the reply's only label. |
 | `clarity note LOG CALL_ID TEXT` | Add a note to a logged call's reply while reviewing, replacing its note. Quote TEXT if it has spaces. |
@@ -157,7 +157,7 @@ Settings use the same names on every backend. Each resolved value records its or
 | `repeat_last_n` | integer ≥ 0: how many recent tokens the penalties look at | 64 | |
 | `presence_penalty` | number | 0.0 | `penalties` |
 | `frequency_penalty` | number | 0.0 | `penalties` |
-| `seed` | integer from 0 to 4294967294, or `"random"` (Clarity draws one per call and logs it) | `"random"` | |
+| `seed` | integer from 0 to 4294967294, or `"random"` (Clarity draws one per call and logs it) | `42` | |
 | `max_tokens` | integer ≥ 1: the longest reply | 1024 (a cap, not a neutral value) | |
 | `samplers` | the order and membership of the sampler chain, from `penalties`, `top_k`, `top_p`, `min_p`, `temperature` | all five, in that order | |
 | `logprobs` | integer from 0 to 20. 0 is off. N records, for each token of the reply, its log-probability and the N likeliest tokens with theirs, in the call's `logprobs` field. A log-probability is the natural log of the probability the model gave the token, so 0 is certain and more negative is less likely. The probabilities come from the model's raw scores (logits) before any sampler, so they don't show what temperature, `top_k` or the penalties did. Transformers backend only for now; a llama.cpp profile with it above 0 is refused. While a reply is written, the scores take memory: about 0.4 MB per token for a model with a 100,000-token vocabulary. | 0 | |

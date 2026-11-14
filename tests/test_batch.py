@@ -97,7 +97,7 @@ def test_blind_md_has_openings_and_shuffled_labelled_replies_only(batch):
     assert text.count("\nRating:\nNote:\n") == 4
     for reply in ("r1", "r2", "r3", "r4"):
         assert f"\n\n{reply}\n\nRating:" in text  # trimmed
-    for hidden in ("text2", "call-", "conversation", "333", "run-test"):
+    for hidden in ("text2", "call-", "conversation", "42", "run-test"):
         assert hidden not in text
 
 
@@ -106,7 +106,7 @@ def test_key_maps_each_label_to_its_call(batch):
     key = json.loads((run_dir / "key.json").read_text(encoding="utf-8"))
     calls = {r["call_id"]: r for r in read_records(run_dir / "calls.jsonl") if r["type"] == "call"}
     text = blind.read_text(encoding="utf-8")
-    assert key["seeds"] == [333]
+    assert key["seeds"] == [42]
     assert isinstance(key["shuffle_seed"], int)
     assert "str.strip()" in key["trim_rule"] and '"---"' in key["split_rule"]
     for opening in key["openings"]:
@@ -119,16 +119,16 @@ def test_key_maps_each_label_to_its_call(batch):
             assert f"## {tag}\n\n{call['output_text'].strip()}\n" in text
 
 
-def test_calls_log_has_a_run_record_seeds_from_333_and_nothing_goes_to_logs(batch, fetched_root):
+def test_calls_log_has_a_run_record_seeds_from_42_and_nothing_goes_to_logs(batch, fetched_root):
     _, run_dir, backend, _ = batch(seeds=2)
     rows = list(read_records(run_dir / "calls.jsonl"))
     assert rows[0]["type"] == "run"
-    assert rows[0]["seeds"] == [333, 334]
+    assert rows[0]["seeds"] == [42, 43]
     calls = [r for r in rows if r["type"] == "call"]
     assert len(calls) == 2 * 2 * 2
     assert {c["settings"]["seed"]["origin"] for c in calls} == {"run"}
-    assert sorted({c["settings"]["seed"]["value"] for c in calls}) == [333, 334]
-    assert [c["settings"]["seed"] for c in backend.calls][:2] == [333, 334]
+    assert sorted({c["settings"]["seed"]["value"] for c in calls}) == [42, 43]
+    assert [c["settings"]["seed"] for c in backend.calls][:2] == [42, 43]
     assert len({c["conversation_id"] for c in calls}) == 8  # one conversation per call
     assert sum(r["type"] == "server_start" for r in rows) == 1
     assert not (fetched_root / "logs").exists()

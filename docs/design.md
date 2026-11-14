@@ -43,7 +43,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 
 **The model's recommended settings are opt-in.** With the shared neutral defaults, two models are compared under the same settings unless you choose otherwise. `use_recommended = true` is the one-line way to choose otherwise, and its values are logged with origin `model`.
 
-**Seeds are always concrete.** `seed = "random"` makes Clarity draw a seed and log it, because llama-server doesn't report a seed it picks itself, and that call couldn't be replayed.
+**Seeds are always concrete, and the default is 42.** A fixed default means the same message gets the same reply until you change something, so a difference between two replies comes from what you changed. `seed = "random"` makes Clarity draw a seed and log it, because llama-server doesn't report a seed it picks itself, and that call couldn't be replayed.
 
 ## The server
 
@@ -130,7 +130,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 
 **Batch runs are blind, checked first and kept apart.**
 - Before any model loads, every opening is rendered against every profile. Unequal `max_tokens` stops the run, because reply length would give a setup away. The cost: all profiles in a run share one `max_tokens`.
-- Seeds come from the run, starting at 333, so two runs with the same profiles are comparable, and `--seeds N` shows a setup's spread rather than one sample.
+- Seeds come from the run, starting at 42 like the default seed, so two runs with the same profiles are comparable, and `--seeds N` shows a setup's spread rather than one sample.
 - Openings files have their line endings normalized, so an editor's line endings never change the token IDs.
 - A server restart mid-run stops the run, so no run mixes server processes.
 - Nothing goes to `logs/`, not even the server's output, so held-out openings never end up in a transcript export.
@@ -169,6 +169,7 @@ When a choice above changes, the old one, the new one and the reason go here, ne
 
 | Date | Was | Now | Why |
 |---|---|---|---|
+| 2026-11-14 | The default seed was `"random"`, and a batch run's seeds started at 333. | The default seed is 42, and a run's seeds start at 42. | With a random default, sending the same message twice gave two replies, which looked like a difference worth studying. A fixed seed makes a chat repeat until you change something; `"random"` is still a value you can choose. |
 | 2026-11-11 | Steering vectors were left out: `server.toml` refuses llama.cpp's control-vector flags. | A pinned vector made by another tool is added by a hook on the Transformers backend. llama.cpp's control-vector route stays refused. | The owner's experiments need a chat with a steered model that can be replayed. A hook on the in-process backend can be applied, logged, checked and replayed exactly. |
 | 2026-11-11 | A llama-server built from another commit was a warning, as the brief asked. | It's an error at start. | The binary is what runs. A checkout at another commit was already an error, so a binary built from one shouldn't pass with a warning. |
 | 2026-11-11 | `server.toml` refused a list of known-bad flags. | It accepts only the flags it ships with; any other is refused. | A list of bad flags misses new flags and other names for the same flag: `gpu-layers`, `override-tensor` and others got through. A new flag now joins on purpose, with a test. |
