@@ -1574,3 +1574,84 @@ def test_a_dropped_connection_keeps_trying_and_reloads_when_clarity_answers(clar
     page.wait_for_selector("body[data-page=ready]", timeout=20000)
     page.wait_for_selector(".turn.user .msg")
     assert page.text_content(".turn.user .msg") == "Hi"
+
+
+# --- The whole-branch review (multi-agent, batch 1): the page
+
+
+def test_enter_during_a_reply_sends_nothing_and_keeps_the_text(clarity, page):
+    """Finding 1: send() checked only Send's disabled state, which showWriting doesn't set,
+    so Enter mid-reply sent a second message and reset the reply being written."""
+    _, redirect, backend = clarity
+    chat_on(page, redirect, "long")
+    backend.replies = [" One two three four five six seven eight nine ten."]
+    backend.piece_delay = 0.3
+    say(page, "Hi")
+    page.wait_for_selector("#writing:has-text('two')")
+    page.fill("#message", "Not yet")
+    page.press("#message", "Enter")
+    page.wait_for_selector("#writing-box", state="hidden", timeout=20_000)
+    turns = page.evaluate("clarity.command('state')")["result"]["turns"]
+    assert [t["text"] for t in turns if t["role"] == "user"] == ["Hi"]
+    assert page.input_value("#message") == "Not yet"
+
+
+def test_a_message_over_the_size_limit_is_refused_with_its_sentence(clarity, page):
+    """Finding 2: the server's refusals are plain text, which command() read as JSON: the
+    text was lost, "Writing…" stayed, and nothing said why."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    page.fill("#message", "a" * 70_000)
+    page.press("#message", "Enter")
+    page.wait_for_selector("#notice .problem")
+    assert "Too big" in page.text_content("#notice .problem")
+    assert page.is_hidden("#writing-box") and page.is_visible("#send")
+    assert page.input_value("#message") == "a" * 70_000
+
+
+def test_a_closed_panel_stays_closed_when_a_redraw_lands_late(clarity, page):
+    """Finding 3: a redraw's Details view still loading when the panel closed reopened it."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    page.click(".reply.last [data-action=details]")
+    page.wait_for_selector("#panel:not([hidden])")
+
+    held: list = []
+    page.route("**/view/details*", lambda route: held.append(route))  # answered below
+    page.evaluate("() => { clarity.refresh(); }")
+    for _ in range(100):  # until the redraw's Details view is on its way
+        if held:
+            break
+        page.wait_for_timeout(50)
+    assert held
+    page.click("#panel [data-action=panel-close]")
+    assert page.is_hidden("#panel")
+    held[0].continue_()
+    page.wait_for_timeout(3000)
+    assert page.is_hidden("#panel")
+
+
+def test_a_replay_or_export_whose_request_drops_says_so(clarity, page):
+    """Finding 4: a rejected command() left Replay at "Replaying…" with Stop, and the
+    export sheet never opened."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    page.click(".reply.last [data-action=details]")
+    page.wait_for_selector("#panel [data-action=replay]")
+    page.route("**/command", lambda route: route.abort())
+    page.click("#panel [data-action=replay]")
+    page.wait_for_selector("#notice .problem", timeout=10_000)
+    assert page.query_selector("#panel [data-action=replay-stop]") is None
+    page.unroute("**/command")
+    page.wait_for_selector("#panel [data-action=replay]")
+    page.click("#panel [data-action=panel-close]")
+    page.evaluate("() => notice(null, null)")
+    page.route("**/command", lambda route: route.abort())
+    page.click("#title")
+    page.click("#title-menu [data-action=export]")
+    page.wait_for_selector("#notice .problem", timeout=10_000)
+    page.unroute("**/command")
