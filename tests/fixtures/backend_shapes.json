@@ -953,8 +953,7 @@
     "warnings": "list"
    },
    "flags": [
-    "cancelled",
-    "not_applied"
+    "cancelled"
    ],
    "keys": {
     "backend": [
@@ -1073,9 +1072,7 @@
     "type": "str",
     "warnings": "list"
    },
-   "flags": [
-    "not_applied"
-   ],
+   "flags": [],
    "keys": {
     "backend": [
      "attn_implementation",
@@ -1194,8 +1191,7 @@
     "warnings": "list"
    },
    "flags": [
-    "length",
-    "not_applied"
+    "length"
    ],
    "keys": {
     "backend": [
@@ -1314,9 +1310,7 @@
     "type": "str",
     "warnings": "list"
    },
-   "flags": [
-    "not_applied"
-   ],
+   "flags": [],
    "keys": {
     "backend": [
      "attn_implementation",
