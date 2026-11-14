@@ -46,3 +46,18 @@ jobs:
         if: matrix.os == 'windows-latest'
         env:
           ONEDNN_MAX_CPU_ISA: AVX512_CORE_BF16
+
+  # The web interface in a real browser (Playwright's Chromium), on Linux only: the page,
+  # its secret, a page on another port, and a reply joined after a reload mid-reply.
+  browser:
+    runs-on: ubuntu-latest
+    env:
+      HF_HUB_OFFLINE: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - run: uv sync --locked --group browser
+      - run: uv run playwright install --with-deps chromium
+      - run: uv run pytest -m browser -v
