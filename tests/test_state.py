@@ -416,3 +416,60 @@ def test_state_and_settings_from_another_thread_across_the_commands(commands):
         done.set()
         thread.join()
     assert errors == []
+
+
+# --- A4 (v0.3.0): live and resumed agree; every setting has a value in old logs
+
+SCRIPTS = {
+    "regen and same": ["say a", "regen 2", "set temperature 0.9", "regen same"],
+    "failed message": ["say a", "FAIL say b"],
+    "failed edit": ["say a", "FAIL say b", "FAIL edit c"],
+    "cancel": ["say a", "CANCEL say b"],
+    "marks and notes": ["say a", "say b", "mark landed", "note made up", "unmark"],
+    "undo and switch": ["say a", "regen", "undo", "say c"],
+    "edit": ["say a", "edit a2", "say b"],
+}
+
+
+@pytest.mark.parametrize("script", list(SCRIPTS))
+def test_state_live_equals_state_after_resuming_the_same_log(fetched_root, tiny_tokenizer, script):
+    """The bug class v0.2.3's reviews found twice: what a page draws must not change when
+    the same log is resumed (apart from what the resume itself adds)."""
+    from clarity_chat.profiles import ConfigError
+
+    backend = FakeBackend([f" r{i}." for i in range(20)], tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    c = Commands(session)
+    c.run("profile", "text", lambda e: None)
+    for line in SCRIPTS[script]:
+        mode = ""
+        if line.startswith(("FAIL ", "CANCEL ")):
+            mode, line = line.split(" ", 1)
+        backend.fail_with = "made-up failure" if mode == "FAIL" else None
+        backend.cancel_after = 2 if mode == "CANCEL" else None
+        name, _, args = line.partition(" ")
+        try:
+            c.run(name, args, lambda e: None)
+        except (BackendError, ConfigError):
+            assert mode == "FAIL", line
+        backend.fail_with, backend.cancel_after = None, None
+    keys = ("conversation_id", "title", "profile", "head", "turns", "unanswered")
+    live = {k: state(c)[k] for k in keys}
+    c.run("resume", live["conversation_id"], lambda e: None)
+    resumed = {k: state(c)[k] for k in keys}
+    assert resumed == live
+
+
+def test_every_setting_is_in_the_oldest_log_or_has_its_value_from_before():
+    """A setting added later (v0.4.0, v0.5.0) must say what calls before it ran with."""
+    import json
+    from pathlib import Path
+
+    from clarity_chat.profiles import SETTING_NAMES
+    from clarity_chat.session import BEFORE_THEY_EXISTED
+
+    golden = Path(__file__).parent / "fixtures" / "golden" / "v0.1.0.jsonl"
+    calls = [json.loads(line) for line in golden.read_text(encoding="utf-8").splitlines()]
+    oldest = next(r for r in calls if r["type"] == "call")["settings"]
+    missing = set(SETTING_NAMES) - set(oldest) - set(BEFORE_THEY_EXISTED) - {"seed"}
+    assert missing == set()
