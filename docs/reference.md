@@ -68,7 +68,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 
 **Naming a call.** `/prompt`, `/mark`, `/unmark`, `/note` and `/replay` act on the current reply, or on another call when their first word is its call ID: `call-` and 12 lowercase hex digits, as the status line and `/prompt` show it. The ID must be one of this conversation's calls, failed ones included, or the command is refused; it's never read as text. A first word that only looks like an ID, such as `call-me`, is the command's own text, so `/mark call-me` labels the current reply "call-me".
 
-After each reply, a status line shows the stop reason, the reply length in tokens, the time, the seed (with its origin unless it came from the profile), the context used (prompt plus reply tokens, of the context size) and the call ID, then, for a steered reply, `steered ×S` with the scale it was steered at. Warnings and [call flags](#call-flags) appear above it, marked `!`. A warning appears when the prompt uses more than 80% of the context.
+After each reply, a status line shows the stop reason, the reply length in tokens, the time ("time unknown" when the record has none, as for a llama.cpp reply cancelled mid-stream), the seed (with its origin unless it came from the profile), the context used (prompt plus reply tokens, of the context size) and the call ID, then, for a steered reply, `steered ×S` with the scale it was steered at. Warnings and [call flags](#call-flags) appear above it, marked `!`. A warning appears when the prompt uses more than 80% of the context.
 
 ## Scripting with --json
 

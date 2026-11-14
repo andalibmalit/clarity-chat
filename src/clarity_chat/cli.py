@@ -334,12 +334,14 @@ def format_resume(result: dict[str, Any]) -> str:
 
 def format_status(record: dict[str, Any]) -> str:
     timings = record.get("timings") or {}
+    # llama.cpp writes no timings for a reply cancelled mid-stream: unknown, not zero.
+    known = "prompt_ms" in timings or "predicted_ms" in timings
     seconds = (timings.get("prompt_ms", 0) + timings.get("predicted_ms", 0)) / 1000
     seed = record["settings"]["seed"]
     parts = [
         f"stop {record.get('stop_type')}",
         f"{len(record.get('output_ids', []))} tokens",
-        f"{seconds:.1f} s",
+        f"{seconds:.1f} s" if known else "time unknown",
         f"seed {seed['value']}" + (f" ({seed['origin']})" if seed["origin"] != "profile" else ""),
         f"context {record['n_prompt_client'] + len(record.get('output_ids', [])):,} of "
         f"{record['n_ctx']:,}",

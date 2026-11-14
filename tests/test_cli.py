@@ -305,3 +305,12 @@ def test_the_terminal_starts_from_a_profile_path(fetched_root, tiny_tokenizer):
     again.start()
     assert session.conversation is not None
     assert session.conversation.conversation_id == Path(log).stem
+
+
+def test_a_reply_with_no_timings_says_time_unknown_not_zero(loop):
+    """llama.cpp writes no timings for a reply cancelled mid-stream (backend_shapes.json)."""
+    chat, output, backend = loop
+    backend.cancel_after = 3
+    chat.handle("Hi")
+    status = [line for line in "".join(output).splitlines() if line.startswith("[stop")][-1]
+    assert "time unknown" in status and "0.0 s" not in status
