@@ -241,10 +241,24 @@ def verify(root: Path, name: str) -> tuple[bool, str]:
     return True, f"{name}: sha256 matches ({digest[:16]}…)"
 
 
+def gated_refusal(repo: str) -> str:
+    """What to do when Hugging Face refuses a gated repo. Clarity handles no token: the
+    Hugging Face library reads the one `hf auth login` saved, or HF_TOKEN."""
+    return (
+        f"{repo} is gated: Hugging Face gives its files only to accounts with access. "
+        f"Accept its licence at https://huggingface.co/{repo} and wait until access is "
+        "granted, then run `uv run hf auth login` and fetch again."
+    )
+
+
 def _download(repo: str, revision: str, patterns: list[str]) -> Path:
     from huggingface_hub import snapshot_download
+    from huggingface_hub.errors import GatedRepoError
 
-    return Path(snapshot_download(repo, revision=revision, allow_patterns=patterns))
+    try:
+        return Path(snapshot_download(repo, revision=revision, allow_patterns=patterns))
+    except GatedRepoError as e:
+        raise ConfigError(gated_refusal(repo)) from e
 
 
 def fetch(root: Path, model: ModelEntry, server: ServerConfig) -> dict[str, Any]:
@@ -255,8 +269,12 @@ def fetch(root: Path, model: ModelEntry, server: ServerConfig) -> dict[str, Any]
 
 def _download_file(repo: str, revision: str, filename: str) -> Path:
     from huggingface_hub import hf_hub_download
+    from huggingface_hub.errors import GatedRepoError
 
-    return Path(hf_hub_download(repo, filename, revision=revision))
+    try:
+        return Path(hf_hub_download(repo, filename, revision=revision))
+    except GatedRepoError as e:
+        raise ConfigError(gated_refusal(repo)) from e
 
 
 def fetch_gguf(root: Path, model: ModelEntry) -> dict[str, Any]:

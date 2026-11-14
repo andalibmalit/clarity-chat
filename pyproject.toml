@@ -71,13 +71,15 @@ allowed-unresolved-imports = ["torch"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Offline by default. Opt in with `pytest -m live` (SmolLM2 via llama-server),
-# `pytest -m olmo` (OLMo 3, needs it fetched), `pytest -m hf` (Transformers backend) or
+# `pytest -m olmo` (OLMo 3, needs it fetched), `pytest -m llama` (Llama 3.1 8B, needs it
+# fetched), `pytest -m hf` (Transformers backend) or
 # `pytest -m measure -s` (timings and memory for design decisions; prints, barely asserts) or
 # `pytest -m browser` (the web UI in Chrome; needs `uv sync --group browser`).
-addopts = "-m 'not live and not olmo and not hf and not measure and not embed and not browser'"
+addopts = "-m 'not live and not olmo and not llama and not hf and not measure and not embed and not browser'"
 markers = [
     "live: needs the built llama-server and the fetched SmolLM2 model",
     "olmo: needs the fetched OLMo 3 models",
+    "llama: needs the fetched Llama 3.1 8B models (and the hf extra for Transformers)",
     "hf: needs the hf extra (torch) and a fetched model",
     "measure: measurements on OLMo 3 for design decisions; run with -s to see them",
     "embed: embedding determinism on bge-small; decides whether v0.3.3 goes ahead",

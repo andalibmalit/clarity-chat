@@ -11,6 +11,7 @@ Follow [Getting started](docs/getting-started.md) to install Clarity and build l
 | `uv run pytest` | nothing: no network, model or server | everything that can run offline; this is what CI runs on Linux, macOS and Windows |
 | `uv run pytest -m live` | the built llama-server and the fetched SmolLM2; downloads a 145 MB GGUF once | real calls, the context boundary, replay, determinism and batch runs |
 | `uv run pytest -m olmo` | both OLMo 3 models fetched (about 58 GB) | chat templates, end tokens and determinism on OLMo 3 |
+| `uv run pytest -m llama` | both Llama 3.1 8B models fetched (about 64 GB; gated), and the `hf` extra | one BOS, the template's dated system header, the same prompt token IDs on both backends, and steering on Llama 3.1 Instruct |
 | `uv run pytest -m hf` | the `hf` extra and the fetched SmolLM2 (one test also uses OLMo 3 Instruct, if fetched) | the Transformers backend on MPS and CPU, and that both backends get the same prompt token IDs |
 | `uv run pytest -m measure -v -s` | the built llama-server and OLMo 3 Instruct fetched | prints timings and memory figures that design choices rest on (cancel, the memory check); asserts almost nothing |
 | `uv run pytest -m browser` | `uv sync --group browser`, and Chrome on the Mac (CI uses Playwright's Chromium) | the web interface in a real browser: its secret, a page on another port, the live tab, a reply joined after a reload |
@@ -64,7 +65,7 @@ A release is done when every item is checked.
 
 1. Every item in the release's plan is built, and the branch has had its reviews: a fresh-context review against the plan, and one review of the whole release for bugs, with each finding checked and the confirmed ones fixed or listed.
 2. CI passes on Linux, macOS and Windows.
-3. The maintainer runs the live tests on their own machine: `uv run pytest -m live -v`, plus `-m olmo` and `-m hf` if a backend, a chat template or one of the exactness dependencies changed. The results go in the release notes. CI runs only offline tests, so this is the only test of the code that makes Clarity exact.
+3. The maintainer runs the live tests on their own machine: `uv run pytest -m live -v`, plus `-m olmo`, `-m llama` and `-m hf` if a backend, a chat template or one of the exactness dependencies changed. The results go in the release notes. CI runs only offline tests, so this is the only test of the code that makes Clarity exact.
 4. A golden log for this release is added to `tests/fixtures/golden/`: a small log written by this release's code with the fake backend and made-up text. `tests/test_golden.py` checks that current code still reads and replays every one.
 5. `CHANGELOG.md`: Unreleased becomes the new version, with **Migration** and **Output may change** where they apply.
 6. The version is bumped in `pyproject.toml` and `CITATION.cff` (`version` and `date-released`) together, and `ROADMAP.md` is updated.

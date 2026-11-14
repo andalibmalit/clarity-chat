@@ -9,6 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Added
+- Llama 3.1 8B, Instruct and base (`llama-3.1-8b-instruct`, `llama-3.1-8b-base` in `models.toml`), with the profiles `llama-3.1-8b-chat` and `llama-3.1-8b-base`, which take Meta's recommended temperature and top_p (`use_recommended`). Meta gates the repos: accept the licence on each model's page and run `uv run hf auth login` before `clarity fetch`; Clarity never handles the token. The chat template starts every chat with a system header dated 26 Jul 2024, its fixed default, which `/prompt` shows. Live tests: `pytest -m llama`.
 - `clarity ui` starts the web interface's server on `127.0.0.1:8765`: the routes, the checks and the event stream, over the same commands as `--json`. It prints a link with a secret made for this start and opens it through a private file. The page's core reads the secret from the link's fragment, keeps the event stream and joins a reply after a reload; the screens come next.
 - The web interface's first screens: the top bar and the Clarity menu (New chat, Help and docs, About Clarity, Quit Clarity), the picker with every profile grouped under its model, the row under the message box (the model and profile, "Settings · N changed", the context figure), a model starting, a refused start with the backend's sentence whole, a new chat with its start warnings, and the pages for a tab with no link, a second tab ("Use it here") and a stopped Clarity, with an unexpected error shown whole. Quit Clarity stops a reply first, then `clarity ui`. Chats, Appearance and Settings come with the next screens.
 - The web interface's thread: messages as plain text; Send, the reply as it's written with "Writing…" (or "Writing reply 2 of 3") and Stop (or "Stop the rest"); Edit on your last message and a counter to step through its versions; Copy, Regenerate and marks and notes on each reply; the facts line with every call flag; and a failed or refused message with the backend's sentence whole, its text back in the box, "Try again" after a failed Regenerate, and "Start the model again" when the model's server has stopped. Details comes next.
@@ -27,6 +28,7 @@ Two headings are Clarity's own, used when they apply:
 - New dependencies for the web interface: `starlette` and `uvicorn`. Tests of the web interface in a browser use `pytest-playwright`, in its own dependency group (`uv sync --group browser`); a normal install doesn't get it.
 
 ### Fixed
+- `clarity fetch` of a gated repo you have no access to stops with what to do (accept the licence on the model's page, then `uv run hf auth login`), not a traceback.
 - Starting the open chat's model again (`/resume` of that chat after its server stopped) that fails no longer tries the same start a second time and then drops the chat: the chat stays, with its model stopped, and the error is the backend's sentence alone, so you can try again.
 
 ## [0.2.3] - 2026-11-14

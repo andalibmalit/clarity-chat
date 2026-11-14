@@ -16,7 +16,7 @@ Every command, key and record field a user sees. For task-based instructions, se
 | `clarity mark LOG CALL_ID [LABEL] [--remove]` | Label a logged call's reply while reviewing, in `logs/` or a run's `calls.jsonl` (default label `interesting`). Appends one record and starts no server. With `--remove`, appends an `unmark` for each mark it removes: those with that label, or the reply's only label. |
 | `clarity note LOG CALL_ID TEXT` | Add a note to a logged call's reply while reviewing, replacing its note. Quote TEXT if it has spaces. |
 | `clarity export ID [--out PATH]` | Write a conversation to `logs/exports/ID.jsonl`, or PATH, for a notebook. See [Export](#export). ID is a conversation ID from `clarity chats`, or a log file. A new export replaces the old file and says so. Starts no server. |
-| `clarity fetch NAME` | Download (and, for the `convert` route, convert) a model from `models.toml`, and record it in `models.lock`. |
+| `clarity fetch NAME` | Download (and, for the `convert` route, convert) a model from `models.toml`, and record it in `models.lock`. A gated repo needs your own Hugging Face login first ([Fetch a gated model](guides.md#fetch-a-gated-model)); without access, the fetch stops and says what to do. |
 | `clarity verify [NAME …]` | Re-hash fetched models against `models.lock`; with no names, every fetched model. |
 
 `--root PATH` sets the project folder, and goes before the command: `clarity --root PATH chat --profile NAME`. By default, the project folder is the nearest folder, from the current one upwards, that holds both `defaults.toml` and `server.toml`. `mark` and `note` don't need a project folder, only the log file.
@@ -229,6 +229,8 @@ Each table is one model, and its name is the model's name in profiles and `clari
 | `file` | `gguf` | The GGUF file's name in the repo. |
 | `sha256` | `gguf` | The file's sha256, 64 lowercase hex characters. A mismatch stops the fetch. |
 
+The shipped models are SmolLM2-135M-Instruct, OLMo 3 7B Instruct and base, Llama 3.1 8B Instruct and base (gated), and bge-small-en-v1.5 for the embedding tests.
+
 `clarity fetch` writes what it resolved to `models.lock` (JSON, committed): paths, size, modification time and sha256 of the GGUF, the converter's package versions, and the model's recommended settings. Clarity never edits `models.toml`.
 
 ## server.toml
@@ -332,7 +334,7 @@ A steering vector is a file made by another tool, such as repeng; Clarity applie
 
 Clarity reads the file with its own reader, which accepts only this format: GGUF version 3, little-endian, at most 16 MB, 1 to 1,024 tensors, every value finite. Anything else is refused with what was wrong.
 
-Steering runs on model types `llama` and `olmo3`, the two whose blocks Clarity has checked. Other types, including Qwen3 and Apertus, are refused until they are checked. `llama` admits every Llama-architecture model, such as Hermes 4, though only SmolLM2 has a live test.
+Steering runs on model types `llama` and `olmo3`, the two whose blocks Clarity has checked. Other types, including Qwen3 and Apertus, are refused until they are checked. `llama` admits every Llama-architecture model, such as Hermes 4, though only SmolLM2 and Llama 3.1 8B Instruct have live tests.
 
 A profile names its vector in a `[steering]` table and its scale in `settings`:
 
