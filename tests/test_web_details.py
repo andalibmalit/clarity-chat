@@ -636,3 +636,31 @@ def test_a_replay_of_a_call_missing_a_field_says_which_and_the_session_goes_on(c
         "error": f"Call {call} can't be replayed: its record has no {field}.",
         "type": "ConfigError",
     }
+
+
+def test_details_draws_when_its_probabilities_or_compare_are_refused(chat):
+    """The lead's item 3: a /probs refusal (mangled logprobs, from a log another program
+    wrote) drew no Details at all (503). Now Probabilities says why and the rest draws; a
+    /compare refusal (no output_ids) drops only "reply k of n"."""
+    client, session = chat
+    tokenizer = session.tokenizer
+    session.backend.replies = [" Hello!", " Hello!"]
+    session.backend.logprobs = fake_logprobs(
+        tokenizer, [*tokenizer.encode(" Hello!"), tokenizer.tok.eos_token_id]
+    )
+    result(client, "set", "seed 7")
+    first = result(client, "say", "Hi")["call"]["call_id"]
+    result(client, "set", "temperature 0.3")
+    second = result(client, "regen", "same")["replies"][0]["call"]["call_id"]
+    assert session.conversation is not None
+    calls = session.conversation.calls
+    calls[second]["logprobs"]["tokens"][0].pop("top")
+    fragment = details(client, second)
+    assert 'Probabilities <span class="n">can’t be read</span>' in fragment
+    assert "/probs can't read this conversation: a record lacks or mangles 'top'." in fragment
+    assert "Details · reply 2 of 2" in fragment and 'data-action="replay"' in fragment
+    for call in (first, second):
+        calls[call].pop("output_ids")
+    fragment = details(client, first)
+    assert "Details · this reply" in fragment and "reply 1 of" not in fragment
+    assert 'data-action="replay"' in fragment and "Request and response" in fragment
