@@ -414,3 +414,33 @@ def test_settings_runs_as_soon_as_it_is_read_while_a_reply_is_written(make):
     say.join(10)
     queued = [pending.get_nowait() for _ in range(pending.qsize())]
     assert [q and q["command"] for q in queued] == [None]  # settings ran; nothing waited
+
+
+def test_a_failed_restart_of_the_open_chat_says_its_model_stopped_and_keeps_it(make):
+    """V3Chats C23, through --json: /resume of the open chat whose server stopped, refused,
+    gives the backend's sentence alone and `status: stopped`; the chat stays, and /state
+    says its model stopped, so a retry can follow."""
+    from clarity_chat.backends import BackendError
+
+    session, backend = make([" one"])
+    session.new_conversation("text")
+    log_id = session.conversation.log.path.stem
+    backend.stopped = True
+    real = backend.start
+
+    def refused(*args):
+        raise BackendError("llama-server failed to start: exited with code 1:\nline one")
+
+    backend.start = refused
+    events = run(session, [line("resume", log_id, id="r"), line("state", id="s")])
+    error = next(e for e in events if e.get("id") == "r")
+    assert error["event"] == "error"
+    assert error["message"] == "llama-server failed to start: exited with code 1:\nline one"
+    statuses = [e["status"] for e in events if e["event"] == "status"]
+    assert statuses == ["starting", "stopped"]
+    state = next(e for e in events if e.get("id") == "s")["result"]
+    assert state["model"] == "stopped" and state["log_id"] == log_id
+    backend.start = real
+    events = run(session, [line("resume", log_id, id="r"), line("say", "Hi", id="h")])
+    said = next(e for e in events if e.get("id") == "h")
+    assert said["event"] == "result" and said["result"]["call"]["output_text"] == " one"
