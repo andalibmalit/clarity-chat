@@ -163,9 +163,14 @@ def list_profiles(root: Path) -> list[dict[str, Any]]:
             except (ConfigError, OSError, UnicodeDecodeError) as e:  # as list_chats does
                 out.append({**entry, "error": str(e)})
                 continue
-            try:
-                fetched = bool(lock_entry(root, model))
-            except ConfigError:  # not fetched, or fetched from another models.toml entry
+            try:  # in models.lock, from this entry, and its weights still on disk
+                locked = lock_entry(root, model)
+                if profile.backend == "transformers":
+                    source_weights(root, locked)
+                else:
+                    check_weights_quick(root, locked)
+                fetched = True
+            except ConfigError:
                 fetched = False
             out.append(
                 {

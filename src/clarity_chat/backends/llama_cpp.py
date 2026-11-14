@@ -134,6 +134,25 @@ def map_settings(settings: dict[str, Any], stop: list[str]) -> dict[str, Any]:
     }
 
 
+def exited_with(proc: Any, wait: float = 1.0) -> int | None:
+    """The server process's exit code, waiting up to `wait` seconds: a dropped connection
+    can be seen before the process is reaped. None if it's still running."""
+    if proc is None:
+        return None
+    deadline = time.monotonic() + wait
+    while (code := proc.poll()) is None and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return code
+
+
+def stopped_during(code: int, partial: Result) -> BackendError:
+    return BackendError(
+        f"llama-server stopped during the call (exit code {code}). Start the model again to go on.",
+        partial,
+        server_stopped=True,
+    )
+
+
 def build_request(token_ids: list[int], settings: dict[str, Any], stop: list[str]) -> dict:
     if not isinstance(settings["seed"], int):
         raise BackendError(f"Seed must be a concrete integer, got {settings['seed']!r}.")
@@ -657,6 +676,11 @@ class LlamaCppBackend:
         # A server that failed to start has an empty record: report it as none.
         return (self.server.record or None) if self.server else None
 
+    @property
+    def stopped(self) -> bool:
+        proc = self.server.proc if self.server else None
+        return proc is not None and proc.poll() is not None
+
     def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
         """Start llama-server with `weights` and a context of `ctx_size`. The old server stops
         first, so two models never share memory. Returns the new server_start record, or None
@@ -796,15 +820,12 @@ class LlamaCppBackend:
             # Closing the stream tells llama-server to stop generating.
             return partial("cancelled", ["cancelled"])
         except httpx.HTTPError as e:
-            if proc is not None and proc.poll() is not None:
-                raise BackendError(
-                    f"llama-server stopped during the call (exit code {proc.poll()}). "
-                    "Start the model again to go on.",
-                    partial("none", []),
-                    server_stopped=True,
-                ) from e
+            if (code := exited_with(proc)) is not None:
+                raise stopped_during(code, partial("none", [])) from e
             raise BackendError(f"llama-server connection failed: {e}", partial("none", [])) from e
         if final is None:
+            if (code := exited_with(proc)) is not None:
+                raise stopped_during(code, partial("none", []))
             raise BackendError(
                 "llama-server's stream ended without a final response.", partial("none", [])
             )

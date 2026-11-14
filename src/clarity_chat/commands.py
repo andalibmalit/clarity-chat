@@ -46,7 +46,7 @@ class Commands:
         self.streamed: list[str] = []  # the reply being written, so far (for /state)
         self.running_args = ""  # the running command's arguments (for /state)
         self.reply_k_of_n: dict[str, int | None] = {"k": None, "n": None}  # of /regen N
-        self.model_state = "none"  # none, starting, ready or stopped
+        self.starting = False  # a model start is under way (from the status events)
         # Paths only from the command line (--profile, --resume), which you type. Commands
         # will also come from the browser (v0.3.0), so they take names and IDs.
         self.paths = False
@@ -80,7 +80,7 @@ class Commands:
                 self.streamed = []
                 self.reply_k_of_n = {"k": event["k"], "n": event["n"]}
             elif event["event"] == "status":
-                self.model_state = event["status"]
+                self.starting = event["status"] == "starting"
             emit(event)
 
         self.session.on_record = lambda record: tracked({"event": "record", "record": record})
@@ -91,8 +91,7 @@ class Commands:
                 tracked({"event": "status", "status": "stopped"})
             raise
         finally:
-            if self.model_state == "starting":  # a start that failed: whatever runs now
-                self.model_state = "ready" if self.session.conversation else "none"
+            self.starting = False  # done, or failed: /state reads what runs now
             self.session.on_record = None
             self.cancel_event = None
             self.streamed = []
@@ -182,7 +181,11 @@ def regen_replies(c: Commands, emit: Emit, seeds: list[int | None]) -> dict[str,
         except (BackendError, ConfigError) as e:
             if not replies:
                 raise
-            return {"replies": replies, "stopped": f"Reply {k} of {n}: {e}"}
+            server_stopped = isinstance(e, BackendError) and e.server_stopped
+            if server_stopped:
+                emit({"event": "status", "status": "stopped"})
+            stopped = {"stopped": f"Reply {k} of {n}: {e}", "server_stopped": server_stopped}
+            return {"replies": replies, **stopped}
         if replies[-1]["call"]["stop_type"] == "cancelled":
             break
     return {"replies": replies}
@@ -524,6 +527,16 @@ def _start(c: Commands, profile: str, emit: Emit) -> dict[str, Any]:
     }
 
 
+def model_state(c: Commands) -> str:
+    """none, starting, ready or stopped: read from the backend when asked, so a restart by
+    a replay, or a start that failed, can't leave it out of date."""
+    if c.starting:
+        return "starting"
+    if c.session.backend.stopped:
+        return "stopped"
+    return "ready" if c.session.conversation is not None else "none"
+
+
 def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     """Everything a page needs to draw itself, at any moment, mid-reply included: the
     conversation, the command running and the reply so far, and what's loaded."""
@@ -537,7 +550,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         if c.running is None
         else {"command": c.running, "args": c.running_args, **c.reply_k_of_n},
         "reply_so_far": "".join(c.streamed),
-        "model": c.model_state,
+        "model": model_state(c),
         "clarity": {"version": version("clarity-chat"), **client_git()},
         "llama_cpp_commit": session.server_config.llama_cpp_commit,
         "model_name": session.model.display_name if session.model else None,

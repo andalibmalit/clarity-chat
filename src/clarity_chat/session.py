@@ -720,7 +720,7 @@ class Session:
         groups: list[dict[str, Any]] = []
         group_of = []
         for v in values:
-            key = {n: v.get(n) for n in differ}
+            key = {n: v[n] for n in differ if n in v}
             match = next((i for i, g in enumerate(groups) if same_where_recorded(g, key)), None)
             if match is None:
                 groups.append(key)
@@ -791,7 +791,8 @@ class Session:
             "message": {"turn_id": message.turn_id, "text": message.text},
             "replies": out_replies,
             "groups": [{"settings": key} for key in groups],
-            "same": {n: values[0].get(n) for n in names if n not in differ},
+            # From any reply that recorded it: an older Clarity's calls lack some settings.
+            "same": {n: next(v[n] for v in values if n in v) for n in names if n not in differ},
             "same_prompt": all(c["prompt_ids"] == calls[0]["prompt_ids"] for c in calls),
             "pairs": pairs,
             "again": again,
@@ -1113,6 +1114,8 @@ class Session:
             if back_to is None:
                 conversation.last_call = record  # /prompt shows the failed message's call
                 conversation.unanswered = {"turn_id": user_turn.turn_id, "text": user_turn.text}
+            elif user_turn.origin == "edit":  # as a resume reads it: the edit is the last turn
+                conversation.unanswered = None
             raise
         fields, server_prompt = result_fields(result)
         record.update(fields)
