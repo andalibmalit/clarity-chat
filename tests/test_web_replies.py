@@ -251,3 +251,19 @@ def test_a_change_then_a_plain_regenerate_doesn_t_claim_the_same_seeds(chat):
     assert [r["seed"] for r in compared["replies"]] == [42, 43]
     fragment = view(client, "replies", last_call(client))
     assert re.findall(r'<p class="divider">(.*?)</p>', fragment) == ["You set temperature to 0.3"]
+
+
+def test_one_seed_again_is_the_same_seed_singular(chat):
+    """One reply, then a setting: the offer and the divider say "the same seed"."""
+    client, session = chat
+    result(client, "set", "temperature 0.3")
+    assert result(client, "compare")["again"]["seeds"] == [42]
+    fragment = view(client, "replies", last_call(client))
+    assert "Again with the same seed, now at temperature 0.3" in fragment
+    assert "1 seeds" not in fragment
+    session.backend.replies = [" Other."]
+    result(client, "regen", "same")
+    fragment = view(client, "replies", last_call(client))
+    assert re.findall(r'<p class="divider">(.*?)</p>', fragment) == [
+        "You set temperature to 0.3, then chose “Again with the same seed”"
+    ]
