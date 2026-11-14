@@ -12,6 +12,7 @@ from clarity_chat.backends import BackendError
 from clarity_chat.commands import Commands
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import ContextError, Session
+from tests.conftest import TEXT_PROFILE
 from tests.fakes import FakeBackend
 
 COMMAND = re.compile(r"(^|[\s(`'\"])/[a-z]+|clarity [a-z]+")
@@ -65,15 +66,20 @@ def test_the_not_applied_warning_names_only_settings_that_could_change_the_reply
     assert names_no_command(warning)
 
 
-def test_the_failed_switch_sentence(make):
+def test_the_failed_switch_sentence(make, fetched_root):
     session, backend = make()
 
     def always_fail(model, weights, ctx_size):
         raise ConfigError("no GPU")
 
     backend.start = always_fail
+    # Another start (another context size): the same one isn't tried twice (tripwire
+    # review after C5, finding 3), so the restart that fails too needs a different one.
+    (fetched_root / "profiles" / "big.toml").write_text(
+        "ctx_size = 1024\n" + TEXT_PROFILE, encoding="utf-8"
+    )
     with pytest.raises(BackendError) as caught:
-        session.new_conversation("text")
+        session.new_conversation("big")
     assert "failed too" in str(caught.value) and names_no_command(str(caught.value))
 
 

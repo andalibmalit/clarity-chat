@@ -469,16 +469,21 @@ def test_a_failed_switch_restarts_the_current_model(make_session, fetched_root):
     assert session.say("still here").record["output_text"] == " one"
 
 
-def test_when_the_restart_fails_too_no_conversation_runs(make_session):
+def test_when_the_restart_fails_too_no_conversation_runs(make_session, fetched_root):
     session, backend = make_session()
 
     def always_fail(model, weights, ctx_size):
         raise ConfigError("no GPU")
 
     backend.start = always_fail
+    # Another start (another context size): the same one isn't tried twice (tripwire
+    # review after C5, finding 3), so the restart that fails too needs a different one.
+    (fetched_root / "profiles" / "big.toml").write_text(
+        "ctx_size = 1024\n" + TEXT_PROFILE, encoding="utf-8"
+    )
     output: list[str] = []
     loop = ChatLoop(session, "text", read=lambda default: "", write=output.append)
-    loop.handle("/new")
+    loop.handle("/profile big")
     assert session.conversation is None
     assert "failed too" in "".join(output)
     output.clear()

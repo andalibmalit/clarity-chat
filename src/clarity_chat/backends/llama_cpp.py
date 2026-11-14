@@ -678,8 +678,12 @@ class LlamaCppBackend:
 
     @property
     def stopped(self) -> bool:
-        proc = self.server.proc if self.server else None
-        return proc is not None and proc.poll() is not None
+        """A server that has no live process: it exited, or a start replaced it and then
+        refused before launching (llama.cpp moved or rebuilt, say)."""
+        if self.server is None:
+            return False
+        proc = self.server.proc
+        return proc is None or proc.poll() is not None
 
     def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
         """Start llama-server with `weights` and a context of `ctx_size`. The old server stops
@@ -739,10 +743,14 @@ class LlamaCppBackend:
         if self.server is None:
             raise BackendError("No model loaded.")
         proc = self.server.proc
-        if proc is not None and proc.poll() is not None:
+        if self.stopped:
+            what = (
+                f"llama-server has stopped (exit code {proc.poll()})"
+                if proc is not None
+                else "llama-server didn't start"
+            )
             raise BackendError(
-                f"llama-server has stopped (exit code {proc.poll()}), so nothing was sent. "
-                "Start the model again to go on.",
+                f"{what}, so nothing was sent. Start the model again to go on.",
                 server_stopped=True,
             )
         if request is None:

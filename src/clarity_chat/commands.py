@@ -116,8 +116,11 @@ class Commands:
         self.session.on_record = lambda record: tracked({"event": "record", "record": record})
         try:
             return command.run(self, args, tracked)
-        except BackendError as e:
-            if e.server_stopped:
+        except (BackendError, ConfigError) as e:
+            # A call that found the server gone, or a start that failed and left the open
+            # chat's model stopped (a ConfigError too: llama.cpp moved, say).
+            stopped = getattr(e, "server_stopped", False)
+            if stopped or (self.session.conversation is not None and self.session.backend.stopped):
                 tracked({"event": "status", "status": "stopped"})
             raise
         finally:
@@ -575,9 +578,9 @@ def model_state(c: Commands) -> str:
     a replay, or a start that failed, can't leave it out of date."""
     if c.starting:
         return "starting"
-    if c.session.backend.stopped:
-        return "stopped"
-    return "ready" if c.session.conversation is not None else "none"
+    if c.session.conversation is None:  # a refused first start leaves a server object
+        return "none"
+    return "stopped" if c.session.backend.stopped else "ready"
 
 
 def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
