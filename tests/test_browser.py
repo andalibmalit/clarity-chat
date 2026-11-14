@@ -249,6 +249,7 @@ def test_with_no_profile_chosen_a_pick_starts_the_model(clarity, page):
     shot(page, "B5-new-chat")
     # C3: in a chat the picker ticks the profile; Escape closes it and returns focus.
     page.click("#picker-button")
+    page.wait_for_selector("#picker-menu:not([hidden])")  # it opens once its list is read
     assert page.get_attribute("[data-profile=text]", "aria-checked") == "true"
     assert focused(page) == "text"
     shot(page, "C3-picker-in-a-chat")
