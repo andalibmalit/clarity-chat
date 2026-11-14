@@ -263,6 +263,7 @@ async function draw(number) {
   clarity.state = answer.result;
   if (openMenu && openMenu.menu.id === "picker-menu") hideMenu(false);
   openPop = null; // the thread's popovers are drawn again, closed
+  openList = null;
   swap($("thread"), thread, alertOnce);
   swap($("composer-row"), row);
   const state = clarity.state;
@@ -445,8 +446,12 @@ document.addEventListener("click", (event) => {
   }
   if (openMenu && !openMenu.menu.contains(event.target)) hideMenu(false);
   if (openPop && !openPop.contains(event.target) && !event.target.closest(".bm")) hidePop(false);
+  if (openList && !openList.box.contains(event.target) && event.target !== openList.button) {
+    closeReplies(false);
+  }
   const version = event.target.closest("[data-switch]");
   if (version) {
+    if (!$("compare").hidden) closeCompare(); // picking a reply in Compare goes back to it
     command("switch", version.dataset.switch).then((answer) => {
       refresh();
       if (answer.error) notice("!", answer.error);
@@ -472,6 +477,14 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && openPop && openPop.contains(event.target)) {
     hidePop(true);
+    return;
+  }
+  if (event.key === "Escape" && openList && openList.box.contains(event.target)) {
+    closeReplies(true);
+    return;
+  }
+  if (event.key === "Escape" && $("compare").contains(event.target)) {
+    closeCompare();
     return;
   }
   if (!openMenu || !openMenu.menu.contains(event.target)) return;
@@ -612,7 +625,76 @@ function noteForm(pop, on) {
   if (on) pop.querySelector("[data-note] textarea").focus();
 }
 
+// The replies pop-out and Compare (C3), drawn by the `replies` and `compare` views.
+let openList = null; // the open pop-out and the button that opened it
+let compareFor = null; // the reply whose message Compare shows
+
+async function openReplies(button) {
+  // Opens below the reply's toolbar, with focus on its first control (V3Replies, focus).
+  const again = openList && openList.button === button;
+  closeReplies(false);
+  if (again) return;
+  const call = button.closest("[data-call]").dataset.call;
+  const box = document.createElement("div");
+  box.className = "listpop";
+  box.setAttribute("role", "dialog");
+  box.setAttribute("aria-label", "Replies to this message");
+  box.dataset.call = call;
+  try {
+    swap(box, await view("replies", { call }));
+  } catch (error) {
+    notice("!", error.message);
+    return;
+  }
+  button.closest(".tb").after(box);
+  button.setAttribute("aria-expanded", "true");
+  openList = { button, box };
+  box.scrollIntoView({ block: "nearest" }); // the thread scrolls to show all of it
+  (box.querySelector(".go") || box.querySelector("#more-n") || box.querySelector("button")).focus();
+}
+
+function closeReplies(returnFocus) {
+  if (!openList) return;
+  const { button, box } = openList;
+  openList = null;
+  box.remove();
+  button.setAttribute("aria-expanded", "false");
+  if (returnFocus) button.focus();
+}
+
+async function openCompare(call) {
+  // Compare takes the thread's place; Back to the chat (or Escape) returns to the thread,
+  // to the replies button that led here.
+  closeReplies(false);
+  try {
+    swap($("compare"), await view("compare", { call }));
+  } catch (error) {
+    notice("!", error.message);
+    return;
+  }
+  compareFor = call;
+  $("threadarea").hidden = $("cpwrap").hidden = true;
+  $("compare").hidden = false;
+  $("compare-back").focus();
+}
+
+function closeCompare() {
+  $("compare").hidden = true;
+  $("threadarea").hidden = $("cpwrap").hidden = false;
+  const button = document.querySelector(`li[data-call="${CSS.escape(compareFor || "")}"] [data-action="replies"]`);
+  (button || $("message")).focus();
+}
+
+clarity.on.replies = (element) => openReplies(element);
+
 const THREAD = {
+  "replies-close": () => closeReplies(true),
+  again() {
+    closeReplies(false);
+    write("regen", "same");
+  },
+  compare: (element, call) => openCompare(call),
+  "compare-back": () => closeCompare(),
   copy(element) {
     const status = element.closest(".tb").querySelector(".copied");
     const text = element.closest("li").querySelector(".msg").textContent;
@@ -641,6 +723,10 @@ document.addEventListener("submit", (event) => {
   } else if (form.matches("[data-edit]")) {
     const text = form.querySelector("textarea").value;
     if (text) write("edit", text, text);
+  } else if (form.matches("[data-more]")) {
+    const n = form.querySelector("input").value;
+    closeReplies(false);
+    write("regen", n);
   } else if (form.matches("[data-note]")) {
     const text = form.querySelector("textarea").value.trim();
     if (text) annotate("note", form.closest("[data-call]").dataset.call, text);
