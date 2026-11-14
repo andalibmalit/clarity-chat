@@ -145,3 +145,47 @@ def test_the_reply_so_far_starts_again_with_each_reply_of_regen_n(commands):
 
     c.run("regen", "2", on_event)
     assert seen[-1] == " Second one."
+
+
+def test_a_failed_edit_leaves_nothing_unanswered_live_or_after_a_resume(commands):
+    """Checkpoint 1, finding 1: a reloaded page mustn't put the edit back as a new message."""
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    backend.fail_with = "made-up failure"
+    with pytest.raises(BackendError):
+        c.run("edit", "Hello instead", lambda e: None)
+    backend.fail_with = None
+    assert state(c)["unanswered"] is None
+    c.run("resume", c.session.conversation.conversation_id, lambda e: None)
+    assert state(c)["unanswered"] is None
+
+
+def test_state_says_which_reply_of_regen_n_is_being_written(commands):
+    """Checkpoint 1, finding 3 (DW section 4): a page reloaded mid-/regen 3 draws "2 of 3"."""
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    backend.replies = [" One.", " Two.", " Three."]
+    seen: list[dict] = []
+
+    def on_event(event):
+        if event["event"] == "text":
+            seen.append(state(c)["running"])
+
+    c.run("regen", "3", on_event)
+    assert seen[-1] == {"command": "regen", "args": "3", "k": 3, "n": 3}
+    assert state(c)["running"] is None
+
+
+def test_state_gives_what_differs_after_a_resume_until_the_next_call(commands, fetched_root):
+    """Checkpoint 1, finding 3: the same count and sentences /resume gave, not the raw record."""
+    c, _ = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    profile = fetched_root / "profiles" / "text.toml"
+    profile.write_text(profile.read_text("utf-8").replace("0.6", "0.7"), "utf-8")
+    resumed = c.run("resume", c.session.conversation.conversation_id, lambda e: None)
+    assert state(c).get("resume_differ") == resumed["differ"] and resumed["differ"]["count"]
+    c.run("say", "Again", lambda e: None)
+    assert state(c).get("resume_differ") is None

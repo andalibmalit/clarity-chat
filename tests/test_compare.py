@@ -165,3 +165,31 @@ def test_again_is_only_offered_for_your_last_message(chat):
     session.set_setting("temperature", "0.9")
     assert compare(c, first.record["call_id"])["again"] is None
     assert compare(c)["again"] == {"seeds": [42], "now": {"temperature": 0.9}}
+
+
+@pytest.mark.parametrize("version", ["v0.1.0", "v0.2.0", "v0.2.1"])
+def test_settings_an_old_log_didnt_record_dont_count_as_changed(chat, fetched_root, version):
+    """Checkpoint 1, finding 2: logprobs and steering_scale arrived later; a missing value
+    isn't a different one."""
+    import shutil
+    from pathlib import Path
+
+    golden = Path(__file__).parent / "fixtures" / "golden" / f"{version}.jsonl"
+    c, session = chat([" More."])
+    log = Path(shutil.copy(golden, session.logs_dir / f"old-{version.replace('.', '')}.jsonl"))
+    c.run("resume", log.stem, lambda e: None)
+    result = compare(c)
+    assert result["again"] is None
+    assert len(result["groups"]) == 1
+    with pytest.raises(ConfigError, match="already has a reply"):
+        c.run("regen", "same", lambda e: None)
+
+
+def test_a_reply_that_stops_where_the_other_goes_on_is_marked_a_prefix(chat):
+    """Checkpoint 1, finding 12: "part at token N" is wrong when one just stops."""
+    c, session = chat([" Hello there", " Hello there, friend"])
+    session.say("Hi")
+    session.set_setting("max_tokens", "40")
+    again_with_seed(session, 42)
+    (pair,) = compare(c)["pairs"]
+    assert pair.get("prefix") is True and pair["first_different_token"] == 12
