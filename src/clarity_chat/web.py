@@ -839,6 +839,10 @@ def pair_note(pair: dict[str, Any]) -> str | None:
 STOPS = {"cancelled": "stopped by you", "limit": "stopped at the token limit"}
 
 
+def same_seeds(n: int) -> str:
+    return "the same seed" if n == 1 else f"the same {n} seeds"
+
+
 def reply_rows(compared: dict[str, Any]) -> list[dict[str, Any]]:
     """The pop-out's rows: what differs (the seed, and the settings when the replies fall in
     groups), how each stopped and where its branch went, and a divider where a group starts,
@@ -863,7 +867,7 @@ def reply_rows(compared: dict[str, Any]) -> list[dict[str, Any]]:
             run = [r["seed"] for r in replies[i:] if r["group"] == reply["group"]]
             divider = "You set " + changed_words(groups[reply["group"]]["settings"], " to ")
             if run == before:
-                divider += f", then chose “Again with the same {len(run)} seeds”"
+                divider += f", then chose “Again with {same_seeds(len(run))}”"
         rows.append({**reply, "words": " · ".join(words), "divider": divider})
     return rows
 
@@ -882,6 +886,7 @@ async def _replies(worker: Worker, params: dict[str, str | None]) -> str:
         last=last and turns[-1]["role"] == "assistant",
         again=compared["again"],
         again_words=changed_words(compared["again"]["now"]) if compared["again"] else None,
+        same_seeds=same_seeds,
     )
 
 
