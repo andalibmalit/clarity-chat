@@ -20,6 +20,7 @@
 <symbol id="i-regen" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66"></path><path d="M20 4v5h-5"></path></symbol>
 <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"></path></symbol>
 <symbol id="i-details" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"></path></symbol>
 <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
 <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"></path></symbol>
 <symbol id="i-mark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"></path></symbol>
@@ -30,6 +31,15 @@
 </defs></svg>
 
 <div class="app bubbles" id="app">
+<div class="scene sky" aria-hidden="true"><div class="sun"></div><div class="beams"></div>
+<div class="flight"><div class="arc"><svg class="eagle" viewBox="0 0 100 60"><path class="body" d="M50 8C52 8 53 11 53 14L54 18C62 15 74 13 86 15L98 17L92 20L99 22L92 24L98 27L91 28L96 32L89 31L92 36L86 33C76 36 64 37 55 35L57 46L60 54Q50 57 40 54L43 46L45 35C36 37 24 36 14 33L8 36L11 31L4 32L9 28L2 27L8 24L1 22L8 20L2 17L14 15C26 13 38 15 46 18L47 14C47 11 48 8 50 8Z"></path><path class="white" d="M50 8C52 8 53 11 53 14L54 18L46 18L47 14C47 11 48 8 50 8Z"></path><path class="white" d="M56.5 45L60 54Q50 57 40 54L43.5 45Z"></path></svg></div></div>
+<div class="sea"><div class="bob w1"><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 24 Q75 8 150 24 T300 24 Q375 8 450 24 T600 24 Q675 8 750 24 T900 24 Q975 8 1050 24 T1200 24 V100 H0 Z"></path></svg></div><div class="bob w2"><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 24 Q50 10 100 24 T200 24 Q250 10 300 24 T400 24 Q450 10 500 24 T600 24 Q650 10 700 24 T800 24 Q850 10 900 24 T1000 24 Q1050 10 1100 24 T1200 24 V100 H0 Z"></path></svg></div><div class="bob w3"><svg viewBox="0 0 1200 100" preserveAspectRatio="none"><path d="M0 24 Q37.5 12 75 24 T150 24 Q187.5 12 225 24 T300 24 Q337.5 12 375 24 T450 24 Q487.5 12 525 24 T600 24 Q637.5 12 675 24 T750 24 Q787.5 12 825 24 T900 24 Q937.5 12 975 24 T1050 24 Q1087.5 12 1125 24 T1200 24 V100 H0 Z"></path></svg></div></div>
+</div>
+<div class="scene space" aria-hidden="true"><div class="st s1"></div><div class="st s2"></div><div class="st s3"></div>
+<div class="gal g1"><div class="spin"><div class="arms"></div><div class="core"></div></div></div><div class="gal g2"><div class="spin"><div class="arms"></div><div class="core"></div></div></div>
+<span class="tw"></span><span class="tw"></span><span class="tw"></span><span class="tw"></span><span class="tw"></span><span class="tw"></span><span class="tw"></span><span class="tw"></span><span class="tw"></span><span class="tw"></span><span class="tw"></span>
+<div class="shoot"></div>
+</div>
 <button type="button" class="handle" id="chats-handle" data-action="chats" aria-label="Show chats" aria-controls="drawer" aria-expanded="false"><svg class="icon sm" aria-hidden="true"><use href="#i-right"></use></svg><span>Chats</span></button>
 <main class="mn">
 <div class="top">
@@ -37,7 +47,7 @@
 <button type="button" class="title" id="title" aria-haspopup="menu" aria-expanded="false" aria-controls="title-menu" hidden><span id="title-text"></span><svg class="icon sm" aria-hidden="true"><use href="#i-down"></use></svg></button>
 <form class="rename" id="rename" hidden><label class="vh" for="rename-text">Chat title</label><input type="text" id="rename-text" autocomplete="off"><button type="submit" class="btn sm pri" id="rename-save">Save</button><button type="button" class="btn sm" data-action="rename-cancel">Cancel</button></form>
 <span class="spacer"></span>
-<button type="button" class="wbtn" id="branches-button" data-action="branches" aria-expanded="false" hidden><svg class="icon sm" aria-hidden="true"><use href="#i-branch"></use></svg>Branches <span class="ct" id="branches-count"></span></button>
+<button type="button" class="wbtn" id="branches-button" data-action="branches" aria-expanded="false" hidden><svg class="icon sm" aria-hidden="true"><use href="#i-branch"></use></svg><span class="lbl">Branches </span><span class="ct" id="branches-count"></span></button>
 </div>
 <div class="menu appmenu" id="clarity-menu" role="menu" aria-label="Clarity" hidden>
 <button type="button" class="mi" role="menuitem" data-action="new" id="new-chat">New chat</button>
@@ -70,6 +80,21 @@
 <div class="scrim" id="scrim" data-action="chats-close" hidden></div>
 <aside class="drawer" id="drawer" aria-label="Chats" hidden></aside>
 <dialog class="sheet" id="export-sheet" aria-labelledby="export-title"><div id="export-body"></div></dialog>
+<dialog class="sheet appearance" id="appearance" aria-labelledby="appearance-title">
+<div class="hd"><h2 id="appearance-title">Appearance</h2><button type="button" class="iconbtn" aria-label="Close Appearance" data-action="appearance-close"><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button></div>
+<fieldset><legend>Theme</legend><div class="cards">
+<label class="card"><input type="radio" name="theme" value="notebook"><span class="sw clarity" aria-hidden="true"><span class="p"><i class="l1"></i><i class="l2"></i></span></span><span class="cn"><svg class="icon sm tick" aria-hidden="true"><use href="#i-check"></use></svg>Notebook</span></label>
+<label class="card"><input type="radio" name="theme" value="neutral"><span class="sw clarity t-neutral" aria-hidden="true"><span class="p"><i class="l1"></i><i class="l2"></i></span></span><span class="cn"><svg class="icon sm tick" aria-hidden="true"><use href="#i-check"></use></svg>Neutral</span></label>
+<label class="card"><input type="radio" name="theme" value="sky"><span class="sw clarity t-sky" aria-hidden="true"><span class="p"><i class="l1"></i><i class="l2"></i></span></span><span class="cn"><svg class="icon sm tick" aria-hidden="true"><use href="#i-check"></use></svg>Sky</span></label>
+<label class="card"><input type="radio" name="theme" value="space"><span class="sw clarity t-space" aria-hidden="true"><span class="p"><i class="l1"></i><i class="l2"></i></span></span><span class="cn"><svg class="icon sm tick" aria-hidden="true"><use href="#i-check"></use></svg>Space</span></label>
+<label class="card"><input type="radio" name="theme" value="hc"><span class="sw clarity t-hc" aria-hidden="true"><span class="p"><i class="l1"></i><i class="l2"></i></span></span><span class="cn"><svg class="icon sm tick" aria-hidden="true"><use href="#i-check"></use></svg>High contrast</span></label>
+</div><p class="tdesc" id="theme-desc"></p></fieldset>
+<fieldset><legend>Light or dark</legend><div class="rads">
+<label class="rad"><input type="radio" name="look" value="light">Light</label><label class="rad"><input type="radio" name="look" value="dark">Dark</label><label class="rad"><input type="radio" name="look" value="system">Match system</label>
+</div></fieldset>
+<div class="mrow" id="motion-row"><div class="mtext"><span class="mname" id="motion-label">Motion</span><p class="mhelp" id="motion-help">The scenery around the page moves slowly. Text never moves.</p><p class="mwhy" id="motion-why" hidden>Off because your system asks for reduced motion.</p></div>
+<button type="button" class="switch" id="motion" role="switch" aria-checked="true" aria-labelledby="motion-label" aria-describedby="motion-help motion-why" data-action="motion"><span class="trk"></span><span class="w" id="motion-word">On</span></button></div>
+</dialog>
 <dialog class="sheet" id="about" aria-labelledby="about-title"><div id="about-body"></div><div class="actions"><button type="button" class="btn" id="about-close">Close</button></div></dialog>
 </div>
 

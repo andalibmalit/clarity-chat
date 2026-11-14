@@ -313,3 +313,125 @@ li.revealed .msg { outline: 2px solid var(--accent); outline-offset: 4px; border
 #export-sheet .callout { border-left: 3px solid var(--accent); padding: 6px 0 6px 10px; margin-bottom: 10px; }
 #export-sheet .actions { gap: 8px; }
 #export-sheet .problem { margin-bottom: 10px; }
+
+/* Appearance and access (C6): the focus ring from the tokens, the Appearance dialog, the
+   Sky and Space scenery behind the solid page, and narrow windows. Values follow the
+   boards V3Appearance and V3Access. */
+html { color-scheme: light dark; } /* Match system: light-dark() follows the browser */
+html[data-scheme="light"] { color-scheme: light; }
+html[data-scheme="dark"] { color-scheme: dark; }
+.app :focus-visible, .plain :focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); }
+.cp:focus-within { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); }
+.cp textarea:focus-visible { outline: none; }
+
+dialog.appearance { width: min(560px, calc(100vw - 32px)); display: none; flex-direction: column; gap: 18px; padding: 18px 20px 20px; border-radius: var(--r-lg); }
+dialog.appearance[open] { display: flex; }
+.t-hc dialog.appearance { border-width: 2px; }
+.appearance .hd { display: flex; align-items: center; justify-content: space-between; }
+.appearance h2 { margin: 0; font-size: 16px; }
+.appearance fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.appearance legend { padding: 0; margin: 0 0 8px; font-size: 13px; font-weight: 500; }
+.appearance .cards { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.appearance .card { position: relative; display: flex; flex-direction: column; gap: 6px; padding: 6px 6px 8px; border-radius: var(--r-md); border: 1px solid var(--rule); font-size: 12.5px; line-height: 1.3; cursor: pointer; }
+.appearance .card:hover { background: var(--hover); }
+.appearance .card input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.appearance .card:has(input:checked) { border: 2px solid var(--accent); padding: 5px 5px 7px; }
+.appearance .card:has(input:focus-visible) { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); }
+.appearance .cn { display: flex; align-items: center; gap: 4px; min-height: 2.6em; }
+.appearance .tick { color: var(--accent); visibility: hidden; }
+.appearance .card:has(input:checked) .tick { visibility: visible; }
+.appearance .sw { display: flex; flex-direction: column; height: 50px; border-radius: 7px; padding: 8px 7px; background: var(--paper); border: 1px solid var(--rule); overflow: hidden; }
+.appearance .sw.t-sky { background: linear-gradient(180deg, light-dark(oklch(86% 0.06 230), oklch(30% 0.06 250)), light-dark(oklch(74% 0.08 220), oklch(20% 0.05 240))); padding: 8px 10px; }
+.appearance .sw.t-space { background: var(--backdrop), oklch(13% 0.03 280); padding: 8px 10px; }
+.appearance .sw .p { flex: 1; background: var(--paper); border-radius: 4px; padding: 5px; display: flex; flex-direction: column; gap: 4px; }
+.appearance .sw i { display: block; height: 5px; border-radius: 3px; }
+.appearance .sw .l1 { background: var(--ink); width: 80%; }
+.appearance .sw .l2 { background: var(--accent); width: 50%; }
+.appearance .tdesc { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+.appearance .rads { display: flex; gap: 18px; flex-wrap: wrap; }
+.appearance .rad { display: inline-flex; align-items: center; gap: 7px; font-size: 13.5px; cursor: pointer; }
+.appearance .rad input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent); }
+.appearance .mrow { display: flex; align-items: flex-start; gap: 16px; border-top: 1px solid var(--rule); padding-top: 14px; }
+.appearance .mtext { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.appearance .mname { font-size: 13px; font-weight: 500; }
+.appearance .mhelp { font-size: 12.5px; color: var(--muted); }
+.appearance .mwhy { font-size: 12.5px; color: var(--ink); }
+.switch { display: inline-flex; align-items: center; gap: 8px; padding: 4px 6px 4px 4px; border-radius: var(--r-sm); font-size: 13px; flex: none; }
+.switch .trk { position: relative; width: 36px; height: 20px; border-radius: 999px; background: var(--paper); border: 1px solid var(--muted); flex: none; }
+.switch .trk::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); }
+.switch[aria-checked="true"] .trk { background: var(--accent); border-color: var(--accent); }
+.switch[aria-checked="true"] .trk::after { left: 18px; background: var(--on-accent); }
+.switch .w { min-width: 24px; text-align: left; }
+
+/* Sky and Space: decoration only, behind the solid page. Text never sits on it. */
+.scene { display: none; position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.scene * { position: absolute; pointer-events: none; }
+html.t-sky .scene.sky, html.t-space .scene.space { display: block; }
+html.scenic #app { background: none; isolation: isolate; }
+html.scenic .mn { z-index: 1; flex: 0 1 940px; max-width: 940px; margin: 76px auto 0; background: var(--paper); border-radius: 18px 18px 0 0; box-shadow: 0 30px 80px oklch(0% 0 0 / 0.3), 0 0 0 1px var(--rule); }
+html.scenic .pn { z-index: 1; }
+.scene.sky { background: linear-gradient(to bottom, light-dark(oklch(83% 0.075 238), oklch(27% 0.06 255)), light-dark(oklch(90% 0.05 225), oklch(31% 0.055 245)) 55%, light-dark(oklch(94% 0.035 210), oklch(35% 0.05 235))); }
+.sky .sun { right: -120px; top: -120px; width: 360px; height: 360px; border-radius: 50%; background: radial-gradient(closest-side, light-dark(oklch(99% 0.06 95 / 0.95), oklch(92% 0.03 250 / 0.45)), light-dark(oklch(98% 0.07 95 / 0.45), oklch(85% 0.03 250 / 0.12)) 35%, transparent 70%); }
+.sky .beams { right: -520px; top: -520px; width: 1040px; height: 1040px; border-radius: 50%; background: conic-gradient(from 180deg at 50% 50%, transparent 0deg, transparent 8deg, light-dark(oklch(99% 0.06 95 / 0.5), oklch(90% 0.03 250 / 0.08)) 14deg, transparent 21deg, transparent 31deg, light-dark(oklch(99% 0.06 95 / 0.38), oklch(90% 0.03 250 / 0.06)) 38deg, transparent 47deg, transparent 56deg, light-dark(oklch(99% 0.06 95 / 0.46), oklch(90% 0.03 250 / 0.07)) 63deg, transparent 70deg, transparent 360deg); mask-image: radial-gradient(closest-side, #000 10%, transparent 92%); filter: blur(5px); animation: beams 26s ease-in-out infinite alternate; }
+@keyframes beams { from { transform: rotate(-3deg); opacity: 0.55; } to { transform: rotate(4deg); opacity: 1; } }
+.sky .sea { left: 0; right: 0; bottom: 0; height: 130px; }
+.sky .bob { left: 0; right: 0; bottom: 0; animation: bob 9s ease-in-out infinite alternate; }
+.sky .bob svg { position: relative; display: block; width: 200%; }
+.sky .w1 { height: 112px; animation-duration: 11s; }
+.sky .w2 { height: 84px; animation-duration: 8s; animation-delay: -3s; }
+.sky .w3 { height: 56px; animation-duration: 9.5s; animation-delay: -6s; }
+.sky .w1 svg { height: 112px; fill: light-dark(oklch(80% 0.07 215 / 0.5), oklch(38% 0.05 230 / 0.6)); animation: slide 46s linear infinite; }
+.sky .w2 svg { height: 84px; fill: light-dark(oklch(71% 0.09 228 / 0.45), oklch(30% 0.05 235 / 0.65)); animation: slide 34s linear infinite reverse; }
+.sky .w3 svg { height: 56px; fill: light-dark(oklch(62% 0.105 238 / 0.45), oklch(24% 0.045 240 / 0.75)); animation: slide 27s linear infinite; }
+@keyframes slide { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+@keyframes bob { from { transform: translateY(0); } to { transform: translateY(5px); } }
+/* The eagle crosses in about 30 s, 4 s after the page loads, then every --motion-visit. */
+.sky .flight { left: 0; top: 14px; width: 30px; height: 46px; animation: cross var(--motion-visit) linear 4s infinite backwards; }
+.sky .arc { inset: 0; animation: arc 12s ease-in-out infinite alternate; }
+.sky .eagle { left: -8px; top: 9px; width: 52px; height: 31px; transform: rotate(-6deg); animation: bank 7s ease-in-out infinite alternate; }
+.sky .eagle .body { fill: light-dark(oklch(31% 0.04 60), oklch(16% 0.02 250)); }
+.sky .eagle .white { fill: light-dark(oklch(97% 0.01 90), oklch(80% 0.01 250)); }
+@keyframes cross { 0% { transform: translateX(-60px); } 17% { transform: translateX(calc(100vw + 60px)); } 100% { transform: translateX(calc(100vw + 60px)); } }
+@keyframes arc { from { transform: translateY(-4px); } to { transform: translateY(12px); } }
+@keyframes bank { from { transform: rotate(-7deg) scaleX(1); } to { transform: rotate(6deg) scaleX(0.9); } }
+.scene.space { background: radial-gradient(120% 80% at 15% 100%, oklch(22% 0.07 300 / 0.9), transparent 60%), radial-gradient(90% 60% at 100% 0%, oklch(21% 0.06 255 / 0.9), transparent 65%), oklch(12% 0.03 280); }
+.space .st { top: 0; bottom: 0; left: 0; }
+.space .s1 { width: calc(100% + 230px); background-size: 230px 230px; background-image: radial-gradient(circle at 86px 42px, oklch(96% 0.03 300 / 0.65) 0 0.5px, transparent 1.2px), radial-gradient(circle at 22px 214px, oklch(96% 0.03 90 / 0.48) 0 0.5px, transparent 1.2px), radial-gradient(circle at 153px 18px, oklch(96% 0.03 90 / 0.51) 0 0.5px, transparent 1.2px), radial-gradient(circle at 26px 115px, oklch(96% 0.03 300 / 0.47) 0 0.5px, transparent 1.2px), radial-gradient(circle at 148px 135px, oklch(96% 0.03 280 / 0.64) 0 0.5px, transparent 1.2px), radial-gradient(circle at 16px 60px, oklch(96% 0.03 280 / 0.62) 0 0.5px, transparent 1.2px), radial-gradient(circle at 198px 178px, oklch(96% 0.03 300 / 0.49) 0 0.5px, transparent 1.2px); animation: drift1 150s linear infinite; }
+.space .s2 { width: calc(100% + 340px); background-size: 340px 340px; background-image: radial-gradient(circle at 64px 296px, oklch(96% 0.03 250 / 0.7) 0 0.8px, transparent 1.5px), radial-gradient(circle at 96px 56px, oklch(96% 0.03 90 / 0.7) 0 0.8px, transparent 1.5px), radial-gradient(circle at 100px 194px, oklch(96% 0.03 280 / 0.7) 0 0.8px, transparent 1.5px), radial-gradient(circle at 258px 276px, oklch(96% 0.03 300 / 0.77) 0 0.8px, transparent 1.5px), radial-gradient(circle at 131px 96px, oklch(96% 0.03 280 / 0.54) 0 0.8px, transparent 1.5px), radial-gradient(circle at 297px 132px, oklch(96% 0.03 300 / 0.81) 0 0.8px, transparent 1.5px); animation: drift2 95s linear infinite; }
+.space .s3 { width: calc(100% + 470px); background-size: 470px 470px; background-image: radial-gradient(circle at 377px 233px, oklch(96% 0.03 250 / 0.8) 0 1.2px, transparent 1.9px), radial-gradient(circle at 41px 64px, oklch(96% 0.03 90 / 0.73) 0 1.2px, transparent 1.9px), radial-gradient(circle at 219px 24px, oklch(96% 0.03 280 / 0.86) 0 1.2px, transparent 1.9px), radial-gradient(circle at 183px 308px, oklch(96% 0.03 300 / 0.79) 0 1.2px, transparent 1.9px); animation: drift3 60s linear infinite; }
+@keyframes drift1 { to { transform: translateX(-230px); } }
+@keyframes drift2 { to { transform: translateX(-340px); } }
+@keyframes drift3 { to { transform: translateX(-470px); } }
+.space .tw { width: 3px; height: 3px; border-radius: 50%; background: oklch(98% 0.03 90); box-shadow: 0 0 6px 1px oklch(95% 0.06 280 / 0.8); animation: twinkle 5s ease-in-out infinite alternate; }
+.space .tw:nth-of-type(1) { left: 4%; top: 12%; animation-duration: 4.3s; }
+.space .tw:nth-of-type(2) { left: 11%; top: 31%; animation-duration: 5.9s; animation-delay: -0.9s; }
+.space .tw:nth-of-type(3) { left: 7%; top: 55%; animation-duration: 7.1s; animation-delay: -1.8s; }
+.space .tw:nth-of-type(4) { left: 12%; top: 82%; animation-duration: 5.1s; animation-delay: -2.7s; }
+.space .tw:nth-of-type(5) { left: 88%; top: 22%; animation-duration: 6.7s; animation-delay: -3.6s; }
+.space .tw:nth-of-type(6) { left: 94%; top: 47%; animation-duration: 4.7s; animation-delay: -4.5s; }
+.space .tw:nth-of-type(7) { left: 86%; top: 68%; animation-duration: 7.9s; animation-delay: -5.4s; }
+.space .tw:nth-of-type(8) { left: 92%; top: 88%; animation-duration: 5.3s; animation-delay: -6.3s; }
+.space .tw:nth-of-type(9) { left: 30%; top: 3%; animation-duration: 6.1s; animation-delay: -7.2s; }
+.space .tw:nth-of-type(10) { left: 58%; top: 5%; animation-duration: 4.9s; animation-delay: -8.1s; }
+.space .tw:nth-of-type(11) { left: 72%; top: 2%; animation-duration: 7.3s; animation-delay: -9s; }
+@keyframes twinkle { from { opacity: 0.15; transform: scale(0.7); } to { opacity: 1; transform: scale(1.15); } }
+.space .gal { transform: rotate(-24deg) scaleY(0.42); }
+.space .g1 { left: 20px; top: 470px; width: 150px; height: 150px; }
+.space .g2 { right: 46px; top: 170px; width: 84px; height: 84px; opacity: 0.7; transform: rotate(32deg) scaleY(0.5); }
+.space .gal .spin { inset: 0; border-radius: 50%; animation: spin var(--motion-galaxy) linear infinite; }
+.space .g2 .spin { animation-duration: calc(var(--motion-galaxy) * 1.4); animation-direction: reverse; }
+.space .gal .arms { inset: 0; border-radius: 50%; background: conic-gradient(from 0deg, transparent 0deg, oklch(82% 0.1 300 / 0.5) 50deg, transparent 130deg, transparent 180deg, oklch(82% 0.09 250 / 0.5) 230deg, transparent 310deg, transparent 360deg); mask-image: radial-gradient(closest-side, #000 0, #000 30%, transparent 96%); filter: blur(5px); }
+.space .gal .core { inset: 30%; border-radius: 50%; background: radial-gradient(closest-side, oklch(98% 0.04 90 / 0.95), oklch(88% 0.09 300 / 0.5) 45%, transparent 100%); }
+@keyframes spin { to { transform: rotate(360deg); } }
+/* The shooting star: a 1.3 s streak, 10 s after the page loads, then every --motion-visit. */
+.space .shoot { right: 60px; top: 20px; width: 96px; height: 2px; border-radius: 2px; rotate: -8deg; opacity: 0; background: linear-gradient(to right, oklch(99% 0.02 90), oklch(92% 0.06 280 / 0.5) 30%, transparent); animation: shoot var(--motion-visit) linear 10s infinite; }
+@keyframes shoot { 0% { opacity: 0; translate: 0 0; } 0.12% { opacity: 1; } 0.5% { opacity: 0.9; } 0.7% { opacity: 0; translate: -400px 56px; } 100% { opacity: 0; translate: -400px 56px; } }
+/* Motion off pauses every animation where it is: a still picture. Last, so it beats the shorthands above. */
+#app .scene * { animation-play-state: var(--motion-play); }
+
+/* Narrow windows: Branches as its icon and count; the composer row wraps, the context figure first. */
+@media (max-width: 760px) {
+  #branches-button .lbl { display: none; }
+  html.scenic .mn { margin-top: 24px; }
+}
+@media (max-width: 480px) { .ctx { flex-basis: 100%; margin-left: 4px; } }

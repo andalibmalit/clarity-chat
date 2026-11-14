@@ -389,7 +389,7 @@ def test_send_writes_and_stop_keeps_the_part_that_arrived(clarity, page):
     assert page.text_content("#stop-label") == "Stop"
     assert page.get_attribute("#picker-button", "aria-disabled") == "true"
     assert page.get_attribute("#writing", "aria-live") is None  # the reply isn't announced
-    assert focused(page) == "stop"
+    assert focused(page) == "message"  # sent from the box, focus stays there (V3Access O3)
     shot(page, "E1-writing", "c2")
     page.click("#stop")
     # E3: the part that arrived is kept, and the facts line says who stopped it.
@@ -1325,3 +1325,148 @@ def test_a_refused_restart_shows_the_server_s_output(clarity, page):
     page.wait_for_selector("#thread [data-action=restart]", state="detached")
     page.click("#send")
     page.wait_for_selector(".reply.last .msg:has-text('ok')")
+
+
+# --- Appearance and access (C6)
+
+
+def open_appearance(page) -> None:
+    page.click("#clarity-button")
+    page.click("#clarity-menu [data-action=appearance]")
+    page.wait_for_selector("#appearance[open]")
+
+
+def style(page, selector: str, name: str) -> str:
+    return page.evaluate(f"getComputedStyle(document.querySelector('{selector}')).{name}")
+
+
+def tab_indexes(page, selector: str) -> list[int]:
+    return page.evaluate(f"[...document.querySelectorAll('{selector}')].map(b => b.tabIndex)")
+
+
+def classes(page) -> list[str]:
+    return page.evaluate("[...document.documentElement.classList]")
+
+
+def test_appearance_applies_at_once_is_kept_and_returns_focus(clarity, page):
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    open_appearance(page)
+    assert page.evaluate("document.activeElement.value") == "notebook"
+    assert page.is_hidden("#motion-row")  # nothing moves in Notebook
+    assert page.text_content("#theme-desc") == "Notebook: serif text on warm paper. The default."
+    page.click("#appearance .card:has(input[value=sky])")
+    assert "t-sky" in classes(page) and "scenic" in classes(page)
+    assert page.is_visible(".scene.sky") and page.is_visible("#motion-row")
+    assert page.get_attribute("#motion", "aria-checked") == "true"
+    shot(page, "N1-sky", "c6")
+    page.click("#motion")  # off: the scenery pauses where it is
+    assert page.get_attribute("#motion", "aria-checked") == "false"
+    assert "motion-off" in classes(page)
+    assert style(page, ".sky .flight", "animationPlayState") == "paused"
+    page.check("#appearance input[value=dark]")
+    assert page.get_attribute("html", "data-scheme") == "dark"
+    page.keyboard.press("Escape")
+    page.wait_for_selector("#appearance", state="hidden")
+    assert focused(page) == "clarity-button"
+    page.reload()  # kept in the browser's storage
+    page.wait_for_selector("body[data-page=ready]")
+    assert {"t-sky", "scenic", "motion-off"} <= set(classes(page))
+    assert page.get_attribute("html", "data-scheme") == "dark"
+    open_appearance(page)
+    page.click("#appearance .card:has(input[value=hc])")
+    width = page.evaluate(
+        "getComputedStyle(document.documentElement).getPropertyValue('--focus-width')"
+    )  # noqa: E501
+    assert width.strip() == "3px" and page.is_hidden("#motion-row")
+    shot(page, "N5-high-contrast", "c6")
+
+
+def test_motion_is_off_by_default_when_the_system_asks(clarity, page):
+    _, redirect, _ = clarity
+    page.emulate_media(reduced_motion="reduce")
+    chat_on(page, redirect)
+    open_appearance(page)
+    page.click("#appearance .card:has(input[value=space])")
+    assert page.get_attribute("#motion", "aria-checked") == "false"
+    assert page.text_content("#motion-why") == "Off because your system asks for reduced motion."
+    assert page.is_visible("#motion-why")
+    assert style(page, ".space .shoot", "animationPlayState") == "paused"
+    shot(page, "N4-reduced-motion", "c6")
+    page.click("#motion")  # your choice stands over the default
+    assert page.get_attribute("#motion", "aria-checked") == "true" and page.is_hidden("#motion-why")
+
+
+def test_a_toolbar_is_one_tab_stop_with_arrow_keys_inside(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    toolbar = '.reply.last .tb[role="toolbar"]'
+    stops = tab_indexes(page, f"{toolbar} button")
+    assert stops.count(0) == 1 and stops[0] == 0
+    page.focus(f"{toolbar} button >> nth=0")
+    page.keyboard.press("ArrowRight")
+    assert page.evaluate("document.activeElement.dataset.action") == "regen"
+    page.keyboard.press("End")
+    assert page.evaluate("document.activeElement.dataset.action") == "details"
+    page.keyboard.press("Home")
+    assert page.evaluate("document.activeElement.dataset.action") == "copy"
+    # Regenerate: focus goes to Stop, then back to Regenerate on the new reply's toolbar.
+    backend.replies, backend.piece_delay = [" A longer second reply."], 0.2
+    page.keyboard.press("ArrowRight")
+    page.keyboard.press("Enter")
+    page.wait_for_selector("#stop:not([hidden])")
+    assert focused(page) == "stop"
+    page.wait_for_selector(".reply.last [data-action=replies]:has-text('2 replies')")
+    page.wait_for_function("document.activeElement.dataset.action === 'regen'")
+    assert page.text_content("#writing-status") == "Reply finished"
+
+
+def test_enter_sends_and_shift_enter_starts_a_new_line(clarity, page):
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    page.fill("#message", "one")
+    page.press("#message", "Shift+Enter")
+    page.keyboard.type("two")
+    assert page.input_value("#message") == "one\ntwo"
+    page.press("#message", "Enter")
+    page.wait_for_selector(".turn.user .msg")
+    assert page.text_content(".turn.user .msg") == "one\ntwo"
+    assert focused(page) == "message"  # sent from the box: focus stays there
+
+
+def test_the_replies_rows_are_one_tab_stop_with_up_and_down(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    backend.replies = [" One.", " Two.", " Three."]
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    page.evaluate("clarity.command('regen', '2')")
+    page.evaluate("clarity.refresh()")
+    page.wait_for_selector(".reply.last [data-action=replies]:has-text('3 replies')")
+    page.click(".reply.last [data-action=replies]")
+    page.wait_for_selector(".listpop .rows .go")
+    stops = tab_indexes(page, ".listpop .rows .go")
+    assert stops == [0, -1]
+    page.focus(".listpop .rows .go >> nth=0")
+    page.keyboard.press("ArrowDown")
+    assert page.evaluate("document.activeElement.textContent").startswith("Show this reply")
+    assert tab_indexes(page, ".listpop .rows .go") == [-1, 0]
+
+
+def test_a_narrow_window_shows_branches_as_its_icon_and_count(clarity, page):
+    _, redirect, backend = clarity
+    page.set_viewport_size({"width": 720, "height": 800})
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    backend.replies = [" Second one."]
+    page.click(".reply.last [data-action=regen]")
+    page.wait_for_selector("#branches-button:not([hidden])")
+    assert page.get_attribute("#branches-button", "aria-label") == "Branches, 2"
+    assert page.is_hidden("#branches-button .lbl") and page.is_visible("#branches-count")
+    page.click(".reply.last [data-action=details]")
+    page.wait_for_selector("#panel:not([hidden])")
+    assert style(page, "#panel", "position") == "absolute"
+    shot(page, "O5-720", "c6")

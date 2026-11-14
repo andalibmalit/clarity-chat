@@ -147,6 +147,10 @@ The views read only through the command table, the way a script would; while a m
 - "Start the model again" sends `/resume` with the open chat's `log_id`; a refusal shows "! The model didn't start again." with the sentence's first line, and the rest (llama-server's output) in a box that scrolls.
 - `compare?call=CALL_ID`: the replies side by side, from `/compare`. Replies with matched seeds line up in rows, one column per group of settings, with a marker where each first parts from the first column's (`first_different_char`), "agree until one stops" for a `prefix` pair and "the same text" for identical ones. Otherwise they're cards, with a warning when both the seed and a setting differ. "Same in all" lists the profile, model and backend, every setting in `same`, and "the prompt" when `same_prompt` is true.
 
+Appearance (in the Clarity menu) sets the theme (Notebook, Neutral, Sky, Space or High contrast), Light, Dark or Match system, and, in Sky and Space, Motion. Changes apply at once and are kept in the browser's own storage, so Clarity writes no file for them, and they aren't logged. Only the scenery around the page in Sky and Space moves; it starts off when the system asks for reduced motion, and the Motion switch overrides that either way.
+
+The keyboard: Enter sends and Shift+Enter starts a new line (not while an input method is composing). A reply's toolbar and the replies pop-out's rows are one Tab stop each; the arrow keys move inside, and Tab comes back to the control last used. Sent from the message box, a reply leaves the focus there; started from a toolbar or the pop-out, the focus goes to Stop, then to the button that started it on the new reply, and "Reply finished" is announced. Below 1,100 px wide, a side panel opens over the thread; below 760 px, Branches shows as its icon and count.
+
 `quit` from the page answers, then stops `clarity ui`, as Ctrl-C does. "Help and docs" opens these docs on GitHub at the running commit (or at the version's tag, outside a git checkout), so it needs the network. A page that loses its connection tries again for a few seconds, then says Clarity has stopped.
 
 ## Profile keys
