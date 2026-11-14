@@ -54,6 +54,7 @@ from clarity_chat.render import (
     unread_kwargs,
 )
 from clarity_chat.replay import (
+    REPLAY_NEEDS,
     compare_output,
     deep_diff,
     environment_diff,
@@ -1215,6 +1216,12 @@ class Session:
         `found`: the call and server records, if the caller already read them. A cancelled
         replay compares and logs nothing."""
         call, server = found or find_call(log_path, call_id)
+        # Checked before anything starts: a log another program wrote can leave one out.
+        missing = [field for field in REPLAY_NEEDS if field not in call]
+        if missing:
+            raise ConfigError(
+                f"Call {call_id} can't be replayed: its record has no {', '.join(missing)}."
+            )
         name = call["model"]["name"]
         if name not in self.models:
             raise ConfigError(f"Call {call_id} used model {name!r}, which isn't in models.toml.")
