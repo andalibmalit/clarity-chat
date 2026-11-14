@@ -1470,3 +1470,13 @@ def test_a_narrow_window_shows_branches_as_its_icon_and_count(clarity, page):
     page.wait_for_selector("#panel:not([hidden])")
     assert style(page, "#panel", "position") == "absolute"
     shot(page, "O5-720", "c6")
+
+
+def test_the_shipped_fonts_load_from_clarity_itself(clarity, page):
+    """Rasa and IBM Plex come from /static (CSP font-src 'self'), not the system or the web."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    for family in ("Rasa", "IBM Plex Sans", "IBM Plex Mono"):
+        loaded = page.evaluate(f"document.fonts.load('16px \"{family}\"').then(f => f.length)")
+        assert loaded >= 1, family
+        assert page.evaluate(f"document.fonts.check('16px \"{family}\"')"), family

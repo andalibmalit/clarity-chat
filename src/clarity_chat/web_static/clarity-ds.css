@@ -1,6 +1,5 @@
 /* Clarity design system, draft 2 (copied from the v0.3.0 reference canvas, version 86).
-   The named fonts aren't shipped: each stack falls back to the system's fonts, and nothing
-   loads from the network.
+   The named fonts ship with Clarity (app.css declares them); nothing loads from the network.
    Samandari's paper, ink and ochre; three typefaces with one job each:
    serif for what was said, sans for what you can do, mono for what is exact.
    Every colour and shape is a token, so a theme is just a block of tokens (see the .t-* themes at the end). */

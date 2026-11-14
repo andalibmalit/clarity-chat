@@ -343,9 +343,11 @@ def test_the_styles_load_nothing_from_the_network():
     from pathlib import Path
 
     folder = Path(web.__file__).parent / "web_static"
-    for name in web.STATIC_FILES:
-        text = (folder / name).read_text(encoding="utf-8")
-        assert "@import" not in text and "http://" not in text and "https://" not in text, name
+    for path, media_type in web.STATIC_FILES.values():
+        if media_type.startswith("font/"):
+            continue  # binary; the fonts' own test checks them
+        text = (folder / path).read_text(encoding="utf-8")
+        assert "@import" not in text and "http://" not in text and "https://" not in text, path
 
 
 # --- the tripwire review's findings (v0.3.0, 5759fcf..65bb7a3)
@@ -786,3 +788,29 @@ def test_a_wait_cancelled_in_the_queue_doesnt_stop_the_worker(fetched_root, tiny
     later.start()
     later.join(5)
     assert after and "result" in after[0]
+
+
+FONT_SUFFIXES = {".woff2", ".woff", ".ttf", ".otf"}
+
+
+def test_every_shipped_font_has_its_licence_beside_it_and_is_served(server):
+    """The fonts ship as their publishers' unmodified files (IBM Plex reserves the name
+    "Plex"), each family with its OFL.txt and copyright notice; the page loads only those."""
+    import re
+    from pathlib import Path
+
+    client, _, _ = server
+    folder = Path(web.__file__).parent / "web_static"
+    fonts = sorted(p for p in folder.rglob("*") if p.suffix in FONT_SUFFIXES)
+    assert fonts, "no fonts shipped"
+    for font in fonts:
+        licence = font.parent / "OFL.txt"
+        assert licence.is_file(), f"{font.name} has no OFL.txt beside it"
+        text = licence.read_text(encoding="utf-8")
+        assert text.startswith("Copyright") and "SIL OPEN FONT LICENSE Version 1.1" in text
+        response = client.get(f"/static/{font.name}")
+        assert response.status_code == 200, font.name
+        assert response.content == font.read_bytes()
+        assert response.headers["content-type"].startswith("font/")
+    css = (folder / "app.css").read_text(encoding="utf-8")
+    assert sorted(re.findall(r'url\("/static/([^"]+)"\)', css)) == sorted(f.name for f in fonts)
