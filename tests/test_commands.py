@@ -486,3 +486,13 @@ def test_profiles_says_not_fetched_when_the_weights_file_is_gone(commands, fetch
     (fetched_root / "models" / "tiny" / "tiny-bf16.gguf").unlink()
     by_name = {p["name"]: p for p in c.run("profiles", "", lambda e: None)["profiles"]}
     assert by_name["text"]["fetched"] is False
+
+
+def test_profiles_are_listed_by_name_not_by_file_name(commands, fetched_root):
+    """QA: "smol-chat-hf.toml" sorts before "smol-chat.toml" ('-' < '.')."""
+    c, _ = commands
+    text = (fetched_root / "profiles" / "text.toml").read_text(encoding="utf-8")
+    for name in ("a", "a-b"):
+        (fetched_root / "profiles" / f"{name}.toml").write_text(text, encoding="utf-8")
+    names = [p["name"] for p in c.run("profiles", "", lambda e: None)["profiles"]]
+    assert names.index("a") < names.index("a-b")

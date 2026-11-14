@@ -101,3 +101,28 @@ def test_resume_says_how_many_things_differ_as_the_terminal_does(commands, tmp_p
     printed = format_resume(result)
     for item in differ["items"]:
         assert item["text"] in printed
+
+
+def hf_commands(root, tiny_tokenizer, replies):
+    from tests.test_steering import steer_root
+
+    steer_root(root)
+    text = (root / "profiles" / "text.toml").read_text(encoding="utf-8")
+    hf = text.replace('backend = "llama.cpp"', 'backend = "transformers"')
+    (root / "profiles" / "hf.toml").write_text(hf, encoding="utf-8")
+    backend = FakeBackend(replies, tokenizer=tiny_tokenizer)
+    backend.name = "transformers"
+    c = Commands(Session(root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer))
+    run(c, "profile hf")
+    return c
+
+
+def test_a_setting_an_old_call_didnt_record_was_off_not_unknown(root, tiny_tokenizer):
+    """Final checkpoint, finding 3: an old Transformers chat, then /set logprobs 5: /regen
+    same must remake the seed, since the old call ran with probabilities off."""
+    c = hf_commands(root, tiny_tokenizer, [" one", " two"])
+    call = run(c, "say Hi")["call"]
+    for record in (call, c.session.conversation.calls[call["call_id"]]):
+        record["settings"].pop("logprobs", None)  # as logged before v0.2.1
+    run(c, "set logprobs 5")
+    assert run(c, "regen same")["seeds"] == [42]

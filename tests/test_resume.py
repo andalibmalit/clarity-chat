@@ -409,3 +409,17 @@ def test_the_differ_count_counts_each_changed_fact():
     }
     (item,) = what_differs(record)
     assert item["count"] == 2
+
+
+def test_the_terminal_says_when_nothing_differs(new_session):
+    """QA, step 8: the web UI says "Nothing differs"; the terminal said nothing."""
+    from clarity_chat.cli import ChatLoop
+
+    session, _ = new_session([" one"])
+    session.new_conversation("text")
+    session.say("a")
+    resumed, _ = new_session()
+    output: list[str] = []
+    path = str(session.conversation.log.path)
+    ChatLoop(resumed, "", read=lambda d: "", write=output.append, resume=path).start()
+    assert "Nothing differs from when this chat was written." in "".join(output)
