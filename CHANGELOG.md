@@ -9,6 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Added
+- The web interface's server (`clarity_chat.web`): the routes, the checks and the event stream, over the same commands as `--json`. The command that starts it and the page itself come next.
 - `/chats` and `/profiles` answer at once, even during a reply, and `/settings` does while a reply is written or replayed, as `/state` and `/cancel` do; with `--json` they run as soon as they're read.
 - `text` events carry `at` and `end`, the piece's place in the reply, and `/state` gives `reply_end`, so a reader that starts mid-reply joins the stream without dropping or repeating text.
 

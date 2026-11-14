@@ -1,0 +1,3 @@
+<ol class="thread">
+{% for turn in turns %}  <li class="turn {{ turn.role }}" data-turn="{{ turn.turn_id }}">{{ turn.text }}</li>
+{% endfor %}</ol>

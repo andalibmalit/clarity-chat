@@ -114,6 +114,22 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 
 Commands run one at a time, in order. `cancel`, `state`, `chats` and `profiles` run as soon as they're read, so `cancel` can stop a reply that's being written and the others can answer during one; `settings` does too while a reply is being written or replayed (not while a model starts). `cancel`'s result names the command it stopped (`"cancelled": true, "command": "say"`) or gives a `reason` it stopped nothing. Send it after the command has started (after its first event): a `cancel` read while the command is still queued finds nothing running. End of input quits, like `quit`. Input is UTF-8, whatever the console's encoding; a line that isn't is an `InputError`. Output is ASCII: other characters are written as `\u` escapes.
 
+## The web interface
+
+The web interface (from v0.3.0) is a local page over the same command table as `--json`. The server listens on `127.0.0.1:8765` only. Its routes:
+
+| Method | Path | Needs the secret | Returns |
+|---|---|---|---|
+| GET | `/` | no | the page's shell, which holds no data |
+| GET | `/static/FILE` | no | the page's script and styles, from a fixed list |
+| POST | `/command` | yes | `{"command", "args", "id", "tab"}` in, and `--json`'s result for that command out, as `{"id", "result"}` or `{"id", "error", "type"}` |
+| GET | `/events?tab=TAB` | yes | a stream of JSON lines: first `{"event": "hello"}`, then `--json`'s events, and `{"event": "heartbeat"}` when nothing has happened for 15 seconds. A tab that isn't the live one gets `{"event": "not_live"}`, and the stream ends |
+| GET | `/view/NAME` | yes | an HTML fragment of one part of the page, such as `thread`; a `call` parameter must be a call ID |
+| POST | `/tab` | yes | `{"tab"}`: makes that tab the live one |
+| GET | `/export` | yes | the export this start made, if any |
+
+Every data route needs `Authorization: Bearer SECRET`, where the secret is made for each start and reaches the page in the link's fragment (`#key=…`), which browsers never send to a server. A POST also needs the exact `Origin` and `Content-Type: application/json`. Refusals use their status codes: 400 a request that isn't valid, 401 no or a wrong secret, 403 a wrong Host, Origin or fetch site, 404 an unknown route or view, 405 a method a route doesn't take (OPTIONS included), 409 a tab that isn't the live one or an export not made yet, 413 a body over 64 KB, 415 not JSON. A refused request never ends the session. One tab at a time is live: a tab is live when it opens if no live tab is listening, and another takes over with `POST /tab`.
+
 ## Profile keys
 
 A profile is a TOML file in `profiles/` (shipped with Clarity) or `local/profiles/` (yours; git ignores it). Its name is the file name without `.toml`, and a name in both folders is an error. Unknown keys are errors, and the allowed keys depend on `mode`. A `{ file = "PATH" }` is read byte for byte, relative to the profile, and must be inside the project folder, after following links.
