@@ -75,17 +75,29 @@ def test_every_setting_has_one_line_of_help_and_the_docs_show_the_same():
         assert table[name].get("What it does") == help_text, name
 
 
-CHECK_NAMES = {  # every check a backend writes, and server_props, which old logs have
-    "prompt_echo",
-    "settings_echo",
-    "unaccounted_settings",
-    "tokens_evaluated",
-    "no_cache_reuse",
-    "server_running",
-    "server_props",
-    "generation_config",
-    "steering",
-}
+def written_checks() -> set[str]:
+    """Every check name the code writes into a call record's `checks`: `checks["NAME"]`,
+    `checks = {"NAME": …}`, or a `"NAME": {"ok": …}` entry, in src/clarity_chat."""
+    src = REPO / "src" / "clarity_chat"
+    found: set[str] = set()
+    for path in [*src.glob("*.py"), *(src / "backends").glob("*.py")]:
+        text = path.read_text(encoding="utf-8")
+        found |= set(re.findall(r'checks\["(\w+)"\]', text))
+        found |= set(re.findall(r'checks = \{"(\w+)"', text))
+        found |= set(re.findall(r'"(\w+)": \{"ok"', text))
+    return found
+
+
+# Every check the code writes, and server_props, which logs before v0.2.1 have.
+CHECK_NAMES = written_checks() | {"server_props"}
+
+
+def test_the_check_names_are_found_in_the_code():
+    """The scan behind CHECK_NAMES finds each backend's checks (the tripwire review after
+    C5: derive them rather than list them by hand)."""
+    assert {"prompt_echo", "settings_echo", "server_running", "generation_config"} <= (
+        written_checks()
+    )
 
 
 def checks_table() -> dict[str, dict[str, str]]:
