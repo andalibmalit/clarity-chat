@@ -231,3 +231,17 @@ details.more > summary { cursor: pointer; font-weight: 500; padding: 8px 0; }
 details.more > summary .d2 { font-weight: 400; margin-left: 6px; }
 .kv.unused dd { font-family: var(--sans); }
 #panel .body > .btn { align-self: flex-start; }
+
+/* Details (C4b) */
+#panel details.sec { border-bottom: 1px solid var(--rule); padding: 8px 0; display: flex; flex-direction: column; gap: 8px; }
+#panel details.sec > summary { cursor: pointer; display: flex; align-items: baseline; gap: 8px; font-weight: 500; padding: 4px 0; }
+#panel details.sec > summary .n { margin-left: auto; font-weight: 400; font-size: var(--small); color: var(--muted); }
+#panel details.sec > * + * { margin-top: 8px; }
+#panel .pre { max-height: 320px; overflow: auto; }
+#panel .pre mark { background: var(--you); color: inherit; border-radius: 2px; }
+#panel .warn { color: var(--warn); font-size: 13px; }
+#panel .kv dd .gl { display: block; font-family: var(--sans); color: var(--muted); font-size: 12px; }
+#panel .kv.three { grid-template-columns: max-content 1fr max-content; }
+#panel .kv .o { font-family: var(--sans); color: var(--muted); }
+#panel ul.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; }
+#panel .result { font-weight: 500; }

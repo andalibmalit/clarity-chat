@@ -1,0 +1,32 @@
+{% macro icon(name) %}<svg class="icon sm" aria-hidden="true"><use href="#i-{{ name }}"></use></svg>{% endmacro %}<div class="head"><h2 class="t" id="panel-title" tabindex="-1">Details · {% if error %}failed call{% elif k %}reply {{ k }} of {{ n }}{% else %}this reply{% endif %}{% if earlier %} <span class="d2">An earlier reply</span>{% endif %}</h2><button type="button" class="iconbtn" aria-label="Close" data-action="panel-close">{{ icon("close") }}</button></div>
+<div class="body" data-call="{{ call.call_id }}">
+<details class="sec" data-key="prompt" open><summary class="sh2">What the model got <span class="n">{{ call.n_prompt_client }} tokens · {% if bos %}starts with a start token (BOS){% else %}no start token (BOS){% endif %}</span></summary>
+<div class="seg" role="group" aria-label="Show the prompt as"><button type="button" aria-pressed="true" data-pane="text">Text</button><button type="button" aria-pressed="false" data-pane="whitespace">Whitespace</button><button type="button" aria-pressed="false" data-pane="ids">Token IDs</button></div>
+<pre class="pre" data-pane="text">{% for piece, marked in pieces %}{% if marked %}<mark>{{ piece }}</mark>{% else %}{{ piece }}{% endif %}{% endfor %}</pre>
+<pre class="pre" data-pane="whitespace" hidden>{% for piece, marked in pieces %}{% set shown = piece.replace("\t", "→\t").replace("\n", "↵\n") %}{% if marked %}<mark>{{ shown }}</mark>{% else %}{{ shown }}{% endif %}{% endfor %}</pre>
+<pre class="pre" data-pane="ids" hidden>{{ call.prompt_ids | join(" ") }}</pre>
+<p class="d2">Highlighted: {% if text_mode %}the profile’s header, names and line ends.{% else %}text the chat template wrote.{% endif %}</p>
+</details>
+<details class="sec" data-key="summary" open><summary class="sh2">Summary <span class="n">{% if error %}failed{% elif failed %}{{ failed | length }} check{{ "s" if failed | length > 1 }} failed{% else %}{{ stopped.split(" · ")[0] }} · all checks passed{% endif %}</span></summary>
+{% if error %}<p class="warn">! Failed: {{ error }}</p>
+{% endif %}{% if failed %}<p class="warn">! {{ failed | length }} check{{ "s" if failed | length > 1 }} failed: {{ failed | join(", ") }}. {% for name in failed %}{{ check_failed.get(name, "") }}{% if not loop.last %} {% endif %}{% endfor %}</p>
+{% endif %}{% for e in ignored %}<p class="warn">! 1 setting not applied: {{ e.name }}. Reason: {{ e.reason }}.</p>
+{% endfor %}<dl class="kv">{% if error %}<dt>Output</dt><dd>none</dd>{% else %}<dt>Stopped</dt><dd>{{ stopped }}{% if call.stop_type == "eos" %}<span class="gl">The model wrote a token that ends a reply.</span>{% endif %}</dd><dt>Length</dt><dd>{{ length }}</dd>{% endif %}<dt>Model</dt><dd>{{ model_line }}</dd><dt>Profile</dt><dd>{{ call.profile.name }}</dd><dt>Call</dt><dd>{{ call.call_id }}</dd></dl>
+{% if not error %}{% if not failed %}<p class="d2">All checks passed.</p>
+{% endif %}<details class="checks" data-key="checks"{% if failed %} open{% endif %}><summary>Checks</summary><ul class="checks">{% for name, ok in checks %}<li><span class="tag">{{ "passed" if ok else "failed" }}</span> <span class="key">{{ name }}</span> {{ check_lines.get(name, "") }}</li>{% endfor %}</ul></details>
+{% endif %}</details>
+{% if not error %}<details class="sec" data-key="replay" open><summary class="sh2">Replay <span class="n">{% if replaying %}replaying{% elif replays %}replayed {{ replays | length }}×{% if not replays[-1].identical %}, different{% endif %}{% else %}not replayed yet{% endif %}</span></summary>
+{% if replaying %}<p class="st" role="status">Replaying…</p><button type="button" class="btn" data-action="replay-stop">Stop</button>
+{% else %}<button type="button" class="btn" id="replay" data-action="replay">Replay</button>
+{% endif %}{% if replays and not replaying %}{% set r = replays[-1] %}<p class="result">{{ r.label }}</p>
+<p class="d2">{% if r.first_different_token is not none %}From output token {{ r.first_different_token }}. {% endif %}{% if r.changed %}Changed since the call: {{ r.changed | join(", ") }}. {% endif %}Compared: {{ r.compared }}.</p>
+{% if not r.identical %}<details class="both" data-key="both"><summary>Show both</summary><dl class="kv"><dt>As logged</dt><dd>{{ r.logged_output_text }}</dd><dt>Now</dt><dd>{{ r.output_text }}</dd></dl></details>
+{% endif %}{% endif %}<p class="refused" role="alert" hidden></p>
+</details>
+{% endif %}<details class="sec" data-key="settings" open><summary class="sh2">Settings <span class="n">as logged</span></summary>
+<dl class="kv three">{% for name, value, origin in settings %}<dt>{{ name }}</dt><dd>{{ value }}{% if name == "seed" and seed_drawn %} (random){% endif %}</dd><dd class="o">{{ origin }}</dd>{% endfor %}<dt>context</dt><dd>{{ "{:,}".format(call.n_ctx) }}</dd><dd class="o">{{ ctx.origin }}</dd></dl>
+</details>
+<details class="sec" data-key="record"><summary class="sh2">Request and response <span class="n">the whole call record</span></summary>
+<pre class="pre">{{ record }}</pre>
+</details>
+</div>
