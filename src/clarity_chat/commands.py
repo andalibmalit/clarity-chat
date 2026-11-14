@@ -45,7 +45,7 @@ class Commands:
         self.cancel_event: threading.Event | None = None  # the running command's
         self.running: str | None = None  # the running command's name
         self.streamed: list[str] = []  # the reply being written, so far (for /state)
-        self.model_state = "none"  # none, starting or ready
+        self.model_state = "none"  # none, starting, ready or stopped
         # Paths only from the command line (--profile, --resume), which you type. Commands
         # will also come from the browser (v0.3.0), so they take names and IDs.
         self.paths = False
@@ -80,6 +80,10 @@ class Commands:
         self.session.on_record = lambda record: tracked({"event": "record", "record": record})
         try:
             return command.run(self, args, tracked)
+        except BackendError as e:
+            if e.server_stopped:
+                tracked({"event": "status", "status": "stopped"})
+            raise
         finally:
             if self.model_state == "starting":  # a start that failed: whatever runs now
                 self.model_state = "ready" if self.session.conversation else "none"

@@ -490,6 +490,9 @@ class ChatLoop:
         except BackendError as e:
             calling = name in ("say", "regen", "edit")
             self.write(f"\n! Call failed: {e}\n" if calling else f"! {e}\n")
+            conversation = self.session.conversation
+            if e.server_stopped and conversation is not None:
+                self.write(f"/resume {conversation.conversation_id} starts it again.\n")
             return True
         except (ContextError, ConfigError) as e:
             self.write(f"! {e}\n")

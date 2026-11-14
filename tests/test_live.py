@@ -422,3 +422,31 @@ def test_the_backend_contract_on_llama_cpp(tmp_path):
     finally:
         session.close()
     contract.check_or_write("llama.cpp", shapes)
+
+
+def test_a_stopped_server_says_so_and_resume_starts_it_again(tmp_path):
+    from clarity_chat.backends import BackendError
+    from clarity_chat.commands import Commands
+
+    session = Session(REPO, logs_dir=tmp_path)
+    c = Commands(session)
+    try:
+        c.run("profile", "smol-chat", lambda e: None)
+        c.run("say", "Name one colour.", lambda e: None)
+        backend = session.backend
+        assert isinstance(backend, LlamaCppBackend) and backend.server is not None
+        proc = backend.server.proc
+        assert proc is not None
+        proc.kill()
+        proc.wait()
+        events: list[dict] = []
+        with pytest.raises(BackendError, match="llama-server has stopped"):
+            c.run("say", "And another?", events.append)
+        assert {"event": "status", "status": "stopped"} in events
+        assert session.conversation is not None
+        c.run("resume", session.conversation.conversation_id, lambda e: None)
+        record = c.run("say", "And another?", lambda e: None)["call"]
+        all_checks_ok(record)
+        assert record["stop_type"] in ("eos", "limit")
+    finally:
+        session.close()

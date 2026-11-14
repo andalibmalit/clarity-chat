@@ -714,6 +714,13 @@ class LlamaCppBackend:
             raise BackendError("Steering runs on the Transformers backend for now.")
         if self.server is None:
             raise BackendError("No model loaded.")
+        proc = self.server.proc
+        if proc is not None and proc.poll() is not None:
+            raise BackendError(
+                f"llama-server has stopped (exit code {proc.poll()}), so nothing was sent. "
+                "Start the model again to go on.",
+                server_stopped=True,
+            )
         if request is None:
             request = build_request(token_ids, settings, stop)
         else:
@@ -789,6 +796,13 @@ class LlamaCppBackend:
             # Closing the stream tells llama-server to stop generating.
             return partial("cancelled", ["cancelled"])
         except httpx.HTTPError as e:
+            if proc is not None and proc.poll() is not None:
+                raise BackendError(
+                    f"llama-server stopped during the call (exit code {proc.poll()}). "
+                    "Start the model again to go on.",
+                    partial("none", []),
+                    server_stopped=True,
+                ) from e
             raise BackendError(f"llama-server connection failed: {e}", partial("none", [])) from e
         if final is None:
             raise BackendError(

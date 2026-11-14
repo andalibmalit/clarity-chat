@@ -20,11 +20,15 @@ if TYPE_CHECKING:
 
 
 class BackendError(Exception):
-    """The backend failed. `partial` holds whatever reply arrived before the failure."""
+    """The backend failed. `partial` holds whatever reply arrived before the failure.
+    `server_stopped`: the model's server process has exited, so it needs starting again."""
 
-    def __init__(self, message: str, partial: Result | None = None) -> None:
+    def __init__(
+        self, message: str, partial: Result | None = None, server_stopped: bool = False
+    ) -> None:
         super().__init__(message)
         self.partial = partial
+        self.server_stopped = server_stopped
 
 
 @dataclass

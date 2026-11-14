@@ -56,6 +56,7 @@ class FakeBackend:
         # The golden logs were written by the fake before v0.2.3, which ignored max_tokens and
         # left the end token out of the output IDs. True replays them as they were made.
         self.before_v0_2_3 = False
+        self.stopped = False  # the server has exited: calls fail until the next start
 
     @property
     def n_ctx(self) -> int:
@@ -66,8 +67,10 @@ class FakeBackend:
         return self.record
 
     def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
-        if self.started and (self.started[-1], self.ctx_sizes[-1]) == (model.name, ctx_size):
+        same = self.started and (self.started[-1], self.ctx_sizes[-1]) == (model.name, ctx_size)
+        if same and not self.stopped:
             return None
+        self.stopped = False
         self.started.append(model.name)
         self.ctx_sizes.append(ctx_size)
         self.record = {
@@ -112,6 +115,12 @@ class FakeBackend:
         )
         if self.fail_with:
             raise BackendError(self.fail_with, Result(text="", token_ids=[], stop_type="none"))
+        if self.stopped:  # as llama_cpp.py words it
+            raise BackendError(
+                "llama-server has stopped (exit code -9), so nothing was sent. "
+                "Start the model again to go on.",
+                server_stopped=True,
+            )
         reply = self.replies.pop(0) if self.replies else " ok"
         if self.on_call:
             self.on_call()
