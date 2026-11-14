@@ -6,7 +6,8 @@
 ready) and `record` (every record appended to the log). Errors are raised
 (ConfigError, ContextError, BackendError); each front end shows them its own way.
 
-Commands run one at a time, except `cancel` and `state`, which run during a call.
+Commands run one at a time, except `cancel`, `state`, `chats` and `profiles`, which run at
+once, and `settings`, which runs at once while a reply is written or replayed.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from clarity_chat.session import CallOutcome, CancelledBeforeReply, Session
 
 Emit = Callable[[dict[str, Any]], None]
 MESSAGE_COMMANDS = {"say", "edit"}  # their args are message text, sent exactly
+REPLY_COMMANDS = {"say", "regen", "edit", "replay"}  # commands that write or replay a reply
 
 
 @dataclass(frozen=True)
@@ -32,7 +34,8 @@ class Command:
     usage: str  # "/mark LABEL"
     help: str
     run: Callable[[Commands, str, Emit], dict[str, Any]]
-    during_call: bool = False  # runs while another command does (cancel and state)
+    during_call: bool = False  # runs at once, even while another command runs
+    during_reply: bool = False  # runs at once while a reply is written or replayed
     needs_conversation: bool = True
     cancellable: bool = False  # /cancel can stop it (it sends a request to the model)
 
@@ -63,7 +66,7 @@ class Commands:
             args = args.strip()
         if command.needs_conversation and self.session.conversation is None:
             raise ConfigError("No conversation is running. Start one with a profile first.")
-        if command.during_call:
+        if command.during_call or (command.during_reply and self.reply_running()):
             return command.run(self, args, emit)
         if not self.busy.acquire(blocking=False):
             raise ConfigError(
@@ -108,6 +111,12 @@ class Commands:
                 self.streamed, self.streamed_end, self.running = [], 0, None
             self.paths = False
             self.busy.release()
+
+    def reply_running(self) -> bool:
+        """A reply is being written or replayed, not a model started: /set can't run
+        meanwhile, so the settings hold, and Settings can open with its controls waiting."""
+        with self.progress:
+            return self.running in REPLY_COMMANDS and not self.starting
 
     def call(self, emit: Emit, start: Callable[..., CallOutcome]) -> dict[str, Any]:
         outcome = start(
@@ -681,7 +690,12 @@ COMMANDS: dict[str, Command] = {
         "a reply's least likely tokens and the alternatives (needs logprobs on)",
         _probs,
     ),
-    "settings": Command("/settings", "every setting, its value and where it came from", _settings),
+    "settings": Command(
+        "/settings",
+        "every setting, its value and where it came from",
+        _settings,
+        during_reply=True,
+    ),
     "set": Command(
         "/set NAME [VALUE]",
         "change a setting for this chat (no value: back to the profile's)",
@@ -752,12 +766,14 @@ COMMANDS: dict[str, Command] = {
         "/chats",
         "your conversations in logs/, newest first, with their titles",
         _chats,
+        during_call=True,
         needs_conversation=False,
     ),
     "profiles": Command(
         "/profiles",
         "every profile you can start, its model and backend, and whether the model is fetched",
         _profiles,
+        during_call=True,
         needs_conversation=False,
     ),
     "resume": Command(

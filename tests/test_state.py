@@ -334,3 +334,41 @@ def test_no_running_command_means_no_reply_so_far(commands):
     c.run("say", "Hi", lambda e: None)
     after = state(c)
     assert after["running"] is None and after["reply_so_far"] == "" and after.get("reply_end") == 0
+
+
+# --- A2 (v0.3.0): reads that run during a call
+
+
+def test_chats_profiles_and_settings_answer_while_a_reply_is_written(commands):
+    c, _ = commands
+    c.run("profile", "text", lambda e: None)
+    answers: dict[str, dict] = {}
+
+    def on_event(event):
+        if event["event"] == "text" and not answers:
+            for name in ("chats", "profiles", "settings"):
+                answers[name] = c.run(name, "", lambda e: None)
+
+    c.run("say", "Hi", on_event)
+    assert set(answers) == {"chats", "profiles", "settings"}
+    assert answers["settings"]["settings"]["temperature"]["value"] == 0.6
+
+
+def test_settings_waits_while_a_model_starts(commands):
+    """Decision 5: during a start, only state, cancel, chats and profiles run."""
+    from clarity_chat.profiles import ConfigError
+
+    c, _ = commands
+    c.run("profile", "text", lambda e: None)
+    refused: list[str] = []
+
+    def on_event(event):
+        if event.get("status") == "starting":
+            try:
+                c.run("settings", "", lambda e: None)
+            except ConfigError as e:
+                refused.append(str(e))
+            c.run("chats", "", lambda e: None)  # this one runs
+
+    c.run("new", "", on_event)
+    assert refused and "still running" in refused[0]

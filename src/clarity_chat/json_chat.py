@@ -13,9 +13,9 @@ back. Each output line is one JSON object with an `event`:
 
 A command's own records arrive as `record` events before its `result`, which may repeat
 some of them; rely on `record` events for the log and on `result` for the answer.
-Commands run one at a time, in order, except `cancel` and `state`, which run as soon as read,
-so `cancel` can stop a reply being written and `state` can answer during one. End of input
-quits, like `quit`.
+Commands run one at a time, in order, except `cancel`, `state`, `chats` and `profiles`, which
+run as soon as read (so `cancel` can stop a reply being written and the rest answer during
+one), and `settings`, which does while a reply is written. End of input quits, like `quit`.
 """
 
 from __future__ import annotations
@@ -82,7 +82,10 @@ class JsonChat:
                     continue
                 command = self.parse(line)
                 found = COMMANDS.get(str(command.get("command")))
-                if found is not None and found.during_call:
+                now = found is not None and (
+                    found.during_call or (found.during_reply and self.commands.reply_running())
+                )
+                if now:
                     self.execute(command)
                 else:
                     pending.put(command)

@@ -112,7 +112,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `help` | `commands`, each with `usage` and `help` |
 | `quit` | `quit`: true |
 
-Commands run one at a time, in order. `cancel` and `state` run as soon as they're read, so `cancel` can stop a reply that's being written and `state` can answer during one. `cancel`'s result names the command it stopped (`"cancelled": true, "command": "say"`) or gives a `reason` it stopped nothing. Send it after the command has started (after its first event): a `cancel` read while the command is still queued finds nothing running. End of input quits, like `quit`. Input is UTF-8, whatever the console's encoding; a line that isn't is an `InputError`. Output is ASCII: other characters are written as `\u` escapes.
+Commands run one at a time, in order. `cancel`, `state`, `chats` and `profiles` run as soon as they're read, so `cancel` can stop a reply that's being written and the others can answer during one; `settings` does too while a reply is being written or replayed (not while a model starts). `cancel`'s result names the command it stopped (`"cancelled": true, "command": "say"`) or gives a `reason` it stopped nothing. Send it after the command has started (after its first event): a `cancel` read while the command is still queued finds nothing running. End of input quits, like `quit`. Input is UTF-8, whatever the console's encoding; a line that isn't is an `InputError`. Output is ASCII: other characters are written as `\u` escapes.
 
 ## Profile keys
 
