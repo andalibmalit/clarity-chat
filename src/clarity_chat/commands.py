@@ -58,7 +58,7 @@ class Commands:
         if name not in MESSAGE_COMMANDS:  # a message goes exactly; names and labels don't
             args = args.strip()
         if command.needs_conversation and self.session.conversation is None:
-            raise ConfigError("No conversation is running. Start one with /profile NAME.")
+            raise ConfigError("No conversation is running. Start one with a profile first.")
         if command.during_call:
             return command.run(self, args, emit)
         if not self.busy.acquire(blocking=False):

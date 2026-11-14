@@ -484,7 +484,7 @@ def test_when_the_restart_fails_too_no_conversation_runs(make_session):
     output.clear()
     loop.handle("/prompt")
     loop.handle("hello")
-    assert "".join(output).count("Start one with /profile NAME") == 2
+    assert "".join(output).count("Start one with a profile first.") == 2
 
 
 def test_settings_a_backend_cannot_apply_are_flagged_and_warned(make_session):

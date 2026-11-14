@@ -698,7 +698,7 @@ class Session:
             call = conversation.calls.get(turn.call_id or "")
             if call is None or turn.seed is None:
                 continue
-            same = same_where_recorded(setting_values(call), now)
+            same = setting_values(call) == now
             seeds[turn.seed] = seeds.get(turn.seed, False) or same
         return [seed for seed, made in seeds.items() if not made]
 
@@ -715,17 +715,14 @@ class Session:
         calls = [conversation.calls[t.call_id or ""] for t in replies]
         values = [setting_values(call) for call in calls]
         names = sorted(set().union(*values))
-        # A setting a call didn't record (an older Clarity's) isn't a different value.
-        differ = [n for n in names if len({json.dumps(v[n]) for v in values if n in v}) > 1]
+        differ = [n for n in names if any(v.get(n) != values[0].get(n) for v in values)]
         groups: list[dict[str, Any]] = []
         group_of = []
         for v in values:
-            key = {n: v[n] for n in differ if n in v}
-            match = next((i for i, g in enumerate(groups) if same_where_recorded(g, key)), None)
-            if match is None:
+            key = {n: v.get(n) for n in differ}
+            if key not in groups:
                 groups.append(key)
-                match = len(groups) - 1
-            group_of.append(match)
+            group_of.append(groups.index(key))
         notes = self.marks_and_notes()
         newest = conversation.newest_replies()
         on_head_path = {t.turn_id for t in conversation.path_to(conversation.head)}
@@ -764,6 +761,7 @@ class Session:
                 same = a["output_ids"] == b["output_ids"]
                 token = None if same else first_difference(a["output_ids"], b["output_ids"])
                 texts = (a["output_text"], b["output_text"])
+                shorter = min(len(a["output_ids"]), len(b["output_ids"]))
                 pairs.append(
                     {
                         "seed": replies[i].seed,
@@ -771,7 +769,9 @@ class Session:
                         "b": b["call_id"],
                         "first_different_token": token,
                         # One stops where the other goes on: its text begins the other's.
+                        # (its end token, if any, is where the IDs part).
                         "prefix": token is not None
+                        and token >= shorter - 1
                         and (texts[1].startswith(texts[0]) or texts[0].startswith(texts[1])),
                         "first_different_char": None
                         if token is None
@@ -783,16 +783,13 @@ class Session:
         if head is not None and head.role == "assistant" and head.parent_id == message.turn_id:
             seeds = self.seeds_to_make(message.turn_id)
             now = self.current_values()
-            changed = {
-                n: now[n] for n in sorted(now) if any(n in v and v[n] != now[n] for v in values)
-            }
+            changed = {n: now[n] for n in sorted(now) if any(v.get(n) != now[n] for v in values)}
             again = {"seeds": seeds, "now": changed} if seeds else None
         return {
             "message": {"turn_id": message.turn_id, "text": message.text},
             "replies": out_replies,
             "groups": [{"settings": key} for key in groups],
-            # From any reply that recorded it: an older Clarity's calls lack some settings.
-            "same": {n: next(v[n] for v in values if n in v) for n in names if n not in differ},
+            "same": {n: values[0].get(n) for n in names if n not in differ},
             "same_prompt": all(c["prompt_ids"] == calls[0]["prompt_ids"] for c in calls),
             "pairs": pairs,
             "again": again,
@@ -1331,7 +1328,7 @@ class Session:
         now: the profile file, settings today's files would give, the machine and
         libraries, and whether the current reply's prompt still renders to the same IDs."""
         if not path.is_file():
-            raise ConfigError(f"No conversation or log file {path}. /chats lists them.")
+            raise ConfigError(f"No conversation or log file {path}. The chat list has them.")
         try:
             return self._resume(path)
         except (KeyError, TypeError, AttributeError) as e:  # a log Clarity didn't write
@@ -1353,11 +1350,16 @@ class Session:
         last = state.last_call
         n_ctx = last["n_ctx"] if last else (start.get("ctx_size") or {}).get("value")
         ctx_size = Setting(n_ctx, "log") if n_ctx else self.ctx_size_for(prepared.profile)
-        chat = {k: check_setting(k, v, f"{path}: /set") for k, v in state.chat_settings.items()}
+        chat = {
+            k: check_setting(k, v, f"{path}: a setting changed in the chat")
+            for k, v in state.chat_settings.items()
+        }
         merged = {**prepared.profile.settings, **{k: Setting(v, "chat") for k, v in chat.items()}}
-        check_samplers(merged, f"{path}: /set")
+        check_samplers(merged, f"{path}: a setting changed in the chat")
         steered = prepared.profile.steering is not None
-        check_backend_settings(merged, prepared.profile.backend, f"{path}: /set", steered)
+        check_backend_settings(
+            merged, prepared.profile.backend, f"{path}: a setting changed in the chat", steered
+        )
         # Everything from the log is built before the model starts, so a log that can't be
         # read leaves the current conversation and its model as they were.
         log = LogFile(path)
@@ -1481,7 +1483,7 @@ class Session:
 
     def _require_conversation(self) -> Conversation:
         if self.conversation is None:
-            raise ConfigError("No conversation is running. Start one with /profile NAME.")
+            raise ConfigError("No conversation is running. Start one with a profile first.")
         return self.conversation
 
 
@@ -1597,15 +1599,16 @@ def prompt_turns(conversation: Conversation, user_turn: Turn) -> list[Turn]:
     return [t for t in conversation.path_to(user_turn.turn_id) if t.origin != "priming"]
 
 
-def same_where_recorded(a: dict[str, Any], b: dict[str, Any]) -> bool:
-    """Two sets of setting values agree on every setting both recorded. Calls from an older
-    Clarity lack the settings added since (logprobs, steering_scale): unknown, not different."""
-    return all(a[name] == b[name] for name in a.keys() & b.keys())
+# Settings added after v0.1.0, with the value a call made before them ran with: neither
+# feature existed, so it was off.
+BEFORE_THEY_EXISTED = {"logprobs": 0, "steering_scale": 0.0}
 
 
 def setting_values(call: dict[str, Any]) -> dict[str, Any]:
-    """A call's setting values by name, without the seed: what /compare groups replies by."""
-    return {k: v["value"] for k, v in call["settings"].items() if k != "seed"}
+    """A call's setting values by name, without the seed: what /compare groups replies by,
+    and /regen same matches. A setting from before its time reads as off."""
+    values = {k: v["value"] for k, v in call["settings"].items() if k != "seed"}
+    return {**BEFORE_THEY_EXISTED, **values}
 
 
 def result_fields(result: Result) -> tuple[dict[str, Any], str | None]:

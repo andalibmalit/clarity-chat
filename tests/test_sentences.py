@@ -139,7 +139,7 @@ def test_no_conversation_and_no_such_log_name_no_command(fetched_root, tiny_toke
     assert names_no_command(str(caught.value))
     with pytest.raises(ConfigError) as caught:
         c.run("resume", "no-such-conversation", lambda e: None)
-    assert names_no_command(str(caught.value))
+    assert "/chats" not in str(caught.value)  # the message holds a path, so not the regex
 
 
 def test_a_bad_chat_setting_in_a_resumed_log_names_no_command(make, fetched_root):

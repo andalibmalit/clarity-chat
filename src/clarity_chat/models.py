@@ -143,7 +143,7 @@ def list_profiles(root: Path) -> list[dict[str, Any]]:
     models = load_models(root)
     out = []
     for folder, local in ((root / "profiles", False), (root / "local" / "profiles", True)):
-        for path in sorted(folder.glob("*.toml")):
+        for path in sorted(folder.glob("*.toml"), key=lambda path: path.stem):
             entry: dict[str, Any] = {
                 "name": path.stem,
                 "model": None,
