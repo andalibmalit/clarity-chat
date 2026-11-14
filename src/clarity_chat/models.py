@@ -16,7 +16,15 @@ from typing import Any
 
 from clarity_chat.files import read_text, sha256_file, write_text_atomic
 from clarity_chat.logs import git_state, now_utc
-from clarity_chat.profiles import ConfigError, ModelEntry, ServerConfig, check_setting
+from clarity_chat.profiles import (
+    ConfigError,
+    ModelEntry,
+    ServerConfig,
+    check_setting,
+    load_defaults,
+    load_models,
+    load_profile,
+)
 from clarity_chat.render import TOKENIZER_FILES
 
 # generation_config.json key -> Clarity setting. Everything else in the file is listed as
@@ -119,6 +127,59 @@ def lock_entry(root: Path, model: ModelEntry) -> dict[str, Any]:
             f"Run `clarity fetch {model.name}` again."
         )
     return entry
+
+
+PROFILES_NOT_CHECKED = (
+    "Each profile's file and its model entry are checked here. Refusals that need the model's "
+    "tokenizer or the server, such as a steering vector that doesn't fit the model, come when "
+    "a conversation starts."
+)
+
+
+def list_profiles(root: Path) -> list[dict[str, Any]]:
+    """Every profile in profiles/ (by name), then local/profiles/ (yours), each with its model
+    and whether that is fetched. A profile that doesn't load is listed with its `error`."""
+    defaults = load_defaults(root)
+    models = load_models(root)
+    out = []
+    for folder, local in ((root / "profiles", False), (root / "local" / "profiles", True)):
+        for path in sorted(folder.glob("*.toml")):
+            entry: dict[str, Any] = {
+                "name": path.stem,
+                "model": None,
+                "model_name": None,
+                "backend": None,
+                "description": None,
+                "steered": False,
+                "local": local,
+                "fetched": False,
+                "error": None,
+            }
+            try:
+                profile = load_profile(root, path.stem, defaults)
+                model = models.get(profile.model)
+                if model is None:
+                    raise ConfigError(f"{path}: model {profile.model!r} isn't in models.toml.")
+            except ConfigError as e:
+                out.append({**entry, "error": str(e)})
+                continue
+            try:
+                fetched = bool(lock_entry(root, model))
+            except ConfigError:  # not fetched, or fetched from another models.toml entry
+                fetched = False
+            out.append(
+                {
+                    **entry,
+                    "model": model.name,
+                    # The tokenizer's repo names the model; a GGUF's is often a repackager's.
+                    "model_name": model.tokenizer_repo.rsplit("/", 1)[-1],
+                    "backend": profile.backend,
+                    "description": profile.description,
+                    "steered": profile.steering is not None,
+                    "fetched": fetched,
+                }
+            )
+    return out
 
 
 def weights_path(root: Path, entry: dict[str, Any]) -> Path:
