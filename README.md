@@ -128,6 +128,6 @@ Each server start is logged once per file: its command line, `/props`, build, en
 
 ## License and citation
 
-Clarity is licensed under Apache 2.0; see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). The OLMo 3 tokenizer files in `tests/fixtures/` come from AllenAI under the same license.
+Clarity is licensed under Apache 2.0; see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE). The OLMo 3 tokenizer files in `tests/fixtures/` come from AllenAI under the same license. The web interface's fonts, Rasa and IBM Plex, ship unmodified under the SIL Open Font License 1.1; each family's licence is beside its files in `src/clarity_chat/web_static/fonts/`.
 
 To cite Clarity, use **Cite this repository** on its GitHub page, which reads [`CITATION.cff`](CITATION.cff). Each release is archived on Zenodo with its own DOI; [10.5281/zenodo.24068236](https://doi.org/10.5281/zenodo.24068236) covers all versions. For reproducible work, cite the DOI of the release you used.

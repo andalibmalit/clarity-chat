@@ -168,6 +168,8 @@ There is no general "results may vary" notice. Replay flags the one case that ne
 - **The port is Clarity's before the link exists.** `clarity ui` binds and listens on it before printing or opening the link, so no other program can take the port in between and receive the secret.
 - **Its limits:** while Clarity runs, the secret is in the terminal's output (and in any file that output is sent to), in `local/clarity-open.html` until the page first uses it, in the tab's session storage, and in the browser's stored session and possibly its history; anyone who can read those can use it. Another user on the same computer can reach the port and tie it up, but can't read the secret. For now Clarity assumes one user per computer.
 
+**The page's fonts ship with Clarity, unmodified.** Rasa (Rosetta) for what was said, IBM Plex Sans for what you can do and IBM Plex Mono for what is exact, so the page looks the same on every computer and loads nothing from the network. They're the publishers' own files, under the SIL Open Font License 1.1, each family with its licence beside it in `web_static/fonts/`. IBM reserves the name "Plex", which a modified font couldn't keep, so they're neither subset nor converted (Rasa ships as TTF, as Rosetta publishes it), and only the weights the page uses are included.
+
 ## Not in scope
 
 Left out from the start: tools or agents; metrics or LLM judges; multi-user features; an Ollama backend; llama-server's router mode; MLflow export.
