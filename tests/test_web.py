@@ -313,7 +313,11 @@ def test_ui_writes_a_private_redirect_file_opens_it_and_deletes_it_on_first_use(
         # Plain HTTP to 127.0.0.1: no CA bundle (the sandbox blocks reading one), no proxy.
         response = httpx.get(url, headers=headers, verify=False, trust_env=False)
         assert response.status_code == 200
-        assert not path.exists()  # deleted at the first authenticated request
+        assert path.exists()  # kept until the page it opened connects (security finding 5)
+        events = f"http://127.0.0.1:{port}/events?tab=new-tab"
+        with httpx.stream("GET", events, headers=headers, verify=False, trust_env=False) as r:
+            next(r.iter_lines())
+        assert not path.exists()  # deleted at a new tab's first /events
     finally:
         if servers:
             servers[0].should_exit = True

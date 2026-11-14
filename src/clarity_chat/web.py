@@ -267,8 +267,9 @@ def make_app(
     port: int = PORT,
     on_first_use: Callable[[], None] | None = None,
 ) -> Security:
-    """The app. `on_first_use` runs once, at the first request with the secret;
-    `app.state.rearm(callback)` sets it again (the terminal's Enter makes a new redirect)."""
+    """The app. `on_first_use` runs once, at a new tab's first /events (the page the
+    redirect file opened); `app.state.rearm(callback)` sets it again (the terminal's Enter
+    makes a new redirect), and the tab already open can't use it up."""
     if len(secret) < 16:  # an empty one would let every request through
         raise ValueError("The secret must be at least 16 bytes.")
     worker = Worker(session)
@@ -276,7 +277,7 @@ def make_app(
     origin = f"http://127.0.0.1:{port}"
     # The live tab; open streams per tab; tabs told they aren't live, which take over only
     # by POST /tab, never by reconnecting their stream.
-    tabs: dict[str, Any] = {"live": None, "streams": {}, "told": set()}
+    tabs: dict[str, Any] = {"live": None, "streams": {}, "told": set(), "seen": set()}
 
     def check(request: Request, post: bool = False) -> None:
         """The secret, fetch metadata and, for a POST, the Origin and the content type."""
@@ -284,9 +285,6 @@ def make_app(
         token = given[7:].encode("utf-8", "replace") if given.startswith("Bearer ") else b""
         if not secrets.compare_digest(token, secret):
             raise Refused(401, "Open Clarity from the link in the terminal.")
-        if first_use[0] is not None:
-            done, first_use[0] = first_use[0], None
-            done()
         if request.headers.get("sec-fetch-site", "same-origin") != "same-origin":
             raise Refused(403, "Only Clarity's own page can ask for this.")
         if post:
@@ -357,6 +355,11 @@ def make_app(
         except Refused as e:
             return PlainTextResponse(str(e), e.status)
         tab = request.query_params.get("tab", "")
+        if tab not in tabs["seen"]:  # a new tab: the page a redirect file opened
+            tabs["seen"].add(tab)
+            if first_use[0] is not None:
+                done, first_use[0] = first_use[0], None
+                done()
         # Live at once if no live tab is listening, unless this tab was told it isn't live.
         if not tabs["streams"].get(tabs["live"]) and tab not in tabs["told"]:
             tabs["live"] = tab
