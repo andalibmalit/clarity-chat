@@ -611,3 +611,115 @@ def test_a_second_tab_doesnt_take_over_while_the_live_one_listens(server):
             lines = second.iter_lines()
             next(lines)
             assert json.loads(next(lines))["event"] == "not_live"
+
+
+# --- the security review (Checkpoint 2)
+
+
+def run_ui(fetched_root, tiny_tokenizer, port, on_open):
+    """web.serve on `port` in a thread; returns (thread, servers)."""
+    servers: list = []
+    session = Session(
+        fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    thread = threading.Thread(
+        target=web.serve,
+        kwargs={
+            "root": fetched_root,
+            "port": port,
+            "session_factory": lambda: session,
+            "opener": on_open,
+            "on_ready": servers.append,
+            "write": lambda text: None,
+            "read_lines": False,
+        },
+        daemon=True,
+    )
+    thread.start()
+    return thread, servers
+
+
+def stop_ui(thread, servers):
+    for _ in range(100):
+        if servers:
+            break
+        threading.Event().wait(0.05)
+    servers[0].should_exit = True
+    thread.join(10)
+
+
+def test_the_port_is_already_listening_when_the_page_opens(fetched_root, tiny_tokenizer):
+    """Finding 1: the port is bound and listening before the browser gets the link, so no
+    other program can take it in between, and the page never meets "connection refused"."""
+    import socket
+
+    port = free_port()
+    connected: list[bool] = []
+
+    def on_open(path):
+        with socket.socket() as probe:
+            connected.append(probe.connect_ex(("127.0.0.1", port)) == 0)
+
+    thread, servers = run_ui(fetched_root, tiny_tokenizer, port, on_open)
+    stop_ui(thread, servers)
+    assert connected == [True]
+
+
+def test_starting_again_right_after_quitting_isnt_refused(fetched_root, tiny_tokenizer):
+    """Finding 1: connections Clarity closed itself (TIME_WAIT) mustn't block a restart."""
+    import httpx
+
+    port = free_port()
+    thread, servers = run_ui(fetched_root, tiny_tokenizer, port, lambda path: None)
+    for _ in range(100):
+        if servers and servers[0].started:
+            break
+        threading.Event().wait(0.05)
+    with httpx.Client(
+        verify=False, trust_env=False
+    ) as client:  # keep-alive, then the server closes
+        client.get(f"http://127.0.0.1:{port}/static/app.css")
+    stop_ui(thread, servers)
+    errors: list[BaseException] = []
+
+    def again():
+        try:
+            run = web.serve
+            run(
+                fetched_root,
+                port=port,
+                session_factory=lambda: Session(
+                    fetched_root,
+                    backend=FakeBackend(),
+                    tokenizer_loader=lambda r, v: tiny_tokenizer,
+                ),
+                opener=lambda path: None,
+                on_ready=lambda server: setattr(server, "should_exit", True),
+                write=lambda text: None,
+                read_lines=False,
+            )
+        except BaseException as e:  # noqa: BLE001 - the refusal is the finding
+            errors.append(e)
+
+    second = threading.Thread(target=again, daemon=True)
+    second.start()
+    second.join(10)
+    assert errors == []
+
+
+def test_the_javascript_has_exactly_one_html_sink():
+    """Finding 3: a second parser, or any of the newer sinks, would be a way around swap()."""
+    import re
+    from pathlib import Path
+
+    code = (Path(web.__file__).parent / "web_static" / "app.js").read_text(encoding="utf-8")
+    assert code.count("DOMParser") == 1 and code.count("parseFromString") == 1
+    banned = re.findall(
+        r"setHTMLUnsafe|parseHTMLUnsafe|srcdoc|new Function|setTimeout\(\s*['\"`]|"
+        r"setInterval\(\s*['\"`]|\.src\s*=|href\s*=\s*['\"`]javascript",
+        code,
+    )
+    assert banned == []
+    # swap() takes a server fragment, never HTML built from text here.
+    for call in re.findall(r"swap\(([^)]*)\)", code):
+        assert "+" not in call and "`" not in call, call
