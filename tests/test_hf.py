@@ -12,6 +12,7 @@ import pytest
 from clarity_chat.models import lock_entry, source_weights
 from clarity_chat.profiles import ConfigError, load_models
 from clarity_chat.session import Session
+from tests import contract
 
 pytestmark = pytest.mark.hf
 
@@ -487,3 +488,15 @@ def test_the_recompute_check_on_a_steered_export(tmp_path):
     assert measured["largest_gap"] == 0.0 and measured["top_changed"] == 0
     assert [f["fact"] for f in plain.groups[0]["facts"] if not f["same"]] == ["steering"]
     assert plain.calls[0]["measured"]["largest_gap"] > 0
+
+
+def test_the_backend_contract_on_transformers(tmp_path):
+    """The call record's shape for each stop type, kept in fixtures/backend_shapes.json."""
+    session = Session(REPO, logs_dir=tmp_path / "logs")
+    (tmp_path / "profiles").mkdir()
+    chat, text = (profile(tmp_path / "profiles", base) for base in ("smol-chat", "smol-text"))
+    try:
+        shapes = contract.run_scenarios(session, chat=chat, text=text)
+    finally:
+        session.close()
+    contract.check_or_write("transformers", shapes)

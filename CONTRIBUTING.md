@@ -15,6 +15,8 @@ Follow [Getting started](docs/getting-started.md) to install Clarity and build l
 | `uv run pytest -m measure -v -s` | the built llama-server and OLMo 3 Instruct fetched | prints timings and memory figures that design choices rest on (cancel, the memory check); asserts almost nothing |
 | `uv run pytest -m embed -v -s` | the built llama-server and bge-small fetched (`uv run clarity fetch bge-small-en-v1.5`, about 135 MB once) | whether llama-server's embeddings come back bit-identical, which decides whether documents and meaning search (v0.3.3) go ahead |
 
+Offline tests run on a fake backend (`tests/fakes.py`). To keep it honest, `-m live` and `-m hf` each record the shape of the call records their backend writes for every way a reply ends, in `tests/fixtures/backend_shapes.json`. If a shape changes, the live test rewrites the file and fails. Read the diff and commit it. Offline, `tests/test_contract.py` holds the fake to llama.cpp's shapes, and allows only the differences written down in `tests/contract.py`.
+
 Before every commit, run the checks CI runs:
 
 ```
