@@ -423,3 +423,31 @@ def test_the_terminal_says_when_nothing_differs(new_session):
     path = str(session.conversation.log.path)
     ChatLoop(resumed, "", read=lambda d: "", write=output.append, resume=path).start()
     assert "Nothing differs from when this chat was written." in "".join(output)
+
+
+def test_a_failed_restart_of_the_open_chat_keeps_it_to_try_again(new_session):
+    """V3Chats C23: "Start the model again" (/resume of the open chat after its server
+    stopped) that fails leaves the chat open with its model stopped, so it can be tried
+    again; the sentence is the backend's, once, not a second identical start's as well."""
+    from clarity_chat.backends import BackendError
+
+    session, backend = new_session([" one", " two"])
+    session.new_conversation("text")
+    session.say("a")
+    conversation = session.conversation
+    backend.stopped = True
+    real = backend.start
+
+    def refused(*args):
+        raise BackendError("llama-server failed to start: exited with code 1:\nline one")
+
+    backend.start = refused
+    with pytest.raises(BackendError) as caught:
+        session.resume(conversation.log.path)
+    assert str(caught.value) == "llama-server failed to start: exited with code 1:\nline one"
+    assert session.conversation is conversation and backend.stopped
+    with pytest.raises(BackendError, match="has stopped|stopped"):  # Send fails as in C2
+        session.say("b")
+    backend.start = real
+    session.resume(conversation.log.path)
+    assert session.say("b").record["output_text"] == " two"
