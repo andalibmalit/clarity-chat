@@ -7,6 +7,7 @@ process; nothing listens on a port.
 from __future__ import annotations
 
 import json
+import sys
 import threading
 
 import pytest
@@ -302,7 +303,8 @@ def test_ui_writes_a_private_redirect_file_opens_it_and_deletes_it_on_first_use(
                 break
             threading.Event().wait(0.05)
         (path,) = opened
-        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+        if sys.platform != "win32":  # Windows keeps no Unix mode bits (its profile ACL does)
+            assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
         link = next(line for line in "".join(out).split() if line.startswith("http://127.0.0.1"))
         assert link in path.read_text(encoding="utf-8") and "#key=" in link
         secret = link.split("#key=", 1)[1]
