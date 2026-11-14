@@ -23,6 +23,7 @@
 <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"></path></symbol>
 <symbol id="i-mark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"></path></symbol>
 <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l11-7z"></path></symbol>
+<symbol id="i-cols" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1.5"></rect><rect x="14" y="4" width="7" height="16" rx="1.5"></rect></symbol>
 <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"></path><circle cx="16" cy="6" r="2"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="18" cy="18" r="2"></circle></symbol>
 </defs></svg>
 
@@ -45,13 +46,14 @@
 <div class="msep" role="separator"></div>
 <button type="button" class="mi" role="menuitem" data-action="quit">Quit Clarity</button>
 </div>
-<div class="threadarea"><div class="col">
+<div class="threadarea" id="threadarea"><div class="col">
 <div id="thread"></div>
 <div class="writing" id="writing-box" hidden><div class="msg" id="writing"></div></div>
 <p class="status"><span id="writing-status" role="status"></span><span class="dots" id="writing-dots" aria-hidden="true"></span></p>
 <div id="notice"></div>
 </div></div>
-<div class="cpwrap">
+<section class="compare" id="compare" aria-label="Compare these replies" hidden></section>
+<div class="cpwrap" id="cpwrap">
 <form class="cp" id="composer"><label class="vh" for="message">Message</label><textarea id="message" rows="2" placeholder="Message" disabled></textarea><div class="row"><span class="spacer"></span><span class="vh" id="send-waits"></span><button type="submit" class="send" id="send" aria-label="Send" aria-describedby="send-waits" disabled><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button><button type="button" class="stop" id="stop" hidden><span class="sq" aria-hidden="true"></span><span id="stop-label">Stop</span></button></div></form>
 <div class="under" id="composer-row"></div>
 </div>

@@ -28,12 +28,12 @@ pytestmark = pytest.mark.browser
 SCREENS = Path(__file__).resolve().parent.parent / "notes" / "research" / "v030-screens"
 
 
-def shot(page, name: str, item: str = "c1") -> None:
+def shot(page, name: str, item: str = "c1", full_page: bool = True) -> None:
     """A screenshot for the design review, kept in a local-only folder: notes/ is gitignored,
     so CI, which has no such folder, saves none."""
     if SCREENS.is_dir():
         (SCREENS / item).mkdir(exist_ok=True)
-        page.screenshot(path=SCREENS / item / f"{name}.png", full_page=True)
+        page.screenshot(path=SCREENS / item / f"{name}.png", full_page=full_page)
 
 
 @pytest.fixture(scope="session")
@@ -663,3 +663,133 @@ def test_a_second_message_is_written_from_its_own_start(clarity, page):
     say(page, "Again")
     page.wait_for_selector("#writing:has-text('Second reply,')")
     assert page.text_content("#writing").startswith(" Second reply,")
+
+
+# --- replies and Compare (C3)
+
+
+def open_replies(page) -> None:
+    page.click(".reply.last [data-action=replies]")
+    page.wait_for_selector(".listpop")
+
+
+def test_more_replies_from_the_pop_out_of_one_reply(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect, "long")
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    open_replies(page)
+    # F5: one reply, so only More replies, prefilled 3; focus on the box.
+    assert page.text_content(".listpop .lh span") == "1 reply to this message"
+    assert page.input_value("#more-n") == "3" and focused(page) == "more-n"
+    assert page.locator(".listpop .lrow").count() == 0
+    shot(page, "F5-one-reply", "c3")
+    page.keyboard.press("Escape")
+    assert (
+        page.is_hidden(".listpop")
+        and page.evaluate("document.activeElement.dataset.action") == "replies"
+    )
+    open_replies(page)
+    backend.replies = [" Second, " * 4, " Third, " * 4, " Fourth."]
+    backend.piece_delay = 0.3
+    page.click(".listpop button[type=submit]")
+    page.wait_for_selector("#writing-status:has-text('Writing reply 2 of 3')")
+    assert page.text_content("#stop-label") == "Stop the rest"
+    page.wait_for_selector("#stop", state="hidden", timeout=20_000)
+    assert page.text_content(".reply.last [data-action=replies]") == "4 replies"
+
+
+def make_three(page, backend) -> None:
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    backend.replies = [" Second one.", " Third one."]
+    page.evaluate("clarity.command('regen', '2')")
+    page.evaluate("clarity.refresh()")
+    page.wait_for_selector(".reply.last [data-action=replies]:has-text('3 replies')")
+
+
+def test_the_rows_and_showing_another_reply(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    make_three(page, backend)
+    open_replies(page)
+    compared = page.evaluate("clarity.command('compare')")["result"]
+    rows = page.locator(".listpop .lrow")
+    assert rows.count() == 3
+    for i, reply in enumerate(compared["replies"]):
+        assert rows.nth(i).locator(".n").text_content() == f"reply {reply['k']} of 3"
+        assert rows.nth(i).locator(".df").text_content() == f"seed {reply['seed']} · not continued"
+    assert page.text_content(".listpop .lrow.cur .act") == "You are here"
+    shot(page, "F2-three-replies", "c3")
+    rows.nth(0).locator(".go").click()
+    page.wait_for_selector(".reply.last .msg:has-text('ok')")  # reply 1's text
+    assert page.is_hidden(".listpop")
+
+
+def test_again_with_the_same_seeds_after_a_change_then_compare(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    make_three(page, backend)
+    page.evaluate("clarity.command('set', 'temperature 0.3')")
+    page.evaluate("clarity.refresh()")
+    page.wait_for_selector(".reply.last .tb")
+    open_replies(page)
+    assert page.text_content(".listpop .again span") == (
+        "Again with the same 3 seeds, now at temperature 0.3"
+    )
+    shot(page, "F3-again", "c3")
+    backend.replies = [" ok, then more.", " Second one!", " Third one."]
+    page.click(".listpop [data-action=again]")
+    page.wait_for_selector(".reply.last [data-action=replies]:has-text('6 replies')")
+    open_replies(page)
+    assert "You set temperature to 0.3" in page.text_content(".listpop .divider")
+    assert page.locator(".listpop [data-action=again]").count() == 0
+    shot(page, "F1-six-replies", "c3")
+    page.click(".listpop [data-action=compare]")
+    page.wait_for_selector("#compare:not([hidden]) .cmp-grid")
+    assert focused(page) == "compare-back" and page.is_hidden("#threadarea")
+    assert page.locator("#compare .split").count() >= 1
+    shot(page, "K2-matched-seeds", "c3")
+    page.set_viewport_size({"width": 400, "height": 800})
+    shot(page, "K4-narrow", "c3", full_page=False)
+    page.set_viewport_size({"width": 1280, "height": 720})
+    page.keyboard.press("Escape")
+    assert page.is_hidden("#compare") and page.is_visible("#threadarea")
+    assert page.evaluate("document.activeElement.dataset.action") == "replies"
+
+
+def test_compare_cards_when_only_the_seed_differs_and_when_both_do(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    make_three(page, backend)
+    open_replies(page)
+    page.click(".listpop [data-action=compare]")
+    page.wait_for_selector("#compare .cmp-cards")
+    assert page.text_content("#compare .cmp-lead") == (
+        "These replies differ only by seed, so where they part says nothing about a setting."
+    )
+    shot(page, "K1-seed-only", "c3")
+    page.click("#compare-back")
+    page.evaluate("clarity.command('set', 'temperature 0.3')")
+    page.evaluate("clarity.command('regen')")
+    page.evaluate("clarity.refresh()")
+    page.wait_for_selector(".reply.last [data-action=replies]:has-text('4 replies')")
+    open_replies(page)
+    page.click(".listpop [data-action=compare]")
+    page.wait_for_selector("#compare .problem")
+    assert "differ in seed and in temperature" in page.text_content("#compare .problem")
+    shot(page, "K3-seed-and-setting", "c3")
+
+
+def test_an_earlier_reply_s_pop_out_lists_without_more_replies(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    make_three(page, backend)
+    say(page, "And then?")
+    page.wait_for_selector(".reply.early [data-action=replies]")
+    page.click(".reply.early [data-action=replies]")
+    page.wait_for_selector(".listpop")
+    assert page.locator(".listpop .lrow").count() == 3
+    assert page.locator("#more-n").count() == 0
+    assert "continued, 2 more messages" in page.text_content(".listpop .lrow.cur")
+    shot(page, "F1-earlier-fork", "c3")

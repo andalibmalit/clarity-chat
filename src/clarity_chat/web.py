@@ -767,6 +767,155 @@ async def _about(worker: Worker, params: dict[str, str | None]) -> str:
     )
 
 
+# --- The replies pop-out and Compare (C3), from /compare
+
+
+def value_words(value: Any) -> str:
+    if isinstance(value, list):
+        return ", ".join(str(v) for v in value)
+    return f"{value:g}" if isinstance(value, float) else str(value)
+
+
+def setting_words(name: str, value: Any) -> str:
+    """A setting as a row or a card says it, when it's what differs."""
+    if name == "steering_scale":
+        return "not steered" if value == 0 else f"steered ×{value:g}"
+    return f"{name} {value_words(value)}"
+
+
+def changed_words(settings: dict[str, Any], joiner: str = " ") -> str:
+    """A change as "now at …" and the divider say it: steering's strength by that word."""
+    names = {"steering_scale": "strength"}
+    return " and ".join(f"{names.get(n, n)}{joiner}{value_words(v)}" for n, v in settings.items())
+
+
+def numbers(ks: list[int]) -> str:
+    """Reply numbers as a range when they run on ("4–6"), else listed ("1, 3")."""
+    run = ks == list(range(ks[0], ks[0] + len(ks))) and len(ks) > 2
+    return f"{ks[0]}–{ks[-1]}" if run else ", ".join(str(k) for k in ks)
+
+
+def pair_note(pair: dict[str, Any]) -> str | None:
+    """What a matched pair shows instead of a split marker, if anything."""
+    if pair["first_different_token"] is None:
+        return "the same text"
+    return "agree until one stops" if pair["prefix"] else None
+
+
+STOPS = {"cancelled": "stopped by you", "limit": "stopped at the token limit"}
+
+
+def reply_rows(compared: dict[str, Any]) -> list[dict[str, Any]]:
+    """The pop-out's rows: what differs (the seed, and the settings when the replies fall in
+    groups), how each stopped and where its branch went, and a divider where a group starts,
+    naming the change and whether its seeds are the group before's again."""
+    replies, groups = compared["replies"], compared["groups"]
+    rows: list[dict[str, Any]] = []
+    for i, reply in enumerate(replies):
+        words = [f"seed {reply['seed']}"]
+        if len(groups) > 1:
+            words += [setting_words(n, v) for n, v in groups[reply["group"]]["settings"].items()]
+        if reply["stop_type"] in STOPS:
+            words.append(STOPS[reply["stop_type"]])
+        later = reply["later_turns"]
+        words.append(
+            "not continued"
+            if later == 0
+            else f"continued, {later} more message{'' if later == 1 else 's'}"
+        )
+        divider = None
+        if i and reply["group"] != replies[i - 1]["group"]:
+            before = [r["seed"] for r in replies if r["group"] == replies[i - 1]["group"]]
+            run = [r["seed"] for r in replies[i:] if r["group"] == reply["group"]]
+            divider = "You set " + changed_words(groups[reply["group"]]["settings"], " to ")
+            if run == before:
+                divider += f", then chose “Again with the same {len(run)} seeds”"
+        rows.append({**reply, "words": " · ".join(words), "divider": divider})
+    return rows
+
+
+async def _replies(worker: Worker, params: dict[str, str | None]) -> str:
+    """The replies pop-out for the message the call answers: its replies, More replies and
+    the same seeds again (for your last message, where /regen acts), and Compare."""
+    if not params["call"]:
+        raise Refused(400, "Name a reply's call.")
+    compared = await result_of(worker, "compare", params["call"])
+    turns = (await result_of(worker, "state"))["turns"]
+    last = len(turns) > 1 and turns[-2]["turn_id"] == compared["message"]["turn_id"]
+    return templates.get_template("replies.html").render(
+        n=len(compared["replies"]),
+        rows=reply_rows(compared),
+        last=last and turns[-1]["role"] == "assistant",
+        again=compared["again"],
+        again_words=changed_words(compared["again"]["now"]) if compared["again"] else None,
+    )
+
+
+async def _compare(worker: Worker, params: dict[str, str | None]) -> str:
+    """Compare: the replies side by side. Matched seeds line up in rows, with a column per
+    group of settings and a marker where each parts from the first column's; otherwise cards,
+    with a warning when both the seed and a setting differ."""
+    if not params["call"]:
+        raise Refused(400, "Name a reply's call.")
+    compared = await result_of(worker, "compare", params["call"])
+    state = await result_of(worker, "state")
+    backend = (await result_of(worker, "settings"))["backend"]
+    replies, groups = compared["replies"], compared["groups"]
+    differ = [n for n in (groups[0]["settings"] if len(groups) > 1 else {})]
+    names = " and ".join("steering" if n == "steering_scale" else n for n in differ)
+    for reply in replies:
+        words = [f"seed {reply['seed']}"]
+        if len(groups) > 1:
+            words += [setting_words(n, v) for n, v in groups[reply["group"]]["settings"].items()]
+        reply["head"] = f"reply {reply['k']} of {len(replies)} · " + " · ".join(words)
+        reply["stop"] = STOPS.get(reply["stop_type"])
+    rows, columns, sentence = [], [], None
+    if compared["pairs"]:
+        pairs = {(p["a"], p["b"]): p for p in compared["pairs"]}
+        for g, group in enumerate(groups):
+            label = " · ".join(setting_words(n, v) for n, v in group["settings"].items())
+            ks = [r["k"] for r in replies if r["group"] == g]
+            columns.append({"label": label[:1].upper() + label[1:], "ks": numbers(ks)})
+        for seed in dict.fromkeys(r["seed"] for r in replies):
+            cells = [
+                [r for r in replies if r["seed"] == seed and r["group"] == g]
+                for g in range(len(groups))
+            ]
+            for i in range(max(len(c) for c in cells)):
+                row = [c[i] if i < len(c) else None for c in cells]
+                first = row[0]
+                for cell in row[1:]:
+                    pair = first and cell and pairs.get((first["call_id"], cell["call_id"]))
+                    if pair:
+                        cell["note"] = pair_note(pair)
+                        cut = pair["first_different_char"]
+                        if cell["note"] is None and cut is not None:
+                            cell["parts"] = (cell["text"][:cut], cell["text"][cut:])
+                rows.append({"seed": seed, "cells": row})
+        complete = len(groups) == 2 and all(all(row["cells"]) for row in rows)
+        if complete:
+            first_ks = [r["k"] for r in replies if r["group"] == 0]
+            later_ks = [r["k"] for r in replies if r["group"] == 1]
+            sentence = (
+                f"Replies {numbers(later_ks)} reused the seeds of replies {numbers(first_ks)}, "
+                f"so each row differs only in {names}."
+            )
+    same = [setting_words(n, v) for n, v in compared["same"].items()]
+    return templates.get_template("compare.html").render(
+        compared=compared,
+        replies=replies,
+        rows=rows,
+        columns=columns,
+        sentence=sentence,
+        mixed=len(groups) > 1 and not compared["pairs"],
+        names=names,
+        same=" · ".join(
+            [f"profile {state['profile']}", f"{state['model_name']} · runs on {backend}", *same]
+            + (["the prompt"] if compared["same_prompt"] else [])
+        ),
+    )
+
+
 def event_line(event: dict[str, Any]) -> bytes:
     """One line of the event stream. A value JSON can't carry (NaN or infinity) would break
     the page's parser and drop the stream, so it's sent as an error event instead."""
@@ -791,4 +940,10 @@ def json_response(content: dict[str, Any]) -> Response:
     return Response(body, media_type="application/json")
 
 
-VIEW_RENDERERS = {"thread": _thread, "picker": _picker, "about": _about}
+VIEW_RENDERERS = {
+    "thread": _thread,
+    "picker": _picker,
+    "about": _about,
+    "replies": _replies,
+    "compare": _compare,
+}

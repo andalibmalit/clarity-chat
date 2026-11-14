@@ -288,27 +288,42 @@ def test_a_reply_without_a_call_id_is_drawn_without_controls(chat):
 
 
 DRAWN_ACTIONS = re.compile(r'data-action="([\w-]+)"')
+LATER = {  # drawn now, handled by a later item of v0.3.0's plan
+    "chats": "C5: the Chats drawer",
+    "appearance": "C6: Appearance",
+    "settings": "C4a: Settings",
+    "details": "C4b: Details",
+}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Chats, Appearance, Settings, the replies pop-out and Details are handled by C3-C5",
-)
-def test_every_drawn_action_has_a_handler():
+def drawn_actions() -> list[str]:
     from pathlib import Path
 
     folder = Path(web.__file__).parent
     drawn = set()
     for path in [*(folder / "web_templates").glob("*.html"), folder / "web_static" / "index.html"]:
         drawn |= set(DRAWN_ACTIONS.findall(path.read_text(encoding="utf-8")))
-    code = (folder / "web_static" / "app.js").read_text(encoding="utf-8")
-    thread = code[code.index("const THREAD = {") : code.index("};", code.index("const THREAD = {"))]
+    return sorted(drawn)
+
+
+@pytest.mark.parametrize(
+    "action",
+    [
+        pytest.param(a, marks=pytest.mark.xfail(strict=True, reason=LATER[a])) if a in LATER else a
+        for a in drawn_actions()
+    ],
+)
+def test_every_drawn_action_has_a_handler(action):
+    from pathlib import Path
+
+    code = (Path(web.__file__).parent / "web_static" / "app.js").read_text(encoding="utf-8")
+    table = code[code.index("const THREAD = {") : code.index("};", code.index("const THREAD = {"))]
     handled = (
         set(re.findall(r'action === "([\w-]+)"', code))
-        | set(re.findall(r'^  "?([\w-]+)"?(?::|\()', thread, re.M))
+        | set(re.findall(r'^  "?([\w-]+)"?(?::|\()', table, re.M))
         | set(re.findall(r"clarity\.on\.([\w]+)\s*=", code))
     )
-    assert drawn - handled == set()
+    assert action in handled
 
 
 def test_a_failed_line_needs_your_message_back_in_the_box():
