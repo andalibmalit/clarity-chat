@@ -1499,3 +1499,30 @@ def test_the_title_menu_waits_while_a_reply_is_written(clarity, page):
     page.click("#stop")
     page.wait_for_selector(".reply.last .tb")
     assert page.get_attribute("#title", "aria-disabled") is None
+
+
+def test_picking_the_open_chat_in_the_drawer_just_closes_it(clarity, page):
+    """The tripwire review after C5, finding 10: no /resume of the chat that's open."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    open_drawer(page)
+    page.click('#drawer .crow[aria-current="true"]')
+    page.wait_for_selector("#drawer", state="hidden")
+    state = page.evaluate("clarity.command('state')")["result"]
+    assert state["resume_differ"] is None  # a resume would have set it
+    assert page.query_selector("#thread .resume") is None
+
+
+def test_a_title_has_a_length_limit_and_a_long_one_is_cut_with_an_ellipsis(clarity, page):
+    """Finding 11."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    assert page.get_attribute("#rename-text", "maxlength") == "120"
+    page.evaluate(f"clarity.command('title', '{'word ' * 23}')")
+    page.evaluate("clarity.refresh()")
+    page.wait_for_selector("#title-text:has-text('word word')")
+    assert style(page, "#title-text", "textOverflow") == "ellipsis"
