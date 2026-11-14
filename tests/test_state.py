@@ -372,3 +372,47 @@ def test_settings_waits_while_a_model_starts(commands):
 
     c.run("new", "", on_event)
     assert refused and "still running" in refused[0]
+
+
+# --- A3 (v0.3.0): reads from another thread across every command that changes the chat
+
+
+def test_state_and_settings_from_another_thread_across_the_commands(commands):
+    """Any exception in the reader, other than the refusal while a command can't share,
+    fails the test."""
+    from clarity_chat.profiles import ConfigError
+
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    backend.replies = [" word" * 3] * 200
+    errors: list[BaseException] = []
+    done = threading.Event()
+
+    def reader():
+        while not done.is_set():
+            for name in ("state", "settings", "chats"):
+                try:
+                    c.run(name, "", lambda e: None)
+                except ConfigError as e:
+                    if "still running" not in str(e):
+                        errors.append(e)
+                except BaseException as e:  # noqa: BLE001 - any error here is the finding
+                    errors.append(e)
+
+    thread = threading.Thread(target=reader)
+    thread.start()
+    try:
+        for i in range(8):
+            c.run("say", f"m{i}", lambda e: None)
+            c.run("regen", "2", lambda e: None)
+            c.run("edit", f"edited {i}", lambda e: None)
+            c.run("undo", "", lambda e: None)
+            ends = c.run("branches", "all", lambda e: None)["ends"]
+            c.run("switch", ends[-1]["turn_id"], lambda e: None)
+            c.run("resume", c.session.conversation.conversation_id, lambda e: None)
+            if i % 4 == 3:
+                c.run("new", "", lambda e: None)
+    finally:
+        done.set()
+        thread.join()
+    assert errors == []
