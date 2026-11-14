@@ -196,17 +196,45 @@ class Refused(Exception):
         self.status = status
 
 
+async def read_json(request: Request, is_command: bool = True) -> dict[str, Any]:
+    """The request's JSON object, by --json's rules for a command."""
+    chunks, size = [], 0
+    async for chunk in request.stream():  # counted as it arrives, chunked bodies too
+        size += len(chunk)
+        if size > MAX_BODY:
+            raise Refused(413, "Too big.")
+        chunks.append(chunk)
+    raw = b"".join(chunks)
+    if is_command:
+        parsed = JsonChat.parse(raw)
+        if "error" in parsed:
+            raise Refused(400, parsed["error"])
+        return parsed
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError) as e:
+        raise Refused(400, f"Not JSON: {e}") from e
+    if not isinstance(parsed, dict):
+        raise Refused(400, "Send a JSON object.")
+    return parsed
+
+
 def make_app(
     session: Session,
     secret: bytes,
     port: int = PORT,
     on_first_use: Callable[[], None] | None = None,
 ) -> Security:
-    """The app. `on_first_use` runs once, at the first request with the secret."""
+    """The app. `on_first_use` runs once, at the first request with the secret;
+    `app.state.rearm(callback)` sets it again (the terminal's Enter makes a new redirect)."""
+    if len(secret) < 16:  # an empty one would let every request through
+        raise ValueError("The secret must be at least 16 bytes.")
     worker = Worker(session)
     first_use = [on_first_use]
     origin = f"http://127.0.0.1:{port}"
-    tabs: dict[str, Any] = {"live": None, "streams": {}}  # the live tab; open streams per tab
+    # The live tab; open streams per tab; tabs told they aren't live, which take over only
+    # by POST /tab, never by reconnecting their stream.
+    tabs: dict[str, Any] = {"live": None, "streams": {}, "told": set()}
 
     def check(request: Request, post: bool = False) -> None:
         """The secret, fetch metadata and, for a POST, the Origin and the content type."""
@@ -240,24 +268,6 @@ def make_app(
         if tab != tabs["live"]:
             raise Refused(409, "Clarity is open in another tab.")
 
-    async def body(request: Request, is_command: bool = True) -> dict[str, Any]:
-        """The request's JSON object, by --json's rules for a command."""
-        raw = await request.body()
-        if len(raw) > MAX_BODY:
-            raise Refused(413, "Too big.")
-        if is_command:
-            parsed = JsonChat.parse(raw)
-            if "error" in parsed:
-                raise Refused(400, parsed["error"])
-            return parsed
-        try:
-            parsed = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError, RecursionError) as e:
-            raise Refused(400, f"Not JSON: {e}") from e
-        if not isinstance(parsed, dict):
-            raise Refused(400, "Send a JSON object.")
-        return parsed
-
     def shell(request: Request) -> Response:
         return FileResponse(STATIC / "index.html", media_type="text/html")
 
@@ -270,7 +280,7 @@ def make_app(
     async def command(request: Request) -> Response:
         try:
             check(request, post=True)
-            parsed = await body(request)
+            parsed = await read_json(request)
             tab = parsed.get("tab")
             if not isinstance(tab, str):
                 raise Refused(400, "A command names its tab.")
@@ -288,11 +298,14 @@ def make_app(
     async def take_tab(request: Request) -> Response:
         try:
             check(request, post=True)
-            tab = (await body(request, is_command=False)).get("tab")
+            tab = (await read_json(request, is_command=False)).get("tab")
             if not isinstance(tab, str):
                 raise Refused(400, "Name the tab.")
         except Refused as e:
             return PlainTextResponse(str(e), e.status)
+        if tabs["live"] not in (None, tab):
+            tabs["told"].add(tabs["live"])
+        tabs["told"].discard(tab)
         tabs["live"] = tab
         worker.emit({"event": "not_live", "live": tab})
         return JSONResponse({"live": tab})
@@ -303,7 +316,8 @@ def make_app(
         except Refused as e:
             return PlainTextResponse(str(e), e.status)
         tab = request.query_params.get("tab", "")
-        if not tabs["streams"].get(tabs["live"]):  # live at once if no live tab is listening
+        # Live at once if no live tab is listening, unless this tab was told it isn't live.
+        if not tabs["streams"].get(tabs["live"]) and tab not in tabs["told"]:
             tabs["live"] = tab
         loop = asyncio.get_running_loop()
         inbox: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
@@ -351,8 +365,13 @@ def make_app(
     @refusing
     def export(request: Request) -> Response:
         check(request)
-        path = worker.export_path
-        if path is None or not path.is_file():
+        path, conversation = worker.export_path, worker.commands.session.conversation
+        current = (
+            conversation is not None
+            and path is not None
+            and (path.stem == conversation.conversation_id)
+        )
+        if not current or path is None or not path.is_file():
             raise Refused(409, "Export this chat first; the file is made when you export it.")
         return FileResponse(path, media_type="application/x-ndjson", filename=path.name)
 
@@ -368,6 +387,7 @@ def make_app(
         ]
     )
     app.state.worker = worker
+    app.state.rearm = lambda callback: first_use.__setitem__(0, callback)
     return Security(app, port)
 
 
@@ -397,12 +417,14 @@ def serve(
     link = f"http://127.0.0.1:{port}/#key={secret}"
     redirect = root / "local" / "clarity-open.html"
     redirect.parent.mkdir(exist_ok=True)
-    redirect.unlink(missing_ok=True)  # one an earlier start left; this start makes its own
-    fd = os.open(
-        redirect, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600
-    )
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        f.write(REDIRECT.format(link=html.escape(link, quote=True)))
+
+    def write_redirect() -> None:
+        redirect.unlink(missing_ok=True)  # one left before: this one is made new, private
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+        with os.fdopen(os.open(redirect, flags, 0o600), "w", encoding="utf-8") as f:
+            f.write(REDIRECT.format(link=html.escape(link, quote=True)))
+
+    write_redirect()
     session = (session_factory or (lambda: Session(root)))()
     app = make_app(
         session, secret.encode(), port, on_first_use=lambda: redirect.unlink(missing_ok=True)
@@ -428,9 +450,11 @@ def serve(
     if read_lines:
 
         def again() -> None:
-            for _ in sys.stdin:
+            for _ in sys.stdin:  # the redirect again, never the link: `open` shows its argv
+                write_redirect()
+                app.state.rearm(lambda: redirect.unlink(missing_ok=True))
                 write(f"Clarity is at {link}\n")
-                webbrowser.open(link)
+                open_page(redirect)
 
         threading.Thread(target=again, daemon=True).start()
     try:

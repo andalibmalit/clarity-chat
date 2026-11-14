@@ -74,8 +74,9 @@ class JsonChat:
                 return
 
     def read(self, pending: queue.Queue[dict[str, Any] | None]) -> None:
-        """Read input lines. `cancel` and `state` run here at once, so they work during a
-        call; everything else, including a line that isn't a command, waits its turn."""
+        """Read input lines. The commands that run at once (`cancel`, `state`, `chats`,
+        `profiles`, and `settings` during a reply) run here; everything else, including a
+        line that isn't a command, waits its turn."""
         try:
             for line in self.lines():
                 if not line.strip():
