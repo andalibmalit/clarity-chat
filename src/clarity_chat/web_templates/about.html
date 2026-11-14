@@ -1,0 +1,6 @@
+<h2 id="about-title">About Clarity</h2>
+<dl class="kv">
+<dt>Version</dt><dd>{{ clarity.version }}</dd>
+<dt>Commit</dt><dd>{{ clarity.commit or "unknown: not a git checkout" }}{% if clarity.dirty %}, with changes not committed{% endif %}</dd>
+<dt>llama.cpp commit</dt><dd>{{ llama_cpp_commit }}</dd>
+</dl>

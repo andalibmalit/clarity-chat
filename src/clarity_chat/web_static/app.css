@@ -1,1 +1,98 @@
-/* Clarity's page styles; the design system's tokens arrive with the screens (Group C). */
+/* Clarity's page: the shell's layout (v0.3.0 item C1), on clarity-ds.css's tokens and
+   classes. Values follow the boards V3Start, V3Picker and V3Chat. */
+
+[hidden] { display: none !important; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--paper); color: var(--ink); font-family: var(--sans); font-size: var(--ui-size); line-height: 1.45; }
+.defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
+/* One page at a time: the app, or a plain page (no secret, another tab, stopped). */
+#app, .plain { display: none; }
+body[data-page="ready"] #app { display: flex; }
+body[data-page="no-key"] .plain[data-for="no-key"],
+body[data-page="not-live"] .plain[data-for="not-live"],
+body[data-page="stopped"] .plain[data-for="stopped"] { display: flex; }
+
+#app { height: 100vh; min-height: 0; }
+.mn { position: relative; min-height: 0; }
+
+/* Top bar */
+.top { padding: 0 12px 0 34px; }
+.brandbtn { display: inline-flex; align-items: center; gap: 8px; padding: 5px 9px 5px 7px; border-radius: var(--r-sm); font-weight: 500; color: var(--ink); }
+.brandbtn:hover, .brandbtn[aria-expanded="true"] { background: var(--hover); }
+.brandbtn .logo { width: 22px; height: 22px; color: var(--ink); }
+.top .title { display: inline-flex; align-items: center; gap: 4px; }
+.top .title.fresh { color: var(--muted); font-weight: 400; }
+.menu.appmenu { left: 34px; top: 46px; min-width: 240px; z-index: 9; }
+.menu a.mi { color: var(--ink); text-decoration: none; }
+
+/* The Chats handle, on the left edge */
+.handle { position: absolute; left: 0; top: 70px; z-index: 3; width: 22px; padding: 12px 0; border-radius: 0 var(--r-sm) var(--r-sm) 0; background: var(--side); border: 1px solid var(--rule); border-left: 0; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11.5px; }
+.handle span { writing-mode: vertical-rl; transform: rotate(180deg); letter-spacing: 0.04em; }
+.handle:hover { color: var(--ink); }
+
+/* Thread area: the first screen, the thread, and a refusal above the message box */
+.threadarea { flex: 1; min-height: 0; overflow-y: auto; display: flex; }
+.col { flex: 1; width: 100%; max-width: 800px; margin: 0 auto; padding: 14px 32px 12px 72px; display: flex; flex-direction: column; gap: 14px; }
+#thread { flex: 1 0 auto; display: flex; flex-direction: column; gap: 14px; }
+#thread:has(> .first) { flex: none; }
+#thread:has(> .first) ~ #notice { margin-block: auto; }
+#writing:empty { display: none; }
+ol.thread:empty { display: none; }
+.center, .opening { margin: auto 0; }
+.opening { display: flex; flex-direction: column; gap: 8px; }
+.center { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 24px 10px; }
+.opening .center { margin: 0; padding-bottom: 8px; }
+.st { display: inline-flex; align-items: center; gap: 8px; font-size: 13.5px; color: var(--ink); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex: none; }
+.pname { font-family: var(--mono); font-size: 13px; }
+.intro .pname { font-size: 17px; color: var(--ink); }
+.d2 { font-size: 13px; color: var(--muted); }
+.intro .lead { max-width: 440px; font-size: 14px; color: var(--ink); margin-top: 12px; }
+.hint { font-size: 13px; color: var(--muted); text-align: center; margin: 0; }
+.problem { font-size: 13px; }
+.problem p { flex: 1; min-width: 220px; overflow-wrap: anywhere; }
+
+/* Composer and the row under it */
+.cpwrap { position: relative; width: 100%; max-width: 800px; margin: 0 auto; padding: 10px 32px 0 72px; }
+.cp textarea[disabled] { cursor: not-allowed; }
+.send[disabled] { opacity: 0.4; cursor: not-allowed; }
+.under { justify-content: flex-start; gap: 6px; padding: 6px 4px 16px; flex-wrap: wrap; }
+.picker .nm { color: var(--ink); font-family: var(--mono); font-size: 12.5px; }
+.picker[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+.setbtn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: var(--r-sm); font-size: 13px; color: var(--ink); background: var(--hover); }
+.setbtn .ch { color: var(--accent); font-weight: 500; }
+.ctx { margin-left: auto; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.ctx.hot { color: var(--warn); }
+
+/* The picker: one list, grouped by model, above the message box */
+.menu.pickmenu { left: 72px; bottom: calc(100% - 2px); width: 440px; max-width: calc(100% - 104px); max-height: calc(100vh - 150px); overflow-y: auto; }
+.mhead.big { font-size: 14px; color: var(--ink); font-weight: 500; padding: 8px 10px 4px; }
+.pnote { font-size: 12.5px; color: var(--ink); padding: 2px 10px 6px; max-width: 400px; }
+.grp { font-size: 12px; font-weight: 600; color: var(--muted); padding: 10px 10px 2px; font-family: var(--mono); }
+.mi .d2 { font-size: 12px; display: block; }
+.mi[aria-current] { background: var(--hover); }
+.mi.nf .pname { color: var(--muted); }
+.mi.err .d2 { color: var(--warn); overflow-wrap: anywhere; }
+.stag { display: inline-block; font-size: 11.5px; padding: 0 6px; border-radius: 999px; background: var(--you); color: var(--ink); margin-left: 6px; font-family: var(--sans); }
+.note3 { font-size: 12.5px; color: var(--muted); padding: 8px 10px 2px; }
+
+/* About */
+dialog.sheet { width: min(520px, calc(100vw - 32px)); border: 1px solid var(--rule); border-radius: var(--r-md); background: var(--raised); color: var(--ink); box-shadow: var(--shadow); padding: 20px 22px 16px; }
+dialog.sheet::backdrop { background: oklch(0% 0 0 / 0.18); }
+.sheet h2 { margin: 0 0 12px; font-size: 17px; font-weight: 600; }
+.sheet .kv dd { overflow-wrap: anywhere; }
+.sheet .actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+
+/* Buttons outside a toolbar */
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: var(--r-sm); font: inherit; font-size: 13px; color: var(--ink); background: var(--raised); border: 1px solid var(--rule); cursor: pointer; }
+.btn.pri { background: var(--accent); color: var(--on-accent); border-color: var(--accent); padding: 7px 14px; font-weight: 500; }
+
+/* Plain pages: no app around them */
+.plain { min-height: 100vh; box-sizing: border-box; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 44px 40px; text-align: center; }
+.plain .logo { width: 40px; height: 40px; color: var(--ink); }
+.plain h1 { margin: 0; font-size: 19px; font-weight: 600; }
+.plain p { margin: 0; max-width: 460px; color: var(--muted); font-size: 14px; }
+.plain p.ink { color: var(--ink); font-size: 15px; }
+.plain :focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); }
+.plain .errbox { text-align: left; max-width: 540px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--warn-bg); color: var(--warn); font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
