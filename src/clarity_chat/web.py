@@ -691,9 +691,11 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
     idle = state["running"] is None
     if state["model"] == "starting":
         starting = starting_profile(state, (await result_of(worker, "profiles"))["profiles"])
-        # A new chat: its turns aren't drawn. C4b: a replay that restarts the server should
-        # keep them too (only "Start the model again", a resume, does now).
-        if state["running"]["command"] != "resume":
+        # A new chat, or another chat resumed: this chat's turns aren't drawn. Any other start
+        # (Start the model again, a replay that restarts the server) keeps it on screen.
+        running = state["running"]
+        other = running["command"] == "resume" and running["args"] != state["conversation_id"]
+        if running["command"] in ("profile", "new") or other:
             turns = []
     elif state["conversation_id"] is None:
         has_chats = bool((await result_of(worker, "chats"))["chats"])
@@ -994,6 +996,147 @@ async def _settings(worker: Worker, params: dict[str, str | None]) -> str:
     return templates.get_template("settings.html").render(**settings_panel(settings, waits))
 
 
+# --- Details (C4b), from /prompt CALL_ID
+
+STOP_WORDS = {  # Stopped, in words, then the record's own code
+    "eos": "end of text",
+    "word": "at a stop word",
+    "limit": "at the token limit",
+    "cancelled": "stopped by you",
+    "none": "none",
+}
+CHECK_LINES = {  # what each check checks: docs/reference.md, "Checks after each call"
+    "prompt_echo": "The server’s decoding of the token IDs equals the prompt text.",
+    "settings_echo": "Every value sent comes back unchanged in the server’s generation_settings.",
+    "unaccounted_settings": "The server reports no setting Clarity didn’t send or expect.",
+    "tokens_evaluated": "The server read as many prompt tokens as were sent.",
+    "no_cache_reuse": "No prompt tokens came from a cache.",
+    "server_running": "The llama-server process Clarity started is still running.",
+}
+CHECK_FAILED = {  # what a failure means (v030-teaching-check, item 16)
+    "prompt_echo": (
+        "The server’s text for the token IDs differs from Clarity’s, so the model file and the "
+        "tokenizer may disagree."
+    ),
+    "settings_echo": "A value Clarity sent didn’t come back unchanged from the server.",
+    "unaccounted_settings": "The server reported a setting Clarity didn’t send.",
+    "tokens_evaluated": "The server read a different number of prompt tokens than were sent.",
+    "no_cache_reuse": "Some prompt tokens came from a cache.",
+    "server_running": (
+        "The model’s server had stopped. The reply is complete, but the next message needs the "
+        "server started again."
+    ),
+    "generation_config": "Transformers’ generation settings differed from what was sent.",
+    "steering": "A steered step didn’t run every steered layer exactly once.",
+}
+NOT_COUNTED = {"client", "libraries"}  # can't change a replay (replay.py)
+
+
+def prompt_pieces(call: dict[str, Any]) -> list[tuple[str, bool]]:
+    """The prompt text in pieces, each marked when the template or the profile wrote it."""
+    text, pieces, at = call.get("prompt_text") or "", [], 0
+    for span in call.get("message_spans") or []:
+        start, end = span["chars"]
+        if start > at:
+            pieces.append((text[at:start], False))
+        pieces.append((text[start:end], span["kind"] in ("template", "profile")))
+        at = max(at, end)
+    if at < len(text):
+        pieces.append((text[at:], False))
+    return pieces
+
+
+def stopped_words(call: dict[str, Any], eog: list[dict[str, Any]] | None) -> str:
+    """ "end of text · eos · <|im_end|>": the words, the code, and what stopped it: the end
+    token's text when llama-server's startup named it, else its ID; the stop word."""
+    code = call.get("stop_type") or "none"
+    words = [STOP_WORDS.get(code, code), code]
+    if code == "eos" and call.get("output_ids"):
+        end = call["output_ids"][-1]
+        texts = {t["id"]: t["text"] for t in eog or []}
+        words.append(texts.get(end, str(end)))
+    elif code == "word":
+        words.append(call.get("stopping_word", "").replace("\n", "\\n"))
+    return " · ".join(words)
+
+
+def replay_result(replay: dict[str, Any]) -> dict[str, Any]:
+    """A replay's short label and its facts (labels: v030-teaching-check, item 22)."""
+    changed = [n for n in replay.get("differences") or {} if n not in NOT_COUNTED]
+    if replay["identical"]:
+        label = "Identical"
+    elif replay.get("unexplained_difference"):
+        label = "Different, and nothing that could explain it changed"
+    else:
+        noun = "thing" if len(changed) == 1 else "things"
+        label = f"Different · {len(changed)} {noun} changed since"
+    return {**replay, "label": label, "changed": changed}
+
+
+async def _details(worker: Worker, params: dict[str, str | None]) -> str:
+    """Details for one call: what the model got, the summary, Replay, the settings as logged
+    and the whole record. /prompt and /settings answer during a reply (a replay included)."""
+    if not params["call"]:
+        raise Refused(400, "Name a call.")
+    read = await result_of(worker, "prompt", params["call"])
+    call, replays = read["call"], read["replays"]
+    settings = await result_of(worker, "settings")
+    state = await result_of(worker, "state")
+    turns = state["turns"]
+    head = turns[-1]["call_id"] if turns and turns[-1]["role"] == "assistant" else None
+    k = n = None
+    if call.get("turn_id") and state["running"] is None:  # /compare waits its turn
+        replies = (await result_of(worker, "compare", params["call"]))["replies"]
+        k = next((r["k"] for r in replies if r["call_id"] == call["call_id"]), None)
+        n = len(replies)
+    flags = call.get("flags") or []
+    failed = [f.removeprefix(CHECK) for f in flags if f.startswith(CHECK)]
+    failed += [
+        c for c, v in (call.get("checks") or {}).items() if not v.get("ok") and c not in failed
+    ]
+    timings = call.get("timings") or {}
+    known = "prompt_ms" in timings or "predicted_ms" in timings
+    seconds = (timings.get("prompt_ms", 0) + timings.get("predicted_ms", 0)) / 1000
+    produced = call.get("tokens_predicted") or len(call.get("output_ids") or [])
+    running = state["running"] or {}
+    first = call.get("prompt_ids") or [None]
+    return templates.get_template("details.html").render(
+        call=call,
+        k=k,
+        n=n,
+        earlier=bool(call.get("turn_id")) and call["call_id"] != head,
+        error=call.get("error", "").partition(": ")[2] or None,
+        bos=first[0] == (call.get("bos") or {}).get("bos_token_id"),
+        pieces=prompt_pieces(call),
+        text_mode=(call.get("bos") or {}).get("mode") == "text",
+        stopped=stopped_words(call, settings.get("eog_tokens")),
+        length=f"{produced} tokens · " + (f"{seconds:.1f} s" if known else "time unknown"),
+        model_line=f"{call['model']['tokenizer_repo'].rsplit('/', 1)[-1]} · runs on "
+        f"{(call.get('backend') or {}).get('backend', 'llama.cpp')}",
+        failed=failed,
+        check_failed=CHECK_FAILED,
+        checks=[
+            (name, v.get("ok") and name not in failed)
+            for name, v in (call.get("checks") or {}).items()
+        ],
+        check_lines=CHECK_LINES,
+        ignored=[e for e in call.get("not_applied") or [] if e.get("affects_output")],
+        replays=[replay_result(r) for r in replays],
+        replaying=running.get("command") == "replay" and running.get("args") == call["call_id"],
+        settings=[
+            (
+                name,
+                value_words(v["value"]) + (" (off)" if OFF.get(name) == v["value"] else ""),
+                v["origin"],
+            )
+            for name, v in call["settings"].items()
+        ],
+        seed_drawn=call.get("seed_drawn"),
+        ctx=settings["ctx_size"],
+        record=json.dumps(call, indent=2, ensure_ascii=False, default=str),
+    )
+
+
 def event_line(event: dict[str, Any]) -> bytes:
     """One line of the event stream. A value JSON can't carry (NaN or infinity) would break
     the page's parser and drop the stream, so it's sent as an error event instead."""
@@ -1025,4 +1168,5 @@ VIEW_RENDERERS = {
     "replies": _replies,
     "compare": _compare,
     "settings": _settings,
+    "details": _details,
 }

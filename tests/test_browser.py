@@ -668,6 +668,22 @@ def test_a_second_message_is_written_from_its_own_start(clarity, page):
 # --- replies and Compare (C3)
 
 
+def wait_for(page, selector: str, timeout: int = 30_000) -> None:
+    """wait_for_selector, printing what the page shows if it times out (a flake's evidence)."""
+    try:
+        page.wait_for_selector(selector, timeout=timeout)
+    except Exception:
+        for label, script in (
+            ("button", "document.querySelector('.reply.last [data-action=replies]')?.textContent"),
+            ("notice", "document.getElementById('notice').textContent"),
+            ("page state", "JSON.stringify(clarity.state && clarity.state.running)"),
+            ("replies", "clarity.command('compare').then(a => a.result.replies.length)"),
+            ("running now", "clarity.command('state').then(a => JSON.stringify(a.result.running))"),
+        ):
+            print("DUMP", label, page.evaluate(script))
+        raise
+
+
 def open_replies(page) -> None:
     page.click(".reply.last [data-action=replies]")
     page.wait_for_selector(".listpop")
@@ -740,7 +756,7 @@ def test_again_with_the_same_seeds_after_a_change_then_compare(clarity, page):
     shot(page, "F3-again", "c3")
     backend.replies = [" ok, then more.", " Second one!", " Third one."]
     page.click(".listpop [data-action=again]")
-    page.wait_for_selector(".reply.last [data-action=replies]:has-text('6 replies')")
+    wait_for(page, ".reply.last [data-action=replies]:has-text('6 replies')")
     open_replies(page)
     assert "You set temperature to 0.3" in page.text_content(".listpop .divider")
     assert page.locator(".listpop [data-action=again]").count() == 0
@@ -773,7 +789,7 @@ def test_compare_cards_when_only_the_seed_differs_and_when_both_do(clarity, page
     page.evaluate("clarity.command('set', 'temperature 0.3')")
     page.evaluate("clarity.command('regen')")
     page.evaluate("clarity.refresh()")
-    page.wait_for_selector(".reply.last [data-action=replies]:has-text('4 replies')")
+    wait_for(page, ".reply.last [data-action=replies]:has-text('4 replies')")
     open_replies(page)
     page.click(".listpop [data-action=compare]")
     page.wait_for_selector("#compare .problem")
@@ -862,3 +878,58 @@ def test_settings_wait_while_a_reply_is_written(clarity, page):
     shot(page, "I8-waiting", "c4a")
     page.wait_for_selector("#panel .waits", state="detached", timeout=20_000)
     assert page.get_attribute("#set-temperature", "aria-disabled") is None
+
+
+# --- Details (C4b)
+
+
+def test_details_on_a_reply_and_its_replay(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect, "long")
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    page.click(".reply.last [data-action=details]")
+    page.wait_for_selector("#panel:not([hidden]) .sec")
+    call = page.evaluate("clarity.command('prompt')")["result"]["call"]
+    assert page.text_content("#panel-title") == "Details · reply 1 of 1"
+    assert focused(page) == "panel-title"
+    assert page.is_visible("#panel pre[data-pane=text]")
+    shot(page, "G1-what-the-model-got", "c4b")
+    page.click("#panel .seg [data-pane=ids]")
+    assert page.is_hidden("#panel pre[data-pane=text]")
+    assert page.text_content("#panel pre[data-pane=ids]") == " ".join(map(str, call["prompt_ids"]))
+    backend.replies, backend.piece_delay = [" Slowly," * 10], 0.3
+    page.click("#panel [data-action=replay]")
+    page.wait_for_selector("#panel [role=status]:has-text('Replaying…')")
+    assert focused(page) is None and page.evaluate("document.activeElement.textContent") == "Stop"
+    shot(page, "G4-replaying", "c4b")
+    page.wait_for_selector("#panel .result", timeout=20_000)
+    replays = page.evaluate(f"clarity.command('prompt', '{call['call_id']}')")["result"]["replays"]
+    assert len(replays) == 1 and not replays[0]["identical"]
+    assert "replayed 1×, different" in page.text_content("#panel")
+    shot(page, "G4-replayed", "c4b")
+    # Stop: the replay is cancelled, and the backend's sentence says nothing was logged.
+    backend.replies = [" Slowly," * 10]
+    page.click("#panel [data-action=replay]")
+    page.wait_for_selector("#panel [data-action=replay-stop]")
+    page.click("#panel [data-action=replay-stop]")
+    page.wait_for_selector("#panel .refused:not([hidden])", timeout=20_000)
+    assert "Replay cancelled" in page.text_content("#panel .refused")
+    page.wait_for_timeout(500)  # every redraw after the replay has landed
+    assert focused(page) == "replay"
+    page.keyboard.press("Escape")
+    assert page.is_hidden("#panel")
+
+
+def test_details_on_a_failed_call(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    backend.fail_with = "A made-up failure."
+    say(page, "Hi")
+    page.wait_for_selector("#thread [data-failed] [data-action=details]")
+    page.click("#thread [data-failed] [data-action=details]")
+    page.wait_for_selector("#panel:not([hidden]) .sec")
+    assert page.text_content("#panel-title") == "Details · failed call"
+    assert "! Failed: A made-up failure." in page.text_content("#panel")
+    assert page.locator("#panel [data-action=replay]").count() == 0
+    shot(page, "G8-failed-call", "c4b")

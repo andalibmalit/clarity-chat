@@ -459,6 +459,17 @@ document.addEventListener("click", (event) => {
     });
     return;
   }
+  const pane = event.target.closest("#panel .seg [data-pane]");
+  if (pane) {
+    // The prompt as Text, Whitespace or Token IDs: one pane shown at a time.
+    for (const button of pane.parentElement.children) {
+      button.setAttribute("aria-pressed", String(button === pane));
+    }
+    for (const pre of pane.closest("details").querySelectorAll("pre[data-pane]")) {
+      pre.hidden = pre.dataset.pane !== pane.dataset.pane;
+    }
+    return;
+  }
   const set = event.target.closest("[data-set]");
   if (set) {
     if (set.getAttribute("aria-disabled") !== "true") setting(set.dataset.set);
@@ -702,21 +713,35 @@ clarity.on.replies = (element) => openReplies(element);
 let panelOf = null; // { name, params, opener }
 
 async function showPanel(name, params, opener) {
-  const focused = document.activeElement && $("panel").contains(document.activeElement)
-    ? document.activeElement.id
-    : null;
-  const opened = [...$("panel").querySelectorAll("details[open]")].map((d) => d.className);
+  let html;
   try {
-    swap($("panel"), await view(name, params));
+    html = await view(name, params);
   } catch (error) {
     notice("!", error.message);
     return;
   }
-  for (const section of $("panel").querySelectorAll("details")) {
-    if (opened.includes(section.className)) section.open = true; // kept open across redraws
+  // Read what's focused and open when the new panel lands, not when it was asked for.
+  const focused = document.activeElement && $("panel").contains(document.activeElement)
+    ? document.activeElement.id
+    : null;
+  const sections = new Map([...$("panel").querySelectorAll("details[data-key]")].map((d) => [d.dataset.key, d.open]));
+  swap($("panel"), html);
+  for (const section of $("panel").querySelectorAll("details[data-key]")) {
+    if (sections.has(section.dataset.key)) section.open = sections.get(section.dataset.key); // as left
   }
   const opening = !panelOf || panelOf.name !== name || opener;
-  panelOf = { name, params, opener: opener || (panelOf && panelOf.opener) };
+  const same = panelOf && panelOf.name === name && panelOf.params.call === params.call;
+  panelOf = {
+    name,
+    params,
+    opener: opener || (panelOf && panelOf.opener),
+    refusal: same && !opener ? panelOf.refusal : null, // a replay's refusal, kept on redraws
+  };
+  const refused = $("panel").querySelector(".refused");
+  if (panelOf.refusal && refused) {
+    refused.textContent = panelOf.refusal;
+    refused.hidden = false;
+  }
   $("panel").hidden = false;
   const again = focused && $(focused);
   if (again) again.focus();
@@ -759,6 +784,37 @@ async function setting(args, row = null, box = null) {
 
 clarity.on.settings = (element) => showPanel("settings", {}, element);
 
+// Details (C4b): one call's record, from the toolbar, the facts line or a failed line.
+clarity.on.details = (element) => {
+  showPanel("details", { call: element.closest("[data-call]").dataset.call }, element);
+};
+
+async function replay(call, button) {
+  // Replay re-sends the call; Stop sends /cancel. The section says "Replaying…" until the
+  // command ends, then the panel is drawn again with the replay's result.
+  const section = button.closest("details");
+  const status = document.createElement("p");
+  status.className = "st";
+  status.setAttribute("role", "status");
+  status.textContent = "Replaying…";
+  const stop = document.createElement("button");
+  stop.type = "button";
+  stop.className = "btn";
+  stop.dataset.action = "replay-stop";
+  stop.textContent = "Stop";
+  button.replaceWith(status, stop);
+  stop.focus();
+  clarity.sending = true;
+  if (panelOf) panelOf.refusal = null;
+  const answer = await command("replay", call).finally(() => (clarity.sending = false));
+  if (panelOf && answer.error) panelOf.refusal = answer.error;
+  await showPanel("details", { call });
+  await refresh();
+  const again = $("panel").querySelector('[data-action="replay"]');
+  if (again) again.focus();
+  else if (section) section.focus();
+}
+
 document.addEventListener("input", (event) => {
   const slider = event.target.closest('#panel input[type="range"]');
   if (slider) $(slider.dataset.mirror).value = slider.value; // the box follows the slider
@@ -778,6 +834,8 @@ document.addEventListener("change", (event) => {
 
 const THREAD = {
   "panel-close": () => closePanel(),
+  replay: (element, call) => replay(call, element),
+  "replay-stop": () => command("cancel"),
   "reset-all": async (element) => {
     for (const name of element.dataset.names.split(" ")) await command("set", name);
     await refresh();

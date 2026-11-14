@@ -291,7 +291,6 @@ DRAWN_ACTIONS = re.compile(r'data-action="([\w-]+)"')
 LATER = {  # drawn now, handled by a later item of v0.3.0's plan
     "chats": "C5: the Chats drawer",
     "appearance": "C6: Appearance",
-    "details": "C4b: Details",
 }
 
 
@@ -360,3 +359,18 @@ def test_new_chat_names_the_profile_it_starts(chat):
         gate.set()
         worker.join(10)
     assert "Starting text…" in fragment
+
+
+def test_resuming_another_chat_doesnt_draw_this_one_while_it_starts(chat):
+    client, session = chat
+    result(client, "say", "Words of the first chat")
+    first = result(client, "state")["conversation_id"]
+    result(client, "new")
+    result(client, "say", "Words of the second chat")
+    gate, worker = start_held(client, session, first, how="resume")
+    try:
+        fragment = thread(client)
+    finally:
+        gate.set()
+        worker.join(10)
+    assert "Words of the second chat" not in fragment and "Starting" in fragment
