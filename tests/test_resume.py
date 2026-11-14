@@ -376,3 +376,19 @@ def test_a_resumed_call_records_the_logged_recommended_values_after_a_failed_sta
     resumed, _ = new_session([" Again."])
     resumed.resume(log)
     assert resumed.say("Hi again").record["recommended"] == logged
+
+
+def test_the_differ_count_counts_each_changed_models_toml_key():
+    """Mutation check: one sentence, as many things as it names."""
+    from clarity_chat.resume import what_differs
+
+    record = {
+        "profile_file": "same",
+        "ctx_size": {"value": 8192, "origin": "log"},
+        "model_entry": [{"path": "revision"}, {"path": "tokenizer_revision"}],
+        "settings_differ_today": [],
+        "differences": [],
+        "render": None,
+    }
+    (item,) = what_differs(record)
+    assert item["count"] == 2 and "revision, tokenizer_revision" in item["text"]
