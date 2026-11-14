@@ -224,7 +224,11 @@ def test_with_no_profile_chosen_a_pick_starts_the_model(clarity, page):
     assert page.text_content("#thread [role=status]") == "Starting text…"
     assert page.get_attribute("#picker-button", "aria-disabled") == "true"
     assert page.text_content("#picker-waits") == "Waits until the model has started."
-    assert page.is_enabled("#message") and page.is_disabled("#send")
+    assert page.is_enabled("#message")
+    # Send waits with its reason (aria-disabled), reachable, as the picker does (rule 5).
+    assert page.get_attribute("#send", "aria-disabled") == "true"
+    assert page.get_attribute("#send", "disabled") is None
+    assert page.text_content("#send-waits") == "Waits until the model has started."
     shot(page, "B2-starting")
     # B5: ready.
     page.wait_for_selector("#thread .intro")
@@ -385,6 +389,7 @@ def test_send_writes_and_stop_keeps_the_part_that_arrived(clarity, page):
     assert page.text_content("#stop-label") == "Stop"
     assert page.get_attribute("#picker-button", "aria-disabled") == "true"
     assert page.get_attribute("#writing", "aria-live") is None  # the reply isn't announced
+    assert focused(page) == "stop"
     shot(page, "E1-writing", "c2")
     page.click("#stop")
     # E3: the part that arrived is kept, and the facts line says who stopped it.
@@ -394,6 +399,9 @@ def test_send_writes_and_stop_keeps_the_part_that_arrived(clarity, page):
     assert page.text_content(".reply.last .msg") == state["turns"][-1]["text"]
     assert page.is_visible("#send") and page.is_hidden("#writing-box")
     assert page.get_attribute("#picker-button", "aria-disabled") is None
+    assert page.evaluate("document.activeElement.closest('.reply.last .tb') !== null")
+    # The status region stays in the page, empty, so the next "Writing…" is announced.
+    assert page.evaluate("document.getElementById('writing-status').closest('[hidden]')") is None
     shot(page, "E3-stopped-by-you", "c2")
 
 
@@ -419,9 +427,8 @@ def test_a_failed_message_comes_back_to_the_box(clarity, page):
     backend.fail_with = "A made-up failure."
     say(page, "Hi there")
     page.wait_for_selector("#thread [data-failed]")
-    assert page.text_content("#thread [data-failed] [role=alert]") == (
-        "! Failed: A made-up failure. Details"
-    )
+    assert page.text_content("#thread [data-failed] [role=alert]") == "! Failed: A made-up failure."
+    assert page.is_visible("#thread [data-failed] [data-action=details]")
     assert page.input_value("#message") == "Hi there"
     assert page.locator("text=Try again").count() == 0
     shot(page, "E5-failed-message", "c2")
@@ -436,6 +443,10 @@ def test_a_failed_regenerate_offers_try_again(clarity, page):
     page.click(".reply.last [data-action=regen]")
     page.wait_for_selector("#notice [role=alert]")
     assert page.text_content("#notice [role=alert]") == "! Failed: A made-up failure."
+    failed = page.get_attribute("#notice [data-call]", "data-call")  # the failed call's own
+    record = page.evaluate(f"clarity.command('prompt', '{failed}')")["result"]["call"]
+    assert record["error"] == "BackendError: A made-up failure."
+    assert page.is_visible("#notice [data-action=details]")
     shot(page, "E5-failed-regenerate", "c2")
     backend.fail_with = None
     page.click("#notice [data-action=regen]")
@@ -450,6 +461,7 @@ def test_when_the_server_stopped_start_the_model_again(clarity, page):
     backend.stopped = True
     say(page, "Again")
     page.wait_for_selector("#thread [data-action=restart]")
+    assert page.is_enabled("#send")  # no wait without a reason: Send fails with the sentence
     shot(page, "E6-server-stopped", "c2")
     hold_start(backend, 1.5)
     page.click("#thread [data-action=restart]")
@@ -557,3 +569,96 @@ def test_after_a_reload_mid_reply_the_page_learns_the_reply_ended(clarity, page)
     page.wait_for_selector("#stop", state="hidden", timeout=20_000)
     assert page.get_attribute("#picker-button", "aria-disabled") is None
     assert page.text_content(".reply.last .msg") == reply
+
+
+# --- Checkpoint 3's findings
+
+
+def test_a_tab_showing_another_tab_stays_there_when_the_live_one_goes(clarity, context):
+    """Finding 1: a tab showing A4 takes over only by "Use it here", never by polling (the
+    live tab reloading opens the same window, less often; closing it holds it open)."""
+    _, redirect, _ = clarity
+    found = re.search(r'url=([^"]+)"', redirect.read_text(encoding="utf-8"))
+    assert found
+    first, second = context.new_page(), context.new_page()
+    first.goto(found.group(1))
+    first.wait_for_selector("body[data-page=ready]")
+    second.goto(found.group(1))
+    second.wait_for_selector("body[data-page=not-live]")
+    first.close()
+    second.wait_for_timeout(4000)  # longer than the page's reconnect backoff
+    assert second.evaluate("document.body.dataset.page") == "not-live"
+
+
+def test_a_failed_edit_opens_the_edit_again_with_its_text(clarity, page):
+    """Finding 4: Send then retries the edit; the message box stays as it was."""
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.click(".turn.user [data-action=edit]")
+    backend.fail_with = "A made-up failure."
+    page.fill("#edit-text", "Hello")
+    page.click("[data-edit] button[type=submit]")
+    page.wait_for_selector("#notice [role=alert]")
+    assert page.is_visible("#edit-text") and page.input_value("#edit-text") == "Hello"
+    assert page.input_value("#message") == ""
+
+
+def test_a_view_that_fails_and_a_refused_switch_say_so(clarity, page):
+    """Finding 5: a redraw that fails, or a refused /switch, shows the sentence."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.click(".turn.user [data-action=edit]")
+    page.fill("#edit-text", "Hello")
+    page.click("[data-edit] button[type=submit]")
+    page.wait_for_selector(".msgbar .n")
+    page.evaluate("document.querySelector('[data-switch]').dataset.switch = 'turn-000000000000'")
+    page.click("[data-switch]")
+    page.wait_for_selector("#notice [role=alert]")
+    assert "turn-000000000000" in page.text_content("#notice [role=alert]")
+    page.route("**/view/thread", lambda route: route.fulfill(status=503, body="A made-up refusal."))
+    page.evaluate("clarity.refresh()")
+    page.wait_for_selector("#notice [role=alert]:has-text('A made-up refusal.')")
+
+
+def test_after_a_reload_mid_reply_the_page_reads_only_state_until_it_ends(clarity, page):
+    """Finding 6: the wait for a reply this page didn't send reads /state, not every view."""
+    _, redirect, backend = clarity
+    chat_on(page, redirect, "long")
+    reply = " Slowly," * 14 + " done."
+    backend.replies, backend.piece_delay = [reply], 0.3
+    page.evaluate("() => { clarity.command('say', 'Hi'); }")
+    page.wait_for_timeout(600)
+    views: list[str] = []
+    page.on("request", lambda r: views.append(r.url) if "/view/thread" in r.url else None)
+    page.reload()
+    page.wait_for_selector("#stop", state="visible")
+    page.wait_for_selector("#stop", state="hidden", timeout=20_000)
+    page.wait_for_selector(".reply.last .tb")
+    assert len(views) <= 2, views  # the page load's draw and the one at the reply's end
+
+
+def test_a_start_warning_is_alerted_once_not_on_every_redraw(clarity, page):
+    """Finding 7: a redraw doesn't announce the same sentence again."""
+    _, redirect, backend = clarity
+    backend.start_warnings = ["A made-up warning."]
+    chat_on(page, redirect)
+    assert page.get_attribute("#thread .problem p", "role") == "alert"
+    page.evaluate("clarity.refresh()")
+    page.wait_for_timeout(500)
+    assert page.text_content("#thread .problem p") == "! A made-up warning."
+    assert page.get_attribute("#thread .problem p", "role") is None
+
+
+def test_a_second_message_is_written_from_its_own_start(clarity, page):
+    """Finding 9, a guard for C2's fix to B6: the reply so far is reset for each message."""
+    _, redirect, backend = clarity
+    chat_on(page, redirect, "long")
+    backend.replies = [" First reply here.", " Second reply, written slowly, word by word."]
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    backend.piece_delay = 0.3
+    say(page, "Again")
+    page.wait_for_selector("#writing:has-text('Second reply,')")
+    assert page.text_content("#writing").startswith(" Second reply,")
