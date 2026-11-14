@@ -49,6 +49,7 @@ can't launch Chrome), so the root, DIR and STEPS must be in folders below notes/
 from __future__ import annotations
 
 import argparse
+import errno
 import importlib.util
 import os
 import re
@@ -100,15 +101,19 @@ def qa_session() -> ModuleType:
     return module
 
 
+def create(path: Path, mode: str) -> IO:
+    """Open a new file at `path`, so a link planted in DIR can't send a write elsewhere and
+    nothing is replaced. Anything already there, a dangling link included, is refused first:
+    on Windows, exclusive mode alone opens through a dangling link. Exclusive mode stays, for
+    a file that appears in between."""
+    if os.path.lexists(path):
+        raise FileExistsError(errno.EEXIST, "already exists", str(path))
+    return path.open(mode) if "b" in mode else path.open(mode, encoding="utf-8")
+
+
 def new_file(path: Path, data: str | bytes) -> None:
-    """Create `path` with `data`. Exclusive mode never follows a link and never replaces a
-    file, so a link planted in DIR can't send a write elsewhere."""
-    if isinstance(data, bytes):
-        with path.open("xb") as f:
-            f.write(data)
-    else:
-        with path.open("x", encoding="utf-8") as f:
-            f.write(data)
+    with create(path, "xb" if isinstance(data, bytes) else "x") as f:
+        f.write(data)
 
 
 def fill_parts(arg: str) -> tuple[str, str] | None:
@@ -216,24 +221,26 @@ def main() -> int:
     parser.add_argument("--steps", type=Path, required=True)
     parser.add_argument("--init", action="store_true")
     args = parser.parse_args()
+    qa_dir = QA_DIR.resolve()
     root, out, steps_path = (path.resolve() for path in (args.root, args.out, args.steps))
     for given, path in ((args.root, root), (args.out, out), (args.steps, steps_path)):
-        if path == QA_DIR or not path.is_relative_to(QA_DIR):  # scratch paths only
-            parser.error(f"{given} must be in a folder below {QA_DIR}")
+        if path == qa_dir or not path.is_relative_to(qa_dir):  # scratch paths only
+            parser.error(f"{given} must be in a folder below {qa_dir}")
     session = qa_session()
     try:
         steps = parse_steps(steps_path)
         session.prepare_root(root, init=args.init)
         out.mkdir(parents=True, exist_ok=True)
-        file = (out / "transcript.txt").open("x", encoding="utf-8")
+        file = create(out / "transcript.txt", "x")
     except (Refused, session.Refused) as e:
         parser.error(str(e))
     except FileExistsError:
         parser.error(f"{out} already holds a run's transcript.txt (or a link there): use a new DIR")
     log = Transcript(file)
     log.write(f"$ clarity --root {args.root} ui\n")
-    for signum in (signal.SIGTERM, signal.SIGHUP):
-        signal.signal(signum, stop)
+    for name in ("SIGTERM", "SIGHUP"):  # Windows has no SIGHUP
+        if (signum := getattr(signal, name, None)) is not None:
+            signal.signal(signum, stop)
     program = Path(sys.executable).parent / "clarity"
     # BROWSER=true: `clarity ui` opens its redirect file with a command that does nothing,
     # and the driver opens it in Playwright's browser instead. No downloads: SmolLM2 is
