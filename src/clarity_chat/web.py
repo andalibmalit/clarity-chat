@@ -20,6 +20,7 @@ import json
 import os
 import queue
 import secrets
+import socket
 import sys
 import threading
 import webbrowser
@@ -73,7 +74,7 @@ HEARTBEAT = 15.0  # seconds between keep-alive lines on the event stream
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; "
     "connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; "
-    "frame-ancestors 'none'"
+    "frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types clarity"
 )
 HEADERS = [
     (b"content-security-policy", CSP.encode()),
@@ -145,6 +146,15 @@ class Worker:
                 future.set_result(self._run(name, args))
             except BaseException as e:  # noqa: BLE001 - the thread must live to serve the next
                 future.set_exception(e)
+
+    async def ask(self, name: str, args: str) -> dict[str, Any]:
+        """A command's answer, for an async route: at once on a thread if the table lets it
+        run beside whatever runs, else from the queue, waited for in the event loop (so
+        queued commands can't use up the threads `cancel` needs)."""
+        now, future = self.enqueue(name, args)
+        if now:
+            return await run_in_threadpool(self._run, name, args, True)
+        return await asyncio.wrap_future(future)
 
     def _run(self, name: str, args: str, at_once: bool | None = None) -> dict[str, Any]:
         if self.failed:
@@ -287,12 +297,7 @@ def make_app(
             live(tab)
         except Refused as e:
             return PlainTextResponse(str(e), e.status)
-        name, args = parsed["command"], parsed.get("args", "")
-        now, future = worker.enqueue(name, args)
-        if now:
-            answer = await run_in_threadpool(worker._run, name, args, True)
-        else:  # waits in the event loop, not in a thread: queued commands can't use them up
-            answer = await asyncio.wrap_future(future)
+        answer = await worker.ask(parsed["command"], parsed.get("args", ""))
         return json_response({"id": parsed.get("id"), **answer})
 
     async def take_tab(request: Request) -> Response:
@@ -342,7 +347,7 @@ def make_app(
                     except TimeoutError:
                         yield b'{"event": "heartbeat"}\n'
                         continue
-                    yield json.dumps(event).encode() + b"\n"
+                    yield event_line(event)
                     if event["event"] == "not_live" and event.get("live") != tab:
                         return
             finally:
@@ -352,19 +357,23 @@ def make_app(
 
         return StreamingResponse(lines(), media_type="application/x-ndjson")
 
-    @refusing
-    def view(request: Request) -> Response:
-        check(request)
-        name = request.path_params["name"]
-        if name not in VIEWS:
-            raise Refused(404, "No such view.")
-        call = request.query_params.get("call")
-        if call is not None and not CALL_ID.fullmatch(call):
-            raise Refused(400, "That isn't a call ID.")
-        renderer = VIEW_RENDERERS.get(name)
-        if renderer is None:
-            raise Refused(404, "This view isn't built yet.")
-        return HTMLResponse(renderer(worker, request.query_params))
+    async def view(request: Request) -> Response:
+        """A part of the page as HTML. Its data comes through the command table like any
+        command's (Worker.ask), and each view reads only the parameters it checks."""
+        try:
+            check(request)
+            name = request.path_params["name"]
+            if name not in VIEWS:
+                raise Refused(404, "No such view.")
+            call = request.query_params.get("call")
+            if call is not None and not CALL_ID.fullmatch(call):
+                raise Refused(400, "That isn't a call ID.")
+            renderer = VIEW_RENDERERS.get(name)
+            if renderer is None:
+                raise Refused(404, "This view isn't built yet.")
+            return HTMLResponse(await renderer(worker, {"call": call}))
+        except Refused as e:
+            return PlainTextResponse(str(e), e.status)
 
     @refusing
     def export(request: Request) -> Response:
@@ -408,15 +417,9 @@ def serve(
     a secret made for this start in its fragment, is printed and opened through a private
     redirect file (a link in `open`'s arguments would show in other users' process lists).
     Enter prints and opens it again."""
-    import socket
-
     import uvicorn
 
-    with socket.socket() as probe:  # refused here, before anything starts
-        try:
-            probe.bind(("127.0.0.1", port))
-        except OSError as e:
-            raise ConfigError(f"Can't start: port {port} is in use ({e.strerror}).") from e
+    listener = listening_socket(port)  # bound and listening before any link exists
     secret = secrets.token_urlsafe(32)
     link = f"http://127.0.0.1:{port}/#key={secret}"
     redirect = root / "local" / "clarity-open.html"
@@ -429,7 +432,11 @@ def serve(
             f.write(REDIRECT.format(link=html.escape(link, quote=True)))
 
     write_redirect()
-    session = (session_factory or (lambda: Session(root)))()
+    try:
+        session = (session_factory or (lambda: Session(root)))()
+    except BaseException:
+        listener.close()
+        raise
     app = make_app(
         session, secret.encode(), port, on_first_use=lambda: redirect.unlink(missing_ok=True)
     )
@@ -462,7 +469,7 @@ def serve(
 
         threading.Thread(target=again, daemon=True).start()
     try:
-        server.run()
+        server.run(sockets=[listener])
     finally:
         worker: Worker = app.state.worker
         worker.commands.run("cancel", "", lambda event: None)  # a reply in progress stops
@@ -473,6 +480,26 @@ def serve(
     return 0
 
 
+def listening_socket(port: int) -> socket.socket:
+    """127.0.0.1:`port`, bound and listening, so the page is never opened before the server
+    can answer, and no other program can take the port in between. Refused here, with a
+    sentence, if something else has it. SO_REUSEADDR lets Clarity start again at once after
+    quitting (its own closed connections wait in TIME_WAIT); on Windows that option would
+    let another program share the port, so SO_EXCLUSIVEADDRUSE is used instead."""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        if sys.platform == "win32":
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(("127.0.0.1", port))
+        sock.listen(128)
+    except OSError as e:
+        sock.close()
+        raise ConfigError(f"Can't start: port {port} is in use ({e.strerror}).") from e
+    return sock
+
+
 REDIRECT = """<!doctype html>
 <meta charset="utf-8">
 <meta http-equiv="refresh" content="0;url={link}">
@@ -481,12 +508,22 @@ REDIRECT = """<!doctype html>
 """
 
 
-def _thread(worker: Worker, params: Any) -> str:
+async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
     """The thread, from /state's turns: a read that runs at once, mid-reply included."""
-    answer = worker._run("state", "", at_once=True)
+    answer = await worker.ask("state", "")
     if "error" in answer:
         raise Refused(503, answer["error"])
     return templates.get_template("thread.html").render(turns=answer["result"]["turns"])
+
+
+def event_line(event: dict[str, Any]) -> bytes:
+    """One line of the event stream. A value JSON can't carry (NaN or infinity) would break
+    the page's parser and drop the stream, so it's sent as an error event instead."""
+    try:
+        return json.dumps(event, allow_nan=False).encode() + b"\n"
+    except ValueError:
+        why = "An event held a number JSON can't carry (NaN or infinity); it isn't shown."
+        return json.dumps({"event": "error", "type": "NotJSON", "message": why}).encode() + b"\n"
 
 
 def json_response(content: dict[str, Any]) -> Response:
