@@ -692,7 +692,13 @@ class LlamaCppBackend:
         # `fetch` replaces a file by rename: same path, new bytes, while the server still has
         # the old ones open. Its inode, size and modification time tell the two apart without
         # hashing (fetch and verify hash). An overwrite in place isn't covered.
-        st = weights.stat()
+        try:
+            st = weights.stat()
+        except FileNotFoundError:
+            raise ConfigError(
+                f"The model file {weights} is missing. In a new terminal window, in Clarity's "
+                f"folder, run: uv run clarity verify {model.name}."
+            ) from None
         identity = (st.st_ino, st.st_size, st.st_mtime_ns)
         server = self.server
         if (

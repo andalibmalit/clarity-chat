@@ -372,11 +372,14 @@ def make_app(
             loop.call_soon_threadsafe(inbox.put_nowait, event)
 
         live_here = tab == tabs["live"]
-        if live_here:  # listening from now, before hello: nothing sent after it is lost
-            worker.listen(push)
-            tabs["streams"][tab] = tabs["streams"].get(tab, 0) + 1
 
         async def lines() -> AsyncIterator[bytes]:
+            # Registered here, where the finally below undoes it: a client gone before the
+            # body starts never runs this, so it leaves nothing registered. Still before
+            # hello, so nothing sent after hello is lost.
+            if live_here:
+                worker.listen(push)
+                tabs["streams"][tab] = tabs["streams"].get(tab, 0) + 1
             try:  # a client that leaves cancels this at its next await
                 yield json.dumps({"event": "hello"}).encode() + b"\n"
                 if not live_here:
@@ -1263,7 +1266,10 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
         n=n,
         earlier=bool(call.get("turn_id")) and call["call_id"] != head,
         error=error.partition(": ")[2] or error if error else None,
-        bos=first[0] == (call.get("bos") or {}).get("bos_token_id"),
+        # None when the call doesn't say (no prompt IDs, or no `bos` record): say neither.
+        bos=None
+        if first[0] is None or (call.get("bos") or {}).get("bos_token_id") is None
+        else first[0] == call["bos"]["bos_token_id"],
         pieces=prompt_pieces(call),
         not_highlighted=unhighlighted(call),
         text_mode=(call.get("bos") or {}).get("mode") == "text",

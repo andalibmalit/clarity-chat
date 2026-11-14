@@ -394,7 +394,12 @@ def test_a_finished_reply_is_never_both_in_the_turns_and_still_being_written(
 
     c.run("say", "Hello", on_event)
     (state,) = seen
-    assert state["reply_so_far"] == "" and state["reply_end"] == 0
+    # In exactly one place: as the reply being written until the head moves (the whole
+    # review's finding 7: cleared before that, it was in neither), then in the turns.
+    in_turns = [t["text"] for t in state["turns"]][-1:] == [" Hi."]
+    assert in_turns != (state["reply_so_far"] == " Hi."), state
+    if in_turns:
+        assert state["reply_so_far"] == "" and state["reply_end"] == 0
 
 
 def test_a_server_error_carries_the_security_headers_and_says_why(server, monkeypatch):

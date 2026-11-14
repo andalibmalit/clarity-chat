@@ -1120,7 +1120,8 @@ class Session:
                 conversation.unanswered = {"turn_id": user_turn.turn_id, "text": user_turn.text}
             elif user_turn.origin == "edit":  # as a resume reads it: the edit is the last turn
                 conversation.unanswered = None
-            conversation.resume_differ = None  # it goes with the next message, sent or failed
+            if back_to is None:  # a message, sent and failed: it used the resumed one up
+                conversation.resume_differ = None
             raise
         fields, server_prompt = result_fields(result)
         record.update(fields)
