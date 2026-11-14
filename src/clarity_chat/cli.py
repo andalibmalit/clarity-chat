@@ -177,6 +177,33 @@ def format_branches(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_branch_ends(result: dict[str, Any]) -> str:
+    """Every branch end, newest first, with where it came from; then the marked replies."""
+
+    def source(start: dict[str, Any] | None) -> str:
+        if start is None:
+            return "the only branch"
+        what = "reply" if start["kind"] == "reply" else "message"
+        return f"from {what} {start['k']} of {start['n']} (seed {start['seed']})"
+
+    lines = [f"{len(result['ends'])} branch ends, newest first. /switch TURN_ID goes to one."]
+    for end in result["ends"]:
+        star = "*" if end["current"] else " "
+        went_on = "" if end["continued"] or end["from"] is None else ", not continued"
+        marked = f", {end['marked']} marked" if end["marked"] else ""
+        lines.append(
+            f" {star} {end['turn_id']}  {source(end['from'])}{went_on}: {end['turns']} turns"
+            f"{marked}, seed {end['seed']}: {short(end['text'], 50)}"
+        )
+    if result["marked"]:
+        lines.append("Marked replies, newest mark first:")
+    for reply in result["marked"]:
+        labels = ", ".join(m["label"] for m in reply["marks"])
+        note = f" (note: {short(reply['note'], 40)})" if reply["note"] else ""
+        lines.append(f"   {reply['turn_id']}  {labels}{note}: {short(reply['text'], 50)}")
+    return "\n".join(lines)
+
+
 def format_profiles(result: dict[str, Any]) -> str:
     """One line per profile: name, model and backend, what's notable, and its description."""
     lines = []
@@ -503,7 +530,8 @@ class ChatLoop:
         elif name == "history":
             self.write(format_history(result) + "\n")
         elif name == "branches":
-            self.write(format_branches(result) + "\n")
+            show = format_branch_ends if "ends" in result else format_branches
+            self.write(show(result) + "\n")
         elif name == "switch":
             text = result["head_text"]
             self.write(f"Switched. The next message continues after: {text[:60]!r}.\n")

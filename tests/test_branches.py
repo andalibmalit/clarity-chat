@@ -709,3 +709,99 @@ def test_history_and_marks_parse_only_the_records_they_need(make_session, monkey
     assert [m["label"] for m in turns[1]["marks"]] == ["landed"]
     assert [n["text"] for n in turns[1]["notes"]] == ["made-up note"]
     assert marks_and_notes(read_records(log))[turns[1]["turn_id"]]["marks"] == []
+
+
+# --- /branches all ------------------------------------------------------------------------
+
+
+@pytest.fixture
+def branchy(make_session):
+    """a → r1; b → r2 (42), r2b (43), r2c (44); on r2b: c → r3, then c edited to C → r3e."""
+    from clarity_chat.commands import Commands
+
+    session, _ = make_session([" r1", " r2", " r2b", " r2c", " r3", " r3e"])
+    c = Commands(session)
+    session.say("a")
+    r2 = session.say("b").turn
+    r2b = session.regen().turn
+    session.regen()
+    session.switch(r2b.turn_id)
+    r3 = session.say("c").turn
+    r3e = session.edit("C").turn
+    c.run("mark", f"{r2.call_id} landed", lambda e: None)
+    c.run("note", f"{r2.call_id} the best one", lambda e: None)
+    return c, {t.text.strip(): t for t in (r2, r2b, r3, r3e)}
+
+
+def test_branches_all_lists_every_end_newest_first_with_where_it_came_from(branchy):
+    c, t = branchy
+    result = c.run("branches", "all", lambda e: None)
+    assert [e["text"].strip() for e in result.get("ends", [])] == ["r3e", "r3", "r2c", "r2"]
+    ends = {e["text"].strip(): e for e in result["ends"]}
+    assert ends["r2"]["from"] == {"kind": "reply", "k": 1, "n": 3, "seed": 42}
+    assert ends["r2"]["continued"] is False and ends["r2"]["marked"] == 1
+    assert ends["r2c"]["from"] == {"kind": "reply", "k": 3, "n": 3, "seed": 44}
+    # A message, new or edited, uses the chat's seed: 42.
+    assert ends["r3"]["from"] == {"kind": "edit", "k": 1, "n": 2, "seed": 42}
+    assert ends["r3e"]["from"] == {"kind": "edit", "k": 2, "n": 2, "seed": 42}
+    assert ends["r3e"]["continued"] is False and ends["r3e"]["current"] is True
+    assert [e["current"] for e in result["ends"]] == [True, False, False, False]
+    assert ends["r3e"]["turns"] == 6  # a, r1, b, r2b, C, r3e
+    assert ends["r3e"]["call_id"] == t["r3e"].call_id and ends["r3e"]["seed"] == 42
+    assert ends["r3e"]["steering_scale"] == 0.0
+    assert result["head"] == t["r3e"].turn_id
+
+
+def test_branches_all_lists_every_marked_reply_with_its_note(branchy):
+    c, t = branchy
+    all_marked = c.run("branches", "all", lambda e: None).get("marked", [])
+    assert len(all_marked) == 1
+    (marked,) = all_marked
+    assert marked["turn_id"] == t["r2"].turn_id and marked["call_id"] == t["r2"].call_id
+    assert [m["label"] for m in marked["marks"]] == ["landed"]
+    assert marked["note"] == "the best one"
+    assert marked["from"] == {"kind": "reply", "k": 1, "n": 3, "seed": 42}
+    assert marked["current"] is False
+
+
+def test_a_branch_that_goes_on_past_its_fork_is_continued(make_session):
+    from clarity_chat.commands import Commands
+
+    session, _ = make_session([" one", " two", " three"])
+    session.say("a")
+    session.regen()
+    session.say("b")
+    ends = Commands(session).run("branches", "all", lambda e: None).get("ends", [])
+    assert [(e["text"].strip(), e["continued"]) for e in ends] == [("three", True), ("one", False)]
+    assert ends[0]["from"] == {"kind": "reply", "k": 2, "n": 2, "seed": 43}
+
+
+def test_plain_branches_is_unchanged_and_other_words_are_refused(branchy):
+    c, _ = branchy
+    assert set(c.run("branches", "", lambda e: None)) == {"head", "forks"}
+    with pytest.raises(ConfigError, match=r"Usage: /branches \[all\]"):
+        c.run("branches", "everything", lambda e: None)
+
+
+def test_branches_all_on_400_exchanges_is_quick(fetched_root, tiny_tokenizer):
+    import time
+
+    from clarity_chat.commands import Commands
+
+    backend = FakeBackend([" ok"] * 400, n_ctx=100_000, tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    session.new_conversation("text")
+    for _ in range(400):
+        session.say("m")
+    started = time.perf_counter()
+    result = Commands(session).run("branches", "all", lambda e: None)
+    assert [e["turns"] for e in result.get("ends", [])] == [800]
+    assert time.perf_counter() - started < 5
+
+
+def test_the_terminal_prints_every_end_and_the_marked_replies(branchy):
+    c, t = branchy
+    text = cli.format_branch_ends(c.run("branches", "all", lambda e: None))
+    assert text.startswith("4 branch ends, newest first.")
+    assert f" * {t['r3e'].turn_id}  from message 2 of 2 (seed 42), not continued: 6 turns" in text
+    assert f"   {t['r2'].turn_id}  landed (note: 'the best one'): ' r2'" in text

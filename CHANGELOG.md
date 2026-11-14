@@ -12,6 +12,7 @@ Two headings are Clarity's own, used when they apply:
 - A profile can have a one-line `description`. `clarity chats` shows it after the profile's name.
 - `/prompt`, `/mark`, `/unmark`, `/note` and `/replay` can name any call in the conversation by its ID, for example `/note call-3f9a1b2c4d5e was better`; without one they act on the current reply, as before. A failed call can be read by its ID with `/prompt`, live and after a resume. `/replay` with anything else after it is now refused (it ignored its argument).
 - `/probs` can name a call by its ID, and its `--json` result gives every token's text and place in the reply, with its alternatives' texts. Without probabilities, it adds a `reason` code beside the sentence.
+- `/branches all` lists every branch end in the conversation, newest first, with where it left the rest and whether it went on from there, and every marked reply with its note.
 - `/profiles` lists every profile you can start, with its model, backend and description, whether it's steered and whether its model is fetched. A profile that doesn't load is listed with the reason. It runs before any conversation, so a script or the web interface can offer a choice.
 
 ### Changed
