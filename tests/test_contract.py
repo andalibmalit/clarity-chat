@@ -32,24 +32,14 @@ def fake_shapes(fetched_root, chat_tokenizer):
 @pytest.mark.parametrize("scenario", contract.SCENARIOS)
 def test_the_fake_backend_writes_llama_cpps_record_shapes(fake_shapes, scenario):
     found = contract.differences(saved_shapes()["llama.cpp"][scenario], fake_shapes[scenario])
-    unexpected = {k: v for k, v in found.items() if k not in contract.FAKE_DIFFERS}
-    assert not unexpected
+    assert set(found) - contract.allowed(contract.FAKE_DIFFERS, scenario) == set()
+    # An allowance nothing needs any more is removed, so the contract doesn't loosen.
+    assert contract.allowed(contract.FAKE_DIFFERS, scenario) <= set(found)
 
 
 @pytest.mark.parametrize("scenario", contract.SCENARIOS)
 def test_the_real_backends_differ_only_where_written_down(scenario):
     shapes = saved_shapes()
     found = contract.differences(shapes["llama.cpp"][scenario], shapes["transformers"][scenario])
-    unexpected = {k: v for k, v in found.items() if k not in contract.BACKENDS_DIFFER}
-    assert not unexpected
-
-
-def test_every_written_down_difference_is_still_real():
-    """An allowance nothing needs any more is removed, so the contract doesn't loosen."""
-    shapes = saved_shapes()
-    real = set()
-    for scenario in contract.SCENARIOS:
-        real |= set(
-            contract.differences(shapes["llama.cpp"][scenario], shapes["transformers"][scenario])
-        )
-    assert set(contract.BACKENDS_DIFFER) <= real
+    assert set(found) - contract.allowed(contract.BACKENDS_DIFFER, scenario) == set()
+    assert contract.allowed(contract.BACKENDS_DIFFER, scenario) <= set(found)

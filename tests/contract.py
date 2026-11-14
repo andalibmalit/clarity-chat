@@ -21,29 +21,41 @@ NESTED = ("request", "backend", "backend_settings", "timings", "response", "gene
 # The four ways a reply ends (Result.stop_type). "word" runs in text mode, the rest in chat.
 SCENARIOS = ("eos", "word", "limit", "cancelled")
 
-# Where FakeBackend may differ from llama.cpp's record, and why.
-FAKE_DIFFERS = {
-    ("keys", "generation_settings"): "llama-server's own echo; the fake echoes what was sent",
+Allowances = dict[tuple[str, ...], tuple[str, frozenset[str]]]  # difference -> why, where
+ALL = frozenset(SCENARIOS)
+REPLIED = frozenset({"eos", "word", "limit"})  # llama.cpp's final chunk came
+CANCELLED = frozenset({"cancelled"})
+
+# Where FakeBackend may differ from llama.cpp's record, why, and in which scenarios. Each
+# entry must still be a real difference in each scenario it names, so none goes stale.
+FAKE_DIFFERS: Allowances = {
+    ("keys", "generation_settings"): (
+        "llama-server's own echo; the fake echoes what was sent",
+        REPLIED,
+    ),
 }
 
-# Where Transformers' record differs from llama.cpp's, and why (docs/design.md, backends).
-BACKENDS_DIFFER = {
-    ("keys", "request"): "each backend logs its own request body",
-    ("keys", "backend"): "describe() names each backend's own versions",
-    ("keys", "backend_settings"): "each backend's neutral values have its own names",
-    ("keys", "response"): "Transformers logs the effective GenerationConfig instead",
-    ("keys", "timings"): "Transformers measures four of llama-server's timing names",
-    ("keys", "generation_settings"): "llama-server's echo; Transformers has none",
-    ("fields", "generation_settings"): "llama-server's echo; Transformers has none",
-    ("fields", "tokens_cached"): "llama-server reports it; Transformers has no cache",
-    ("fields", "truncated"): "llama-server reports it; Transformers has none",
-    ("checks",): "each backend runs its own checks",
+# Where Transformers' record differs from llama.cpp's, why, and in which scenarios.
+BACKENDS_DIFFER: Allowances = {
+    ("keys", "request"): ("each backend logs its own request body", ALL),
+    ("keys", "backend"): ("describe() names each backend's own versions", ALL),
+    ("keys", "backend_settings"): ("each backend's neutral values have their own names", ALL),
+    ("keys", "response"): ("Transformers logs the effective GenerationConfig instead", ALL),
+    ("keys", "timings"): ("Transformers measures four of llama-server's timing names", ALL),
+    ("checks",): ("each backend runs its own checks", ALL),
+    ("keys", "generation_settings"): ("llama-server's echo; Transformers has none", REPLIED),
+    ("fields", "generation_settings"): ("llama-server's echo; Transformers has none", REPLIED),
+    ("fields", "tokens_cached"): ("llama-server reports it; Transformers has no cache", REPLIED),
+    ("fields", "truncated"): ("llama-server reports it; Transformers has none", REPLIED),
     # On a cancel, llama.cpp's stream ends before its final chunk, which holds the counts.
-    ("fields", "tokens_evaluated"): "llama.cpp has no count after a cancel",
-    ("fields", "tokens_predicted"): "llama.cpp has no count after a cancel",
-    # The smol profiles' sampler order isn't Transformers' fixed order, so it's flagged.
-    ("flags",): "not_applied on Transformers for the smol profiles' sampler order",
+    ("fields", "tokens_evaluated"): ("llama.cpp has no count after a cancel", CANCELLED),
+    ("fields", "tokens_predicted"): ("llama.cpp has no count after a cancel", CANCELLED),
 }
+
+
+def allowed(table: Allowances, scenario: str) -> set[tuple[str, ...]]:
+    """The differences `table` allows in `scenario`."""
+    return {key for key, (_, scenarios) in table.items() if scenario in scenarios}
 
 
 def type_name(value: Any) -> str:
@@ -64,7 +76,9 @@ def shape(record: dict[str, Any], pieces: list[str], end_ids: list[int]) -> dict
         "fields": {k: type_name(v) for k, v in sorted(record.items())},
         "keys": {k: sorted(record[k]) for k in NESTED if isinstance(record.get(k), dict)},
         "checks": {k: sorted(v) for k, v in sorted(record.get("checks", {}).items())},
-        "flags": sorted(record["flags"]),
+        # not_applied depends on the profile's settings and the backend, not the stop: the
+        # smol profiles' sampler order isn't Transformers' fixed order.
+        "flags": sorted(f for f in record["flags"] if f != "not_applied"),
         "pieces_join_to_output_text": "".join(pieces) == record["output_text"],
         "output_ids_end_with_end_token": bool(record["output_ids"])
         and record["output_ids"][-1] in end_ids,
