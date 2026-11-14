@@ -447,19 +447,24 @@ def test_an_empty_secret_is_refused_when_the_app_is_made(fetched_root, tiny_toke
         web.make_app(session, b"", port=PORT)
 
 
-def test_a_body_over_the_limit_is_refused_before_it_is_all_read(server):
-    """Finding 10: a chunked body is counted as it arrives."""
-    client, _, _ = server
-    read = [0]
+def test_a_body_over_the_limit_is_refused_before_it_is_all_read():
+    """Finding 10: a chunked body is counted as it arrives (TestClient reads a body whole
+    before sending it, so the reader is driven directly here)."""
+    import asyncio
 
-    def chunks():
-        for _ in range(100):
-            read[0] += 1
-            yield b"x" * 4096  # 400 KB in all; the limit is 64 KB
+    from starlette.requests import Request
 
-    response = client.post("/command", headers=POST, content=chunks())
-    assert response.status_code == 413
-    assert read[0] < 100  # stopped reading near the limit, not at the end
+    received = [0]
+
+    async def receive():
+        received[0] += 1
+        return {"type": "http.request", "body": b"x" * 4096, "more_body": True}  # endless
+
+    request = Request({"type": "http", "method": "POST", "headers": []}, receive)
+    with pytest.raises(web.Refused) as refused:
+        asyncio.run(web.read_json(request))
+    assert refused.value.status == 413
+    assert received[0] == web.MAX_BODY // 4096 + 1  # stopped at the limit
 
 
 def test_export_serves_only_the_current_chats_file(server):
@@ -508,3 +513,8 @@ def test_enter_in_the_terminal_never_puts_the_secret_in_a_process_argument(
     thread.join(10)
     assert len(opened) == 2  # at start, and after Enter
     assert all("key=" not in url for url in opened), opened
+
+
+def test_options_is_refused_on_any_path_not_only_known_routes(server):
+    client, _, _ = server
+    assert client.options("/nope").status_code == 405
