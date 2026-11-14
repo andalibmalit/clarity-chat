@@ -805,3 +805,79 @@ def test_the_terminal_prints_every_end_and_the_marked_replies(branchy):
     assert text.startswith("4 branch ends, newest first.")
     assert f" * {t['r3e'].turn_id}  from message 2 of 2 (seed 42), not continued: 6 turns" in text
     assert f"   {t['r2'].turn_id}  landed (note: 'the best one'): ' r2'" in text
+
+
+# --- /regen same --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def three_then_set(make_session):
+    """Three replies (seeds 42, 43, 44), then temperature changed to 0.9."""
+    from clarity_chat.commands import Commands
+
+    session, backend = make_session([" one", " two", " three", " a", " b", " c", " d"])
+    c = Commands(session)
+    session.say("Hi")
+    c.run("regen", "2", lambda e: None)
+    c.run("set", "temperature 0.9", lambda e: None)
+    return c, session, backend
+
+
+def test_regen_same_remakes_each_seed_under_the_new_settings(three_then_set):
+    c, session, backend = three_then_set
+    events: list[dict] = []
+    result = c.run("regen", "same", events.append)
+    assert result.get("seeds") == [42, 43, 44]
+    made = [r["call"] for r in result["replies"]]
+    assert [m["settings"]["seed"] for m in made] == [
+        {"value": s, "origin": "regen"} for s in (42, 43, 44)
+    ]
+    assert all(m["settings"]["temperature"]["value"] == 0.9 for m in made)
+    assert [e["seed"] for e in events if e["event"] == "reply_start"] == [42, 43, 44]
+    turns = [session.conversation.turns[m["turn_id"]] for m in made]
+    assert all(t.origin == "model" and t.regen_of for t in turns)
+    assert session.conversation.head == made[-1]["turn_id"]
+
+
+def test_a_second_regen_same_is_refused_and_the_next_regen_uses_seed_45(three_then_set):
+    c, session, backend = three_then_set
+    c.run("regen", "same", lambda e: None)
+    with pytest.raises(ConfigError, match="already has a reply under the current settings"):
+        c.run("regen", "same", lambda e: None)
+    (reply,) = c.run("regen", "", lambda e: None)["replies"]
+    assert reply["call"]["settings"]["seed"] == {"value": 45, "origin": "regen"}
+
+
+def test_regen_same_after_two_sets_in_a_row(three_then_set):
+    c, session, _ = three_then_set
+    c.run("set", "top_p 0.8", lambda e: None)
+    result = c.run("regen", "same", lambda e: None)
+    assert result.get("seeds") == [42, 43, 44]
+    assert all(r["call"]["settings"]["top_p"]["value"] == 0.8 for r in result["replies"])
+
+
+def test_the_next_regen_seed_is_the_highest_used_plus_one_as_before(make_session):
+    """For replies made only by /regen, that's the first seed plus k, as in every older log."""
+    session, backend = make_session([" one", " two", " three"])
+    session.say("Hi")
+    assert session.regen_seed() == 43
+    session.regen()
+    assert session.regen_seed() == 44
+
+
+def test_regen_same_on_400_exchanges_is_quick(fetched_root, tiny_tokenizer):
+    import time
+
+    from clarity_chat.commands import Commands
+
+    backend = FakeBackend([" ok"] * 402, n_ctx=100_000, tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    session.new_conversation("text")
+    for _ in range(400):
+        session.say("m")
+    c = Commands(session)
+    c.run("regen", "", lambda e: None)
+    c.run("set", "temperature 0.9", lambda e: None)
+    started = time.perf_counter()
+    assert c.run("regen", "same", lambda e: None).get("seeds") == [42, 43]
+    assert time.perf_counter() - started < 5

@@ -148,6 +148,12 @@ Each call is its own conversation. Profiles are read once, at the start, so edit
 
 `/regen 4` asks for four more replies to your last message, one after another. Each is a new branch with its own logged seed: the first reply's seed plus 1, 2, 3 and 4, so each can be replayed. The terminal shows a header before each reply and its seed, and `/branches` then lists them all. Ctrl-C stops the reply being written and skips the rest. With `--json`, a `reply_start` event comes before each reply, so a script can tell their text apart.
 
+## Compare replies
+
+To see what one setting does, hold the randomness fixed. Ask for a few replies (`/regen 2`), change the setting (`/set temperature 0.9`), then `/regen same`: it makes the message's replies again with the same seeds under the new value. `/compare` then lists every reply to the message, grouped by its settings, and for each pair with the same seed it shows the token and character where the two replies part. With the same seed and prompt, the setting is the only difference between them.
+
+`/compare CALL_ID` does the same for an earlier message, from the ID of any of its replies, without moving you there. `/branches all` lists every branch end in the conversation, and every marked reply, so you can find one again.
+
 ## See a reply's token probabilities
 
 On a Transformers profile, `/set logprobs 5` records, for each token of the next replies, the probability the model gave it and its five likeliest alternatives. `/probs` then summarizes the current reply: the ten tokens the model thought least likely, in reply order, each with the model's likeliest other tokens. The probabilities are the model's own, from its raw scores before any sampler: a token picked at temperature 1.2 shows the probability the model gave it, not the reshaped one. Every number is in the call's `logprobs` field in the log, and `/probs` with `--json` returns all of them. `/set logprobs 0` turns it off. llama.cpp profiles refuse the setting for now.
