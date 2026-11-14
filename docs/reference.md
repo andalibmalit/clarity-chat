@@ -83,7 +83,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 |---|---|---|
 | `text` | reply text streams in | `text`, and `at` and `end`: where the piece sits in the reply being written, in characters (Unicode code points), so a reader that joins mid-reply keeps the pieces at or past `/state`'s `reply_end` |
 | `reply_start` | before each reply of `/regen N` | `k` (which reply, from 1), `n`, `seed` |
-| `status` | a model is starting, ready, or has stopped (its server exited; the call that found it fails, and resuming the conversation starts it again) | `status`, and `profile` (its name), `log` (the ID being resumed: the log file's name) or `conversation_id` |
+| `status` | a model is starting, ready, or has stopped (its server exited; the call that found it fails, and resuming the conversation starts it again) | `status`, and `profile` (its name), `log` (as `/resume` was given it: a log file's name, or for `--resume` the ID or path you typed) or `conversation_id` |
 | `record` | a record is appended to the log | `record`: exactly what was written. Record events are the log, in order. |
 | `result` | a command finished | `command`, `id`, and `result`: what the command returns. It may repeat records already sent as `record` events. See [Command results](#command-results). |
 | `error` | a command failed, or a line wasn't a command | `command` and `id` (for a command), `type` (`ConfigError`, `ContextError`, `BackendError`, `CancelledBeforeReply` or `InputError`; any other type is an unexpected error, after which the session quits) and `message` |
@@ -125,8 +125,8 @@ The web interface (from v0.3.0) is a local page over the same command table as `
 |---|---|---|---|
 | GET | `/` | no | the page's shell, which holds no data |
 | GET | `/static/FILE` | no | the page's script and styles, from a fixed list |
-| POST | `/command` | yes | `{"command", "args", "id", "tab"}` in, and `--json`'s result for that command out, as `{"id", "result"}` or `{"id", "error", "type"}` |
-| GET | `/events?tab=TAB` | yes | a stream of JSON lines: first `{"event": "hello"}`, then `--json`'s events, `{"event": "stopped"}` when Clarity is stopped from its terminal (Ctrl-C), and `{"event": "heartbeat"}` when nothing has happened for 15 seconds. A tab that isn't the live one gets `{"event": "not_live"}`, and the stream ends |
+| POST | `/command` | yes | `{"command", "args", "id", "tab"}` in, and `--json`'s result for that command out, as `{"id", "result"}` or `{"id", "error", "type"}`. After an unexpected error has stopped Clarity, every command answers `{"id", "error", "type": "Stopped", "stopped": true}`, with that error's sentence |
+| GET | `/events?tab=TAB` | yes | a stream of JSON lines: first `{"event": "hello"}`, then `--json`'s events, and `{"event": "heartbeat"}` when nothing has happened for 15 seconds. Clarity stopping sends `{"event": "stopped"}` (Ctrl-C in its terminal, or SIGTERM) or `{"event": "stopped", "reason"}` (an unexpected error, in a sentence). An event holding a number JSON can't carry (NaN or infinity, from a log another program wrote) comes as `{"event": "error", "type": "NotJSON", "message"}` instead. A tab that isn't the live one gets `{"event": "not_live"}`, and the stream ends |
 | GET | `/view/NAME` | yes | an HTML fragment of one part of the page, such as `thread`; a `call` parameter must be a call ID |
 | POST | `/tab` | yes | `{"tab"}`: makes that tab the live one |
 | GET | `/export` | yes | the export this start made of the log that's open, if any |
