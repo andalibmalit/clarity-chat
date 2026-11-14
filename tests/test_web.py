@@ -391,9 +391,10 @@ def test_a_server_error_carries_the_security_headers_and_says_why(server, monkey
     """Finding 3: an error inside a route still gets every header."""
     client, _, _ = server
     command(client, "profile", "text")
-    monkeypatch.setattr(web.Worker, "submit", lambda self, name, args: {"result": float("nan")})
+    nan = {"result": float("nan")}
+    monkeypatch.setattr(web.Worker, "_run", lambda self, name, args, at_once=None: nan)
     response = command(client, "state")
-    assert response.status_code == 500
+    assert response.status_code == 500 and "NaN or infinity" in response.text
     assert response.headers["Cache-Control"] == "no-store"
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
 

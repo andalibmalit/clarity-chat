@@ -58,7 +58,18 @@ class Commands:
         # will also come from the browser (v0.3.0), so they take names and IDs.
         self.paths = False
 
-    def run(self, name: str, args: str, emit: Emit, *, paths: bool = False) -> dict[str, Any]:
+    def run(
+        self,
+        name: str,
+        args: str,
+        emit: Emit,
+        *,
+        paths: bool = False,
+        at_once: bool | None = None,
+    ) -> dict[str, Any]:
+        """Run one command. `at_once`: a caller that already decided whether it runs at once
+        (`at_once_now`) passes its decision, so it isn't decided twice: a reply ending in
+        between mustn't send it for the lock the queue's next command needs."""
         command = COMMANDS.get(name)
         if command is None:
             raise ConfigError(f"Unknown command /{name}. /help lists them.")
@@ -66,7 +77,7 @@ class Commands:
             args = args.strip()
         if command.needs_conversation and self.session.conversation is None:
             raise ConfigError("No conversation is running. Start one with a profile first.")
-        if command.during_call or (command.during_reply and self.reply_running()):
+        if at_once if at_once is not None else self.at_once_now(name):
             return command.run(self, args, emit)
         if not self.busy.acquire(blocking=False):
             raise ConfigError(
@@ -94,6 +105,11 @@ class Commands:
                     self.reply_k_of_n = {"k": event["k"], "n": event["n"]}
             elif event["event"] == "status":
                 self.starting = event["status"] == "starting"
+            elif (event.get("record") or {}).get("type") == "turn" and (
+                event["record"].get("role") == "assistant"
+            ):  # the reply is in the turns now: not also being written, for /state
+                with self.progress:
+                    self.streamed, self.streamed_end = [], 0
             emit(event)
 
         self.session.on_record = lambda record: tracked({"event": "record", "record": record})
@@ -111,6 +127,13 @@ class Commands:
                 self.streamed, self.streamed_end, self.running = [], 0, None
             self.paths = False
             self.busy.release()
+
+    def at_once_now(self, name: str) -> bool:
+        """Whether `name` runs at once, beside whatever runs, rather than waiting its turn."""
+        command = COMMANDS.get(name)
+        return command is not None and (
+            command.during_call or (command.during_reply and self.reply_running())
+        )
 
     def reply_running(self) -> bool:
         """A reply is being written or replayed, not a model started: /set can't run

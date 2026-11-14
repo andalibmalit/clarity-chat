@@ -28,7 +28,7 @@ from collections.abc import Iterator
 from typing import IO, Any
 
 from clarity_chat.backends import BackendError
-from clarity_chat.commands import COMMANDS, Commands
+from clarity_chat.commands import Commands
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import ContextError, Session
 
@@ -81,12 +81,8 @@ class JsonChat:
                 if not line.strip():
                     continue
                 command = self.parse(line)
-                found = COMMANDS.get(str(command.get("command")))
-                now = found is not None and (
-                    found.during_call or (found.during_reply and self.commands.reply_running())
-                )
-                if now:
-                    self.execute(command)
+                if self.commands.at_once_now(str(command.get("command"))):
+                    self.execute(command, at_once=True)
                 else:
                     pending.put(command)
         finally:
@@ -128,13 +124,14 @@ class JsonChat:
             return {"error": 'Each line must be {"command": NAME, "args": TEXT, "id": ANY}.'}
         return command
 
-    def execute(self, command: dict[str, Any]) -> bool:
+    def execute(self, command: dict[str, Any], at_once: bool | None = None) -> bool:
         """Run one command and send its result or error. Returns False to quit."""
         name = command["command"]
         tag = {"command": name, **({"id": command["id"]} if "id" in command else {})}
         start = any(command is s for s in self.starts)  # --profile or --resume, not input
         try:
-            result = self.commands.run(name, command.get("args", ""), self.emit, paths=start)
+            args = command.get("args", "")
+            result = self.commands.run(name, args, self.emit, paths=start, at_once=at_once)
         except (ConfigError, ContextError, BackendError) as e:
             self.emit({"event": "error", **tag, "type": type(e).__name__, "message": str(e)})
             if start:
