@@ -235,3 +235,19 @@ def test_state_on_400_exchanges_is_quick(fetched_root, tiny_tokenizer):
     started = time.perf_counter()
     assert len(state(c)["turns"]) == 800
     assert time.perf_counter() - started < 5
+
+
+def test_a_failed_edit_after_a_failed_message_leaves_nothing_unanswered(commands):
+    """Review: live and resumed answers agree on the same log."""
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    backend.fail_with = "made-up failure"
+    with pytest.raises(BackendError):
+        c.run("say", "A", lambda e: None)
+    with pytest.raises(BackendError):
+        c.run("edit", "Hello instead", lambda e: None)
+    backend.fail_with = None
+    live = state(c)["unanswered"]
+    c.run("resume", c.session.conversation.conversation_id, lambda e: None)
+    assert live == state(c)["unanswered"] is None

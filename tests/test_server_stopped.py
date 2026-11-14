@@ -84,3 +84,56 @@ def test_the_terminal_says_how_to_start_it_again(fetched_root, tiny_tokenizer):
     loop.handle("Hi")
     assert session.conversation is not None
     assert f"/resume {session.conversation.conversation_id} starts it again." in "".join(output)
+
+
+def test_a_server_that_stops_during_regen_n_is_reported_stopped(commands):
+    """Review: /regen N kept the failure as `stopped`, and no status event went out."""
+    c, backend = commands
+    c.run("say", "a", lambda e: None)
+    backend.replies = [" two", " three"]
+    events: list[dict] = []
+
+    def on_event(event):
+        events.append(event)
+        if event["event"] == "reply_start" and event["k"] == 2:
+            backend.stopped = True
+
+    result = c.run("regen", "2", on_event)
+    assert len(result["replies"]) == 1 and "has stopped" in result["stopped"]
+    assert {"event": "status", "status": "stopped"} in events
+    assert c.run("state", "", lambda e: None)["model"] == "stopped"
+
+
+def test_a_failed_resume_after_a_stop_still_says_stopped(commands):
+    """Review: a start that failed set the model "ready" whenever a conversation was open."""
+    c, backend = commands
+    c.run("say", "a", lambda e: None)
+    backend.stopped = True
+    with pytest.raises(BackendError):
+        c.run("say", "b", lambda e: None)
+    with pytest.raises(Exception):  # noqa: B017 - which error isn't the point
+        c.run("resume", "no-such-conversation", lambda e: None)
+    assert c.run("state", "", lambda e: None)["model"] == "stopped"
+
+
+def test_a_replay_that_starts_the_server_again_leaves_it_ready(commands):
+    """Review: replay restarts a stopped server without an event."""
+    c, backend = commands
+    first = c.run("say", "a", lambda e: None)["call"]
+    backend.stopped = True
+    with pytest.raises(BackendError):
+        c.run("say", "b", lambda e: None)
+    backend.replies = [" one"]
+    c.run("replay", first["call_id"], lambda e: None)
+    assert c.run("state", "", lambda e: None)["model"] == "ready"
+
+
+def test_llama_cpp_says_its_server_stopped_when_the_stream_just_ends(monkeypatch, root):
+    """Review: a stream that ends without its final chunk, from a process that exited."""
+    from tests.test_llama_cpp import fake_backend
+
+    backend = fake_backend(monkeypatch, root, [{"content": "Hi", "tokens": [5]}])
+    settings = {**load_defaults(root), "seed": 42, "max_tokens": 4}
+    with pytest.raises(BackendError, match="stopped during the call") as caught:
+        backend.complete([1, 2], settings, [])
+    assert caught.value.server_stopped is True

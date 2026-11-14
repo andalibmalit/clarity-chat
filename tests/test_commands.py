@@ -478,3 +478,11 @@ def test_replaying_a_cancelled_reply_by_its_id_is_refused(three_replies):
     run(c, "say e")
     with pytest.raises(ConfigError, match="was cancelled, so its reply is incomplete"):
         run(c, f"replay {cancelled['call_id']}")
+
+
+def test_profiles_says_not_fetched_when_the_weights_file_is_gone(commands, fetched_root):
+    """Review: models.lock still matched, so a deleted GGUF read as fetched."""
+    c, _ = commands
+    (fetched_root / "models" / "tiny" / "tiny-bf16.gguf").unlink()
+    by_name = {p["name"]: p for p in c.run("profiles", "", lambda e: None)["profiles"]}
+    assert by_name["text"]["fetched"] is False

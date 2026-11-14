@@ -235,3 +235,20 @@ def test_regen_same_keeps_the_order_seeds_were_first_used(chat):
     again_with_seed(session, 45)
     session.set_setting("temperature", "0.9")
     assert c.run("regen", "same", lambda e: None)["seeds"] == [42, 50, 45]
+
+
+def test_an_old_logs_missing_settings_are_neither_same_nor_a_group(chat):
+    """Review: `same` took the oldest reply's value (None), and its key held None."""
+    import shutil
+    from pathlib import Path
+
+    golden = Path(__file__).parent / "fixtures" / "golden" / "v0.2.0.jsonl"
+    c, session = chat([" More.", " Again."])
+    log = Path(shutil.copy(golden, session.logs_dir / "old-v020.jsonl"))
+    c.run("resume", log.stem, lambda e: None)
+    session.regen()
+    session.set_setting("steering_scale", "0")  # recorded on the new replies only
+    session.regen()
+    result = compare(c)
+    assert None not in result["same"].values()
+    assert all(None not in g["settings"].values() for g in result["groups"])
