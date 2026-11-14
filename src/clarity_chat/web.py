@@ -1067,7 +1067,9 @@ def unhighlighted(call: dict[str, Any]) -> str | None:
     spans = call.get("message_spans")
     if spans is None:
         return "this call was logged before Clarity recorded which text the template wrote (v0.2.1)"
-    return spans["unavailable"].rstrip(".") if isinstance(spans, dict) else None
+    if isinstance(spans, dict):  # a log another program wrote may give no reason
+        return str(spans.get("unavailable", "the log gives no reason")).rstrip(".")
+    return None
 
 
 def prompt_pieces(call: dict[str, Any]) -> list[tuple[str, bool]]:

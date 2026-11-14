@@ -276,13 +276,14 @@ def test_the_terminal_names_the_log_to_resume_a_copied_chat(fetched_root, tiny_t
 
     backend = FakeBackend([" one", " two"], tokenizer=tiny_tokenizer)
     session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
-    session.new_conversation("text")
+    first = session.new_conversation("text")
     session.say("a")
-    copy = shutil.copy(session.conversation.log.path, session.logs_dir / "my-copy.jsonl")
+    copy = shutil.copy(first.log.path, session.logs_dir / "my-copy.jsonl")
     output: list[str] = []
     loop = ChatLoop(session, "", read=lambda d: "", write=output.append, resume=str(copy))
     loop.start()
-    assert session.conversation.conversation_id != "my-copy"
+    resumed = session.conversation
+    assert resumed is not None and resumed.conversation_id != "my-copy"
     backend.stopped = True
     loop.handle("Hi")
     assert "/resume my-copy starts it again." in "".join(output)

@@ -486,7 +486,8 @@ class ChatLoop:
     def resume_hint(self, server_stopped: bool) -> None:
         conversation = self.session.conversation
         if server_stopped and conversation is not None:
-            self.write(f"/resume {conversation.conversation_id} starts it again.\n")
+            # The log file's name, which /resume takes (a copied log's differs from its ID).
+            self.write(f"/resume {conversation.log.path.stem} starts it again.\n")
 
     def command(self, name: str, args: str) -> bool:
         """Run a registry command and show its result. Returns False to quit."""
