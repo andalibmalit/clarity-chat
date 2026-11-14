@@ -793,3 +793,72 @@ def test_an_earlier_reply_s_pop_out_lists_without_more_replies(clarity, page):
     assert page.locator("#more-n").count() == 0
     assert "continued, 2 more messages" in page.text_content(".listpop .lrow.cur")
     shot(page, "F1-earlier-fork", "c3")
+
+
+# --- Settings (C4a)
+
+
+def open_settings(page) -> None:
+    page.click("#composer-row [data-action=settings]")
+    page.wait_for_selector("#panel:not([hidden]) [data-setting=temperature]")
+
+
+def test_settings_change_a_value_go_back_and_a_refusal(clarity, page):
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    open_settings(page)
+    assert focused(page) == "panel-title"
+    assert page.input_value("#set-temperature") == "0.6"
+    shot(page, "I1-settings", "c4a")
+    page.fill("#set-temperature", "0.3")
+    page.press("#set-temperature", "Enter")
+    page.wait_for_selector("[data-setting=temperature] .tag:has-text('chat')")
+    settings = page.evaluate("clarity.command('settings')")["result"]["settings"]
+    assert settings["temperature"] == {
+        "value": 0.3,
+        "origin": "chat",
+        "profile": {"value": 0.6, "origin": "profile"},
+    }
+    page.wait_for_selector("#composer-row .ch:has-text('1 changed')")
+    assert page.text_content("[data-setting=temperature] [data-set]") == "Back to 0.6 (profile)"
+    shot(page, "I3-changed", "c4a")
+    # A refused value: the backend's sentence under the row; the box keeps what you typed.
+    page.fill("#set-top_p", "1.5")
+    page.press("#set-top_p", "Enter")
+    page.wait_for_selector("[data-setting=top_p] .refused:not([hidden])")
+    assert page.text_content("[data-setting=top_p] .refused") == (
+        "/set: top_p must be a number from 0 to 1, got 1.5."
+    )
+    assert page.text_content("[data-setting=top_p] .note") == (
+        "Not applied: the next reply still uses 0.95 (profile)."
+    )
+    assert page.input_value("#set-top_p") == "1.5"
+    shot(page, "I7-refused", "c4a")
+    page.click("[data-setting=temperature] [data-set]")
+    page.wait_for_selector("[data-setting=temperature] .tag:has-text('profile')")
+    assert page.locator("#panel [data-action=reset-all]").count() == 0
+    # A slider sends /set when it's released (a change), not on every step.
+    page.click("#panel details.more summary")
+    page.locator("[data-setting=min_p] input[type=range]").fill("0.05")
+    page.wait_for_selector("[data-setting=min_p] .tag:has-text('chat')")
+    assert (
+        page.evaluate("clarity.command('settings')")["result"]["settings"]["min_p"]["value"] == 0.05
+    )
+    assert page.is_visible("[data-setting=top_k]")  # More settings stayed open
+    page.keyboard.press("Escape")
+    assert page.is_hidden("#panel")
+    assert page.evaluate("document.activeElement.dataset.action") == "settings"
+
+
+def test_settings_wait_while_a_reply_is_written(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect, "long")
+    open_settings(page)
+    backend.replies, backend.piece_delay = [" Slowly," * 10], 0.3
+    page.evaluate("() => { clarity.command('say', 'Hi'); }")
+    page.wait_for_selector("#panel .waits")
+    assert page.text_content("#panel .waits") == "Changes wait until this reply is done."
+    assert page.get_attribute("#set-temperature", "aria-disabled") == "true"
+    shot(page, "I8-waiting", "c4a")
+    page.wait_for_selector("#panel .waits", state="detached", timeout=20_000)
+    assert page.get_attribute("#set-temperature", "aria-disabled") is None

@@ -291,7 +291,6 @@ DRAWN_ACTIONS = re.compile(r'data-action="([\w-]+)"')
 LATER = {  # drawn now, handled by a later item of v0.3.0's plan
     "chats": "C5: the Chats drawer",
     "appearance": "C6: Appearance",
-    "settings": "C4a: Settings",
     "details": "C4b: Details",
 }
 

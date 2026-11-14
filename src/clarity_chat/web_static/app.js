@@ -283,6 +283,7 @@ async function draw(number) {
   const waits = $("picker-button").getAttribute("aria-disabled") === "true";
   $("new-chat").setAttribute("aria-disabled", String(waits));
   showWriting(state.running);
+  if (panelOf) showPanel(panelOf.name, panelOf.params);
   if (state.unanswered && clarity.filled !== state.unanswered.turn_id) {
     clarity.filled = state.unanswered.turn_id; // your failed message, back in the box once
     if (!$("message").value) $("message").value = state.unanswered.text;
@@ -458,6 +459,11 @@ document.addEventListener("click", (event) => {
     });
     return;
   }
+  const set = event.target.closest("[data-set]");
+  if (set) {
+    if (set.getAttribute("aria-disabled") !== "true") setting(set.dataset.set);
+    return;
+  }
   const unmark = event.target.closest("[data-unmark]");
   if (unmark) {
     annotate("unmark", unmark.closest("[data-call]").dataset.call, unmark.dataset.unmark);
@@ -481,6 +487,10 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && openList && openList.box.contains(event.target)) {
     closeReplies(true);
+    return;
+  }
+  if (event.key === "Escape" && $("panel").contains(event.target)) {
+    closePanel();
     return;
   }
   if (event.key === "Escape" && $("compare").contains(event.target)) {
@@ -687,7 +697,91 @@ function closeCompare() {
 
 clarity.on.replies = (element) => openReplies(element);
 
+// The side panel (C4a Settings, C4b Details): a view drawn beside the thread. It's drawn
+// again after every redraw, so its controls wait, or stop waiting, with the page.
+let panelOf = null; // { name, params, opener }
+
+async function showPanel(name, params, opener) {
+  const focused = document.activeElement && $("panel").contains(document.activeElement)
+    ? document.activeElement.id
+    : null;
+  const opened = [...$("panel").querySelectorAll("details[open]")].map((d) => d.className);
+  try {
+    swap($("panel"), await view(name, params));
+  } catch (error) {
+    notice("!", error.message);
+    return;
+  }
+  for (const section of $("panel").querySelectorAll("details")) {
+    if (opened.includes(section.className)) section.open = true; // kept open across redraws
+  }
+  const opening = !panelOf || panelOf.name !== name || opener;
+  panelOf = { name, params, opener: opener || (panelOf && panelOf.opener) };
+  $("panel").hidden = false;
+  const again = focused && $(focused);
+  if (again) again.focus();
+  else if (opening) $("panel-title").focus();
+}
+
+function closePanel() {
+  // Focus goes back to the control that opened the panel, or the one drawn in its place.
+  const opener = panelOf && panelOf.opener;
+  panelOf = null;
+  $("panel").hidden = true;
+  let back = opener;
+  if (opener && !opener.isConnected) {
+    const call = opener.closest("[data-call]")?.dataset.call;
+    const scope = call ? document.querySelector(`[data-call="${CSS.escape(call)}"]`) : document;
+    back = scope && scope.querySelector(`[data-action="${opener.dataset.action}"]`);
+  }
+  (back || $("message")).focus();
+}
+
+async function setting(args, row = null, box = null) {
+  // /set NAME VALUE, or /set NAME (back to the profile's value). A refusal shows the
+  // backend's sentence under its row, and the box keeps what you typed.
+  const answer = await command("set", args);
+  if (answer.error && row) {
+    const refused = row.querySelector(".refused");
+    refused.textContent = answer.error;
+    refused.hidden = false;
+    const note = row.querySelector(".note");
+    note.textContent = `Not applied: the next reply still uses ${box.dataset.inUse}.`;
+    note.hidden = false;
+    box.setAttribute("aria-invalid", "true");
+    const slider = row.querySelector('input[type="range"]');
+    if (slider) slider.value = slider.getAttribute("value");
+    return;
+  }
+  if (answer.error) notice("!", answer.error);
+  await refresh();
+}
+
+clarity.on.settings = (element) => showPanel("settings", {}, element);
+
+document.addEventListener("input", (event) => {
+  const slider = event.target.closest('#panel input[type="range"]');
+  if (slider) $(slider.dataset.mirror).value = slider.value; // the box follows the slider
+});
+
+document.addEventListener("change", (event) => {
+  // A row sends /set when a slider is released, or on Enter in a box or leaving it.
+  const input = event.target.closest("#panel input");
+  if (!input) return;
+  const box = input.type === "range" ? $(input.dataset.mirror) : input;
+  if (input.getAttribute("aria-disabled") === "true") {
+    showPanel(panelOf.name, panelOf.params); // it waits: back to the value in use
+    return;
+  }
+  setting(`${box.dataset.name} ${box.value}`, box.closest(".srow"), box);
+});
+
 const THREAD = {
+  "panel-close": () => closePanel(),
+  "reset-all": async (element) => {
+    for (const name of element.dataset.names.split(" ")) await command("set", name);
+    await refresh();
+  },
   "replies-close": () => closeReplies(true),
   again() {
     closeReplies(false);
