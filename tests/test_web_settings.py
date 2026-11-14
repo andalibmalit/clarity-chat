@@ -63,8 +63,7 @@ def test_a_llama_cpp_profile_shows_its_values_and_where_they_came_from(chat):
         s = settings["settings"][name]
         r = row(fragment, name)
         assert f'value="{s["value"]}"' in r and f'<span class="tag">{s["origin"]}</span>' in r
-        if name in SETTING_HELP:
-            assert SETTING_HELP[name] in r
+        assert SETTING_HELP[name] in r
     assert 'type="range"' in row(fragment, "temperature") and 'type="range"' not in row(
         fragment, "seed"
     )
