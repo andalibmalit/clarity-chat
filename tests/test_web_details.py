@@ -571,18 +571,12 @@ READS_OF_A_CALL = [
 ]
 
 
-@pytest.mark.parametrize("field", ["prompt_ids", "output_ids", "settings"])
-@pytest.mark.parametrize(("name", "takes_call"), READS_OF_A_CALL)
-def test_a_call_record_missing_a_field_gets_an_answer_not_a_stopped_session(
-    chat, field, name, takes_call
-):
-    """A log another program wrote can leave out any field. Its calls here lack `field`
-    (two replies with the same seed and other settings, so Compare pairs them). The log
-    reopens, or is refused with a sentence; each read answers with a result or a refusal;
-    none ends the session with an unexpected error."""
+def reopened_without(client, session, field):
+    """Two replies with the same seed and other settings (so Compare pairs them), then the
+    log with `field` taken out of its call records, as another program might write it,
+    reopened. The first reply's call ID, or None if the log was refused with a sentence."""
     import json
 
-    client, session = chat
     tokenizer = session.tokenizer
     session.backend.replies = [" Hello!", " Hello!"]
     session.backend.logprobs = fake_logprobs(
@@ -605,7 +599,40 @@ def test_a_call_record_missing_a_field_gets_an_answer_not_a_stopped_session(
     assert not reopened.get("stopped"), reopened
     if "result" not in reopened:
         assert reopened["type"] == "ConfigError", reopened
+        return None
+    return call
+
+
+@pytest.mark.parametrize("field", ["prompt_ids", "output_ids", "settings"])
+@pytest.mark.parametrize(("name", "takes_call"), READS_OF_A_CALL)
+def test_a_call_record_missing_a_field_gets_an_answer_not_a_stopped_session(
+    chat, field, name, takes_call
+):
+    """A log another program wrote can leave out any field. Its calls here lack `field`
+    (two replies with the same seed and other settings, so Compare pairs them). The log
+    reopens, or is refused with a sentence; each read answers with a result or a refusal;
+    none ends the session with an unexpected error."""
+    client, session = chat
+    call = reopened_without(client, session, field)
+    if call is None:
         return
     answer = command(client, name, call if takes_call else "").json()
     assert not answer.get("stopped"), answer
     assert "result" in answer or answer["type"] == "ConfigError", answer
+
+
+@pytest.mark.parametrize("field", ["output_ids", "output_text", "stop_type", "request"])
+def test_a_replay_of_a_call_missing_a_field_says_which_and_the_session_goes_on(chat, field):
+    """Found by the sweep above: a replay read the call's request, text and stop type
+    without checking them, so a log without one stopped the session (KeyError). It's
+    refused before anything starts, naming the field."""
+    client, session = chat
+    call = reopened_without(client, session, field)
+    assert call is not None  # the log reopens: the reads it needs are all there
+    answer = command(client, "replay", call).json()
+    assert not answer.get("stopped"), answer
+    assert answer == {
+        "id": 1,
+        "error": f"Call {call} can't be replayed: its record has no {field}.",
+        "type": "ConfigError",
+    }
