@@ -897,3 +897,23 @@ def test_a_stream_whose_client_left_before_its_body_leaves_nothing_registered(se
         lines = [line for _, line in zip(range(2), stream.iter_lines(), strict=False)]
     assert lines[0] == '{"event": "hello"}', lines
     assert "not_live" not in lines[1], lines  # the next line is the next event, not a refusal
+
+
+# --- The whole-branch review (Opus), batch 4
+
+
+def test_a_long_message_reaches_the_command_table_and_a_huge_one_is_refused_with_the_limit(
+    server,
+):
+    """MUST 1: /command's limit covers any message a context can take (the terminal and
+    --json have none); other routes keep 64 KB. Over it, the 413 names the limit."""
+    client, _, _ = server
+    command(client, "profile", "text")
+    long = command(client, "say", "a" * 100_000)
+    assert long.status_code == 200 and long.json()["type"] == "ContextError"  # read, judged
+    huge = command(client, "say", "a" * (8 * 1024 * 1024 + 1))
+    assert huge.status_code == 413
+    assert huge.text == "Too big: Clarity takes at most 8 MB at a time."
+    tab = client.post("/tab", headers=POST, content=json.dumps({"tab": "x", "pad": "a" * 70_000}))
+    assert tab.status_code == 413
+    assert tab.text == "Too big: Clarity takes at most 64 KB at a time."
