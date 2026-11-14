@@ -39,7 +39,7 @@ What you see is exactly what the model got, and every completed call can be repl
 No silent fallbacks: if something can't be done exactly as configured, stop with a clear error. Two cases are flagged instead, on the record and on screen: a check that fails after a call, and a setting the Transformers backend can't apply.
 Clarity should get out of the way: being exact must not make common experiments awkward. Prefer a small, explicit, logged shortcut (like `use_recommended = true`) to extra ceremony.
 The backend does what the UI leads people to expect. A difference between them is a silent fallback: show it.
-No terminal commands in the UI. Command-line usage belongs in the docs and `help`.
+The UI doesn't show terminal equivalents of its controls; command-line usage belongs in the docs and `help`.
 Teaching text, anything that explains how models or settings work, is checked against authoritative sources before it ships. Each explanation lives in one place, the settings table, which the UI, `help` and the docs reuse.
 Clarity writes files only visibly. Shipped files stay read-only; the user's own files live in `local/`.
 
