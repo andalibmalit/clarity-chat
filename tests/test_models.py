@@ -102,6 +102,44 @@ def test_a_route_change_is_reported_as_a_route_change(gguf_root):
         lock_entry(root, load_models(root)["ready"])
 
 
+@pytest.mark.parametrize("refused", ["weights", "tokenizer"])
+def test_a_gated_repo_without_access_is_refused_with_what_to_do(
+    root, tmp_path, monkeypatch, capsys, refused
+):
+    """Hugging Face answers a gated repo, without an accepted licence or a login, with
+    GatedRepoError. `clarity fetch` says what to do instead of showing a traceback, and
+    handles no token itself."""
+    import httpx2
+    import huggingface_hub
+    from huggingface_hub.errors import GatedRepoError
+
+    from clarity_chat import cli
+
+    def gated(repo, *args, **kwargs):
+        response = httpx2.Response(401, request=httpx2.Request("GET", f"https://hf.co/{repo}"))
+        raise GatedRepoError(f"Access to model {repo} is restricted.", response=response)
+
+    weights = tmp_path / "ready-Q8_0.gguf"
+    weights.write_bytes(WEIGHTS)
+    monkeypatch.setattr(
+        huggingface_hub,
+        "hf_hub_download",
+        gated if refused == "weights" else lambda *a, **k: weights,
+    )
+    monkeypatch.setattr(huggingface_hub, "snapshot_download", gated)
+    (root / "models.toml").write_text(GGUF_MODEL.format(sha256=WEIGHTS_SHA256), encoding="utf-8")
+    try:
+        code = cli.main(["--root", str(root), "fetch", "ready"])
+    except GatedRepoError as e:  # what the user would see: a traceback
+        code = repr(e)
+    assert code == 1
+    message = capsys.readouterr().err
+    repo = "test/ready-GGUF" if refused == "weights" else "test/ready"
+    assert f"https://huggingface.co/{repo}" in message
+    assert "licence" in message and "hf auth login" in message
+    assert "ready" not in models.read_lock(root)["models"]
+
+
 def test_portable_path_can_keep_a_symlinks_name(tmp_path):
     root = tmp_path / "repo"
     (root / "blobs").mkdir(parents=True)
