@@ -856,7 +856,7 @@ def test_settings_change_a_value_go_back_and_a_refusal(clarity, page):
     page.press("#set-top_p", "Enter")
     page.wait_for_selector("[data-setting=top_p] .refused:not([hidden])")
     assert page.text_content("[data-setting=top_p] .refused") == (
-        "/set: top_p must be a number from 0 to 1, got 1.5."
+        "top_p must be a number from 0 to 1, got 1.5."
     )
     assert page.text_content("[data-setting=top_p] .note") == (
         "Not applied: the next reply still uses 0.95 (profile)."

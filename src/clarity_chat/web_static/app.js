@@ -878,11 +878,12 @@ function refuseRow(row, box, sentence) {
 async function setting(args, row = null, box = null) {
   // /set NAME VALUE, or /set NAME (back to the profile's value).
   const answer = await command("set", args);
+  const sentence = answer.error && answer.error.replace(/^\/set: /, ""); // no command line here
   if (answer.error && row) {
-    refuseRow(row, box, answer.error);
+    refuseRow(row, box, sentence);
     return;
   }
-  if (answer.error) notice("!", answer.error);
+  if (answer.error) notice("!", sentence);
   await refresh();
 }
 
@@ -1341,7 +1342,7 @@ const THREAD = {
   "reset-all": async (element) => {
     for (const name of element.dataset.names.split(" ")) {
       const answer = await command("set", name);
-      if (answer.error) notice("!", answer.error);
+      if (answer.error) notice("!", answer.error.replace(/^\/set: /, ""));
     }
     await refresh();
   },
