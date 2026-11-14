@@ -121,17 +121,24 @@ def test_a_secret_from_an_earlier_start_is_cleared(clarity, page):
 
 def test_a_page_on_another_port_can_neither_read_nor_act(clarity, page, tmp_path):
     origin, redirect, _ = clarity
-    open_clarity(page, redirect)  # Clarity is running, with its secret in that tab
+    chat_on(page, redirect)  # Clarity is running, with a chat and its secret in that tab
+    turns = len(page.evaluate("clarity.command('state')")["result"]["turns"])
     attacker = tmp_path / "attack.html"
     attacker.write_text(
         f"""<!doctype html><script>
+        const say = JSON.stringify({{command: "say", args: "hi", tab: "x"}});
         const tries = [
           fetch("{origin}/view/thread", {{headers: {{Authorization: "Bearer guess"}}}}),
           fetch("{origin}/command", {{method: "POST", headers: {{"Content-Type":
-            "application/json"}}, body: JSON.stringify({{command: "say", args: "hi", tab: "x"}})}}),
+            "application/json"}}, body: say}}),
           fetch("{origin}/events?tab=x"),
         ];
-        Promise.allSettled(tries.map(t => t.then(r => r.text()))).then(results => {{
+        // A "simple" request needs no preflight: no-cors, text/plain. Its answer can't be
+        // read (opaque), so what counts is that it did nothing (security review, 10).
+        const simple = fetch("{origin}/command", {{method: "POST", mode: "no-cors",
+          headers: {{"Content-Type": "text/plain"}}, body: say}}).catch(() => null);
+        Promise.allSettled(tries.map(t => t.then(r => r.text()))).then(async results => {{
+          await simple;
           document.title = results.map(r => r.status === "fulfilled" ? "READ:" + r.value
             : "blocked").join("|");
         }});
@@ -150,6 +157,8 @@ def test_a_page_on_another_port_can_neither_read_nor_act(clarity, page, tmp_path
         other.shutdown()
     # Nothing came back that a page could read: blocked by CORS, or refused without the secret.
     assert all(r == "blocked" or "Open Clarity from the link" in r for r in results), results
+    # And nothing happened: the no-cors text/plain POST added no turn.
+    assert len(page.evaluate("clarity.command('state')")["result"]["turns"]) == turns
 
 
 def test_a_reply_reloaded_mid_way_joins_exactly_with_an_emoji(clarity, page):
