@@ -1535,3 +1535,29 @@ def test_a_title_has_a_length_limit_and_a_long_one_is_cut_with_an_ellipsis(clari
     page.evaluate("clarity.refresh()")
     page.wait_for_selector("#title-text:has-text('word word')")
     assert style(page, "#title-text", "textOverflow") == "ellipsis"
+
+
+# --- The design walkthrough at bd59488
+
+
+def test_a_dropped_connection_keeps_trying_and_reloads_when_clarity_answers(clarity, page):
+    """Departures list: a lost connection said "Clarity has stopped" after 3.5 s and never
+    tried again. It says Clarity isn't answering, keeps trying quietly, and loads the page
+    again once Clarity answers."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    for path in ("**/events*", "**/command"):
+        page.route(path, lambda route: route.abort())
+    page.evaluate("clarity.dropStream()")  # as if the connection had dropped
+    page.wait_for_selector("body[data-page=lost]")
+    assert page.text_content("[data-for=lost] h1") == "Clarity isn't answering. Trying again…"
+    page.wait_for_timeout(6000)  # longer than the old 3 tries
+    assert page.get_attribute("body", "data-page") == "lost"
+    shot(page, "A5-not-answering")
+    page.unroute("**/events*")
+    page.unroute("**/command")
+    page.wait_for_selector("body[data-page=ready]", timeout=20000)
+    page.wait_for_selector(".turn.user .msg")
+    assert page.text_content(".turn.user .msg") == "Hi"
