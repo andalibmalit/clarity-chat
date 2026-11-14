@@ -20,6 +20,7 @@
 <symbol id="i-regen" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66"></path><path d="M20 4v5h-5"></path></symbol>
 <symbol id="i-edit" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"></path></symbol>
 <symbol id="i-details" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5M12 8h.01"></path></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
 <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"></path></symbol>
 <symbol id="i-mark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"></path></symbol>
 <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l11-7z"></path></symbol>
@@ -29,11 +30,12 @@
 </defs></svg>
 
 <div class="app bubbles" id="app">
-<button type="button" class="handle" data-action="chats" aria-label="Show chats" aria-expanded="false"><svg class="icon sm" aria-hidden="true"><use href="#i-right"></use></svg><span>Chats</span></button>
+<button type="button" class="handle" id="chats-handle" data-action="chats" aria-label="Show chats" aria-controls="drawer" aria-expanded="false"><svg class="icon sm" aria-hidden="true"><use href="#i-right"></use></svg><span>Chats</span></button>
 <main class="mn">
 <div class="top">
 <button type="button" class="brandbtn" id="clarity-button" aria-haspopup="menu" aria-expanded="false" aria-controls="clarity-menu"><svg class="logo" aria-hidden="true"><use href="#i-logo"></use></svg>Clarity<svg class="icon sm" aria-hidden="true"><use href="#i-down"></use></svg></button>
-<button type="button" class="title" id="title" aria-haspopup="menu" aria-expanded="false" hidden><span id="title-text"></span><svg class="icon sm" aria-hidden="true"><use href="#i-down"></use></svg></button>
+<button type="button" class="title" id="title" aria-haspopup="menu" aria-expanded="false" aria-controls="title-menu" hidden><span id="title-text"></span><svg class="icon sm" aria-hidden="true"><use href="#i-down"></use></svg></button>
+<form class="rename" id="rename" hidden><label class="vh" for="rename-text">Chat title</label><input type="text" id="rename-text" autocomplete="off"><button type="submit" class="btn sm pri" id="rename-save">Save</button><button type="button" class="btn sm" data-action="rename-cancel">Cancel</button></form>
 <span class="spacer"></span>
 <button type="button" class="wbtn" id="branches-button" data-action="branches" aria-expanded="false" hidden><svg class="icon sm" aria-hidden="true"><use href="#i-branch"></use></svg>Branches <span class="ct" id="branches-count"></span></button>
 </div>
@@ -48,6 +50,10 @@
 <div class="msep" role="separator"></div>
 <button type="button" class="mi" role="menuitem" data-action="quit">Quit Clarity</button>
 </div>
+<div class="menu titlemenu" id="title-menu" role="menu" aria-label="This chat" hidden>
+<button type="button" class="mi" role="menuitem" data-action="rename">Rename…</button>
+<button type="button" class="mi" role="menuitem" data-action="export">Export for a Python notebook</button>
+</div>
 <div class="threadarea" id="threadarea"><div class="col">
 <div id="thread"></div>
 <div class="writing" id="writing-box" hidden><div class="msg" id="writing"></div></div>
@@ -61,6 +67,9 @@
 </div>
 </main>
 <aside class="pn" id="panel" aria-labelledby="panel-title" hidden></aside>
+<div class="scrim" id="scrim" data-action="chats-close" hidden></div>
+<aside class="drawer" id="drawer" aria-label="Chats" hidden></aside>
+<dialog class="sheet" id="export-sheet" aria-labelledby="export-title"><div id="export-body"></div></dialog>
 <dialog class="sheet" id="about" aria-labelledby="about-title"><div id="about-body"></div><div class="actions"><button type="button" class="btn" id="about-close">Close</button></div></dialog>
 </div>
 

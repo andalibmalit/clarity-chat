@@ -1150,3 +1150,178 @@ def test_an_empty_box_is_refused_in_the_page_and_sends_nothing(clarity, page):
     )
     settings = page.evaluate("clarity.command('settings')")["result"]["settings"]
     assert settings["temperature"]["value"] == 0.3  # nothing was sent
+
+
+# --- Chats and export (C5)
+
+UNREADABLE = 'not a record\n{"type": "title"}\n'
+
+
+def new_chat(page) -> str:
+    """Start a new chat on the same profile; returns the earlier chat's log ID."""
+    first = page.evaluate("clarity.command('state')")["result"]["log_id"]
+    page.click("#clarity-button")
+    page.click("#new-chat")
+    page.wait_for_selector("#thread .intro")
+    return first
+
+
+def open_drawer(page) -> None:
+    page.click("#chats-handle")
+    page.wait_for_selector("#drawer:not([hidden]) .crow")
+
+
+def test_a_chat_picked_in_the_drawer_reopens_and_says_what_differs(clarity, page):
+    _, redirect, _ = clarity
+    root = redirect.parent.parent
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    first = new_chat(page)
+    profile = root / "profiles" / "text.toml"
+    profile.write_text(profile.read_text("utf-8") + "\n# changed\n", "utf-8")
+    open_drawer(page)
+    assert page.get_attribute("#chats-handle", "aria-expanded") == "true"
+    current = page.evaluate("clarity.command('state')")["result"]["log_id"]
+    assert page.get_attribute('#drawer .crow[aria-current="true"]', "data-resume") == current
+    shot(page, "L1-drawer", "c5")
+    page.click(f"#drawer [data-resume='{first}']")
+    page.wait_for_selector("#drawer", state="hidden")
+    page.wait_for_selector("#thread .resume")
+    assert page.text_content(".turn.user .msg") == "Hi"
+    assert "1 thing differs from when this chat was written" in page.text_content("#thread .resume")
+    assert page.is_hidden("#differ")
+    shot(page, "L3-closed", "c5")
+    page.click("#thread [data-action=differ]")
+    assert page.is_visible("#differ") and "The profile's file has changed" in page.text_content(
+        "#differ"
+    )
+    assert page.get_attribute("#thread [data-action=differ]", "aria-expanded") == "true"
+    shot(page, "L3-open", "c5")
+    say(page, "Again")  # the line goes with the next reply
+    page.wait_for_selector("#thread .resume", state="detached")
+
+
+def test_a_refused_chat_says_so_under_its_row_and_the_open_one_stays(clarity, page):
+    _, redirect, _ = clarity
+    root = redirect.parent.parent
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    (root / "logs" / "20261028-101544-7c2e9d.jsonl").write_text(UNREADABLE, "utf-8")
+    open_drawer(page)
+    row = "#drawer [data-resume='20261028-101544-7c2e9d']"
+    assert page.text_content(f"{row} .bad") == "! can’t be read"
+    page.click(row)
+    item = "#drawer li:has([data-resume='20261028-101544-7c2e9d'])"
+    page.wait_for_selector(f"{item} .problem:not([hidden])")
+    problem = page.text_content(f"{item} .problem")
+    assert problem.startswith("! Didn’t open. ") and "20261028-101544-7c2e9d" in problem
+    assert page.is_visible("#drawer") and page.text_content(".turn.user .msg") == "Hi"
+    shot(page, "L6-refused", "c5")
+    page.keyboard.press("Escape")
+    page.wait_for_selector("#drawer", state="hidden")
+    say(page, "Still here")
+    page.wait_for_selector(".reply.last .msg:has-text('ok')")
+
+
+def test_with_no_chats_the_drawer_says_so(clarity, page):
+    _, redirect, _ = clarity
+    open_clarity(page, redirect)
+    page.keyboard.press("Escape")  # the picker opens first
+    page.click("#chats-handle")
+    page.wait_for_selector("#drawer:not([hidden]) .empty")
+    assert page.text_content("#drawer .empty") == (
+        "No chats yet. Each chat you start is listed here."
+    )
+    assert page.get_attribute("#drawer .newchat", "aria-disabled") == "true"
+    shot(page, "L2-no-chats", "c5")
+
+
+def test_rename_in_place_waits_on_an_empty_box_and_cancels(clarity, page):
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    page.click("#title")
+    page.click("#title-menu [data-action=rename]")
+    assert page.is_visible("#rename") and page.is_hidden("#title")
+    assert focused(page) == "rename-text" and page.input_value("#rename-text") == "Hi"
+    page.fill("#rename-text", "")
+    assert page.get_attribute("#rename-save", "aria-disabled") == "true"
+    page.keyboard.press("Escape")
+    assert page.is_hidden("#rename") and page.text_content("#title-text") == "Hi"
+    page.click("#title")
+    page.click("#title-menu [data-action=rename]")
+    page.fill("#rename-text", "Field notes")
+    shot(page, "L8-rename", "c5")
+    page.click("#rename-save")
+    page.wait_for_selector("#title-text:has-text('Field notes')")
+    assert page.evaluate("clarity.command('state')")["result"]["title"] == "Field notes"
+    open_drawer(page)
+    assert page.text_content('#drawer .crow[aria-current="true"] .t') == "Field notes"
+
+
+def test_export_shows_the_sheet_and_downloads_the_file(clarity, page):
+    _, redirect, _ = clarity
+    root = redirect.parent.parent
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    (root / "logs" / "exports").write_text("in the way", "utf-8")
+    page.click("#title")
+    page.click("#title-menu [data-action=export]")
+    page.wait_for_selector("#export-sheet[open] #export-title")
+    assert page.text_content("#export-title") == "Not exported"
+    assert "Can't write the export to" in page.text_content("#export-sheet .problem")
+    shot(page, "M2-not-exported", "c5")
+    (root / "logs" / "exports").unlink()
+    page.click("#export-sheet [data-action=export]")  # Try again
+    page.wait_for_selector("#export-title:has-text('Exported for a Python notebook')")
+    path = page.text_content("#export-sheet .path")
+    assert Path(path).is_file()
+    href = page.get_attribute("#export-sheet a[data-docs]", "href")
+    assert href.endswith("/docs/guides.md#take-a-conversation-to-a-notebook")
+    shot(page, "M1-exported", "c5")
+    with page.expect_download() as info:
+        page.click("#export-sheet [data-action=download]")
+    download = info.value
+    assert download.suggested_filename == Path(path).name
+    assert Path(download.path()).read_bytes() == Path(path).read_bytes()
+    page.click("#export-sheet [data-action=export-close]")
+    assert not page.evaluate("document.getElementById('export-sheet').open")
+
+
+def test_a_refused_restart_shows_the_server_s_output(clarity, page):
+    from clarity_chat.backends import BackendError
+
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    backend.stopped = True
+    say(page, "Again")
+    page.wait_for_selector("#thread [data-action=restart]")
+
+    def refused(*args):
+        raise BackendError("llama-server failed to start: exited with code 1:\nline one\nline two")
+
+    real = backend.start
+    backend.start = refused
+    page.click("#thread [data-action=restart]")
+    page.wait_for_selector("#notice .outbox")
+    assert page.text_content("#notice [role=alert]") == (
+        "! The model didn’t start again. llama-server failed to start: exited with code 1:"
+    )
+    assert page.text_content("#notice .outbox") == "line one\nline two"
+    # The chat stays, its server stopped, as C2 draws it: the button to try again, and
+    # your message in the box.
+    page.wait_for_selector("#thread [data-action=restart]")
+    assert page.text_content(".turn.user .msg") == "Hi" and page.input_value("#message") == "Again"
+    assert page.evaluate("clarity.command('state')")["result"]["model"] == "stopped"
+    shot(page, "C23-restart-refused", "c5")
+    backend.start = real  # a retry that works
+    page.click("#thread [data-action=restart]")
+    page.wait_for_selector("#thread [data-action=restart]", state="detached")
+    page.click("#send")
+    page.wait_for_selector(".reply.last .msg:has-text('ok')")

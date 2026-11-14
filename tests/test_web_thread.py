@@ -289,7 +289,6 @@ def test_a_reply_without_a_call_id_is_drawn_without_controls(chat):
 
 DRAWN_ACTIONS = re.compile(r'data-action="([\w-]+)"')
 LATER = {  # drawn now, handled by a later item of v0.3.0's plan
-    "chats": "C5: the Chats drawer",
     "appearance": "C6: Appearance",
 }
 

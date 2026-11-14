@@ -1,0 +1,17 @@
+{% macro icon(name) %}<svg class="icon sm" aria-hidden="true"><use href="#i-{{ name }}"></use></svg>{% endmacro %}{% macro copy(text, what) %}<button type="button" class="iconbtn" aria-label="Copy {{ what }}" data-copy="{{ text }}">{{ icon("copy") }}</button><span class="copied" role="status"></span>{% endmacro %}{% set guide = "guides.md#take-a-conversation-to-a-notebook" %}{% if error %}<h2 id="export-title" tabindex="-1">Not exported</h2>
+<div class="problem"><p role="alert"><strong>!</strong> {{ error }}</p></div>
+<p>Nothing was written, and any earlier export of this chat is unchanged.</p>
+<div class="actions"><button type="button" class="btn pri" data-action="export">Try again</button><button type="button" class="btn" data-action="export-close">Close</button></div>
+{% else %}<h2 id="export-title" tabindex="-1">Exported for a Python notebook</h2>
+<div class="dl"><button type="button" class="btn pri" data-action="download">Download</button><span class="d2">Saves a copy where your browser keeps downloads.</span></div>
+<p class="refused" role="alert" hidden></p>
+<p>The file stays at <span class="path">{{ path }}</span>{{ copy(path, "the file’s path") }} {% if replaced %}It replaced the earlier export of this chat. {% endif %}Readable only by you (on Mac and Linux).</p>
+<p>One file with every reply in this chat, including replies on branches you went back from: the exact tokens that went in and came out, where each message sits in them, the settings, your marks and notes, and what computed each reply.</p>
+<p>It also records facts about this computer, such as its model and OS, and the model file’s path.</p>
+{% if left_out %}<p>Left out: {{ left_out }}. Replays aren’t exported: they re-ran replies already here.</p>
+{% endif %}<div class="callout"><p>Recomputing these replies under other conditions, such as different hardware or software, can give slightly different numbers, sometimes enough to change the likeliest token. Run the check first: it lists what differs.{% if steered %} Some replies were steered: apply the same vector before recomputing them.{% endif %} <a data-docs="{{ guide }}" target="_blank" rel="noopener noreferrer">How to check, in the guide</a></p></div>
+<p>Sending it to a friend? Your friend can read it with pandas; the check needs Clarity installed (<a data-docs="{{ guide }}" target="_blank" rel="noopener noreferrer">guide</a>).</p>
+{% if steered %}<p>The file names the steering vector but doesn’t contain it, so send the vector too:</p>
+{% for v in steered %}<p><span class="path">{{ v.file }}</span>{{ copy(v.file, "the vector’s path") }}</p>
+{% endfor %}{% endif %}<div class="actions"><button type="button" class="btn" data-action="export-close">Done</button></div>
+{% endif %}

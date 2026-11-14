@@ -274,3 +274,42 @@ details.more > summary .d2 { font-weight: 400; margin-left: 6px; }
 #panel .here { font-size: 12.5px; color: var(--muted); }
 #marked-only[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 li.revealed .msg { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-sm); }
+
+/* Chats and export (C5): the drawer, the title menu and renaming, the line after a resume,
+   and the export sheet. Values follow the boards V3Chats and V3Export. */
+.scrim { position: absolute; inset: 0; z-index: 6; background: oklch(0% 0 0 / 0.18); }
+.drawer { position: absolute; z-index: 8; left: 0; top: 0; bottom: 0; width: min(300px, calc(100vw - 32px)); background: var(--side); border-right: 1px solid var(--rule); box-shadow: var(--shadow); padding: 12px 10px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.drawer .dh { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 0 4px; }
+.drawer .newchat { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: var(--r-sm); font-weight: 500; }
+.drawer .newchat:hover { background: var(--hover); }
+.drawer .newchat[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+.drawer h3 { margin: 4px 0; padding: 0 10px; font-size: var(--small); font-weight: 500; color: var(--muted); }
+.drawer ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.drawer .empty { padding: 0 10px; color: var(--muted); font-size: var(--small); }
+.crow { display: flex; flex-direction: column; align-items: flex-start; width: 100%; padding: 6px 10px; border-radius: var(--r-sm); color: var(--ink); text-align: left; }
+.crow:hover, .crow[aria-current="true"], .crow.busy { background: var(--hover); }
+.crow[aria-disabled="true"] { cursor: default; }
+.crow .t { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crow .t.none { color: var(--muted); }
+.crow .t.idm { font-family: var(--mono); font-size: 12.5px; }
+.crow .p { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.crow .p .dt { font-family: var(--sans); font-size: 12px; }
+.crow .bad { font-size: 12px; color: var(--warn); }
+.drawer .problem { margin: 4px 0 2px; font-size: 12.5px; }
+.menu.titlemenu { left: 120px; top: 46px; min-width: 240px; z-index: 9; }
+.top .title[aria-disabled="true"] { cursor: default; }
+.rename { display: inline-flex; align-items: center; gap: 6px; }
+.rename input { width: min(260px, 50vw); padding: 5px 8px; border: 1px solid var(--accent); border-radius: var(--r-sm); background: var(--raised); color: var(--ink); font: 500 14px var(--sans); }
+.btn.sm { padding: 3px 8px; font-size: 12.5px; }
+.btn[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+.resume { margin-top: 10px; font-size: var(--small); color: var(--muted); }
+.resume .linkbtn { display: inline-flex; align-items: center; gap: 2px; }
+.resume .linkbtn[aria-expanded="true"] .icon { transform: rotate(90deg); }
+.resume .differ { margin: 6px 0 0; padding-left: 18px; color: var(--ink); }
+.outbox { margin: 6px 0 0; max-height: 160px; overflow: auto; width: 100%; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; color: var(--ink); background: var(--raised); border-radius: var(--r-sm); padding: 6px 8px; }
+#export-sheet p { margin: 0 0 10px; font-size: 13.5px; }
+#export-sheet .dl { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+#export-sheet .path { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+#export-sheet .callout { border-left: 3px solid var(--accent); padding: 6px 0 6px 10px; margin-bottom: 10px; }
+#export-sheet .actions { gap: 8px; }
+#export-sheet .problem { margin-bottom: 10px; }
