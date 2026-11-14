@@ -163,6 +163,36 @@ SETTING_RANGES: dict[str, tuple[str, float | None, float | None, str]] = {
     "steering_scale": ("number", None, None, "a finite number; 0 is off"),
 }
 
+# What each setting does, in one line: the settings table's text that the web interface
+# shows under each row. Checked against sources before it ships (CLAUDE.md, teaching text):
+# notes/research/teaching-text-check.md (2026-11-10) and v030-teaching-check.md #2, #10;
+# logprobs and steering_scale are docs/reference.md's own words.
+SETTING_HELP = {
+    "temperature": "Lower is steadier, higher more varied. 0 always picks the likeliest token.",
+    "top_p": (
+        "Picks only from the fewest likeliest tokens whose chances add up to this share. 1 is off."
+    ),
+    "min_p": "Drops tokens less than this fraction as likely as the top one. 0 is off.",
+    "top_k": "Picks only from the k likeliest tokens. 0 is off.",
+    "max_tokens": (
+        "The most tokens a reply can have (a token is a word or part of one). It can stop sooner."
+    ),
+    "seed": (
+        "The same seed, settings and conversation give the same reply on the same computer and "
+        "software. At temperature 0 nothing is random, so the seed changes nothing."
+    ),
+    "repeat_penalty": (
+        "Makes tokens already used less likely, counting the prompt as well as the reply so "
+        "far. On Transformers it looks at everything; on llama.cpp only the last tokens set by "
+        "repeat_last_n. 1 is off."
+    ),
+    "logprobs": (
+        "0 is off. N records, for each token of the reply, its log-probability and the N "
+        "likeliest tokens with theirs."
+    ),
+    "steering_scale": "Strength: the profile’s vector is multiplied by it before it’s added.",
+}
+
 
 def check_setting(name: str, value: object, where: str) -> Any:
     """Check one setting's type and range. Numbers in float settings come back as floats."""

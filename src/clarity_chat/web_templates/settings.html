@@ -1,0 +1,23 @@
+{% macro icon(name) %}<svg class="icon sm" aria-hidden="true"><use href="#i-{{ name }}"></use></svg>{% endmacro %}{% set wait = ' aria-disabled="true" aria-describedby="settings-waits"' if waits else '' %}{% macro row(r, extra=None) %}<div class="srow{% if r.origin == 'chat' %} changed{% endif %}" data-setting="{{ r.name }}"><div class="l1"><label class="key" for="set-{{ r.name }}">{{ r.name }}</label><span class="tag">{{ r.origin }}</span></div>
+{% if r.help %}<p class="gl">{{ r.help }}</p>
+{% endif %}<div class="ctl">{% if r.slider %}<input type="range" id="range-{{ r.name }}" min="{{ r.slider[0] }}" max="{{ r.slider[1] }}" step="{{ r.slider[2] }}" value="{{ r.value }}" list="marks-{{ r.name }}" aria-label="{{ r.name }}" data-mirror="set-{{ r.name }}"{{ wait | safe }}><datalist id="marks-{{ r.name }}">{% for value, label in r.marks %}<option value="{{ value }}"></option>{% endfor %}</datalist>{% endif %}<input type="number" class="num" id="set-{{ r.name }}" data-name="{{ r.name }}" value="{{ r.value }}" step="{{ 1 if r.integer else (r.slider[2] if r.slider else 'any') }}" data-in-use="{{ r.value }} ({{ r.origin }})"{% if waits %} readonly{% endif %}{{ wait | safe }}></div>
+{% if r.marks %}<p class="marks">{% for value, label in r.marks %}{{ label }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+{% endif %}{% if extra %}<p class="gl">{{ extra }}</p>
+{% endif %}{% for set, label in r.buttons %}<button type="button" class="btn" data-set="{{ set }}"{{ wait | safe }}>{{ label }}</button>{% endfor %}<p class="refused" role="alert" hidden></p><p class="gl note" hidden></p></div><!-- row -->
+{% endmacro %}<div class="head"><h2 class="t" id="panel-title" tabindex="-1">Settings for this chat</h2><button type="button" class="iconbtn" aria-label="Close" data-action="panel-close">{{ icon("close") }}</button></div>
+<div class="body">
+{% if waits %}<p class="waits" id="settings-waits">Changes wait until this reply is done.</p>
+{% endif %}<p class="from">Starts from profile {{ profile }}. Changes apply from the next reply and are logged with it.</p>
+{% if changed %}<button type="button" class="btn" data-action="reset-all" data-names="{{ changed | join(' ') }}"{{ wait | safe }}>Reset all</button>
+{% endif %}<p class="legend">Where each value comes from: <span class="tag">chat</span> changed here · <span class="tag">profile</span> · <span class="tag">model</span> its recommended values · <span class="tag">default</span> Clarity’s. ▲ neutral: this setting changes nothing.</p>
+<h3 class="sh">Common</h3>
+{% for r in common %}{{ row(r) }}{% endfor %}{% if steering %}<h3 class="sh">Steering</h3>
+<dl class="kv"><dt>Vector</dt><dd>{{ steering.file.rsplit("/", 1)[-1] }}</dd><dt>sha256</dt><dd>{{ steering.sha256[:12] }}</dd><dt>Blocks</dt><dd>{% if steering.layers %}{{ steering.layers[0] }} to {{ steering.layers[-1] }}{% else %}every block{% endif %}</dd></dl>
+{{ row(strength) }}{% endif %}{% if logprobs %}<h3 class="sh">Probabilities</h3>
+{{ row(logprobs, "While a reply is written, the scores take memory: about 0.4 MB per token for a model with a 100,000-token vocabulary.") }}{% endif %}<details class="more"><summary>More settings <span class="d2">{{ more | map(attribute="name") | join(", ") }}{% if penalties_off %}, penalties{% endif %}, samplers</span></summary>
+{% for r in more %}{{ row(r) }}{% endfor %}{% if penalties_off %}<p class="line">Penalties: off. This profile’s sampler list has no penalties step.</p>
+{% endif %}<div class="srow" data-setting="samplers"><div class="l1"><span class="key">samplers</span><span class="tag">{{ samplers_origin }}</span></div><p class="line">Samplers that run, in order: {{ samplers | join(", ") }}</p>{% if transformers %}<p class="gl">The Transformers backend applies its samplers in a fixed order: penalties, temperature, top_k, top_p, min_p.</p>{% endif %}</div><!-- row -->
+{% if unused %}<p class="line">Not used on Transformers: {{ unused | map(attribute="name") | join(", ") }}</p>
+<dl class="kv unused">{% for e in unused %}<dt>{{ e.name }}</dt><dd>{{ e.value }} · {{ e.reason }}</dd>{% endfor %}</dl>
+{% endif %}</details>
+</div>

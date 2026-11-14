@@ -47,7 +47,7 @@ from starlette.types import Message, Receive, Scope, Send
 from clarity_chat.backends import BackendError
 from clarity_chat.commands import CALL_ID, REPLY_COMMANDS, Commands
 from clarity_chat.json_chat import JsonChat
-from clarity_chat.profiles import ConfigError
+from clarity_chat.profiles import NEUTRAL, SETTING_HELP, SETTING_RANGES, ConfigError
 from clarity_chat.session import CONTEXT_WARN_FRACTION, ContextError, Session
 
 PORT = 8765  # fixed, a constant: server.toml describes llama-server only
@@ -916,6 +916,84 @@ async def _compare(worker: Worker, params: dict[str, str | None]) -> str:
     )
 
 
+# --- Settings (C4a), from /settings
+
+COMMON = ("temperature", "top_p", "max_tokens", "seed")
+SLIDERS = {"temperature": (0, 2, 0.05), "top_p": (0, 1, 0.01), "min_p": (0, 1, 0.01)}
+PENALTY_ROWS = ("repeat_penalty", "repeat_last_n", "presence_penalty", "frequency_penalty")
+OFF = {**NEUTRAL, "logprobs": 0, "steering_scale": 0.0}
+
+
+def setting_row(name: str, setting: dict[str, Any], model: dict[str, Any]) -> dict[str, Any]:
+    """One row: its value and origin, its line of help, a slider where the boards draw one
+    (with the neutral and the model's value marked), and its one way back when changed."""
+    value, origin = setting["value"], setting["origin"]
+    row: dict[str, Any] = {
+        "name": name,
+        "value": value,
+        "origin": origin,
+        "help": SETTING_HELP.get(name),
+        "slider": SLIDERS.get(name),
+        "integer": SETTING_RANGES[name][0] == "integer",
+        "marks": [],
+        "buttons": [],
+    }
+    if row["slider"]:
+        if name in NEUTRAL:
+            row["marks"].append((NEUTRAL[name], f"▲ {value_words(NEUTRAL[name])} neutral"))
+        if name in model:
+            row["marks"].append((model[name], f"model {value_words(model[name])}"))
+    if name == "steering_scale" and value != 0:  # rule 10: Off whenever it's on
+        row["buttons"].append(("steering_scale 0", "Off (0)"))
+    if origin == "chat":
+        back = setting["profile"]
+        label = (
+            f"Off ({value_words(back['value'])})"
+            if back["value"] == OFF.get(name) and name != "steering_scale"
+            else f"Back to {value_words(back['value'])} ({back['origin']})"
+        )
+        row["buttons"].append((name, label))
+    return row
+
+
+def settings_panel(settings: dict[str, Any], waits: bool) -> dict[str, Any]:
+    """What the Settings panel draws, from /settings: Common, Steering, Probabilities (on
+    Transformers), More settings, and the Transformers lines from `not_applied`."""
+    values = settings["settings"]
+    model = (settings["recommended"] or {}).get("values", {})
+    transformers = settings["backend"] == "transformers"
+    samplers = values["samplers"]["value"]
+    more = ["min_p", "top_k"]
+    if "penalties" in samplers:
+        more += ["repeat_penalty"] if transformers else list(PENALTY_ROWS)
+    unused = [e for e in settings["not_applied"] if e["name"] in PENALTY_ROWS]
+    return {
+        "profile": settings["profile"]["name"],
+        "waits": waits,
+        "changed": [n for n, s in values.items() if s["origin"] == "chat"],
+        "common": [setting_row(n, values[n], model) for n in COMMON],
+        "steering": settings["steering"],
+        "strength": setting_row("steering_scale", values["steering_scale"], model)
+        if settings["steering"]
+        else None,
+        "logprobs": setting_row("logprobs", values["logprobs"], model) if transformers else None,
+        "more": [setting_row(n, values[n], model) for n in more],
+        "penalties_off": "penalties" not in samplers,
+        "samplers": samplers,
+        "samplers_origin": values["samplers"]["origin"],
+        "transformers": transformers,
+        "unused": unused if transformers else [],
+    }
+
+
+async def _settings(worker: Worker, params: dict[str, str | None]) -> str:
+    """The Settings panel. /settings answers during a reply; its controls then wait."""
+    state = await result_of(worker, "state")
+    settings = await result_of(worker, "settings")
+    waits = (state["running"] or {}).get("command") in REPLY_COMMANDS
+    return templates.get_template("settings.html").render(**settings_panel(settings, waits))
+
+
 def event_line(event: dict[str, Any]) -> bytes:
     """One line of the event stream. A value JSON can't carry (NaN or infinity) would break
     the page's parser and drop the stream, so it's sent as an error event instead."""
@@ -946,4 +1024,5 @@ VIEW_RENDERERS = {
     "about": _about,
     "replies": _replies,
     "compare": _compare,
+    "settings": _settings,
 }
