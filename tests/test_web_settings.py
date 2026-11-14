@@ -69,7 +69,10 @@ def test_a_llama_cpp_profile_shows_its_values_and_where_they_came_from(chat):
         fragment, "seed"
     )
     # The text profile's samplers have no penalties step: one line for the four rows.
-    assert "Penalties: off. This profile’s sampler list has no penalties step." in fragment
+    assert (
+        "Penalties: off. This profile’s sampler list has no penalties step, so a penalty "
+        "wouldn’t run." in fragment
+    )
     assert 'data-setting="repeat_penalty"' not in fragment
     samplers = ", ".join(settings["settings"]["samplers"]["value"])
     assert f"Samplers that run, in order: {samplers}" in fragment

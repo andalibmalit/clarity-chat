@@ -14,6 +14,7 @@ from clarity_chat.profiles import (
     PROFILE_KEYS_CHAT,
     PROFILE_KEYS_COMMON,
     PROFILE_KEYS_TEXT,
+    SETTING_HELP,
     SETTING_NAMES,
 )
 from tests.conftest import REPO
@@ -50,6 +51,28 @@ def test_reference_names_every_profile_key_and_setting():
     names = PROFILE_KEYS_COMMON | PROFILE_KEYS_CHAT | PROFILE_KEYS_TEXT | set(SETTING_NAMES)
     missing = sorted(n for n in names if f"`{n}`" not in REFERENCE)
     assert not missing, f"docs/reference.md doesn't describe: {missing}"
+
+
+def settings_table() -> dict[str, dict[str, str]]:
+    """docs/reference.md's Settings table, by setting: each column's text."""
+    section = REFERENCE.split("\n## Settings\n", 1)[1].split("\n## ", 1)[0]
+    rows = [line for line in section.splitlines() if line.startswith("| ")]
+    header = [cell.strip() for cell in rows[0].strip("|").split("|")]
+    table = {}
+    for line in rows[1:]:
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        table[cells[0].strip("`")] = dict(zip(header, cells, strict=True))
+    return table
+
+
+def test_every_setting_has_one_line_of_help_and_the_docs_show_the_same():
+    """CLAUDE.md: each explanation lives in one place, the settings table, which the UI and
+    the docs reuse. profiles.SETTING_HELP is that place; the docs' column repeats it."""
+    assert set(SETTING_NAMES) <= set(SETTING_HELP), "a setting has no help"
+    table = settings_table()
+    assert set(table) == set(SETTING_NAMES)
+    for name, help_text in SETTING_HELP.items():
+        assert table[name].get("What it does") == help_text, name
 
 
 def test_the_llama_cpp_commit_in_the_docs_is_the_pinned_one():
