@@ -4,6 +4,7 @@ from /branches all (data walk, V3Branches)."""
 from __future__ import annotations
 
 import html
+import re
 import threading
 
 import pytest
@@ -85,6 +86,55 @@ def test_marked_replies_with_their_labels_notes_and_branch(chat):
         in fragment
     )
     assert f'data-reveal="{marked[0]["turn_id"]}"' in fragment
+
+
+def card(fragment: str, turn_id: str, marked: bool = False) -> str:
+    """One card's opening tag, from the ends list or the marked list."""
+    lists = fragment.split('<div data-list="marked"')
+    found = re.search(rf'<li class="[^"]*" data-turn="{turn_id}">', lists[1 if marked else 0])
+    assert found, turn_id
+    return found.group(0)
+
+
+def test_a_continued_end_a_steered_end_and_the_current_cards(chat):
+    """Checkpoint 4's weak-red check: a reply end that went on, a steered one, and the
+    current end and current marked card outlined (`bcard cur`)."""
+    client, session = chat
+    session.backend.replies = [" One.", " Two.", " Three."]
+    result(client, "say", "Hi")
+    result(client, "regen")
+    first = result(client, "branches", "all")["ends"][1]
+    result(client, "say", "More")  # reply 2 of 2 goes on
+    result(client, "mark")
+    session.conversation.calls[first["call_id"]]["settings"]["steering_scale"] = {
+        "value": 0.5,
+        "origin": "chat",
+    }
+    found = result(client, "branches", "all")
+    current = next(e for e in found["ends"] if e["current"])
+    assert current["continued"] and current["from"]["k"] == 2
+    fragment = panel(client)
+    assert "From reply 2 of 2 · seed" in fragment
+    assert f"Reply 1 of 2 · seed {first['seed']}, not continued · steered ×0.5" in fragment
+    assert card(fragment, current["turn_id"]) == (
+        f'<li class="bcard cur" data-turn="{current["turn_id"]}">'
+    )
+    assert card(fragment, first["turn_id"]) == f'<li class="bcard" data-turn="{first["turn_id"]}">'
+    (mark,) = found["marked"]
+    assert mark["current"]
+    assert card(fragment, mark["turn_id"], marked=True) == (
+        f'<li class="bcard cur" data-turn="{mark["turn_id"]}">'
+    )
+
+
+def test_an_end_with_no_fork_above_it_is_headed_by_its_seed(chat):
+    client, session = chat
+    session.backend.replies = [" One."]
+    result(client, "say", "Hi")
+    (end,) = result(client, "branches", "all")["ends"]
+    assert end["from"] is None
+    fragment = panel(client)
+    assert f'<span class="lbl">seed {end["seed"]}</span>' in fragment
 
 
 def test_with_nothing_marked_the_marked_list_says_how_to_mark(chat):

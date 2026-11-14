@@ -192,6 +192,45 @@ def test_recorded_probabilities_shade_the_reply_token_by_token(chat):
     assert "The likeliest tokens here" in fragment and "z</span>" in fragment
 
 
+def test_each_band_of_shading_and_the_chosen_alternative(chat):
+    """Checkpoint 4's weak-red check: tokens at about 0.5%, 5%, 14%, 45% and 80% land in
+    the bands under 10% (p0), 10–30% (p1), 30–60% (p2) and unshaded; under 1% is said so;
+    the chosen token is marked among the alternatives."""
+    import math
+
+    client, session = chat
+    tokenizer = session.tokenizer
+    session.backend.replies = [" Hello"]
+    ids = tokenizer.encode(" Hello")
+    chances = [0.005, 0.05, 0.14, 0.45, 0.8, 0.8]
+    (z,) = tokenizer.encode("z")
+    session.backend.logprobs = {
+        "view": "raw logits, before any sampler",
+        "n": 2,
+        "tokens": [
+            {"id": t, "logprob": math.log(c), "top": [[t, math.log(c)], [z, math.log(0.05)]]}
+            for t, c in zip(ids, chances, strict=True)
+        ],
+    }
+    call = result(client, "say", "Hi")["call"]
+    tokens = result(client, "probs", call["call_id"])["tokens"]
+    fragment = details(client, call["call_id"])
+    shaded = fragment.split('<div class="msg shaded"')[1].split("</div>")[0]
+    by_index = {int(i): c for c, i in re.findall(r'class="([^"]*)" data-i="(\d+)"', shaded)}
+    assert [by_index[i] for i in range(5)] == ["tok p0", "tok p0", "tok p1", "tok p2", "tok"]
+
+    def info(i: int) -> str:
+        return fragment.split(f'<div class="tokinfo" data-i="{i}" hidden>')[1].split("</div>")[0]
+
+    assert f"The model gave “{tokens[0]['text']}” a chance under 1%" in info(0)
+    assert f"The model gave “{tokens[3]['text']}” a 45% chance" in info(3)
+    chosen = (
+        f'<li class="chosen"><span class="w">{tokens[3]["text"]}</span><span>45%</span>'
+        '<span class="d2">chosen</span></li><li><span class="w">z</span><span>5%</span></li>'
+    )
+    assert chosen in info(3)
+
+
 @pytest.mark.parametrize(
     ("backend_name", "logprobs", "heading", "sentence"),
     [

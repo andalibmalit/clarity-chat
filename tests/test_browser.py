@@ -1053,6 +1053,13 @@ def test_probabilities_say_why_there_are_none(clarity, page, backend_name, headi
 # --- Branches (C4d)
 
 
+def shows_marked_only(page, on: bool) -> None:
+    """Which list "Marked only" shows, by visibility: text_content() reads hidden text too."""
+    ends, marked = "#panel ul[data-list=ends]", "#panel div[data-list=marked]"
+    assert page.is_visible(marked if on else ends) and page.is_hidden(ends if on else marked)
+    assert page.get_attribute("#marked-only", "aria-pressed") == str(on).lower()
+
+
 def test_branches_appear_with_the_second_and_take_you_to_one(clarity, page):
     _, redirect, backend = clarity
     chat_on(page, redirect)
@@ -1068,12 +1075,15 @@ def test_branches_appear_with_the_second_and_take_you_to_one(clarity, page):
     ends = page.evaluate("clarity.command('branches', 'all')")["result"]["ends"]
     assert page.locator("#panel [data-list=ends] .bcard").count() == len(ends) == 2
     shot(page, "J2-branch-ends", "c4d")
+    shows_marked_only(page, False)
     page.click("#marked-only")
+    shows_marked_only(page, True)
     assert "No marked replies in this chat yet." in page.text_content(
         "#panel div[data-list=marked]"
     )
     shot(page, "J3-nothing-marked", "c4d")
     page.click("#marked-only")
+    shows_marked_only(page, False)
     first = next(e for e in ends if not e["current"])
     page.click(f"#panel [data-switch='{first['turn_id']}']")
     wait_for(page, f"#panel .bcard.cur[data-turn='{first['turn_id']}']")
@@ -1091,8 +1101,15 @@ def test_a_marked_reply_picked_in_branches_is_outlined(clarity, page):
     page.click(".reply.last [data-action=regen]")
     page.wait_for_selector("#branches-button:not([hidden])")
     page.click("#branches-button")
+    page.wait_for_selector("#panel .bcard")
+    shows_marked_only(page, False)
+    page.click("#marked-only")
+    shows_marked_only(page, True)
+    page.click("#marked-only")
+    shows_marked_only(page, False)
     page.click("#marked-only")
     page.wait_for_selector("#panel [data-list=marked] .bcard")
+    shows_marked_only(page, True)
     assert page.text_content("#panel [data-list=marked] .lbl") == "Marked: landed"
     shot(page, "J2-marked-only", "c4d")
     page.click("#panel [data-list=marked] [data-reveal]")
