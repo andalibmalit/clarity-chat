@@ -46,6 +46,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/undo` | Go back past the last exchange; your next message starts a new branch. Nothing is deleted. |
 | `/history` | The conversation so far on the current branch, from its start to where you are, with each reply's marks and notes. |
 | `/branches` | Where the conversation branches along the current path: each regenerated reply and edited message, numbered "reply 2 of 3", the current one starred, with its turn ID. Branches you went back from with `/undo` are listed too. |
+| `/branches all` | Every branch end in the conversation, newest first, wherever it is: where it left the rest (the reply or message it started from, "reply 2 of 4", with its seed), whether it went on past that point, its length in turns, how many of its replies are marked, and its seed. Then every marked reply, newest mark first, with its note. |
 | `/switch TURN_ID` | Go to another branch, at its newest reply. Nothing is sent. In a resumed conversation, it also checks that reply's prompt still renders to the same token IDs. |
 | `/mark [CALL_ID] [LABEL]` | Label the current reply, or the reply of the call named, for example `landed` or `dropped`. Without a label, the mark is `interesting`. |
 | `/unmark [CALL_ID] [LABEL]` | Remove a reply's mark. If it has marks with different labels, name the one to remove. The log keeps the mark and records its removal. |
@@ -93,7 +94,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `set` | `record` (the `setting` record) and `setting` (its value and origin) |
 | `undo`, `switch` | `head` and `head_text`, null at the start; `switch` adds `render` |
 | `history` | `head` and `turns` |
-| `branches` | `head` and `forks` |
+| `branches` | `head` and `forks`. With `all`: `head`, `ends` and `marked`. Each end has `turn_id` and `call_id` (its newest reply's), `text`, `turns` (on its path, priming left out), `marked` (how many of those replies are marked), `seed`, `steering_scale`, `from`, `continued` (false when the end is the reply its fork made) and `current` (the end the head is on). `from` is the deepest fork on the path: `kind` (`reply`, a regenerated reply; `edit`, a message beside another, edited or sent after `/undo`), `k` and `n` ("2 of 4") and the seed of the reply it made; null on a path with no fork. Each of `marked` has `turn_id`, `call_id`, `text`, `marks` (each `mark_id` and `label`), `note` (the current one, or null), `from` and `current` (on the path to head). |
 | `mark`, `unmark`, `note` | `records`: the records appended |
 | `title` | `record` |
 | `replay` | `replay`: the replay record |

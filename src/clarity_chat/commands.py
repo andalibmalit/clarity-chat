@@ -188,8 +188,13 @@ def _history(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _branches(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    """The forks on the path to head; with `all`, every branch end and every marked reply."""
     conversation = c.session.conversation
     assert conversation is not None
+    if args == "all":
+        return conversation.branch_ends(c.session.marks_and_notes())
+    if args:
+        raise ConfigError("Usage: /branches [all]")
     return {"head": conversation.head, "forks": conversation.forks()}
 
 
@@ -494,7 +499,9 @@ COMMANDS: dict[str, Command] = {
         _history,
     ),
     "branches": Command(
-        "/branches", "where this conversation branches, with the turn IDs to /switch to", _branches
+        "/branches [all]",
+        "where this conversation branches, with the turn IDs to /switch to (all: every end)",
+        _branches,
     ),
     "switch": Command(
         "/switch TURN_ID", "go to another branch: its newest reply (nothing is sent)", _switch

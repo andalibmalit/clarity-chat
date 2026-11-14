@@ -245,6 +245,82 @@ class Conversation:
                 )
         return out
 
+    def branch_ends(self, notes: dict[str, dict[str, list[dict[str, Any]]]]) -> dict[str, Any]:
+        """Every branch end (a reply with no newer reply after it), newest first, and every
+        marked reply, newest mark first. `notes`: marks_and_notes of the log. Each says
+        where its branch left the rest: `from`, the deepest fork on its path."""
+        newest = self.newest_replies()
+        order = {turn_id: i for i, turn_id in enumerate(self.turns)}
+        current_end = newest.get(self.head) if self.head else None
+        on_head_path = {t.turn_id for t in self.path_to(self.head)}
+
+        def came_from(turn: Turn) -> tuple[dict[str, Any] | None, Turn | None]:
+            """The deepest fork above `turn` (or at it), and the reply that fork made."""
+            path = self.path_to(turn.turn_id)
+            for i in range(len(path) - 1, -1, -1):
+                here = path[i]
+                siblings = [
+                    t
+                    for t in self.turns.values()
+                    if t.parent_id == here.parent_id and t.turn_id in newest
+                ]
+                if len(siblings) > 1:
+                    reply = here if here.role == "assistant" else path[i + 1]
+                    return {
+                        "kind": "reply" if here.role == "assistant" else "edit",
+                        "k": siblings.index(here) + 1,
+                        "n": len(siblings),
+                        "seed": reply.seed,
+                    }, reply
+            return None, None
+
+        def marks(turn_id: str) -> list[dict[str, Any]]:
+            found = notes.get(turn_id, {}).get("marks", [])
+            return [{"mark_id": m.get("mark_id"), "label": m["label"]} for m in found]
+
+        ends = []
+        for turn in sorted(self.turns.values(), key=lambda t: -order[t.turn_id]):
+            if turn.role != "assistant" or newest.get(turn.turn_id) is not turn:
+                continue
+            path = [t for t in self.path_to(turn.turn_id) if t.origin != "priming"]
+            source, reply = came_from(turn)
+            settings = (self.calls.get(turn.call_id or "") or {}).get("settings", {})
+            ends.append(
+                {
+                    "turn_id": turn.turn_id,
+                    "call_id": turn.call_id,
+                    "text": turn.text,
+                    "turns": len(path),
+                    "marked": sum(bool(marks(t.turn_id)) for t in path),
+                    "seed": turn.seed,
+                    "steering_scale": settings.get("steering_scale", {}).get("value"),
+                    "from": source,
+                    "continued": source is not None and reply is not turn,
+                    "current": turn is current_end,
+                }
+            )
+        marked = []
+        newest_mark = {  # the time of each reply's newest current mark, as logged
+            t: max(m.get("time", "") for m in n["marks"]) for t, n in notes.items() if n["marks"]
+        }
+        for turn_id in sorted(newest_mark, key=newest_mark.__getitem__, reverse=True):
+            if turn_id not in self.turns:
+                continue
+            turn = self.turns[turn_id]
+            note = notes[turn_id].get("notes", [])
+            marked.append(
+                {
+                    "turn_id": turn_id,
+                    "call_id": turn.call_id,
+                    "text": turn.text,
+                    "marks": marks(turn_id),
+                    "note": note[-1]["text"] if note else None,
+                    "from": came_from(turn)[0],
+                    "current": turn_id in on_head_path,
+                }
+            )
+        return {"head": self.head, "ends": ends, "marked": marked}
+
     def current_reply(self, action: str) -> Turn:
         """The reply at `head`; an error naming `action` if there isn't one."""
         turn = self.turns.get(self.head) if self.head else None
@@ -674,7 +750,7 @@ class Session:
         """The conversation from its start to `head`: each turn with its current marks and
         notes. What a front end needs to draw the chat, without reading the log."""
         conversation = self._require_conversation()
-        notes = marks_and_notes(read_records(conversation.log.path, annotation_line))
+        notes = self.marks_and_notes()
         return [
             {
                 "turn_id": t.turn_id,
@@ -695,6 +771,11 @@ class Session:
             }
             for t in conversation.path_to(conversation.head)
         ]
+
+    def marks_and_notes(self) -> dict[str, dict[str, list[dict[str, Any]]]]:
+        """Each reply's current marks and notes, read from this conversation's log."""
+        conversation = self._require_conversation()
+        return marks_and_notes(read_records(conversation.log.path, annotation_line))
 
     def set_title(self, title: str) -> dict[str, Any]:
         """Name this conversation in the chat list. Without one, the list shows the first
