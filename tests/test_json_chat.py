@@ -63,7 +63,7 @@ def test_a_scripted_chat(make):
     assert started["command"] == "profile" and started["result"]["profile"] == "text"
     said = next(e for e in events if e.get("id") == 1)
     assert said["event"] == "result" and said["result"]["call"]["output_text"] == " Hello!"
-    assert {"event": "text", "text": " Hello!"} in events
+    assert {"event": "text", "text": " Hello!", "at": 0, "end": 7} in events
     logged = [e["record"]["type"] for e in events if e["event"] == "record"]
     assert logged == [
         r["type"] for r in read_records(session.conversation.log.path)

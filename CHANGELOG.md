@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Added
+- `text` events carry `at` and `end`, the piece's place in the reply, and `/state` gives `reply_end`, so a reader that starts mid-reply joins the stream without dropping or repeating text.
+
 ## [0.2.3] - 2026-11-14
 
 Live tests on an M2 Max (macOS), 2026-11-14, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 19 passed (including the backend contract and a llama-server killed between two calls), `-m hf` 18 passed, `-m olmo` 12 passed.
