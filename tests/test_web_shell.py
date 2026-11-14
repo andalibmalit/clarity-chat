@@ -217,6 +217,25 @@ def test_while_a_model_starts_the_picker_waits_and_says_why(server):
     assert "Settings" not in fragment  # no chat to set yet
 
 
+def test_the_context_figure_stays_while_a_reply_is_written(server):
+    """Checkpoint 3 (owner's decision): boards E1 and E2 draw the figure during a reply."""
+    client, session, _ = server
+    command(client, "profile", "text")
+    command(client, "say", "Hi")
+    call = command(client, "prompt").json()["result"]["call"]
+    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 0.3
+    thread = threading.Thread(target=lambda: command(client, "say", "Again"))
+    thread.start()
+    threading.Event().wait(0.4)
+    try:
+        fragment = get_view(client, "picker")
+        still = thread.is_alive()
+    finally:
+        thread.join(10)
+    n, ctx = call["n_prompt_client"], call["n_ctx"]
+    assert still and f"{n / ctx:.0%} · {n:,} of {ctx:,} tokens" in fragment
+
+
 def test_while_a_reply_is_written_the_picker_waits_and_says_why(server):
     client, session, _ = server
     command(client, "profile", "text")
@@ -293,7 +312,9 @@ def test_a_start_warning_shows_whole_and_escaped(server):
     fragment = get_view(client, "thread")
     assert warnings == [f"A made-up warning {HOSTILE}"]
     assert "<script>" not in fragment and "<img" not in fragment
-    assert f'role="alert"><strong>!</strong> {warnings[0]}' in html.unescape(fragment)
+    # Marked, not alerted: the page alerts a sentence once, not on every redraw.
+    assert f"<p data-alert><strong>!</strong> {warnings[0]}" in html.unescape(fragment)
+    assert 'role="alert"' not in fragment
 
 
 @pytest.mark.parametrize(
@@ -318,7 +339,8 @@ def test_about_shows_the_version_and_commits_from_state(server):
     state = command(client, "state").json()["result"]
     fragment = get_view(client, "about")
     assert f"<dd>{state['clarity']['version']}</dd>" in fragment
-    assert state["clarity"]["commit"] and state["clarity"]["commit"] in fragment
+    commit = state["clarity"]["commit"]
+    assert (commit or "unknown: not a git checkout") in fragment  # a `git archive` copy has none
     assert state["llama_cpp_commit"] in fragment
 
 

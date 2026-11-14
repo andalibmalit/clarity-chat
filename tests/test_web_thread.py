@@ -17,8 +17,14 @@ from starlette.testclient import TestClient
 from clarity_chat import web
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend
-from tests.test_web import ORIGIN, PORT, SECRET, command
+from tests.test_web import AUTH, ORIGIN, PORT, SAME, SECRET, command
 from tests.test_web_shell import get_view, start_held
+
+# The counter's name is visually hidden text, not an aria-label on a span (Checkpoint 3).
+COUNTER = (
+    '<span class="n"><span aria-hidden="true">{k} / {n}</span>'
+    '<span class="vh">Version {k} of {n}</span></span>'
+)
 
 
 @pytest.fixture
@@ -59,10 +65,10 @@ def test_your_message_shows_which_version_it_is_and_switches(chat):
     options = next(f for f in forks if f["at"] is None)["options"]
     assert [o["text"] for o in options] == ["Hi", "Hello"]
     fragment = thread(client)
-    assert '<span class="n" aria-label="Version 2 of 2">2 / 2</span>' in fragment
+    assert COUNTER.format(k=2, n=2) in fragment
     assert f'data-switch="{options[0]["turn_id"]}"' in fragment
     result(client, "switch", options[0]["turn_id"])
-    assert '<span class="n" aria-label="Version 1 of 2">1 / 2</span>' in thread(client)
+    assert COUNTER.format(k=1, n=2) in thread(client)
 
 
 def test_edit_is_on_your_last_message_only_and_holds_its_text(chat):
@@ -192,7 +198,8 @@ def test_a_failed_message_leaves_the_thread_and_is_shown_by_its_call(chat):
     fragment = thread(client)
     assert [t["role"] for t in state["turns"]] == []  # your message is back in the box
     assert f'data-failed="{call["call_id"]}"' in fragment
-    assert "<strong>! Failed:</strong> A made-up failure." in fragment
+    # The alert holds only the sentence; Details sits beside it (V3Writing E5).
+    assert "<p data-alert><strong>! Failed:</strong> A made-up failure.</p>" in fragment
     assert 'data-action="details"' in fragment
     assert "Try again" not in fragment and 'data-action="restart"' not in fragment
 
@@ -255,3 +262,42 @@ def test_starting_the_model_again_keeps_the_thread_and_says_so_at_its_end(chat):
         gate.set()
         worker.join(10)
     assert fragment.index(" Hello!") < fragment.index("Starting text…")
+
+
+def test_a_reply_without_a_call_id_is_drawn_without_controls(chat):
+    """Checkpoint 3: a log another program wrote can have a reply with no call ID. The view
+    draws it, asks /prompt for nothing, and gives it no controls that would send /mark None."""
+    client, session = chat
+    result(client, "say", "Hi")
+    conversation = session.conversation
+    conversation.turns[conversation.head].call_id = None
+    response = client.get("/view/thread", headers={**AUTH, **SAME})
+    assert response.status_code == 200, response.text
+    assert not command(client, "state").json().get("stopped")  # the session goes on
+    fragment = html.unescape(response.text)
+    assert " Hello!" in fragment and 'data-call="None"' not in fragment
+    assert 'data-action="marks"' not in fragment and 'data-action="regen"' not in fragment
+
+
+DRAWN_ACTIONS = re.compile(r'data-action="([\w-]+)"')
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="Chats, Appearance, Settings, the replies pop-out and Details are handled by C3-C5",
+)
+def test_every_drawn_action_has_a_handler():
+    from pathlib import Path
+
+    folder = Path(web.__file__).parent
+    drawn = set()
+    for path in [*(folder / "web_templates").glob("*.html"), folder / "web_static" / "index.html"]:
+        drawn |= set(DRAWN_ACTIONS.findall(path.read_text(encoding="utf-8")))
+    code = (folder / "web_static" / "app.js").read_text(encoding="utf-8")
+    thread = code[code.index("const THREAD = {") : code.index("};", code.index("const THREAD = {"))]
+    handled = (
+        set(re.findall(r'action === "([\w-]+)"', code))
+        | set(re.findall(r'^  "?([\w-]+)"?(?::|\()', thread, re.M))
+        | set(re.findall(r"clarity\.on\.([\w]+)\s*=", code))
+    )
+    assert drawn - handled == set()

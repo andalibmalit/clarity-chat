@@ -750,3 +750,39 @@ def test_a_websocket_is_refused_before_any_route_sees_it(server):
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect("/events", headers={**AUTH, "Host": f"127.0.0.1:{PORT}"}):
             pass
+
+
+# --- found at Checkpoint 3 (v0.3.0)
+
+
+def test_a_wait_cancelled_in_the_queue_doesnt_stop_the_worker(fetched_root, tiny_tokenizer):
+    """A request cancelled while its command waits in the queue (a server shutting down, a
+    task cancelled) must not end the worker thread: the command still runs, as a dropped
+    POST's does, and the next one gets its turn."""
+    import asyncio
+
+    session = Session(
+        fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    worker = web.Worker(session)
+    worker.submit("profile", "text")
+    gate, real = threading.Event(), session.history
+    session.history = lambda *a, **k: (gate.wait(5), real(*a, **k))[1]
+    blocker = threading.Thread(target=lambda: worker.submit("history", ""), daemon=True)
+    blocker.start()
+    threading.Event().wait(0.2)  # the worker holds "history" at the gate
+
+    async def cancel_a_queued_wait():
+        task = asyncio.ensure_future(worker.ask("history", ""))
+        await asyncio.sleep(0.1)
+        task.cancel()
+        await asyncio.sleep(0.1)
+
+    asyncio.run(cancel_a_queued_wait())
+    gate.set()
+    blocker.join(5)
+    after: list = []
+    later = threading.Thread(target=lambda: after.append(worker.submit("history", "")), daemon=True)
+    later.start()
+    later.join(5)
+    assert after and "result" in after[0]

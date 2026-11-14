@@ -354,6 +354,22 @@ def test_chats_profiles_and_settings_answer_while_a_reply_is_written(commands):
     assert answers["settings"]["settings"]["temperature"]["value"] == 0.6
 
 
+def test_prompt_answers_while_a_reply_is_written(commands):
+    """Checkpoint 3 (owner's decision): the context figure stays during a reply, so /prompt
+    answers then, with the last call before it."""
+    c, _ = commands
+    c.run("profile", "text", lambda e: None)
+    first = c.run("say", "Hi", lambda e: None)["call"]
+    answers: list[dict] = []
+
+    def on_event(event):
+        if event["event"] == "text" and not answers:
+            answers.append(c.run("prompt", "", lambda e: None))
+
+    c.run("say", "Again", on_event)
+    assert answers and answers[0]["call"]["call_id"] == first["call_id"]
+
+
 def test_settings_waits_while_a_model_starts(commands):
     """Decision 5: during a start, only state, cancel, chats and profiles run."""
     from clarity_chat.profiles import ConfigError
