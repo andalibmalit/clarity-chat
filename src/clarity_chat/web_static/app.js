@@ -25,6 +25,8 @@ const clarity = {
   buffer: null, // events held while the page loads; null once it has
   on: {}, // later screens' handlers: chats, appearance, settings, replies, details
   sending: false, // this page waits for a command that writes or starts
+  failedCall: null, // the last failed call's ID, from its record on the stream
+  alerted: new Set(), // sentences already announced, so a redraw doesn't repeat them
 };
 window.clarity = clarity;
 
@@ -110,9 +112,11 @@ const POLICY = window.trustedTypes
   ? window.trustedTypes.createPolicy("clarity", { createHTML: (html) => html })
   : null;
 
-function swap(element, html) {
-  // The one place server HTML enters the page: parsed, then its nodes moved in.
+function swap(element, html, prepare = null) {
+  // The one place server HTML enters the page: parsed, then its nodes moved in. `prepare`
+  // sees the parsed nodes first (to set attributes, never to add HTML).
   const parsed = new DOMParser().parseFromString(POLICY ? POLICY.createHTML(html) : html, "text/html");
+  if (prepare) prepare(parsed.body);
   element.replaceChildren(...parsed.body.childNodes);
 }
 
@@ -226,13 +230,17 @@ function connect(onHello) {
 function reconnect() {
   // A dropped stream: try again, waiting longer each time, then load the page again. A
   // Clarity that doesn't answer has stopped (A5).
-  if (!clarity.key || document.body.dataset.page === "stopped") return;
+  // A tab showing A4 waits for "Use it here": polling would take over when the live tab
+  // drops its stream for a moment (a reload). Checked again when the wait is over, since a
+  // tab learns it isn't live from a command's answer, after its stream has closed.
+  const waiting = () => !clarity.key || ["stopped", "not-live"].includes(document.body.dataset.page);
+  if (waiting()) return;
   retry += 1;
   if (retry > 3) {
     stopped();
     return;
   }
-  setTimeout(() => load().catch(() => {}), 250 * 2 ** retry);
+  setTimeout(() => waiting() || load().catch(() => {}), 250 * 2 ** retry);
 }
 
 // --- The shell (C1)
@@ -242,7 +250,9 @@ function refresh() {
   // Redraw from reads. The newest redraw wins: an older one still waiting (a view whose read
   // queued just before a reply started waits for the whole reply) is dropped when it lands.
   drawn += 1;
-  return draw(drawn).catch(() => {});
+  return draw(drawn).catch((error) => {
+    if (document.body.dataset.page === "ready") notice("!", error.message);
+  });
 }
 
 async function draw(number) {
@@ -253,7 +263,7 @@ async function draw(number) {
   clarity.state = answer.result;
   if (openMenu && openMenu.menu.id === "picker-menu") hideMenu(false);
   openPop = null; // the thread's popovers are drawn again, closed
-  swap($("thread"), thread);
+  swap($("thread"), thread, alertOnce);
   swap($("composer-row"), row);
   const state = clarity.state;
   const starting = state.model === "starting";
@@ -263,7 +273,12 @@ async function draw(number) {
   $("title-text").textContent = state.title || "New chat";
   $("title").classList.toggle("fresh", !state.title);
   $("message").disabled = !chat && !starting; // you can type while a model starts
-  $("send").disabled = !chat || state.model !== "ready";
+  $("send").disabled = !chat && !starting;
+  // While a model starts, Send waits and says why (a stopped server isn't a wait: Send then
+  // fails with the backend's sentence, and the failed line offers to start it again).
+  $("send-waits").textContent = starting ? "Waits until the model has started." : "";
+  if (starting) $("send").setAttribute("aria-disabled", "true");
+  else $("send").removeAttribute("aria-disabled");
   const waits = $("picker-button").getAttribute("aria-disabled") === "true";
   $("new-chat").setAttribute("aria-disabled", String(waits));
   showWriting(state.running);
@@ -272,13 +287,36 @@ async function draw(number) {
     if (!$("message").value) $("message").value = state.unanswered.text;
   }
   clearTimeout(clarity.poll);
-  if (state.running && !clarity.sending) clarity.poll = setTimeout(refresh, 1000); // after a reload
+  if (state.running && !clarity.sending) clarity.poll = setTimeout(waitForEnd, 1000);
   const commit = state.clarity.commit || "";
   const ref = /^[0-9a-f]{40}$/.test(commit) ? commit : `v${state.clarity.version}`;
   $("help").href = `${$("help").dataset.base}${ref}/docs`; // the docs at this version
 }
 
-function notice(strong, text, action = null, label = "") {
+async function waitForEnd() {
+  // After a reload mid-reply, nothing tells this page the command ended: read /state alone
+  // each second, and redraw everything once it has.
+  const answer = await command("state").catch(() => null);
+  if (!answer || !answer.result) return;
+  if (answer.result.running) {
+    showWriting(answer.result.running);
+    clarity.poll = setTimeout(waitForEnd, 1000);
+  } else {
+    refresh();
+  }
+}
+
+function alertOnce(body) {
+  // A start warning or a failed line is announced when it first appears, not again on each
+  // redraw (a mark, a note, a switch).
+  for (const line of body.querySelectorAll("[data-alert]")) {
+    if (clarity.alerted.has(line.textContent)) continue;
+    clarity.alerted.add(line.textContent);
+    line.setAttribute("role", "alert");
+  }
+}
+
+function notice(strong, text, action = null, label = "", call = null) {
   // A refusal's sentence, whole, above the message box (B3, B4, E5, E7), with the one thing
   // to do next, if any. A status, not an alert, when nothing failed (strong null).
   if (text === null) {
@@ -296,6 +334,15 @@ function notice(strong, text, action = null, label = "") {
   const box = document.createElement("div");
   box.className = strong ? "problem" : "status";
   box.append(line);
+  if (call) {
+    box.dataset.call = call;
+    const details = document.createElement("button");
+    details.type = "button";
+    details.className = "linkbtn";
+    details.dataset.action = "details";
+    details.textContent = "Details";
+    box.append(details);
+  }
   if (action) {
     const button = document.createElement("button");
     button.type = "button";
@@ -400,7 +447,10 @@ document.addEventListener("click", (event) => {
   if (openPop && !openPop.contains(event.target) && !event.target.closest(".bm")) hidePop(false);
   const version = event.target.closest("[data-switch]");
   if (version) {
-    command("switch", version.dataset.switch).then(refresh);
+    command("switch", version.dataset.switch).then((answer) => {
+      refresh();
+      if (answer.error) notice("!", answer.error);
+    });
     return;
   }
   const unmark = event.target.closest("[data-unmark]");
@@ -450,7 +500,11 @@ function showWriting(running) {
   $("writing-box").hidden = !on;
   $("send").hidden = on;
   $("stop").hidden = !on;
-  if (!on) return;
+  if (!on) {
+    $("writing-status").textContent = ""; // the region stays in the page, empty
+    $("writing-dots").replaceChildren();
+    return;
+  }
   const several = running.n > 1;
   $("writing-status").textContent = several ? `Writing reply ${running.k} of ${running.n}` : "Writing…";
   $("stop-label").textContent = several && running.k < running.n ? "Stop the rest" : "Stop";
@@ -470,32 +524,48 @@ function failedShown() {
 
 async function write(name, args, keep = null) {
   // A command that writes replies. A failure the thread doesn't draw (it draws a failed
-  // message from its call) shows here, with its sentence whole.
+  // message from its call) shows here, with its sentence whole. Focus goes to Stop while
+  // it writes, then to the new reply's toolbar (V3Writing).
   notice(null, null);
   const before = failedShown();
   clarity.sending = true;
+  clarity.failedCall = null;
   clarity.writing = { k: null, text: "", end: 0 };
   $("writing").textContent = "";
   showWriting({ command: name, k: 1, n: 1 });
+  $("stop").focus();
   const answer = await command(name, args).finally(() => (clarity.sending = false));
   await refresh();
   if (answer.stopped) return;
   const failure = answer.error ? [answer.type, answer.error] : answer.result && answer.result.stopped ? ["", answer.result.stopped] : null;
   if (failure && failedShown() === before) refused(name, ...failure);
-  if (answer.error && keep !== null && !$("message").value) $("message").value = keep;
+  if (answer.error && name === "edit") reopenEdit(keep);
+  else if (answer.error && keep !== null && !$("message").value) $("message").value = keep;
+  const toolbar = document.querySelector(".reply.last .tb button");
+  if (!answer.error && toolbar) toolbar.focus();
+  else if (document.activeElement === document.body) $("message").focus();
+}
+
+function reopenEdit(text) {
+  // A failed Edit: the edit box again, with your text, so Send retries the edit.
+  const item = $("thread").querySelector("[data-edit]")?.closest("li");
+  if (!item) return;
+  editing(item, true);
+  item.querySelector("[data-edit] textarea").value = text;
 }
 
 function refused(name, type, sentence) {
+  const call = clarity.failedCall; // the failed call's record came on the stream
   if (type === "CancelledBeforeReply") notice(null, sentence);
   else if (type === "ContextError" || type === "ConfigError") notice("!", sentence);
-  else if (clarity.state.model === "stopped") notice("! Failed:", sentence, "restart", "Start the model again");
-  else if (name === "regen") notice("! Failed:", sentence, "regen", "Try again");
-  else notice("! Failed:", sentence);
+  else if (clarity.state.model === "stopped") notice("! Failed:", sentence, "restart", "Start the model again", call);
+  else if (name === "regen") notice("! Failed:", sentence, "regen", "Try again", call);
+  else notice("! Failed:", sentence, null, "", call);
 }
 
 function send() {
   const text = $("message").value;
-  if (!text || $("send").disabled) return;
+  if (!text || $("send").disabled || $("send").getAttribute("aria-disabled") === "true") return;
   $("message").value = "";
   write("say", text, text);
 }
@@ -524,7 +594,7 @@ async function annotate(kind, call, text = "") {
   const answer = await command(kind, `${call} ${text}`.trim());
   await refresh();
   if (answer.error) notice("!", answer.error);
-  const button = document.querySelector(`li[data-call="${call}"] .bm`);
+  const button = document.querySelector(`li[data-call="${CSS.escape(call)}"] .bm`);
   if (button) showPop(button);
 }
 
@@ -578,6 +648,9 @@ document.addEventListener("submit", (event) => {
 });
 
 clarity.listeners.push((event) => {
+  if (event.event === "record" && event.record.type === "call" && event.record.error) {
+    clarity.failedCall = event.record.call_id;
+  }
   if (event.event === "reply_start") showWriting({ command: "regen", k: event.k, n: event.n });
   // A model starting or ready, a reply starting, your message written: redraw from reads.
   const yours = event.event === "record" && event.record.type === "turn" && event.record.role === "user";

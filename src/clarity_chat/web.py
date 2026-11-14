@@ -155,7 +155,10 @@ class Worker:
         now, future = self.enqueue(name, args)
         if now:
             return await run_in_threadpool(self._run, name, args, True)
-        return await asyncio.wrap_future(future)
+        # Shielded: a request cancelled while its command waits (a dropped connection, a
+        # server shutting down) mustn't cancel the queued future, which the worker would then
+        # fail to answer, ending its thread. The command runs anyway, as a dropped POST's does.
+        return await asyncio.shield(asyncio.wrap_future(future))
 
     def _run(self, name: str, args: str, at_once: bool | None = None) -> dict[str, Any]:
         if self.failed:
@@ -518,8 +521,8 @@ REDIRECT = """<!doctype html>
 
 
 async def result_of(worker: Worker, name: str, args: str = "") -> dict[str, Any]:
-    """A command's result for a view. An error here is the session's (a view runs only reads
-    that can't be refused), so the view answers 503 with its sentence."""
+    """A command's result for a view. Any error (the session stopped, or a read refused)
+    answers 503 with its sentence, which the page shows."""
     answer = await worker.ask(name, args)
     if "error" in answer:
         raise Refused(503, answer["error"])
@@ -577,7 +580,11 @@ async def context_figure(worker: Worker, state: dict[str, Any]) -> dict[str, Any
     (nothing was sent); the reply at the head is."""
     call = (await result_of(worker, "prompt"))["call"]
     if call and (call.get("error") or "").startswith("ContextError"):
-        replies = [t["call_id"] for t in state["turns"] if t["role"] == "assistant"]
+        replies = [
+            t["call_id"]
+            for t in state["turns"]
+            if t["role"] == "assistant" and CALL_ID.fullmatch(t["call_id"] or "")
+        ]
         call = (await result_of(worker, "prompt", replies[-1]))["call"] if replies else None
     if not call or "n_prompt_client" not in call:
         return None
@@ -678,11 +685,15 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
     failed message's line."""
     state = await result_of(worker, "state")
     turns = state["turns"]
+    for turn in turns:  # a reply's controls name its call: none without a call ID (old logs)
+        turn["controls"] = bool(CALL_ID.fullmatch(turn["call_id"] or ""))
     starting = has_chats = intro = facts = failed = None
     idle = state["running"] is None
     if state["model"] == "starting":
         starting = starting_profile(state, (await result_of(worker, "profiles"))["profiles"])
-        if state["running"]["command"] != "resume":  # a new chat: its turns aren't drawn
+        # A new chat: its turns aren't drawn. C4b: a replay that restarts the server should
+        # keep them too (only "Start the model again", a resume, does now).
+        if state["running"]["command"] != "resume":
             turns = []
     elif state["conversation_id"] is None:
         has_chats = bool((await result_of(worker, "chats"))["chats"])
@@ -691,7 +702,7 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
         if not any(turn["role"] == "user" for turn in turns):
             intro = {"backend": settings["backend"], "steering": steering_words(settings)}
         versions(turns, (await result_of(worker, "branches"))["forks"])
-        if turns and turns[-1]["role"] == "assistant":
+        if turns and turns[-1]["role"] == "assistant" and turns[-1]["controls"]:
             call = (await result_of(worker, "prompt", turns[-1]["call_id"]))["call"]
             facts = facts_line(call, steerable=settings["steering"] is not None)
         failed = failed_line((await result_of(worker, "prompt"))["call"], state)
@@ -730,7 +741,7 @@ async def _picker(worker: Worker, params: dict[str, str | None]) -> str:
     if in_chat:
         settings = (await result_of(worker, "settings"))["settings"]
         changed = sum(1 for s in settings.values() if s["origin"] == "chat")
-        if running is None:  # /prompt waits its turn: not asked while a command runs
+        if running is None or running in REPLY_COMMANDS:  # /prompt runs at once then too
             context = await context_figure(worker, state)
     button = starting or (
         {"name": state["profile"], "model_name": state["model_name"]} if in_chat else None

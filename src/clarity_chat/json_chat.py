@@ -15,7 +15,8 @@ A command's own records arrive as `record` events before its `result`, which may
 some of them; rely on `record` events for the log and on `result` for the answer.
 Commands run one at a time, in order, except `cancel`, `state`, `chats` and `profiles`, which
 run as soon as read (so `cancel` can stop a reply being written and the rest answer during
-one), and `settings`, which does while a reply is written. End of input quits, like `quit`.
+one), and `settings` and `prompt`, which do while a reply is written. End of input quits, like
+`quit`.
 """
 
 from __future__ import annotations
@@ -75,8 +76,8 @@ class JsonChat:
 
     def read(self, pending: queue.Queue[dict[str, Any] | None]) -> None:
         """Read input lines. The commands that run at once (`cancel`, `state`, `chats`,
-        `profiles`, and `settings` during a reply) run here; everything else, including a
-        line that isn't a command, waits its turn."""
+        `profiles`, and `settings` and `prompt` during a reply) run here; everything else,
+        including a line that isn't a command, waits its turn."""
         try:
             for line in self.lines():
                 if not line.strip():

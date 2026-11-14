@@ -7,7 +7,7 @@ ready) and `record` (every record appended to the log). Errors are raised
 (ConfigError, ContextError, BackendError); each front end shows them its own way.
 
 Commands run one at a time, except `cancel`, `state`, `chats` and `profiles`, which run at
-once, and `settings`, which runs at once while a reply is written or replayed.
+once, and `settings` and `prompt`, which run at once while a reply is written or replayed.
 """
 
 from __future__ import annotations
@@ -707,6 +707,7 @@ COMMANDS: dict[str, Command] = {
         "/prompt [CALL_ID]",
         "the exact prompt text of the last call (or the call named), its token IDs and count",
         _prompt,
+        during_reply=True,  # reads last_call (set in one assignment) and calls by key
     ),
     "probs": Command(
         "/probs [CALL_ID]",

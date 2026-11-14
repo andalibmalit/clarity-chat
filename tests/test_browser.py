@@ -508,13 +508,14 @@ def test_edit_your_message_then_step_through_its_versions(clarity, page, context
     page.fill("#edit-text", "Hello")
     page.click("[data-edit] button[type=submit]")
     page.wait_for_selector(".msgbar .n")
-    assert page.text_content(".msgbar .n") == "2 / 2"
+    assert page.text_content(".msgbar .n [aria-hidden]") == "2 / 2"
+    assert page.text_content(".msgbar .n .vh") == "Version 2 of 2"
     page.click(".reply.last [data-action=copy]")
     page.wait_for_selector(".reply.last .copied:has-text('Copied')")
     assert page.evaluate("navigator.clipboard.readText()") == page.text_content(".reply.last .msg")
     shot(page, "D1-D3-counter-and-toolbar", "c2")
     page.click("[aria-label='Previous version of your message']")
-    page.wait_for_selector(".msgbar .n:has-text('1 / 2')")
+    page.wait_for_selector(".msgbar .n [aria-hidden]:has-text('1 / 2')")
     assert page.text_content(".turn.user .msg") == "Hi"
 
 

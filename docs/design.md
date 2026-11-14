@@ -158,7 +158,7 @@ There is no general "results may vary" notice. Replay flags the one case that ne
 
 ## The web layer
 
-**The page is a view of the same command table.** Every action and every read goes through the commands the terminal and `--json` use, so the web interface can't do or show something a script can't. One worker thread owns the session: commands queue and run in order, as with `--json`; the ones the table lets run during another (`state`, `cancel`, `chats`, `profiles`, and `settings` during a reply) don't wait.
+**The page is a view of the same command table.** Every action and every read goes through the commands the terminal and `--json` use, so the web interface can't do or show something a script can't. One worker thread owns the session: commands queue and run in order, as with `--json`; the ones the table lets run during another (`state`, `cancel`, `chats`, `profiles`, and `settings` and `prompt` during a reply) don't wait.
 
 **The server trusts nothing but its own page.** It listens on `127.0.0.1` only and checks the exact Host on every request, which stops DNS rebinding. The threats it's built against are a page on another site, or on another `127.0.0.1` port, in the same browser; a rebinding page; and another user on the same computer.
 - **A secret per start, in the link's fragment, sent as a header.** The fragment never reaches a server, a log or a `Referer`. A page from another origin can't read it, and can't send an `Authorization` header to `127.0.0.1` without a CORS preflight, which the server refuses, so a cross-site request fails before anything else is read. A cookie would be simpler for the page but worse: browsers send it to every port on `127.0.0.1`, so any local web page could use it.
