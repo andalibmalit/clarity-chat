@@ -46,7 +46,7 @@ def test_every_branch_end_newest_first_says_where_it_came_from(chat):
     result(client, "mark")
     ends = result(client, "branches", "all")["ends"]
     fragment = panel(client)
-    assert f"{len(ends)} branch ends, newest first" in fragment
+    assert f"{len(ends)} branches, newest first" in fragment
     positions = [fragment.index(f'data-turn="{end["turn_id"]}"') for end in ends]
     assert positions == sorted(positions)  # in /branches all's order, newest first
     labels = {
@@ -59,13 +59,16 @@ def test_every_branch_end_newest_first_says_where_it_came_from(chat):
         source = end["from"]
         label = labels[(source["kind"], end["continued"])].format(**source)
         assert label in fragment
-        where = f"{end['turns']} messages" + (f" · {end['marked']} marked" if end["marked"] else "")
+        where = f"{end['turns']} turns" + (f" · {end['marked']} marked" if end["marked"] else "")
         assert where in fragment
         if end["current"]:
             assert "You are here" in fragment
         else:
             assert f'data-switch="{end["turn_id"]}"' in fragment
-    assert "Nothing is deleted: trying again, or going back, adds a branch." in fragment
+    assert (
+        "Nothing is deleted: Regenerate, Edit, or a message sent after going back adds a branch."
+        in fragment
+    )
 
 
 def test_marked_replies_with_their_labels_notes_and_branch(chat):
@@ -145,7 +148,7 @@ def test_with_nothing_marked_the_marked_list_says_how_to_mark(chat):
     fragment = panel(client)
     empty = "No marked replies in this chat yet. Mark one with the bookmark beside a reply"
     assert f"{empty}, then find it here." in fragment
-    assert "Turn “Marked only” off to see all 2 branch ends." in fragment
+    assert "Turn “Marked only” off to see all 2 branches." in fragment
 
 
 def test_while_a_reply_is_written_the_panel_waits(chat):

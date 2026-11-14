@@ -712,6 +712,13 @@ def test_more_replies_from_the_pop_out_of_one_reply(clarity, page):
     assert page.text_content(".listpop .lh span") == "1 reply to this message"
     assert page.input_value("#more-n") == "3" and focused(page) == "more-n"
     assert page.locator(".listpop .lrow").count() == 0
+    # Under the reply's toolbar, not over the reply (design walkthrough, finding 17).
+    toolbar = page.locator(".reply.last .tb").bounding_box()
+    box = page.locator(".listpop").bounding_box()
+    assert toolbar and box and box["y"] >= toolbar["y"] + toolbar["height"] - 1
+    page.fill("#more-n", "2")
+    assert page.text_content("#more-make") == "Make 2"  # "Make N", as Again's button
+    page.fill("#more-n", "3")
     shot(page, "F5-one-reply", "c3")
     page.keyboard.press("Escape")
     assert (
@@ -747,7 +754,7 @@ def test_the_rows_and_showing_another_reply(clarity, page):
     assert rows.count() == 3
     for i, reply in enumerate(compared["replies"]):
         assert rows.nth(i).locator(".n").text_content() == f"reply {reply['k']} of 3"
-        assert rows.nth(i).locator(".df").text_content() == f"seed {reply['seed']} · not continued"
+        assert rows.nth(i).locator(".df").text_content() == f"seed {reply['seed']}"
     assert page.text_content(".listpop .lrow.cur .act") == "You are here"
     shot(page, "F2-three-replies", "c3")
     rows.nth(0).locator(".go").click()
@@ -805,8 +812,9 @@ def test_compare_cards_when_only_the_seed_differs_and_when_both_do(clarity, page
     wait_for(page, ".reply.last [data-action=replies]:has-text('4 replies')")
     open_replies(page)
     page.click(".listpop [data-action=compare]")
-    page.wait_for_selector("#compare .problem")
-    assert "differ in seed and in temperature" in page.text_content("#compare .problem")
+    page.wait_for_selector("#compare .cmp-cards")  # advice in the lead's style, not an error
+    assert "differ in seed and in temperature" in page.text_content("#compare .cmp-lead")
+    assert page.query_selector("#compare .problem") is None
     shot(page, "K3-seed-and-setting", "c3")
 
 
@@ -820,7 +828,7 @@ def test_an_earlier_reply_s_pop_out_lists_without_more_replies(clarity, page):
     page.wait_for_selector(".listpop")
     assert page.locator(".listpop .lrow").count() == 3
     assert page.locator("#more-n").count() == 0
-    assert "continued, 2 more messages" in page.text_content(".listpop .lrow.cur")
+    assert "continued, 2 more turns" in page.text_content(".listpop .lrow.cur")
     shot(page, "F1-earlier-fork", "c3")
 
 

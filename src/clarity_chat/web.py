@@ -859,7 +859,7 @@ def pair_note(pair: dict[str, Any]) -> str | None:
     """What a matched pair shows instead of a split marker, if anything."""
     if pair["first_different_token"] is None:
         return "the same text"
-    return "agree until one stops" if pair["prefix"] else None
+    return "the same until the shorter one ends" if pair["prefix"] else None
 
 
 STOPS = {"cancelled": "stopped by you", "limit": "stopped at the token limit"}
@@ -881,12 +881,9 @@ def reply_rows(compared: dict[str, Any]) -> list[dict[str, Any]]:
             words += [setting_words(n, v) for n, v in groups[reply["group"]]["settings"].items()]
         if reply["stop_type"] in STOPS:
             words.append(STOPS[reply["stop_type"]])
-        later = reply["later_turns"]
-        words.append(
-            "not continued"
-            if later == 0
-            else f"continued, {later} more message{'' if later == 1 else 's'}"
-        )
+        later = reply["later_turns"]  # said only for a reply that went on (rows show what differs)
+        if later:
+            words.append(f"continued, {later} more turn{'' if later == 1 else 's'}")
         divider = None
         if i and reply["group"] != replies[i - 1]["group"]:
             before = [r["seed"] for r in replies if r["group"] == replies[i - 1]["group"]]
@@ -924,7 +921,8 @@ async def _compare(worker: Worker, params: dict[str, str | None]) -> str:
         raise Refused(400, "Name a reply's call.")
     compared = await result_of(worker, "compare", params["call"])
     state = await result_of(worker, "state")
-    backend = (await result_of(worker, "settings"))["backend"]
+    settings = await result_of(worker, "settings")
+    backend = settings["backend"]
     replies, groups = compared["replies"], compared["groups"]
     differ = [n for n in (groups[0]["settings"] if len(groups) > 1 else {})]
     names = " and ".join("steering" if n == "steering_scale" else n for n in differ)
@@ -965,7 +963,19 @@ async def _compare(worker: Worker, params: dict[str, str | None]) -> str:
                 f"Replies {numbers(later_ks)} reused the seeds of replies {numbers(first_ks)}, "
                 f"so each row differs only in {names}."
             )
-    same = [setting_words(n, v) for n, v in compared["same"].items()]
+    # Only what tells the replies apart from a default run: not a sampler at its neutral
+    # value, an off setting, the sampler list, "not steered" on a profile with no vector, or
+    # repeat_last_n when every penalty is neutral (it changes nothing then).
+    shown = compared["same"]
+    penalties = ("repeat_penalty", "presence_penalty", "frequency_penalty")
+    penalties_off = all(n in shown and at_rest(n, shown[n]) for n in penalties)
+    same = [
+        setting_words(n, v)
+        for n, v in shown.items()
+        if n != "samplers"
+        and not (n == "repeat_last_n" and penalties_off)
+        and not (at_rest(n, v) and not (n == "steering_scale" and settings["steering"]))
+    ]
     return templates.get_template("compare.html").render(
         compared=compared,
         replies=replies,
@@ -973,6 +983,7 @@ async def _compare(worker: Worker, params: dict[str, str | None]) -> str:
         columns=columns,
         sentence=sentence,
         mixed=len(groups) > 1 and not compared["pairs"],
+        marked=any(cell and cell.get("parts") for row in rows for cell in row["cells"]),
         names=names,
         same=" · ".join(
             [f"profile {state['profile']}", f"{state['model_name']} · runs on {backend}", *same]

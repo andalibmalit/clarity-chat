@@ -167,7 +167,7 @@ ol.thread { list-style: none; margin: 0; padding: 0; display: flex; flex-directi
 
 /* The replies pop-out (C3): below the reply's toolbar, over what follows */
 .listpop { position: absolute; z-index: 9; left: 0; width: min(600px, 100%); margin-top: 4px; background: var(--raised); border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 8px; display: flex; flex-direction: column; gap: 2px; font-family: var(--sans); }
-.reply > .listpop { top: auto; }
+.reply > .listpop { top: 100%; } /* under the reply and its toolbar, not over them */
 .listpop .lh { display: flex; align-items: center; justify-content: space-between; padding: 2px 8px 6px; font-size: var(--small); color: var(--muted); }
 .listpop .lh .iconbtn { width: 24px; height: 24px; }
 .listpop .rows { max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
@@ -191,7 +191,7 @@ ol.thread { list-style: none; margin: 0; padding: 0; display: flex; flex-directi
 .compare { flex: 1; min-height: 0; overflow-y: auto; width: 100%; max-width: 1100px; margin: 0 auto; padding: 10px 32px 32px 72px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box; }
 .cmp-h { margin: 6px 0 0; font-size: 15px; font-weight: 500; }
 .cmp-msg { font-family: var(--read); font-size: 17px; }
-.cmp-lead, .cmp-same { font-size: 13px; color: var(--muted); }
+.cmp-lead, .cmp-same, .cmp-legend { font-size: 13px; color: var(--muted); }
 .cmp-lead { color: var(--ink); }
 .cmp-grid { display: flex; flex-direction: column; gap: 10px; }
 .cmp-row { display: grid; grid-template-columns: 70px; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 12px; align-items: start; }
