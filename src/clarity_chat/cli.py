@@ -252,8 +252,9 @@ def format_compare(result: dict[str, Any]) -> str:
     again = result["again"]
     if again:
         now = ", ".join(f"{k} {v!r}" for k, v in again["now"].items())
+        noun = "seed" if len(again["seeds"]) == 1 else "seeds"
         seeds = ", ".join(str(seed) for seed in again["seeds"])
-        lines.append(f"/regen same makes seeds {seeds} again{f' at {now}' if now else ''}.")
+        lines.append(f"/regen same makes {noun} {seeds} again{f' at {now}' if now else ''}.")
     return "\n".join(lines)
 
 
