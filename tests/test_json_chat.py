@@ -155,6 +155,7 @@ EVERY_COMMAND = [
     ("cancel", lambda s: ""),
     ("resume", lambda s: s.conversation.conversation_id),
     ("new", lambda s: ""),
+    ("profiles", lambda s: ""),
     ("quit", lambda s: ""),
 ]
 

@@ -55,6 +55,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/resume ID` | Continue a logged conversation, by its ID from `/chats` (not a path; `--resume` takes a log file): its profile, settings, `/set` values and context size as logged, starting where it left off. Clarity shows what differs today: a changed profile file, settings today's files would set differently, server, machine or library changes since its last call, and whether the current reply's prompt still renders to the same token IDs. |
 | `/title TEXT` | Name this conversation in the chat list. Without a title, the list shows the first eight words of its first message; Clarity never asks a model for one. |
 | `/chats` | Your conversations in `logs/`, newest first, with their titles. |
+| `/profiles` | Every profile in `profiles/` and then `local/profiles/`: its model, backend and description, whether it's steered, and whether its model is fetched. A profile that doesn't load is listed with the reason. It reads each profile's file and model entry only; a refusal that needs the model's tokenizer or the server comes when a conversation starts. Runs before any conversation. |
 | `/new` | Start a new conversation (and log file) with the same profile, re-read from its file. |
 | `/profile NAME` | Start a new conversation with another profile, by its name in `profiles/` or `local/profiles/` (not a path; `--profile` takes a file). The server restarts only if the model file, the context size or the backend changes. |
 | `/cancel` | Stop the call in progress, like Ctrl-C: a reply (`/say`, `/regen`, `/edit`) or a `/replay`. It's the one command that runs during another, for scripts and the web interface. It says which command it stopped, or why it stopped nothing: nothing was running, or the running command (such as a model start) can't be stopped. |
@@ -95,7 +96,8 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `title` | `record` |
 | `replay` | `replay`: the replay record |
 | `export` | `path`, `replaced`, `calls`, `failed_calls_left_out` and `calls_without_a_turn_left_out` |
-| `chats` | `chats` |
+| `chats` | `chats`, each with `conversation_id`, `path`, `profile`, `description` (the profile's), `model`, `started`, `title`, `title_set` and `error` |
+| `profiles` | `profiles`, each with `name`, `model`, `model_name` (the last part of the model's tokenizer repo), `backend`, `description`, `steered`, `local` (in `local/profiles/`), `fetched` and `error` (null, or why it doesn't load); and `not_checked`, a sentence on what isn't checked until a start |
 | `profile`, `new` | `conversation_id`, `profile`, `model`, `mode` and `warnings` |
 | `resume` | the same, plus `resume` (the record) and `head_text` |
 | `cancel` | `cancelled`, and `command` or `reason` |

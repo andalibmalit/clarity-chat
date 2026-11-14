@@ -303,3 +303,61 @@ def test_new_after_a_resume_doesnt_read_a_logged_profile_outside_the_project(
     started = second.run("new", "", lambda e: None)  # reads profiles/text.toml
     assert started["profile"] == "text"
     assert second.session.conversation.profile.path.parent == fetched_root / "profiles"
+
+
+def test_profiles_lists_every_profile_before_any_conversation(commands, fetched_root):
+    """Shipped and local, steered and not, fetched and not, and a broken file with its error."""
+    c, _ = commands
+    profiles, local = fetched_root / "profiles", fetched_root / "local" / "profiles"
+    local.mkdir(parents=True)
+    text = (profiles / "text.toml").read_text(encoding="utf-8")
+    (local / "mine.toml").write_text('description = "Made up."\n' + text, encoding="utf-8")
+    steered = text.replace('backend = "llama.cpp"', 'backend = "transformers"').replace(
+        "[settings]", "[settings]\nsteering_scale = 4.0"
+    )
+    steering = f'\n[steering]\nfile = "local/vectors/calm.gguf"\nsha256 = "{"0" * 64}"\n'
+    (profiles / "steered.toml").write_text(steered + steering, encoding="utf-8")
+    (fetched_root / "models.toml").write_text(
+        (fetched_root / "models.toml").read_text(encoding="utf-8")
+        + '\n[other]\nroute = "convert"\nrepo = "made-up/Other-1B-base"\n'
+        + f'revision = "{"1" * 40}"\ntokenizer_repo = "made-up/Other-1B"\n'
+        + f'tokenizer_revision = "{"1" * 40}"\n',
+        encoding="utf-8",
+    )
+    (profiles / "unfetched.toml").write_text(
+        text.replace('model = "tiny"', 'model = "other"'), encoding="utf-8"
+    )
+    (profiles / "broken.toml").write_text('mode = "text"\nmodel = 3\n', encoding="utf-8")
+    result = c.run("profiles", "", lambda e: None)
+    assert c.session.conversation is None
+    by_name = {p["name"]: p for p in result["profiles"]}
+    assert by_name["text"] == {
+        "name": "text",
+        "model": "tiny",
+        "model_name": "tiny",
+        "backend": "llama.cpp",
+        "description": None,
+        "steered": False,
+        "local": False,
+        "fetched": True,
+        "error": None,
+    }
+    assert by_name["mine"]["local"] and by_name["mine"]["description"] == "Made up."
+    assert by_name["steered"]["steered"] and by_name["steered"]["backend"] == "transformers"
+    # The model's name comes from its tokenizer's repo: a GGUF repo is often a repackager's.
+    assert by_name["unfetched"]["model_name"] == "Other-1B"
+    assert by_name["unfetched"]["fetched"] is False and by_name["unfetched"]["error"] is None
+    assert "backend is required" in by_name["broken"]["error"]
+    assert by_name["broken"]["model"] is None
+    assert "tokenizer or the server" in result["not_checked"]
+    names = [p["name"] for p in result["profiles"]]
+    assert names == sorted(names[:-1]) + ["mine"]  # shipped by name, then your own
+
+
+def test_profiles_lists_a_name_in_both_folders_as_an_error(commands, fetched_root):
+    c, _ = commands
+    (fetched_root / "local" / "profiles").mkdir(parents=True)
+    text = (fetched_root / "profiles" / "text.toml").read_text(encoding="utf-8")
+    (fetched_root / "local" / "profiles" / "text.toml").write_text(text, encoding="utf-8")
+    errors = [p["error"] for p in c.run("profiles", "", lambda e: None)["profiles"]]
+    assert sum(bool(e) and "both" in e for e in errors) == 2

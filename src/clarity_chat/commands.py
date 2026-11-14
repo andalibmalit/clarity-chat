@@ -157,6 +157,12 @@ def _chats(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return {"chats": list_chats(c.session.logs_dir)}
 
 
+def _profiles(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    from clarity_chat.models import PROFILES_NOT_CHECKED, list_profiles
+
+    return {"profiles": list_profiles(c.session.root), "not_checked": PROFILES_NOT_CHECKED}
+
+
 def _history(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     conversation = c.session.conversation
     assert conversation is not None
@@ -450,6 +456,12 @@ COMMANDS: dict[str, Command] = {
         "/chats",
         "your conversations in logs/, newest first, with their titles",
         _chats,
+        needs_conversation=False,
+    ),
+    "profiles": Command(
+        "/profiles",
+        "every profile you can start, its model and backend, and whether the model is fetched",
+        _profiles,
         needs_conversation=False,
     ),
     "resume": Command(

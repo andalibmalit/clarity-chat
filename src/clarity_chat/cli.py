@@ -177,6 +177,24 @@ def format_branches(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_profiles(result: dict[str, Any]) -> str:
+    """One line per profile: name, model and backend, what's notable, and its description."""
+    lines = []
+    for p in result["profiles"]:
+        if p["error"]:
+            lines.append(f"  {p['name']}: can't be used: {p['error']}")
+            continue
+        notes = [
+            *(["steered"] if p["steered"] else []),
+            *(["yours"] if p["local"] else []),
+            *([] if p["fetched"] else [f"not fetched: clarity fetch {p['model']}"]),
+        ]
+        about = f"  {p['name']}  {p['model_name']} on {p['backend']}"
+        about += f" ({', '.join(notes)})" if notes else ""
+        lines.append(about + (f": {p['description']}" if p["description"] else ""))
+    return "\n".join(lines or ["No profiles in profiles/ or local/profiles/."])
+
+
 def format_chats(chats: list[dict[str, Any]]) -> str:
     """One line per conversation: ID (it starts with the local start time), profile and its
     description, title."""
@@ -477,6 +495,8 @@ class ChatLoop:
                 self.write(f"{record['name']} = {record['value']!r} for this chat.\n")
         elif name == "title":
             self.write(f"Titled {result['record']['title']!r}.\n")
+        elif name == "profiles":
+            self.write(format_profiles(result) + "\n")
         elif name == "chats":
             self.write(format_chats(result["chats"]) + "\n")
         elif name == "history":
