@@ -265,6 +265,7 @@ async function draw(number) {
   openPop = null; // the thread's popovers are drawn again, closed
   openList = null;
   swap($("thread"), thread, alertOnce);
+  shade(); // the thread is new: shade its reply again if Probabilities is open
   swap($("composer-row"), row);
   const state = clarity.state;
   const starting = state.model === "starting";
@@ -293,6 +294,7 @@ async function draw(number) {
   const commit = state.clarity.commit || "";
   const ref = /^[0-9a-f]{40}$/.test(commit) ? commit : `v${state.clarity.version}`;
   $("help").href = `${$("help").dataset.base}${ref}/docs`; // the docs at this version
+  clarity.docs = `${$("help").dataset.base}${ref}/docs/`;
 }
 
 async function waitForEnd() {
@@ -459,6 +461,11 @@ document.addEventListener("click", (event) => {
     });
     return;
   }
+  const token = event.target.closest("#thread .msg.shaded .tok");
+  if (token) {
+    pickToken(token);
+    return;
+  }
   const pane = event.target.closest("#panel .seg [data-pane]");
   if (pane) {
     // The prompt as Text, Whitespace or Token IDs: one pane shown at a time.
@@ -498,6 +505,14 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && openList && openList.box.contains(event.target)) {
     closeReplies(true);
+    return;
+  }
+  const token = event.target.closest && event.target.closest("#thread .msg.shaded .tok");
+  if (token && (event.key === "ArrowRight" || event.key === "ArrowLeft")) {
+    event.preventDefault();
+    const tokens = [...token.parentElement.querySelectorAll(".tok")];
+    const at = tokens.indexOf(token) + (event.key === "ArrowRight" ? 1 : -1);
+    if (tokens[at]) pickToken(tokens[at]);
     return;
   }
   if (event.key === "Escape" && $("panel").contains(event.target)) {
@@ -743,6 +758,10 @@ async function showPanel(name, params, opener) {
     refused.hidden = false;
   }
   $("panel").hidden = false;
+  for (const link of $("panel").querySelectorAll("a[data-docs]")) {
+    link.href = `${clarity.docs || ""}${link.dataset.docs}`; // the guide at this version
+  }
+  shade();
   const again = focused && $(focused);
   if (again) again.focus();
   else if (opening) $("panel-title").focus();
@@ -753,6 +772,7 @@ function closePanel() {
   const opener = panelOf && panelOf.opener;
   panelOf = null;
   $("panel").hidden = true;
+  shade(); // clears the shading
   let back = opener;
   if (opener && !opener.isConnected) {
     const call = opener.closest("[data-call]")?.dataset.call;
@@ -783,6 +803,41 @@ async function setting(args, row = null, box = null) {
 }
 
 clarity.on.settings = (element) => showPanel("settings", {}, element);
+
+// Probabilities (C4c): while its section is open, the reply is drawn shaded, token by
+// token, from the panel's copy; picking a token shows its chance and alternatives.
+function shade() {
+  for (const old of $("thread").querySelectorAll(".msg.shaded")) old.remove();
+  for (const msg of $("thread").querySelectorAll(".msg[hidden]")) msg.hidden = false;
+  const section = $("panel").hidden ? null : $("panel").querySelector('details[data-key="probs"]');
+  const shaded = section && section.open && section.querySelector(".msg.shaded");
+  if (!shaded) return;
+  const item = $("thread").querySelector(`li[data-call="${CSS.escape(section.dataset.call)}"]`);
+  if (!item) return;
+  const copy = shaded.cloneNode(true);
+  copy.hidden = false;
+  copy.setAttribute("role", "group");
+  copy.setAttribute("aria-label", "The reply, token by token; arrow keys move between them");
+  item.querySelector(".msg").hidden = true;
+  item.querySelector(".msg").after(copy);
+}
+
+function pickToken(token) {
+  // One token selected, its details shown in the panel; one Tab stop for the tokens.
+  const tokens = [...token.parentElement.querySelectorAll(".tok")];
+  for (const t of tokens) {
+    t.setAttribute("aria-pressed", String(t === token));
+    t.tabIndex = t === token ? 0 : -1;
+  }
+  for (const info of $("panel").querySelectorAll(".tokinfo")) {
+    info.hidden = info.dataset.i !== token.dataset.i;
+  }
+  token.focus();
+}
+
+document.addEventListener("toggle", (event) => {
+  if (event.target.matches && event.target.matches('#panel details[data-key="probs"]')) shade();
+}, true);
 
 // Details (C4b): one call's record, from the toolbar, the facts line or a failed line.
 clarity.on.details = (element) => {

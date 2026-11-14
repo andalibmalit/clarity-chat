@@ -7,6 +7,7 @@ V3Details).
 from __future__ import annotations
 
 import html
+import re
 
 import pytest
 from starlette.testclient import TestClient
@@ -143,3 +144,84 @@ def test_an_earlier_reply_says_so(chat):
     first = result(client, "say", "Hi")["call"]
     result(client, "say", "Again")
     assert "An earlier reply" in details(client, first["call_id"])
+
+
+# --- Probabilities (C4c), a section of Details
+
+
+def fake_logprobs(tokenizer, ids, chosen=-0.5):
+    (z,) = tokenizer.encode("z")
+    return {
+        "view": "raw logits, before any sampler",
+        "n": 2,
+        "tokens": [{"id": t, "logprob": chosen, "top": [[t, chosen], [z, -3.0]]} for t in ids],
+    }
+
+
+def test_recorded_probabilities_shade_the_reply_token_by_token(chat):
+    import math
+
+    client, session = chat
+    tokenizer = session.tokenizer
+    session.backend.replies = [" Café, olé!"]
+    ids = tokenizer.encode(" Café, olé!") + [tokenizer.tok.eos_token_id]
+    session.backend.logprobs = fake_logprobs(tokenizer, ids, chosen=-2.0)  # about 14%
+    call = result(client, "say", "Hi")["call"]
+    probs = result(client, "probs", call["call_id"])
+    fragment = details(client, call["call_id"])
+    assert "2 likeliest per token" in fragment
+    assert "Shading is per token: a word, part of a word, or punctuation." in fragment
+    # The shaded reply: its tokens' pieces, in order, make the reply (the end token aside).
+    shaded = fragment.split('<div class="msg shaded"')[1].split("</div>")[0]
+    pieces = re.findall(
+        r'<button type="button" class="tok[^"]*" data-i="(\d+)"[^>]*>(.*?)</button>', shaded
+    )
+    reply = call["output_text"]
+    tokens = probs["tokens"]
+    assert (
+        "".join(text for i, text in pieces if tokens[int(i)]["end"] > tokens[int(i)]["start"])
+        == reply
+    )
+    assert 'class="tok p1"' in shaded  # 14%: the 10–30% band
+    first = tokens[0]
+    chance = math.exp(first["logprob"])
+    assert f"The model gave “{first['text']}” a {chance:.0%} chance" in fragment
+    assert f"Log-probability {first['logprob']:.2f}: the natural log of that chance." in fragment
+    assert "The likeliest tokens here" in fragment and "z</span>" in fragment
+
+
+@pytest.mark.parametrize(
+    ("backend_name", "logprobs", "heading", "sentence"),
+    [
+        (
+            "llama.cpp",
+            None,
+            "not on llama.cpp, for now",
+            "Probabilities need a profile that runs on Transformers.",
+        ),
+        (
+            "transformers",
+            None,
+            "not recorded",
+            "No probabilities for this reply: they weren’t switched on when it was written, "
+            "and replaying it won’t add them. Turn them on for the next reply.",
+        ),
+        (
+            "transformers",
+            {"unavailable": "cancelled"},
+            "none recorded",
+            "None recorded: the reply was stopped.",
+        ),
+    ],
+)
+def test_without_probabilities_the_section_says_why(
+    chat, backend_name, logprobs, heading, sentence
+):
+    client, session = chat
+    session.backend.name, session.backend.logprobs = backend_name, logprobs
+    call = result(client, "say", "Hi")["call"]
+    assert result(client, "probs", call["call_id"])["reason"] in ("llama_cpp", "off", "cancelled")
+    fragment = details(client, call["call_id"])
+    assert f'Probabilities <span class="n">{heading}</span>' in fragment and sentence in fragment
+    if heading == "not recorded":
+        assert 'data-set="logprobs 5">Record them from the next reply<' in fragment
