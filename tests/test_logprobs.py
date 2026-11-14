@@ -353,5 +353,7 @@ def test_reply_spans_are_null_rather_than_wrong():
         return SimpleNamespace(tok=SimpleNamespace(decode=decode))
 
     assert reply_spans(tokenizer(["a", "ab"]), [1, 2], "ab") == [(0, 1), (1, 2)]
-    assert reply_spans(tokenizer(["a", "xb"]), [1, 2], "xb") is None  # rewrites earlier text
+    # Rewrites earlier text, though the whole still matches the reply: only the stability
+    # guard can catch it.
+    assert reply_spans(tokenizer(["ab", "a"]), [1, 2], "ab") is None
     assert reply_spans(tokenizer(["a", "ab"]), [1, 2], "zz") is None  # isn't the reply

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from clarity_chat.backends import BackendError
@@ -498,12 +500,31 @@ def test_profiles_are_listed_by_name_not_by_file_name(commands, fetched_root):
     assert names.index("a") < names.index("a-b")
 
 
-def test_profiles_lists_an_unreadable_file_with_its_error(commands, fetched_root):
-    """Final checkpoint, finding 12: the OSError branch (a folder named like a profile)."""
+def test_profiles_lists_an_unreadable_file_with_its_error(commands, fetched_root, monkeypatch):
+    """Final checkpoint, finding 12: the OSError branch (a file the reader can't open)."""
+    from clarity_chat import profiles
+
     c, _ = commands
-    (fetched_root / "profiles" / "folder.toml").mkdir()
+    real = profiles.read_text
+
+    def read(path, *args, **kwargs):
+        if Path(path).name == "text.toml":
+            raise PermissionError(13, "Permission denied", str(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(profiles, "read_text", read)
     by_name = {p["name"]: p for p in c.run("profiles", "", lambda e: None)["profiles"]}
-    assert by_name["folder"]["error"]
+    assert "Permission denied" in by_name["text"]["error"]
+
+
+def test_a_transformers_profile_without_its_official_weights_isnt_fetched(commands, fetched_root):
+    """Fix review, finding 4: the GGUF is there, but Transformers needs the source weights."""
+    c, _ = commands
+    text = (fetched_root / "profiles" / "text.toml").read_text(encoding="utf-8")
+    hf = text.replace('backend = "llama.cpp"', 'backend = "transformers"')
+    (fetched_root / "profiles" / "hf.toml").write_text(hf, encoding="utf-8")
+    by_name = {p["name"]: p for p in c.run("profiles", "", lambda e: None)["profiles"]}
+    assert by_name["text"]["fetched"] is True and by_name["hf"]["fetched"] is False
 
 
 def test_the_terminal_list_of_profiles_ends_with_what_it_doesnt_check(commands):
