@@ -489,3 +489,41 @@ def test_conditions_from_real_shaped_server_records(server):
         assert found["weights"]["gguf_sha256"] == "0" * 64
     else:
         assert found["attn_implementation"] == "sdpa" and found["dtype"] == "bfloat16"
+
+
+def test_an_export_is_named_by_its_log_so_a_copy_doesn_t_overwrite_the_original(
+    make, fetched_root, capsys
+):
+    """The tripwire review after C5, finding 6: exports are named by the log's file name,
+    the ID `clarity chats` lists and `clarity export ID` takes, not the conversation ID,
+    which a copied log shares. /export, `clarity export ID` and --json agree."""
+    from clarity_chat.commands import Commands
+
+    session, _ = make([" Hello!", " Again."])
+    session.new_conversation("text")
+    session.say("Hi")
+    original = session.conversation.log.path
+    exports = fetched_root / "logs" / "exports"
+    first = Commands(session).run("export", "", lambda e: None)
+    assert Path(first["path"]) == exports / original.name
+    before = (exports / original.name).read_bytes()
+    copy = Path(shutil.copy(original, original.parent / "my-copy.jsonl"))
+    session.resume(copy)
+    session.say("Only in the copy")
+    second = Commands(session).run("export", "", lambda e: None)
+    assert Path(second["path"]) == exports / "my-copy.jsonl" and not second["replaced"]
+    assert (exports / original.name).read_bytes() == before
+    assert cli.main(["--root", str(fetched_root), "export", "my-copy"]) == 0
+    assert str(exports / "my-copy.jsonl") in capsys.readouterr().out
+
+
+def test_a_log_file_name_clarity_wouldn_t_write_needs_out(make, tmp_path):
+    """The default file is named by the log's, which must stay in logs/exports/."""
+    session, _ = make([" Hello!"])
+    session.new_conversation("text")
+    session.say("Hi")
+    assert session.conversation is not None
+    odd = Path(shutil.copy(session.conversation.log.path, tmp_path / "my notes.jsonl"))
+    with pytest.raises(ConfigError, match="--out"):
+        export_log(session, odd)
+    assert export_log(session, odd, tmp_path / "out.jsonl")["path"] == str(tmp_path / "out.jsonl")
