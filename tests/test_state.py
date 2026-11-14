@@ -273,3 +273,64 @@ def test_a_failed_edit_after_a_failed_message_leaves_nothing_unanswered(commands
     live = state(c)["unanswered"]
     c.run("resume", c.session.conversation.conversation_id, lambda e: None)
     assert live == state(c)["unanswered"] is None
+
+
+# --- A1 (v0.3.0): text events carry their position, so a page joins /state and the stream
+
+
+def test_text_events_carry_at_and_end_in_the_reply(commands):
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    backend.replies = [" Hi 🙂 there."]
+    events: list[dict] = []
+    reply = c.run("say", "Hi", events.append)["call"]["output_text"]
+    texts = [e for e in events if e["event"] == "text"]
+    assert [(e.get("at"), e.get("end")) for e in texts][0][0] == 0
+    assert all(a.get("end") == b.get("at") for a, b in zip(texts, texts[1:], strict=False))
+    assert texts[-1].get("end") == len(reply)  # code points: the emoji counts as one
+
+
+@pytest.mark.parametrize("command", ["say Hi", "regen 2"])
+def test_a_page_that_reads_state_mid_reply_joins_the_stream_exactly(commands, command):
+    """Wherever the page reads /state, it draws the last reply exactly: from the snapshot plus
+    the events at or past reply_end if the snapshot was of that reply, else from that reply's
+    own events (it began after the snapshot)."""
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    if command.startswith("regen"):
+        c.run("say", "Hi", lambda e: None)
+    for moment in range(1, 8):
+        backend.replies = [" One 🙂 two", " Three four five"]
+        events: list[dict] = []
+        seen: dict = {}
+
+        def on_event(event, moment=moment, events=events, seen=seen):
+            events.append(event)
+            texts = sum(e["event"] == "text" for e in events)
+            if event["event"] == "text" and texts == moment and not seen:
+                seen.update(state=state(c), index=len(events))
+
+        name, _, args = command.partition(" ")
+        result = c.run(name, args, on_event)
+        last = (result.get("replies") or [result])[-1]["call"]["output_text"]
+        if not seen:
+            continue  # the replies had fewer pieces than this moment
+        snapshot, after = seen["state"], events[seen["index"] :]
+        starts = [i for i, e in enumerate(after) if e["event"] == "reply_start"]
+        if starts:  # the last reply began after the snapshot
+            later = after[starts[-1] :]
+            joined = "".join(e["text"] for e in later if e["event"] == "text")
+        else:
+            end = snapshot.get("reply_end", 10**9)
+            tail = [e for e in after if e["event"] == "text" and e.get("at", -1) >= end]
+            joined = snapshot["reply_so_far"] + "".join(e["text"] for e in tail)
+        assert joined == last, (command, moment)
+
+
+def test_no_running_command_means_no_reply_so_far(commands):
+    """A1b: the snapshot is consistent."""
+    c, _ = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    after = state(c)
+    assert after["running"] is None and after["reply_so_far"] == "" and after.get("reply_end") == 0

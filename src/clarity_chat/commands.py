@@ -43,9 +43,13 @@ class Commands:
         self.busy = threading.Lock()  # held while a command runs: one at a time
         self.cancel_event: threading.Event | None = None  # the running command's
         self.running: str | None = None  # the running command's name
-        self.streamed: list[str] = []  # the reply being written, so far (for /state)
-        self.running_args = ""  # the running command's arguments (for /state)
-        self.reply_k_of_n: dict[str, int | None] = {"k": None, "n": None}  # of /regen N
+        # What /state reads while a command runs on another thread, kept consistent by
+        # `progress`: the command, its args, which reply of /regen N, and the reply so far.
+        self.progress = threading.Lock()
+        self.streamed: list[str] = []
+        self.streamed_end = 0  # characters (code points) streamed into the current reply
+        self.running_args = ""
+        self.reply_k_of_n: dict[str, int | None] = {"k": None, "n": None}
         self.starting = False  # a model start is under way (from the status events)
         # Paths only from the command line (--profile, --resume), which you type. Commands
         # will also come from the browser (v0.3.0), so they take names and IDs.
@@ -68,17 +72,23 @@ class Commands:
             )
         # Made before the command starts, so a cancel that arrives early isn't lost.
         self.cancel_event = threading.Event()
-        self.running, self.running_args = name, args
-        self.reply_k_of_n = {"k": None, "n": None}
+        with self.progress:
+            self.running, self.running_args = name, args
+            self.reply_k_of_n = {"k": None, "n": None}
+            self.streamed, self.streamed_end = [], 0
         self.paths = paths
-        self.streamed = []
 
         def tracked(event: dict[str, Any]) -> None:
             if event["event"] == "text":
-                self.streamed.append(event["text"])
+                with self.progress:  # each piece's place, so a page joins /state and events
+                    at = self.streamed_end
+                    self.streamed.append(event["text"])
+                    self.streamed_end = at + len(event["text"])
+                event = {**event, "at": at, "end": self.streamed_end}
             elif event["event"] == "reply_start":
-                self.streamed = []
-                self.reply_k_of_n = {"k": event["k"], "n": event["n"]}
+                with self.progress:
+                    self.streamed, self.streamed_end = [], 0
+                    self.reply_k_of_n = {"k": event["k"], "n": event["n"]}
             elif event["event"] == "status":
                 self.starting = event["status"] == "starting"
             emit(event)
@@ -94,8 +104,8 @@ class Commands:
             self.starting = False  # done, or failed: /state reads what runs now
             self.session.on_record = None
             self.cancel_event = None
-            self.streamed = []
-            self.running = None
+            with self.progress:
+                self.streamed, self.streamed_end, self.running = [], 0, None
             self.paths = False
             self.busy.release()
 
@@ -545,11 +555,17 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     from clarity_chat.logs import chat_summary, client_git
 
     session, conversation = c.session, c.session.conversation
+    with c.progress:  # one consistent snapshot of what's running and how far it got
+        running = (
+            None
+            if c.running is None
+            else {"command": c.running, "args": c.running_args, **c.reply_k_of_n}
+        )
+        reply_so_far, reply_end = "".join(c.streamed), c.streamed_end
     out: dict[str, Any] = {
-        "running": None
-        if c.running is None
-        else {"command": c.running, "args": c.running_args, **c.reply_k_of_n},
-        "reply_so_far": "".join(c.streamed),
+        "running": running,
+        "reply_so_far": reply_so_far,
+        "reply_end": reply_end,
         "model": model_state(c),
         "clarity": {"version": version("clarity-chat"), **client_git()},
         "llama_cpp_commit": session.server_config.llama_cpp_commit,

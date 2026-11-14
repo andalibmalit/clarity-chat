@@ -78,7 +78,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 
 | `event` | Sent when | Other fields |
 |---|---|---|
-| `text` | reply text streams in | `text` |
+| `text` | reply text streams in | `text`, and `at` and `end`: where the piece sits in the reply being written, in characters (Unicode code points), so a reader that joins mid-reply keeps the pieces at or past `/state`'s `reply_end` |
 | `reply_start` | before each reply of `/regen N` | `k` (which reply, from 1), `n`, `seed` |
 | `status` | a model is starting, ready, or has stopped (its server exited; the call that found it fails, and resuming the conversation starts it again) | `status`, and `profile` (its name), `log` (the conversation ID being resumed) or `conversation_id` |
 | `record` | a record is appended to the log | `record`: exactly what was written. Record events are the log, in order. |
@@ -108,7 +108,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `profile`, `new` | `conversation_id`, `profile`, `model`, `mode` and `warnings` |
 | `resume` | the same, plus `resume` (the record), `head_text` and `differ`: `count`, how many things differ today, and `items`, each a sentence the terminal also prints and the `count` of things it covers. Counted: a changed profile file, each changed `models.toml` key, each setting today's files would set differently, each fact changed since the last call, a prompt that renders differently, and a context size the log doesn't give. Not counted: an unanswered message, a guessed head, restored `/set` values and facts the log doesn't record. |
 | `cancel` | `cancelled`, and `command` or `reason` |
-| `state` | `running` (null, or the command running: `command`, `args`, and for `/regen N` `k` and `n`, which reply of how many is being written), `reply_so_far`, `model` (`none`, `starting`, `ready` or `stopped`, read from the backend when `state` runs), `model_name`, `clarity` (`version`, `commit`, `dirty`), `llama_cpp_commit`, and the conversation's `conversation_id`, `title`, `profile`, `head`, `turns` (as `history` gives them), `unanswered` (`turn_id` and `text` of your last message if its call failed, else null), `warnings` and `resume_differ` (after a resume, until the next reply: what differs today, as `/resume`'s `differ`; else null). Before any conversation, those are null or empty. |
+| `state` | `running` (null, or the command running: `command`, `args`, and for `/regen N` `k` and `n`, which reply of how many is being written), `reply_so_far` and `reply_end` (its length in code points; empty and 0 when nothing runs), `model` (`none`, `starting`, `ready` or `stopped`, read from the backend when `state` runs), `model_name`, `clarity` (`version`, `commit`, `dirty`), `llama_cpp_commit`, and the conversation's `conversation_id`, `title`, `profile`, `head`, `turns` (as `history` gives them), `unanswered` (`turn_id` and `text` of your last message if its call failed, else null), `warnings` and `resume_differ` (after a resume, until the next reply: what differs today, as `/resume`'s `differ`; else null). Before any conversation, those are null or empty. |
 | `help` | `commands`, each with `usage` and `help` |
 | `quit` | `quit`: true |
 
