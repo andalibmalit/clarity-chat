@@ -25,6 +25,7 @@ uv run pytest -m live                     # SmolLM2 via the managed llama-server
 uv run pytest -m olmo                     # OLMo 3 (needs both OLMo models fetched)
 uv run pytest -m measure -v -s            # timings and memory figures behind design choices
 uv run pytest -m embed -v -s              # embedding determinism on bge-small (decides v0.3.3)
+uv run pytest -m browser                  # the web UI in Chrome (needs `uv sync --group browser`)
 uv run ruff check && uv run ruff format --check && uv run ty check
 ```
 

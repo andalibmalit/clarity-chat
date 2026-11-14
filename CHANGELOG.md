@@ -9,7 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Added
-- `clarity ui` starts the web interface's server on `127.0.0.1:8765`: the routes, the checks and the event stream, over the same commands as `--json`. It prints a link with a secret made for this start and opens it through a private file; the page itself comes next.
+- `clarity ui` starts the web interface's server on `127.0.0.1:8765`: the routes, the checks and the event stream, over the same commands as `--json`. It prints a link with a secret made for this start and opens it through a private file. The page's core reads the secret from the link's fragment, keeps the event stream and joins a reply after a reload; the screens come next.
 - `/chats` and `/profiles` answer at once, even during a reply, and `/settings` does while a reply is written or replayed, as `/state` and `/cancel` do; with `--json` they run as soon as they're read.
 - `text` events carry `at` and `end`, the piece's place in the reply, and `/state` gives `reply_end`, so a reader that starts mid-reply joins the stream without dropping or repeating text.
 

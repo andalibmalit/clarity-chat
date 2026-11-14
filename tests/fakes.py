@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import threading
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,7 @@ class FakeBackend:
         # left the end token out of the output IDs. True replays them as they were made.
         self.before_v0_2_3 = False
         self.stopped = False  # the server has exited: calls fail until the next start
+        self.piece_delay = 0.0  # seconds between streamed pieces (a page can reload meanwhile)
 
     @property
     def n_ctx(self) -> int:
@@ -174,6 +176,8 @@ class FakeBackend:
             streamed.append(piece)
             if on_text and piece:
                 on_text(piece)
+            if self.piece_delay:
+                time.sleep(self.piece_delay)
         end = self.tokenizer.tok.eos_token_id if self.tokenizer else None
         if stop_type == "eos" and end is not None and not self.before_v0_2_3:
             ids.append(end)  # the end token is in the output IDs, as on both real backends
