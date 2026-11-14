@@ -594,23 +594,16 @@ class Session:
             "nothing. Check their names against the template: the prompt shows its output."
         ]
 
-    def start_model(
-        self, prepared: Prepared, ctx_size: Setting, again: bool = False
-    ) -> dict[str, Any] | None:
+    def start_model(self, prepared: Prepared, ctx_size: Setting) -> dict[str, Any] | None:
         """Start (or keep) the model a prepared profile needs, at `ctx_size`. Returns the
         server_start record if a server started. On failure the current conversation's
-        model is restarted, so it stays usable. With `again` (a /resume of the open
-        conversation, as "Start the model again" sends), that same start isn't tried a
-        second time: the conversation stays, its model stopped, to be tried again."""
+        model is restarted, so it stays usable (see _restore)."""
         previous = self.backend
         try:
             backend = self.use_backend(prepared.profile.backend, prepared.profile.device)
             started = backend.start(prepared.model, prepared.weights, ctx_size.value)
         except (ConfigError, BackendError) as e:
-            if not again:
-                self._restore(previous, e)
-            elif isinstance(e, BackendError):
-                e.server_stopped = True  # as a call that finds the server gone says
+            self._restore(previous, e, (prepared.model, prepared.weights, ctx_size.value))
             raise
         self.model, self.model_lock, self.weights = prepared.model, prepared.lock, prepared.weights
         self.tokenizer = prepared.tokenizer
@@ -618,10 +611,17 @@ class Session:
         self.template = prepared.template
         return started
 
-    def _restore(self, previous: Backend, error: Exception) -> None:
+    def _restore(self, previous: Backend, error: Exception, tried: tuple) -> None:
         """After a failed switch, restart the current conversation's model, so a bad /new or
-        /profile leaves that conversation usable. If that fails too, no conversation runs."""
+        /profile leaves that conversation usable. If that fails too, no conversation runs.
+        If the start that failed was the current conversation's own (`tried`: model,
+        weights and context size, on the same backend), as "Start the model again", a
+        Replay or /new on the same profile after a crash make, the same start would fail
+        the same way: the conversation stays, its model stopped, to be tried again."""
         if self.conversation is None or self.model is None or self.weights is None:
+            return
+        own = (self.model, self.weights, self.conversation.ctx_size.value)
+        if self.backend is previous and tried == own:
             return
         if self.backend is not previous:
             self.backend.close()
@@ -1238,7 +1238,8 @@ class Session:
             backend = self.use_backend(name, device)
             backend.start(model, weights, call["n_ctx"])  # the call's own size, as logged
         except (ConfigError, BackendError) as e:
-            self._restore(previous, e)  # as start_model does: the conversation stays usable
+            # as start_model does: the conversation stays usable
+            self._restore(previous, e, (model, weights, call["n_ctx"]))
             raise
         self.model, self.model_lock, self.weights = model, entry, weights
         tokenizer = self.load_tokenizer(
@@ -1407,9 +1408,7 @@ class Session:
         render = self.check_render(conversation, head, prepared)
         if not os.access(path, os.W_OK):
             raise ConfigError(f"Clarity can't write to {path}, so it can't continue it there.")
-        open_log = self.conversation.log.path if self.conversation else None
-        again = open_log is not None and open_log.resolve() == path.resolve()
-        conversation.started_server = self.start_model(prepared, ctx_size, again=again)
+        conversation.started_server = self.start_model(prepared, ctx_size)
         environment = missing = None
         if last:
             server = state.servers.get((last.get("backend") or {}).get("server_id", ""))

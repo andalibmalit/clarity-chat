@@ -256,3 +256,12 @@ def test_new_on_the_same_profile_with_a_refused_start_keeps_the_chat(commands):
     assert "failed too" not in str(caught.value)
     assert c.session.conversation is conversation
     assert c.run("state", "", lambda e: None)["model"] == "stopped"
+
+
+def test_with_no_chat_open_a_stopped_server_reads_as_no_model(fetched_root, tiny_tokenizer):
+    """A refused first start leaves a server with no process (finding 1): with no chat
+    open there's nothing to start again, so /state says none, as before."""
+    backend = FakeBackend([], tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    backend.stopped = True
+    assert Commands(session).run("state", "", lambda e: None)["model"] == "none"
