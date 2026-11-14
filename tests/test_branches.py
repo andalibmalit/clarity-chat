@@ -892,15 +892,27 @@ def test_branches_all_with_many_marks_and_an_early_fork_is_quick(fetched_root, t
     backend = FakeBackend([" ok"] * 402, n_ctx=100_000, tokenizer=tiny_tokenizer)
     session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
     session.new_conversation("text")
-    first = session.say("m").turn
-    for _ in range(399):
-        reply = session.say("m").turn
-        session.annotate("mark", "seen", session.conversation.calls[reply.call_id])
-    session.switch(first.turn_id)
+    conversation = session.conversation
+    assert conversation is not None
+    first = session.say("m").record
+    for i in range(399):
+        reply = session.say("m").record
+        conversation.log.append(  # a mark record, as annotate writes it, without its read
+            {
+                "type": "mark",
+                "conversation_id": conversation.conversation_id,
+                "call_id": reply["call_id"],
+                "turn_id": reply["turn_id"],
+                "origin": "live",
+                "mark_id": f"mark-{i:012x}",
+                "label": "seen",
+            }
+        )
+    conversation.move_head(first["turn_id"], "undo")  # back to the first reply, as /undo goes
     session.say("fork")  # a fork at the first reply, above every mark
     c = Commands(session)
     started = time.perf_counter()
     result = c.run("branches", "all", lambda e: None)
     elapsed = time.perf_counter() - started
     assert len(result["marked"]) == 399 and len(result["ends"]) == 2
-    assert elapsed < 5, elapsed
+    assert elapsed < 2, elapsed  # 3.8 s on an M2 Max before the fix; about 0.1 s after

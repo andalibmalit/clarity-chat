@@ -108,7 +108,8 @@ def target(c: Commands, args: str) -> tuple[dict[str, Any] | None, str]:
     """The call a command's first word names, and the rest of its arguments. Only a whole
     call ID names a call, and it must be one of this conversation's, failed calls included;
     any other first word is the command's own text. None: the current reply."""
-    first, _, rest = args.partition(" ")
+    # Any whitespace ends the ID: a newline (Alt+Enter) or a tab, not only a space.
+    first, rest = re.fullmatch(r"(\S*)\s*(.*)", args, re.S).groups()  # ty: ignore
     if not CALL_ID.fullmatch(first):
         return None, args
     conversation = c.session.conversation
@@ -376,19 +377,17 @@ def _probs(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     assert tokenizer is not None
     reply = call["output_text"]
     ids = [t["id"] for t in logprobs["tokens"]]
-    tokens, at = [], 0
-    for i, (t, text) in enumerate(
-        zip(logprobs["tokens"], token_texts(tokenizer, ids), strict=True)
-    ):
-        start = min(at, len(reply))
-        at += len(text)
+    spans = reply_spans(tokenizer, ids, reply)
+    tokens = []
+    texts = token_texts(tokenizer, ids)
+    for i, (t, text) in enumerate(zip(logprobs["tokens"], texts, strict=True)):
         tokens.append(
             {
                 "index": i,
                 "id": t["id"],
                 "text": text,
-                "start": start,
-                "end": min(at, len(reply)),  # a stop string or end token lies past the reply
+                "start": spans[i][0] if spans else None,
+                "end": spans[i][1] if spans else None,
                 "logprob": t["logprob"],
                 "top": [
                     {"id": o, "text": tokenizer.decode([o]), "logprob": lp} for o, lp in t["top"]
@@ -406,19 +405,50 @@ def _probs(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def token_texts(tokenizer: Any, ids: list[int]) -> list[str]:
-    """Each token's share of the decoded text. A character split across tokens (é in a
-    byte-level vocabulary) belongs to the token that completes it, so the texts join up."""
-    texts, shown = [], ""
-    for i in range(len(ids)):
-        text = tokenizer.decode(ids[: i + 1])
-        if i < len(ids) - 1:
+    """Each token's own text, special tokens included (an end token reads "</s>"). A
+    character split across tokens (é in a byte-level vocabulary) belongs to the token that
+    completes it, so the texts join up."""
+    return [text for text, _ in _pieces(lambda i: tokenizer.decode(ids[: i + 1]), len(ids))]
+
+
+def reply_spans(tokenizer: Any, ids: list[int], reply: str) -> list[tuple[int, int]] | None:
+    """Each token's characters in the reply. The reply was decoded without special tokens
+    (Transformers' output_text), so they're left out here too, and a token past the
+    reply's end (a stop string) gets an empty span at its end. None when the decoder
+    doesn't build the text up token by token, rather than wrong offsets."""
+
+    def prefix(i: int) -> str:
+        return tokenizer.tok.decode(
+            ids[: i + 1], skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )
+
+    pieces = _pieces(prefix, len(ids))
+    if any(not stable for _, stable in pieces):
+        return None
+    spans, at = [], 0
+    for text, _ in pieces:
+        start = min(at, len(reply))
+        at += len(text)
+        spans.append((start, min(at, len(reply))))
+    if "".join(text for text, _ in pieces)[: len(reply)] != reply:
+        return None
+    return spans
+
+
+def _pieces(decode_prefix: Callable[[int], str], n: int) -> list[tuple[str, bool]]:
+    """What each of n tokens adds to the decoded text, and whether the earlier text stayed
+    as it was (a decoder can rewrite it, as some do with spaces)."""
+    out, shown = [], ""
+    for i in range(n):
+        text = decode_prefix(i)
+        if i < n - 1:
             text = text.rstrip("\ufffd")  # a character still incomplete
-        if not text.startswith(shown):  # a decoder that rewrites earlier text: keep the joins
-            texts.append("")
+        if not text.startswith(shown):
+            out.append(("", False))
             continue
-        texts.append(text[len(shown) :])
+        out.append((text[len(shown) :], True))
         shown = text
-    return texts
+    return out
 
 
 def _export(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
