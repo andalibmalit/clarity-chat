@@ -238,3 +238,17 @@ def test_transformers_lists_every_setting_it_cant_apply():
         in fragment
     )
     assert "Transformers applies its processors in a fixed order" in fragment
+
+
+# --- The design walkthrough at bd59488
+
+
+def test_the_seed_row_says_which_replies_it_seeds(chat):
+    """Finding 1: the seed set here is for the next message sent or edited; Regenerate and
+    More replies take the next seed up (session.regen), so the row must say so."""
+    client, _ = chat
+    r = row(panel(client), "seed")
+    assert (
+        "Used for the next message you send or edit. Regenerate and More replies take the "
+        "next seed up instead; to run a reply again with its own seed, use Replay in Details."
+    ) in r
