@@ -137,3 +137,23 @@ def test_llama_cpp_says_its_server_stopped_when_the_stream_just_ends(monkeypatch
     with pytest.raises(BackendError, match="stopped during the call") as caught:
         backend.complete([1, 2], settings, [])
     assert caught.value.server_stopped is True
+
+
+def test_llama_cpp_says_its_server_stopped_when_the_connection_drops(monkeypatch, root):
+    """Final checkpoint, finding 6: the connection-error path, with the process reaped late."""
+    import httpx
+
+    from clarity_chat.backends import llama_cpp
+    from tests.test_llama_cpp import ExitedServer
+
+    backend = llama_cpp.LlamaCppBackend(load_server_config(root), root / "logs")
+    monkeypatch.setattr(backend, "server", ExitedServer())
+
+    def drop(*args, **kwargs):
+        raise httpx.ReadError("connection reset")
+
+    monkeypatch.setattr(llama_cpp.httpx, "stream", drop)
+    settings = {**load_defaults(root), "seed": 42, "max_tokens": 4}
+    with pytest.raises(BackendError, match="stopped during the call") as caught:
+        backend.complete([1, 2], settings, [])
+    assert caught.value.server_stopped is True
