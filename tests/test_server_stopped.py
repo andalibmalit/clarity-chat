@@ -175,3 +175,84 @@ def test_the_terminal_suggests_resume_when_regen_n_finds_the_server_stopped(
     loop.handle("/regen 2")
     assert session.conversation is not None
     assert f"/resume {session.conversation.conversation_id} starts it again." in "".join(output)
+
+
+# --- The tripwire review after C5 (findings 1 and 3)
+
+
+def test_a_llama_start_refused_before_launch_leaves_the_server_stopped(root):
+    """Finding 1: "Start the model again" after llama.cpp moved or was rebuilt: start()
+    replaces the exited server, then refuses before launching it. The model is stopped
+    (not ready with no server), and a call says so instead of posting to nothing."""
+    from clarity_chat.backends import llama_cpp
+    from clarity_chat.profiles import ConfigError, load_models
+
+    backend = llama_cpp.LlamaCppBackend(load_server_config(root), root / "logs")
+    exited = SimpleNamespace(poll=lambda: 1)
+    backend.server = SimpleNamespace(proc=exited, record={}, gguf=None, stop=lambda: None)  # ty: ignore[invalid-assignment]
+    assert backend.stopped
+    weights = root / "m.gguf"
+    weights.write_bytes(b"GGUF")
+    with pytest.raises(ConfigError):  # root has no llama.cpp checkout
+        backend.start(load_models(root)["tiny"], weights, 512)
+    assert backend.stopped is True
+    settings = {**load_defaults(root), "seed": 42, "max_tokens": 4}
+    with pytest.raises(BackendError) as caught:
+        backend.complete([1, 2], settings, [])
+    assert caught.value.server_stopped is True
+
+
+def refuse(backend, error: Exception) -> None:
+    def refused(*args):
+        raise error
+
+    backend.start = refused
+
+
+@pytest.mark.parametrize("kind", ["config", "backend"])
+def test_a_refused_restart_of_the_open_chat_says_stopped_and_keeps_it(commands, kind):
+    """Findings 1 and 3: /resume of the open chat after its server stopped, refused with a
+    ConfigError (llama.cpp moved) or a BackendError, keeps the chat with its model stopped,
+    and sends status: stopped."""
+    from clarity_chat.profiles import ConfigError
+
+    c, backend = commands
+    c.run("say", "a", lambda e: None)
+    conversation = c.session.conversation
+    backend.stopped = True
+    error = ConfigError("llama.cpp moved.") if kind == "config" else BackendError("No GPU.")
+    refuse(backend, error)
+    events: list[dict] = []
+    with pytest.raises(type(error)) as caught:
+        c.run("resume", conversation.log.path.stem, events.append)
+    assert str(caught.value) == str(error)
+    assert c.session.conversation is conversation
+    assert {"event": "status", "status": "stopped"} in events
+    assert c.run("state", "", lambda e: None)["model"] == "stopped"
+
+
+def test_a_replay_with_a_refused_restart_keeps_the_chat(commands):
+    """Finding 3: Details' Replay with the server stopped tries the same start once."""
+    c, backend = commands
+    first = c.run("say", "a", lambda e: None)["call"]
+    conversation = c.session.conversation
+    backend.stopped = True
+    refuse(backend, BackendError("llama-server failed to start: exited with code 1:\nline"))
+    with pytest.raises(BackendError) as caught:
+        c.run("replay", first["call_id"], lambda e: None)
+    assert "failed too" not in str(caught.value)
+    assert c.session.conversation is conversation
+
+
+def test_new_on_the_same_profile_with_a_refused_start_keeps_the_chat(commands):
+    """Finding 3: /new on the same profile after a crash: the same start, tried once."""
+    c, backend = commands
+    c.run("say", "a", lambda e: None)
+    conversation = c.session.conversation
+    backend.stopped = True
+    refuse(backend, BackendError("llama-server failed to start: exited with code 1:\nline"))
+    with pytest.raises(BackendError) as caught:
+        c.run("new", "", lambda e: None)
+    assert "failed too" not in str(caught.value)
+    assert c.session.conversation is conversation
+    assert c.run("state", "", lambda e: None)["model"] == "stopped"
