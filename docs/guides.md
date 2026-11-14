@@ -131,7 +131,7 @@ After every call, Clarity checks that the server's own decoding of the token IDs
    uv run clarity run --openings openings.txt --profiles A B C
    ```
 
-   Add `--seeds 3` for three replies per opening and profile, with seeds 333, 334 and 335. The run's seeds replace the profiles' seeds, so two runs with the same profiles are comparable.
+   Add `--seeds 3` for three replies per opening and profile, with seeds 42, 43 and 44. The run's seeds replace the profiles' seeds, so two runs with the same profiles are comparable.
 
 3. Give raters `runs/RUN_ID/blind.md`. Each reply has empty `Rating:` and `Note:` lines.
 4. After rating, open `key.json`. It says which profile and seed each label came from. Each label's call ID, under `openings[].labels.<label>.call_id`, is what you pass to [`clarity mark`](#label-replies-after-the-fact) or [`clarity replay`](#replay-a-call).

@@ -32,7 +32,7 @@ from clarity_chat.profiles import SEED_MAX, ConfigError, Setting
 from clarity_chat.render import build_prompt
 from clarity_chat.session import ContextError, Prepared, Session, room_left
 
-FIRST_SEED = 333  # the user's choice: a run's seeds are 333, 334, …
+FIRST_SEED = 42  # a run's seeds are 42, 43, …, starting from the default seed
 SPLIT_RULE = (
     'Openings are separated by lines that are exactly "---". A leading UTF-8 byte-order mark '
     "is dropped and CRLF line endings become LF first, so the editor's file format never "
