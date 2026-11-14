@@ -244,6 +244,34 @@ def test_a_steered_export_names_the_vector_to_send():
     assert "Left out: 2 calls that produced no reply." in fragment
 
 
+def test_a_vector_path_with_control_characters_shows_them_escaped_with_no_copy():
+    """Security follow-up (batch 3), 5: a vector's path comes from the log, which another
+    program can write. One holding control or invisible characters (an escape sequence, a
+    right-to-left override) shows them as escapes, with no Copy, since a copy wouldn't name
+    the file. A plain path keeps its Copy."""
+    odd = "local/vectors/\x1b[31mcalm\u202eftg.gguf"
+    vectors = [
+        {"file": odd, "sha256": "a3", "call_ids": ["x"]},
+        {"file": "local/vectors/plain.gguf", "sha256": "b4", "call_ids": ["y"]},
+    ]
+    answer = {
+        "result": {
+            "path": "/x/logs/exports/c.jsonl",
+            "replaced": False,
+            "calls": 2,
+            "failed_calls_left_out": 0,
+            "calls_without_a_turn_left_out": 0,
+            "steered": vectors,
+        }
+    }
+    raw = web.templates.get_template("export.html").render(**web.export_sheet(answer))
+    fragment = html.unescape(raw)
+    assert "\x1b" not in fragment and "\u202e" not in fragment
+    assert '<span class="path">local/vectors/\\x1b[31mcalm\\u202eftg.gguf</span>' in fragment
+    assert fragment.count("Copy the vector’s path") == 1
+    assert 'data-copy="local/vectors/plain.gguf"' in fragment
+
+
 def test_a_failed_export_says_why_and_offers_to_try_again(chat):
     client, session = chat
     result(client, "say", "Hi")
