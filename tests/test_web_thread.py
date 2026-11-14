@@ -67,8 +67,12 @@ def test_your_message_shows_which_version_it_is_and_switches(chat):
     fragment = thread(client)
     assert COUNTER.format(k=2, n=2) in fragment
     assert f'data-switch="{options[0]["turn_id"]}"' in fragment
+    assert 'aria-label="Next version of your message" disabled' in fragment  # the last
     result(client, "switch", options[0]["turn_id"])
-    assert COUNTER.format(k=1, n=2) in thread(client)
+    fragment = thread(client)
+    assert COUNTER.format(k=1, n=2) in fragment
+    assert 'aria-label="Previous version of your message" disabled' in fragment  # the first
+    assert f'data-switch="{options[1]["turn_id"]}"' in fragment  # Next goes to version 2
 
 
 def test_edit_is_on_your_last_message_only_and_holds_its_text(chat):
@@ -170,6 +174,8 @@ def test_a_steerable_profile_unsteered_says_so_and_each_stop_names_its_next_step
     assert full["context_full"] is True and full["plain"] == []
     stopped = web.facts_line({"flags": ["check_failed:server_running"]}, steerable=False)
     assert stopped["restart"] is True
+    cached = web.facts_line({"flags": ["check_failed:no_cache_reuse"]}, steerable=False)
+    assert cached["restart"] is False  # only a stopped server needs starting again
 
 
 def test_the_facts_line_is_the_last_reply_s_call(chat):
@@ -243,9 +249,11 @@ def test_while_a_reply_is_written_the_thread_has_no_controls(chat):
     threading.Event().wait(0.4)
     try:
         assert result(client, "state")["running"]["command"] == "say"
-        fragment = thread(client)  # answered while the reply is written
+        fragment = thread(client)
+        answered_during = worker.is_alive()  # it didn't wait for the reply (no queued reads)
     finally:
         worker.join(10)
+    assert answered_during
     assert ">Again<" in fragment  # your message is in
     for control in ('data-action="regen"', 'data-action="edit"', 'data-action="marks"'):
         assert control not in fragment
@@ -301,3 +309,40 @@ def test_every_drawn_action_has_a_handler():
         | set(re.findall(r"clarity\.on\.([\w]+)\s*=", code))
     )
     assert drawn - handled == set()
+
+
+def test_a_failed_line_needs_your_message_back_in_the_box():
+    """A failed call whose message isn't unanswered (a later undo, say) draws no line."""
+    call = {"error": "BackendError: A made-up failure.", "call_id": "call-0123456789ab"}
+    assert web.failed_line(call, {"unanswered": None}) is None
+    line = web.failed_line(call, {"unanswered": {"turn_id": "turn-1", "text": "Hi"}})
+    assert line == {
+        "kind": "BackendError",
+        "message": "A made-up failure.",
+        "call_id": call["call_id"],
+    }
+
+
+def test_a_new_chat_starting_from_a_chat_doesnt_draw_the_old_one(chat):
+    client, session = chat
+    profile = (session.root / "profiles" / "text.toml").read_text(encoding="utf-8")
+    (session.root / "profiles" / "second.toml").write_text(profile, encoding="utf-8")
+    result(client, "say", "Distinctive old words")
+    gate, worker = start_held(client, session, "second")
+    try:
+        fragment = thread(client)
+    finally:
+        gate.set()
+        worker.join(10)
+    assert "Starting second…" in fragment and "Distinctive old words" not in fragment
+
+
+def test_new_chat_names_the_profile_it_starts(chat):
+    client, session = chat
+    gate, worker = start_held(client, session, "", how="new")
+    try:
+        fragment = thread(client)
+    finally:
+        gate.set()
+        worker.join(10)
+    assert "Starting text…" in fragment
