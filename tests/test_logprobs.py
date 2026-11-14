@@ -245,3 +245,69 @@ def test_a_transformers_replay_uses_the_logged_end_tokens(tiny_tokenizer):
     again = backend.complete([1, 2], SETTINGS, [], request=first.request)
     assert again.stop_type == "eos"
     assert again.backend_settings["eos_token_id"]["value"] == [257]
+
+
+def fake_logprobs(tokenizer, ids):
+    (z,) = tokenizer.encode("z")
+    return {
+        "view": "raw logits, before any sampler",
+        "n": 2,
+        "tokens": [{"id": t, "logprob": -0.5, "top": [[t, -0.5], [z, -3.0]]} for t in ids],
+    }
+
+
+def test_probs_gives_every_tokens_text_and_place_in_the_reply(commands):
+    """The Probabilities view shades each token, so each has its text and offsets."""
+    backend, tokenizer = commands.session.backend, commands.session.tokenizer
+    backend.replies = [" Café, olé!"]  # é is two bytes: two tokens for one character
+    ids = tokenizer.encode(" Café, olé!") + [tokenizer.tok.eos_token_id]
+    backend.logprobs = fake_logprobs(tokenizer, ids)
+    call = commands.run("say", "Hi", lambda e: None)["call"]
+    tokens = commands.run("probs", "", lambda e: None).get("tokens", [])
+    assert [t["id"] for t in tokens] == call["output_ids"]
+    reply = call["output_text"]
+    assert "".join(reply[t["start"] : t["end"]] for t in tokens) == reply
+    assert "".join(t["text"] for t in tokens) == reply + "</s>"  # the end token, as text
+    assert [t["start"] for t in tokens] == sorted(t["start"] for t in tokens)
+    assert tokens[-1]["start"] == tokens[-1]["end"] == len(reply)  # past the reply's end
+    assert tokens[0]["top"][1] == {"id": tokenizer.encode("z")[0], "text": "z", "logprob": -3.0}
+
+
+def test_probs_reads_an_earlier_call_by_its_id(commands):
+    backend, tokenizer = commands.session.backend, commands.session.tokenizer
+    backend.replies = [" One.", " Two."]
+    backend.logprobs = fake_logprobs(tokenizer, tokenizer.encode(" One.") + [1])
+    first = commands.run("say", "a", lambda e: None)["call"]
+    backend.logprobs = None
+    commands.run("say", "b", lambda e: None)
+    result = commands.run("probs", first["call_id"], lambda e: None)
+    assert result["call_id"] == first["call_id"]
+    assert "".join(t["text"] for t in result["tokens"]).startswith(" One.")
+
+
+@pytest.mark.parametrize(
+    ("backend_name", "logprobs", "reason"),
+    [
+        ("llama.cpp", None, "llama_cpp"),
+        ("transformers", None, "off"),
+        ("transformers", {"unavailable": "cancelled"}, "cancelled"),
+    ],
+)
+def test_probs_without_probabilities_gives_a_reason_code(commands, backend_name, logprobs, reason):
+    backend = commands.session.backend
+    backend.name, backend.logprobs = backend_name, logprobs
+    call = commands.run("say", "Hi", lambda e: None)["call"]
+    result = commands.run("probs", call["call_id"], lambda e: None)
+    assert result.get("reason") == reason and result["unavailable"]
+    assert result.get("tokens") == [] and result["least_likely"] == []
+
+
+def test_probs_of_a_failed_call_says_it_has_no_reply(commands):
+    from clarity_chat.backends import BackendError
+
+    commands.session.backend.fail_with = "made-up failure"
+    with pytest.raises(BackendError):
+        commands.run("say", "Hi", lambda e: None)
+    failed = commands.session.conversation.last_call
+    result = commands.run("probs", failed["call_id"], lambda e: None)
+    assert result.get("reason") == "failed"
