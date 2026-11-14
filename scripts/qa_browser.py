@@ -93,6 +93,11 @@ def parse_steps(path: Path) -> list[tuple[str, str]]:
     return steps
 
 
+def allowed(url: str) -> bool:
+    """Whether the browser may load `url`. Nothing is blocked yet."""
+    return True
+
+
 def run_step(page: Page, verb: str, arg: str, out: Path, n: int) -> None:
     if verb == "click":
         page.click(arg)

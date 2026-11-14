@@ -52,7 +52,7 @@ def test_ordinary_steps_parse_as_verb_and_argument(tmp_path):
         "eval document.title",  # no script in the page
         "click",
         "fill #message Hello",
-        "press Enter; rm",
+        "press Enter; rm",  # a key name only, so nothing after it
         "shot ../../elsewhere",
         "sleep forever",
         "width wide",
@@ -64,10 +64,144 @@ def test_steps_outside_the_list_are_refused(tmp_path, line):
         qa.parse_steps(steps(tmp_path, line))
 
 
-def test_paths_outside_notes_qa_are_refused(tmp_path, monkeypatch):
-    path = steps(tmp_path, "reload")
-    argv = ["qa_browser.py", "--root", str(tmp_path), "--out", str(tmp_path), "--steps", str(path)]
-    monkeypatch.setattr(sys, "argv", argv)
+@pytest.mark.parametrize(
+    "line",
+    [
+        "press Meta+v",  # would paste the owner's clipboard into the page
+        "press Control+v",
+        "press Alt+x",
+        "press Meta+a",
+        "sleep 3600",  # holds the port until someone kills the driver
+    ],
+)
+def test_chords_that_reach_the_clipboard_and_long_sleeps_are_refused(tmp_path, line):
+    with pytest.raises(qa.Refused):
+        qa.parse_steps(steps(tmp_path, line))
+
+
+class FakePage:
+    """What run_step uses of a Playwright page. Like Playwright, a screenshot given a path
+    writes it in this process, following a link."""
+
+    def __init__(self):
+        self.fills = []
+
+    def fill(self, selector, text):
+        self.fills.append((selector, text))
+
+    def screenshot(self, path=None, full_page=False):
+        if path is not None:
+            Path(path).write_bytes(b"png")
+        return b"png"
+
+    def locator(self, selector):
+        return self
+
+    def inner_text(self):
+        return "the page's text"
+
+    def aria_snapshot(self):
+        return '- button "Send"'
+
+
+def test_fill_can_empty_a_box(tmp_path):
+    try:
+        parsed = qa.parse_steps(
+            steps(tmp_path, "fill #set-temperature :: ", "fill #set-top_p ::", "fill #m :: a :: b")
+        )
+    except qa.Refused as e:  # what the driver does today
+        parsed = [("refused", str(e))]
+    page = FakePage()
+    for verb, arg in parsed:
+        if verb == "fill":
+            qa.run_step(page, verb, arg, tmp_path, 1)
+    assert page.fills == [("#set-temperature", ""), ("#set-top_p", ""), ("#m", "a :: b")], parsed
+
+
+@pytest.mark.parametrize("name", ["01-a.png", "01-a.txt"])
+def test_a_shot_never_writes_through_a_link_planted_in_dir(tmp_path, name):
+    out = tmp_path / "run"
+    out.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("keep", encoding="utf-8")
+    (out / name).symlink_to(outside)
+    with pytest.raises(FileExistsError):
+        qa.run_step(FakePage(), "shot", "a", out, 1)
+    assert outside.read_text(encoding="utf-8") == "keep"
+
+
+def started(*args, **kwargs):
+    raise AssertionError("clarity ui started")
+
+
+class FakeSession:
+    class Refused(Exception):
+        pass
+
+    @staticmethod
+    def prepare_root(root, init=False):
+        root.mkdir(parents=True, exist_ok=True)
+
+
+@pytest.mark.parametrize("planted", ["link", "dangling link", "an earlier run"])
+def test_dir_holding_a_link_or_a_run_is_refused_before_clarity_starts(
+    tmp_path, monkeypatch, planted
+):
+    qa_dir = tmp_path / "qa"
+    out = qa_dir / "run1"
+    out.mkdir(parents=True)
+    outside = tmp_path / "outside.txt"
+    if planted == "link":
+        outside.write_text("keep", encoding="utf-8")
+    if planted == "an earlier run":
+        (out / "transcript.txt").write_text("the earlier run", encoding="utf-8")
+    else:
+        (out / "transcript.txt").symlink_to(outside)
+    path = steps(qa_dir, "reload")
+
+    monkeypatch.setattr(qa, "QA_DIR", qa_dir)
+    monkeypatch.setattr(qa, "qa_session", lambda: FakeSession)
+    monkeypatch.setattr(qa.subprocess, "Popen", started)
+    argv = ["qa_browser.py", "--root", str(qa_dir / "root"), "--out", str(out)]
+    monkeypatch.setattr(sys, "argv", [*argv, "--steps", str(path)])
     with pytest.raises(SystemExit) as caught:
         qa.main()
     assert caught.value.code == 2
+    if planted == "link":
+        assert outside.read_text(encoding="utf-8") == "keep"
+    if planted == "dangling link":
+        assert not outside.exists()
+
+
+@pytest.mark.parametrize("which", ["--root", "--out", "--steps"])
+def test_each_path_must_be_below_notes_qa(tmp_path, monkeypatch, which):
+    qa_dir = tmp_path / "qa"
+    qa_dir.mkdir()
+    paths = {"--root": qa_dir / "root", "--out": qa_dir / "out", "--steps": steps(qa_dir, "reload")}
+    paths[which] = qa_dir if which == "--root" else tmp_path / "elsewhere"
+    monkeypatch.setattr(qa, "QA_DIR", qa_dir)
+    monkeypatch.setattr(qa, "qa_session", lambda: FakeSession)
+    monkeypatch.setattr(qa.subprocess, "Popen", started)
+    monkeypatch.setattr(
+        sys, "argv", ["qa_browser.py", *(str(x) for kv in paths.items() for x in kv)]
+    )
+    with pytest.raises(SystemExit) as caught:
+        qa.main()
+    assert caught.value.code == 2
+
+
+@pytest.mark.parametrize(
+    ("url", "ok"),
+    [
+        ("http://127.0.0.1:8765/", True),
+        ("http://127.0.0.1:8765/events", True),
+        ("file:///tmp/clarity-open.html", True),
+        ("data:text/plain,x", True),
+        ("https://github.com/andalibmalit/clarity-chat/tree/main/docs", False),
+        ("http://127.0.0.1:8080/", False),
+        ("http://127.0.0.1:8765.example.com/", False),
+        ("http://localhost:8765/", False),
+    ],
+)
+def test_the_browser_reaches_only_clarity(url, ok):
+    assert qa.allowed(url) is ok
