@@ -391,3 +391,30 @@ def test_a_failed_regenerate_after_a_resume_keeps_what_differs(chat):
     session.backend.fail_with = "A made-up failure."
     command(client, "regen")
     assert result(client, "state")["resume_differ"] is not None
+
+
+# --- The Opus whole-branch review (batch 4)
+
+
+def test_a_dotted_log_name_opens_by_name_and_chats_rows_say_both_ids(chat):
+    """SHOULD 2 and 6: one rule for a log's name (dots allowed, not first; no separators),
+    used by /resume and export alike, so a log named chat.v2 opens from the drawer; /chats
+    rows give log_id (the file's name, what /resume takes) and conversation_id (the logged
+    ID); the drawer compares log_id with /state's log_id."""
+    client, session = chat
+    result(client, "say", "Hi")
+    original = result(client, "state")
+    logs = session.logs_dir
+    shutil.copy(logs / f"{original['log_id']}.jsonl", logs / "chat.v2.jsonl")
+    (logs / ".hidden.jsonl").write_text("", "utf-8")
+    rows_by_log = {c.get("log_id"): c for c in result(client, "chats")["chats"]}
+    assert "chat.v2" in rows_by_log and ".hidden" in rows_by_log, list(rows_by_log)
+    assert rows_by_log["chat.v2"]["conversation_id"] == original["conversation_id"]
+    assert rows_by_log["chat.v2"]["openable"] is True
+    assert rows_by_log[".hidden"]["openable"] is False
+    resumed = command(client, "resume", "chat.v2").json()
+    assert "result" in resumed, resumed
+    assert result(client, "state")["log_id"] == "chat.v2"
+    fragment = view(client, "chats")
+    current = [r for r in rows(fragment) if 'aria-current="true"' in r]
+    assert len(current) == 1 and 'data-resume="chat.v2"' in current[0]

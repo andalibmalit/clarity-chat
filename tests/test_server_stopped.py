@@ -325,3 +325,25 @@ def test_the_reply_is_in_reply_so_far_or_the_turns_at_every_moment(commands):
     texts = [t["text"] for t in state["turns"]]
     assert state["reply_so_far"] == " one" or texts[-1:] == [" one"], state["reply_so_far"]
     assert not (state["reply_so_far"] and texts[-1:] == [" one"])  # and never both
+
+
+def test_the_terminal_hint_works_for_a_dotted_log_name(fetched_root, tiny_tokenizer):
+    """The Opus review, SHOULD 2: the hint names the log, and /resume takes that name."""
+    import shutil
+
+    from clarity_chat.cli import ChatLoop
+
+    backend = FakeBackend([" one", " two"], tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    first = session.new_conversation("text")
+    session.say("a")
+    shutil.copy(first.log.path, session.logs_dir / "chat.v2.jsonl")
+    output: list[str] = []
+    loop = ChatLoop(session, "", read=lambda d: "", write=output.append, resume="chat.v2")
+    loop.start()
+    backend.stopped = True
+    loop.handle("Hi")
+    assert "/resume chat.v2 starts it again." in "".join(output)
+    output.clear()
+    loop.handle("/resume chat.v2")
+    assert "Resumed" in "".join(output), "".join(output)
