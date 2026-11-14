@@ -118,7 +118,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 
 ## Conversations and runs
 
-**Branches never overwrite.** `/regen`, `/edit` and `/undo` start new branches, and every turn stays in the log with its parent. The k-th `/regen` uses the first reply's seed plus k: with the same seed it would only repeat the reply, and checking that is `/replay`'s job.
+**Branches never overwrite.** `/regen`, `/edit` and `/undo` start new branches, and every turn stays in the log with its parent. A `/regen` uses the highest seed used for the message plus 1, which for replies made only by `/regen` is the first reply's seed plus k: with the same seed and settings it would only repeat a reply, and checking that is `/replay`'s job. `/regen same` reuses the seeds on purpose, under changed settings, so the change is the only difference between two replies with the same seed.
 
 **`/compare` groups replies by their logged settings, not their requests.** Each backend logs its own request body, so two calls with the same settings can have requests with different keys. The settings table uses the same names on every backend, with the seed left out, since the seed is what differs between replies made to compare.
 

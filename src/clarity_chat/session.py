@@ -656,8 +656,8 @@ class Session:
         return self.call(user, seed=seed, on_text=on_text, cancel=cancel)
 
     def regen_seed(self) -> int:
-        """The next regeneration's seed: the first reply's seed plus k, where k counts this
-        and earlier regenerations of the current message."""
+        """The next regeneration's seed: the highest seed used for the current message, plus
+        1. For replies made only by /regen, that's the first reply's seed plus k."""
         return self._regen_start()[3]
 
     def _regen_start(self) -> tuple[Turn, Turn, Turn, int]:
@@ -669,7 +669,7 @@ class Session:
         first = next((t for t in replies if t.regen_of is None), replies[0])
         if first.seed is None or first.call_id is None:
             raise ConfigError("The first reply to this message has no seed to start from.")
-        seed = first.seed + 1 + sum(t.regen_of is not None for t in replies)
+        seed = max(t.seed for t in replies if t.seed is not None) + 1
         if seed > SEED_MAX:
             raise ConfigError(
                 f"The next regeneration seed, {seed}, is above {SEED_MAX}. Edit the message or "
@@ -789,10 +789,15 @@ class Session:
         return min(len(text), len(call["output_text"]))
 
     def regen(
-        self, on_text: Callable[[str], None] | None = None, cancel: threading.Event | None = None
+        self,
+        on_text: Callable[[str], None] | None = None,
+        cancel: threading.Event | None = None,
+        seed: int | None = None,
     ) -> CallOutcome:
-        """Another reply to the current message, as a new branch, with `regen_seed()`."""
-        reply, user, first, seed = self._regen_start()
+        """Another reply to the current message, as a new branch, with `seed` (default
+        `regen_seed()`)."""
+        reply, user, first, next_seed = self._regen_start()
+        seed = next_seed if seed is None else seed
         return self.call(
             user,
             seed=Setting(seed, "regen"),

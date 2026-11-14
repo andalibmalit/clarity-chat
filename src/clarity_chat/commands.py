@@ -110,21 +110,43 @@ def _say(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _regen(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    """N replies to the current message, one after another, each a new branch. A cancel stops
-    the reply being written and the rest, whenever it comes. A failure after the first reply
-    stops the rest and is returned as `stopped`, with the replies already made; the head
-    stays at the last."""
+    """N replies to the current message, one after another, each a new branch; or, with
+    `same`, one for each seed used for it that has no reply under the current settings.
+    A cancel stops the reply being written and the rest, whenever it comes. A failure after
+    the first reply stops the rest and is returned as `stopped`, with the replies already
+    made; the head stays at the last."""
+    if args == "same":
+        conversation = c.session.conversation
+        assert conversation is not None
+        message = conversation.current_reply("regenerate").parent_id
+        assert message is not None
+        seeds = c.session.seeds_to_make(message)
+        if not seeds:
+            raise ConfigError(
+                "Every seed used for this message already has a reply under the current "
+                "settings. Change a setting first, or make a new reply with /regen."
+            )
+        return {**regen_replies(c, emit, list(seeds)), "seeds": seeds}
     # ASCII digits only: str.isdigit() also accepts "²", which int() refuses.
     n = int(args) if re.fullmatch(r"[0-9]+", args) else 0 if args else 1
     if n < 1:
-        raise ConfigError("Usage: /regen [N], where N is a whole number of replies, 1 or more.")
+        raise ConfigError(
+            "Usage: /regen [N], where N is a whole number of replies, 1 or more; or /regen same."
+        )
+    return regen_replies(c, emit, [None] * n)
+
+
+def regen_replies(c: Commands, emit: Emit, seeds: list[int | None]) -> dict[str, Any]:
+    """One reply per entry of `seeds`, each with that seed or, for None, the next one."""
+    n = len(seeds)
     replies: list[dict[str, Any]] = []
-    for k in range(1, n + 1):
+    for k, given in enumerate(seeds, 1):
         if replies and c.cancel_event is not None and c.cancel_event.is_set():
             break
         try:
-            emit({"event": "reply_start", "k": k, "n": n, "seed": c.session.regen_seed()})
-            replies.append(c.call(emit, c.session.regen))
+            seed = c.session.regen_seed() if given is None else given
+            emit({"event": "reply_start", "k": k, "n": n, "seed": seed})
+            replies.append(c.call(emit, lambda seed=seed, **kw: c.session.regen(seed=seed, **kw)))
         except CancelledBeforeReply:
             if not replies:
                 raise
@@ -493,8 +515,9 @@ COMMANDS: dict[str, Command] = {
         _set,
     ),
     "regen": Command(
-        "/regen [N]",
-        "N more replies to your last message (default 1; seed + 1, + 2, …), each a new branch",
+        "/regen [N | same]",
+        "N more replies to your last message (default 1; next seeds up), each a new branch; "
+        "same: again with its seeds, under the current settings",
         _regen,
         cancellable=True,
     ),
