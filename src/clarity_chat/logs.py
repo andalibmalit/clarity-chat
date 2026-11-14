@@ -26,13 +26,14 @@ import secrets
 import subprocess
 import sys
 import threading
+import tomllib
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 from typing import Any
 
-from clarity_chat.profiles import ConfigError
+from clarity_chat.profiles import ConfigError, one_line
 
 if sys.platform != "win32":
     import fcntl
@@ -218,12 +219,22 @@ def _blank_summary(path: Path) -> dict[str, Any]:
         "conversation_id": path.stem,
         "path": path.as_posix(),
         "profile": None,
+        "description": None,
         "model": None,
         "started": None,
         "title": None,
         "title_set": False,
         "error": None,
     }
+
+
+def logged_description(profile: dict[str, Any]) -> str | None:
+    """The `description` in a logged profile's TOML, if it has a valid one."""
+    try:
+        value = tomllib.loads(profile.get("toml") or "").get("description")
+    except tomllib.TOMLDecodeError:
+        return None
+    return value if one_line(value) else None
 
 
 def chat_summary(path: Path) -> dict[str, Any]:
@@ -239,6 +250,7 @@ def chat_summary(path: Path) -> dict[str, Any]:
         kind = record.get("type")
         if kind == "conversation":
             summary["profile"] = (record.get("profile") or {}).get("name")
+            summary["description"] = logged_description(record.get("profile") or {})
             summary["model"] = (record.get("model") or {}).get("name")
             summary["started"] = record.get("time")
         elif kind == "turn" and record.get("role") == "user" and not first_message:

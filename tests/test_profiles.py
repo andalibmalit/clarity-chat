@@ -46,6 +46,23 @@ def test_settings_come_from_profile_then_defaults_with_origins(root):
     assert profile.settings["min_p"].origin == "default"
 
 
+def test_a_profile_can_describe_itself_in_one_line(root):
+    path = root / "profiles" / "described.toml"
+    path.write_text('description = "A made-up model, for tests."\n' + BASE, encoding="utf-8")
+    assert load_profile(root, "described", load_defaults(root)).description == (
+        "A made-up model, for tests."
+    )
+    assert load_profile(root, "text", load_defaults(root)).description is None
+
+
+@pytest.mark.parametrize("value", ["3", "true", '"two\\nlines"', '""', '"  "'])
+def test_a_description_must_be_one_line_of_text(root, value):
+    path = root / "profiles" / "described.toml"
+    path.write_text(f"description = {value}\n" + BASE, encoding="utf-8")
+    with pytest.raises(ConfigError, match="description must be one line of text"):
+        load_profile(root, "described", load_defaults(root))
+
+
 def test_unknown_setting_name_is_rejected(root):
     write_profile(root, "typo", BASE + "[settings]\ntemprature = 0.5\n")
     with pytest.raises(ConfigError, match="unknown setting 'temprature'"):

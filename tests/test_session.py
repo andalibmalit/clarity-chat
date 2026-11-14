@@ -339,6 +339,26 @@ def test_chats_lists_conversations_newest_first_with_titles(make_session, fetche
     assert by_id[second]["title"] == "A made-up title" and by_id[second]["title_set"]
 
 
+def test_chats_lists_each_conversations_profile_description(make_session, fetched_root):
+    from clarity_chat.cli import format_chats
+    from clarity_chat.logs import list_chats
+
+    text = fetched_root / "profiles" / "text.toml"
+    plain = text.read_text(encoding="utf-8")
+    (fetched_root / "profiles" / "plain.toml").write_text(plain, "utf-8")
+    text.write_text('description = "Made up."\n' + plain, "utf-8")
+    session, _ = make_session()  # its conversation started on text.toml with the description
+    session.say("a")
+    first = session.conversation.conversation_id
+    session.new_conversation("plain")
+    session.say("b")
+    chats = {c["conversation_id"]: c for c in list_chats(fetched_root / "logs")}
+    assert chats[first]["description"] == "Made up."
+    assert chats[session.conversation.conversation_id]["description"] is None
+    printed = format_chats(list(chats.values()))
+    assert f"{first}  text: Made up.  a" in printed
+
+
 def test_chats_lists_a_log_it_cant_read_and_never_writes(fetched_root):
     from clarity_chat.logs import list_chats
 
