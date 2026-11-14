@@ -376,49 +376,58 @@ def test_resuming_another_chat_doesnt_draw_this_one_while_it_starts(chat):
     assert "Words of the second chat" not in fragment and "Starting" in fragment
 
 
-def held_read(client, session):
-    """`history` held at a gate, as a read waiting its turn would be; returns (gate, holder,
-    the `running` each /state call saw)."""
+def held_read(client, name: str, args: str):
+    """A read command held at a gate while it runs, as one waiting its turn behind another
+    view's would be; returns (gate, holder, the `running` each /state call saw, restore)."""
     import dataclasses
 
     from clarity_chat import commands
 
     seen: list = []
-    real_state = commands.COMMANDS["state"]
+    real_state, real = commands.COMMANDS["state"], commands.COMMANDS[name]
+    gate = threading.Event()
 
-    def state(c, args, emit):
+    def state(c, a, emit):
         seen.append(c.running)
-        return real_state.run(c, args, emit)
+        return real_state.run(c, a, emit)
+
+    def held(c, a, emit):
+        gate.wait(5)
+        return real.run(c, a, emit)
+
+    def restore():
+        commands.COMMANDS["state"], commands.COMMANDS[name] = real_state, real
 
     commands.COMMANDS["state"] = dataclasses.replace(real_state, run=state)
-    gate, real = threading.Event(), session.history
-    session.history = lambda *a, **k: (gate.wait(5), real(*a, **k))[1]
-    holder = threading.Thread(target=lambda: command(client, "history"), daemon=True)
+    commands.COMMANDS[name] = dataclasses.replace(real, run=held)
+    holder = threading.Thread(target=lambda: command(client, name, args), daemon=True)
     holder.start()
     threading.Event().wait(0.2)
-    return gate, holder, seen, lambda: commands.COMMANDS.__setitem__("state", real_state)
+    return gate, holder, seen, restore
 
 
 VIEW_NOT_WAITING = {  # each view, drawn while a read waits its turn: what mustn't be there
     "thread": ("", lambda f: 'data-action="regen"' in f),
-    "picker": ("", lambda f: "aria-disabled" not in f),
+    "picker": ("", lambda f: "aria-disabled" not in f and '<span class="ctx' in f),
     "branches": ("", lambda f: "Waits until" not in f),
     "settings": ("", lambda f: "Changes wait" not in f),
     "details": ("call", lambda f: not re.search(r'data-action="replay"[^>]*aria-disabled', f)),
 }
+HELD = [("branches", "all"), ("compare", ""), ("probs", "")]  # other views' queued reads
 
 
+@pytest.mark.parametrize("held", HELD, ids=[h[0] for h in HELD])
 @pytest.mark.parametrize("name", list(VIEW_NOT_WAITING))
-def test_a_read_waiting_its_turn_doesnt_make_the_views_wait(chat, name):
-    """A read in the queue (another view's /branches or /settings, say) sets /state's
+def test_a_read_waiting_its_turn_doesnt_make_the_views_wait(chat, name, held):
+    """A read in the queue (another view's /branches all, /compare or /probs) sets /state's
     `running` while it runs. The views mustn't take it for a command that changes the chat:
-    they'd draw the chat busy, and nothing would redraw it after (Checkpoint 4, finding 8:
-    each view, and proof that it read /state while `history` ran)."""
-    client, session = chat
+    they'd draw the chat busy, and nothing would redraw it after (Checkpoint 4, finding 8
+    and its weak-red check: each view, and proof that it read /state while the read ran)."""
+    client, _ = chat
     call = result(client, "say", "Hi")["call"]
     param, check = VIEW_NOT_WAITING[name]
     path = f"/view/{name}" + (f"?call={call['call_id']}" if param else "")
-    gate, holder, seen, restore = held_read(client, session)
+    gate, holder, seen, restore = held_read(client, *held)
     got: list[str] = []
     try:
         reader = threading.Thread(
@@ -428,8 +437,8 @@ def test_a_read_waiting_its_turn_doesnt_make_the_views_wait(chat, name):
             daemon=True,
         )
         reader.start()
-        threading.Event().wait(0.3)  # the view read /state while history ran
-        assert "history" in seen
+        threading.Event().wait(0.3)  # the view read /state while the held read ran
+        assert held[0] in seen
     finally:
         gate.set()
         holder.join(5)
