@@ -259,3 +259,14 @@ details.more > summary .d2 { font-weight: 400; margin-left: 6px; }
 #panel .alts .w { font-family: var(--mono); min-width: 100px; white-space: pre; }
 #panel .alts li.chosen { font-weight: 500; }
 #panel .sh3 { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+
+/* Branches (C4d) */
+#branches-button .ct { font-variant-numeric: tabular-nums; color: var(--ink); }
+#panel .cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+#panel .bcard { background: var(--raised); border: 1px solid var(--rule); border-radius: var(--r-md); padding: 10px 12px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+#panel .bcard.cur { border-color: var(--accent); }
+#panel .bcard .lbl { font-weight: 500; }
+#panel .bcard .fw { font-family: var(--read); font-size: 15px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+#panel .here { font-size: 12.5px; color: var(--muted); }
+#marked-only[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+li.revealed .msg { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: var(--r-sm); }
