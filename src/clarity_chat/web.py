@@ -80,7 +80,10 @@ VIEWS = {
     "replies",
     "about",
 }
-MAX_BODY = 64 * 1024
+MAX_BODY = 64 * 1024  # any route's body
+# /command's: any message a profile's context can take (the terminal and --json have no
+# cap, so the page mustn't be the odd one out for a realistic message).
+MAX_COMMAND = 8 * 1024 * 1024
 HEARTBEAT = 15.0  # seconds between keep-alive lines on the event stream
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; "
@@ -240,11 +243,13 @@ class Refused(Exception):
 
 async def read_json(request: Request, is_command: bool = True) -> dict[str, Any]:
     """The request's JSON object, by --json's rules for a command."""
+    limit = MAX_COMMAND if is_command else MAX_BODY
+    words = f"{limit // 1024 // 1024} MB" if limit >= 1024 * 1024 else f"{limit // 1024} KB"
     chunks, size = [], 0
     async for chunk in request.stream():  # counted as it arrives, chunked bodies too
         size += len(chunk)
-        if size > MAX_BODY:
-            raise Refused(413, "Too big: Clarity takes at most 64 KB at a time.")
+        if size > limit:
+            raise Refused(413, f"Too big: Clarity takes at most {words} at a time.")
         chunks.append(chunk)
     raw = b"".join(chunks)
     if is_command:
