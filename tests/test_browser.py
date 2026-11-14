@@ -1046,3 +1046,39 @@ def test_a_marked_reply_picked_in_branches_is_outlined(clarity, page):
     shot(page, "J2-marked-only", "c4d")
     page.click("#panel [data-list=marked] [data-reveal]")
     page.wait_for_selector(f"li.revealed[data-turn='{first['turn_id']}']")
+
+
+# --- Checkpoint 4's findings
+
+
+def test_reset_all_puts_every_changed_setting_back(clarity, page):
+    """Finding 13 (board I9): one /set NAME per changed row."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    open_settings(page)
+    for name, value in (("temperature", "0.3"), ("top_p", "0.5")):
+        page.fill(f"#set-{name}", value)
+        page.press(f"#set-{name}", "Enter")
+        page.wait_for_selector(f"[data-setting={name}] .tag:has-text('chat')")
+    page.click("#panel [data-action=reset-all]")
+    page.wait_for_selector("#panel [data-action=reset-all]", state="detached")
+    settings = page.evaluate("clarity.command('settings')")["result"]["settings"]
+    assert all(s["origin"] != "chat" for s in settings.values())
+
+
+def test_an_empty_box_is_refused_in_the_page_and_sends_nothing(clarity, page):
+    """Finding 4: an empty box would send `/set NAME`, which puts the setting back."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    open_settings(page)
+    page.fill("#set-temperature", "0.3")
+    page.press("#set-temperature", "Enter")
+    page.wait_for_selector("[data-setting=temperature] .tag:has-text('chat')")
+    page.fill("#set-temperature", "")
+    page.press("#set-temperature", "Enter")
+    page.wait_for_selector("[data-setting=temperature] .refused:not([hidden])")
+    assert page.text_content("[data-setting=temperature] .refused") == (
+        "Type a value; an empty box changes nothing."
+    )
+    settings = page.evaluate("clarity.command('settings')")["result"]["settings"]
+    assert settings["temperature"]["value"] == 0.3  # nothing was sent

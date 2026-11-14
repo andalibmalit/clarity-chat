@@ -99,8 +99,9 @@ def test_a_changed_row_offers_one_way_back(chat):
     r = row(fragment, "temperature")
     assert '<span class="tag">chat</span>' in r
     assert 'data-set="temperature">Back to 0.6 (profile)<' in r
-    # top_k's profile value is 0, which is off: "Off (0)", the same /set top_k.
-    assert 'data-set="top_k">Off (0)<' in row(fragment, "top_k")
+    # top_k's profile value is 0, its neutral value: "Neutral (0)", the same /set top_k
+    # (Checkpoint 4, finding 20: neutral, not off; temperature 1 isn't off).
+    assert 'data-set="top_k">Neutral (0)<' in row(fragment, "top_k")
     assert 'data-action="reset-all"' in fragment and fragment.count("data-set=") == 2
 
 
@@ -201,3 +202,39 @@ def test_a_steered_transformers_profile():
     )
     assert "Transformers' repetition penalty covers the whole sequence" in fragment
     assert SETTING_HELP["repeat_penalty"] in fragment and SETTING_HELP["logprobs"] in fragment
+
+
+# --- Checkpoint 4's findings
+
+
+def test_a_random_seed_shows_as_random_not_an_empty_number_box(chat):
+    """Finding 4: a box of type number can't show "random"."""
+    client, _ = chat
+    result(client, "set", "seed random")
+    assert result(client, "settings")["settings"]["seed"]["value"] == "random"
+    r = row(panel(client), "seed")
+    assert re.search(r'<input type="text"[^>]*id="set-seed"[^>]*value="random"', r)
+
+
+def test_transformers_lists_every_setting_it_cant_apply():
+    """Finding 22: the samplers entry is listed too."""
+    settings = {
+        **TRANSFORMERS,
+        "not_applied": [
+            *list(TRANSFORMERS["not_applied"]),  # ty: ignore
+            {
+                "name": "samplers",
+                "value": ["top_k", "temperature"],
+                "reason": "Transformers applies its processors in a fixed order; used [...]",
+                "affects_output": True,
+            },
+        ],
+    }
+    fragment = html.unescape(
+        web.templates.get_template("settings.html").render(**web.settings_panel(settings, False))
+    )
+    assert (
+        "Not used on Transformers: presence_penalty, frequency_penalty, repeat_last_n, samplers"
+        in fragment
+    )
+    assert "Transformers applies its processors in a fixed order" in fragment

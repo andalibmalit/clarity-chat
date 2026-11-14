@@ -77,7 +77,7 @@ def test_marked_replies_with_their_labels_notes_and_branch(chat):
     marked = result(client, "branches", "all")["marked"]
     assert len(marked) == 1
     fragment = panel(client)
-    assert "1 marked replies, newest first" in fragment
+    assert "1 marked reply, newest first" in fragment  # Checkpoint 4, finding 15: singular
     assert "Marked: landed" in fragment and "Note: Loose, but mine." in fragment
     source = marked[0]["from"]
     assert (
@@ -111,3 +111,38 @@ def test_while_a_reply_is_written_the_panel_waits(chat):
     finally:
         worker.join(10)
     assert during and "Waits until the reply is done." in fragment
+
+
+# --- Checkpoint 4's findings
+
+HOSTILE = '<script>alert(1)</script>"><img src=x onerror=alert(2)>{{ 7*7 }}'
+
+
+def test_untrusted_text_in_branches_is_escaped(chat):
+    """B5's fixture, for Branches: a reply, a mark's label and a note."""
+    client, session = chat
+    session.backend.replies = [HOSTILE, " Two."]
+    first = result(client, "say", "Hi")["call"]["call_id"]
+    result(client, "regen")
+    result(client, "mark", f"{first} <b>label</b>")
+    result(client, "note", f"{first} {HOSTILE}")
+    raw = client.get("/view/branches", headers={**AUTH, **SAME}).text
+    assert "<script>" not in raw and "<img" not in raw and "<b>" not in raw
+    fragment = html.unescape(raw)
+    assert "<b>label</b>" in fragment and f"Note: {HOSTILE}" in fragment
+    assert "&lt;script&gt;" in raw  # the reply (cut to 16 characters by max_tokens)
+
+
+def test_while_a_model_starts_the_panel_says_so(chat):
+    """Finding 14: not "Waits until the reply is done." during a start."""
+    from tests.test_web_shell import start_held
+
+    client, session = chat
+    result(client, "say", "Hi")
+    gate, worker = start_held(client, session, "", how="new")
+    try:
+        fragment = panel(client)
+    finally:
+        gate.set()
+        worker.join(10)
+    assert "Waits until the model has started." in fragment

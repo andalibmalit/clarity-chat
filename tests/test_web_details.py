@@ -110,7 +110,9 @@ def test_settings_as_logged_with_origins(chat):
     fragment = details(client, call["call_id"])
     seed = call["settings"]["seed"]["value"]
     assert f"{seed} (random)" in fragment
-    assert "0.6</dd>" in fragment and "0 (off)" in fragment  # top_k 0 is off
+    # Checkpoint 4, finding 20: a sampler's neutral value is "neutral" (temperature 1 isn't
+    # off); logprobs and steering_scale at 0 are off.
+    assert "0.6</dd>" in fragment and "0 (neutral)" in fragment and "0 (off)" in fragment
     assert "8,192" in fragment and "server.toml" in fragment
 
 
@@ -225,3 +227,168 @@ def test_without_probabilities_the_section_says_why(
     assert f'Probabilities <span class="n">{heading}</span>' in fragment and sentence in fragment
     if heading == "not recorded":
         assert 'data-set="logprobs 5">Record them from the next reply<' in fragment
+
+
+# --- Checkpoint 4's findings
+
+
+HOSTILE = '<script>alert(1)</script>"><img src=x onerror=alert(2)>{{ 7*7 }}'
+
+
+def raw_details(client, call_id: str):
+    return client.get(f"/view/details?call={call_id}", headers={**AUTH, **SAME})
+
+
+def test_spans_marked_unavailable_draw_the_prompt_unmarked_and_say_why(chat):
+    """Finding 1: `message_spans` can be {"unavailable": reason}; Details answered 500."""
+    client, session = chat
+    call = result(client, "say", "Hi")["call"]
+    session.conversation.calls[call["call_id"]]["message_spans"] = {"unavailable": "a reason"}
+    lenient = TestClient(client.app, base_url=ORIGIN, raise_server_exceptions=False)
+    response = raw_details(lenient, call["call_id"])
+    assert response.status_code == 200, response.text
+    fragment = html.unescape(response.text)
+    assert "Not highlighted: a reason" in fragment and "<mark>" not in fragment
+    assert "Highlighted:" not in fragment.replace("Not highlighted:", "")
+
+
+def test_a_call_from_the_v0_1_0_golden_log_says_its_spans_werent_recorded(chat):
+    import shutil
+    from pathlib import Path
+
+    from clarity_chat.logs import read_records
+
+    client, session = chat
+    golden = Path(__file__).parent / "fixtures" / "golden" / "v0.1.0.jsonl"
+    log = Path(shutil.copy(golden, session.logs_dir / "old-v010.jsonl"))
+    result(client, "resume", log.stem)
+    call = next(r for r in read_records(log) if r["type"] == "call" and r.get("turn_id"))
+    assert "message_spans" not in call
+    response = raw_details(client, call["call_id"])
+    assert response.status_code == 200, response.text
+    assert "Not highlighted: this call was logged before Clarity recorded" in html.unescape(
+        response.text
+    )
+
+
+def test_replay_waits_while_another_command_changes_the_chat(chat):
+    """Finding 2: Details drawn during a reply mustn't offer Replay (its Stop would cut the
+    reply)."""
+    import threading
+
+    client, session = chat
+    call = result(client, "say", "Hi")["call"]
+    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 0.3
+    worker = threading.Thread(target=lambda: command(client, "say", "Again"))
+    worker.start()
+    threading.Event().wait(0.4)
+    try:
+        fragment = details(client, call["call_id"])
+        during = worker.is_alive()
+    finally:
+        worker.join(10)
+    assert during
+    assert re.search(r'<button[^>]*data-action="replay"[^>]*aria-disabled="true"', fragment)
+    assert "Waits until the reply is done." in fragment.split('data-key="replay"')[1]
+
+
+def test_a_replay_s_own_flags_show_under_its_result(chat):
+    """Finding 3: a failed check in the replay mustn't read as a plain result."""
+    client, session = chat
+    call = result(client, "say", "Hi")["call"]
+    session.backend.result_flags = ["check_failed:settings_echo"]
+    replay = result(client, "replay", call["call_id"])["replay"]
+    assert "check_failed:settings_echo" in replay["flags"]
+    assert "! check_failed:settings_echo" in details(client, call["call_id"])
+
+
+REPLAY = {
+    "identical": True,
+    "unexplained_difference": False,
+    "compared": "output token IDs and stop type",
+    "first_different_token": None,
+    "differences": {},
+    "flags": [],
+    "logged_server_found": False,
+    "not_recorded": ["machine", "env"],
+}
+
+
+def test_a_replay_s_notes_are_the_terminal_s_sentences():
+    """Finding 3: the same sentences as cli.format_replay, from one source."""
+    from clarity_chat.cli import format_replay
+
+    notes = web.replay_result(REPLAY).get("notes")
+    assert notes == [
+        "The log has no record of the server that made this call.",
+        "Not compared, because the log doesn't record them: machine, env.",
+    ]
+    printed = format_replay({**REPLAY, "replay_id": "replay-0123456789ab"})
+    assert all(note in printed for note in notes or [])
+
+
+def test_what_changed_since_the_call_shows_old_and_new_values():
+    """Finding 12: as board G4 draws it, "machine · macos.version 26.0.1 → 26.1"."""
+    replay = {
+        "identical": False,
+        "unexplained_difference": False,
+        "compared": "output token IDs and stop type",
+        "first_different_token": 2,
+        "differences": {"machine": [{"path": "macos.version", "logged": "26.0.1", "now": "26.1"}]},
+        "logged_output_text": "a",
+        "output_text": "b",
+        "flags": [],
+        "logged_server_found": True,
+    }
+    assert web.replay_result(replay)["changed"] == ["machine · macos.version 26.0.1 → 26.1"]
+
+
+def test_tokens_without_places_are_listed_unshaded_with_a_reason(chat):
+    """Finding 5: /probs gives no start when the tokens don't rebuild the reply."""
+    client, session = chat
+    tokenizer = session.tokenizer
+    session.backend.replies = [" Hello"]
+    session.backend.logprobs = fake_logprobs(tokenizer, tokenizer.encode("zzz"))
+    call = result(client, "say", "Hi")["call"]
+    assert result(client, "probs", call["call_id"])["tokens"][0]["start"] is None
+    fragment = details(client, call["call_id"])
+    assert "The tokens can’t be placed in the reply’s text, so it isn’t shaded." in fragment
+    assert fragment.count('class="tok') == 3 and 'class="msg shaded"' not in fragment
+
+
+def test_probabilities_are_read_once_per_call_and_the_record_keeps_ids_on_one_line(chat):
+    """Finding 6: /probs isn't recomputed on every redraw; the record dump is compact."""
+    import dataclasses
+
+    from clarity_chat import commands
+
+    client, session = chat
+    tokenizer = session.tokenizer
+    session.backend.logprobs = fake_logprobs(tokenizer, tokenizer.encode(" Hello!"))
+    call = result(client, "say", "Hi")["call"]
+    runs: list[str] = []
+    real = commands.COMMANDS["probs"]
+    counted = dataclasses.replace(real, run=lambda c, a, e: (runs.append(a), real.run(c, a, e))[1])
+    commands.COMMANDS["probs"] = counted
+    try:
+        details(client, call["call_id"])
+        fragment = details(client, call["call_id"])
+    finally:
+        commands.COMMANDS["probs"] = real
+    assert len(runs) == 1
+    ids = ", ".join(str(i) for i in call["prompt_ids"])
+    assert f'"prompt_ids": [{ids}]' in fragment
+
+
+def test_untrusted_text_in_details_is_escaped(chat):
+    """B5's fixture, for Details: a reply, a failed call's error."""
+    client, session = chat
+    session.backend.replies = [HOSTILE]
+    call = result(client, "say", "Hi")["call"]
+    raw = raw_details(client, call["call_id"]).text
+    assert "<script>" not in raw and "<img" not in raw
+    session.backend.fail_with = HOSTILE
+    command(client, "say", "Again")
+    failed = result(client, "prompt")["call"]
+    raw = raw_details(client, failed["call_id"]).text
+    assert "<script>" not in raw and "<img" not in raw and HOSTILE in html.unescape(raw)
