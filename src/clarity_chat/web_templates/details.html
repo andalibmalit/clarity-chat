@@ -22,11 +22,24 @@
 <p class="d2">{% if r.first_different_token is not none %}From output token {{ r.first_different_token }}. {% endif %}{% if r.changed %}Changed since the call: {{ r.changed | join(", ") }}. {% endif %}Compared: {{ r.compared }}.</p>
 {% if not r.identical %}<details class="both" data-key="both"><summary>Show both</summary><dl class="kv"><dt>As logged</dt><dd>{{ r.logged_output_text }}</dd><dt>Now</dt><dd>{{ r.output_text }}</dd></dl></details>
 {% endif %}{% endif %}<p class="refused" role="alert" hidden></p>
+<p class="d2"><a data-docs="guides.md#replay-a-call" target="_blank" rel="noopener noreferrer">How replay works, in the guide</a></p>
 </details>
 {% endif %}<details class="sec" data-key="settings" open><summary class="sh2">Settings <span class="n">as logged</span></summary>
 <dl class="kv three">{% for name, value, origin in settings %}<dt>{{ name }}</dt><dd>{{ value }}{% if name == "seed" and seed_drawn %} (random){% endif %}</dd><dd class="o">{{ origin }}</dd>{% endfor %}<dt>context</dt><dd>{{ "{:,}".format(call.n_ctx) }}</dd><dd class="o">{{ ctx.origin }}</dd></dl>
 </details>
-<details class="sec" data-key="record"><summary class="sh2">Request and response <span class="n">the whole call record</span></summary>
+{% if not error %}{% set heading = {"waits": "waits", "off": "not recorded", "llama_cpp": "not on llama.cpp, for now", "cancelled": "none recorded"} %}<details class="sec" data-key="probs" data-call="{{ call.call_id }}"><summary class="sh2">Probabilities <span class="n">{% if probs.reason is none %}{{ probs.n }} likeliest per token{% else %}{{ heading.get(probs.reason, "none") }}{% endif %}</span></summary>
+{% if probs.reason == "waits" %}<p class="d2">Waits until the reply is done.</p>
+{% elif probs.reason == "off" %}<p>No probabilities for this reply: they weren’t switched on when it was written, and replaying it won’t add them. Turn them on for the next reply.</p><button type="button" class="btn" data-set="logprobs 5">Record them from the next reply</button><p class="d2">Records the 5 likeliest tokens at each step. Change the number in Settings.</p>
+{% elif probs.reason == "llama_cpp" %}<p>Probabilities need a profile that runs on Transformers. None ships with Clarity yet; <a data-docs="guides.md#use-the-transformers-backend" target="_blank" rel="noopener noreferrer">the guide</a> shows how to add one.</p>
+{% elif probs.reason == "cancelled" %}<p>None recorded: the reply was stopped. Transformers returns no scores for a generation stopped part way.</p>
+{% elif probs.reason %}<p>{{ probs.why }}</p>
+{% else %}<p class="d2">Shading is per token: a word, part of a word, or punctuation. Close this section to clear it.</p>
+{% if probs.shaded %}<div class="msg shaded" hidden>{% for t in probs.tokens %}<button type="button" class="tok{% if t.band %} {{ t.band }}{% endif %}{% if not t.piece %} end{% endif %}" data-i="{{ t.index }}" tabindex="{{ 0 if loop.first else -1 }}" aria-pressed="false">{{ t.piece or t.text }}</button>{% endfor %}</div>
+<p class="legend probs-legend"><span class="sw p0"></span>under 10% <span class="sw p1"></span>10–30% <span class="sw p2"></span>30–60% · unshaded: over 60% · select a token</p>
+{% endif %}{% for t in probs.tokens %}<div class="tokinfo" data-i="{{ t.index }}" hidden><p>The model gave “{{ t.text }}” a {{ t.pct }} chance</p><p class="d2">Log-probability {{ "%.2f" | format(t.logprob) }}: the natural log of that chance. 0 is certain; more negative is less likely.</p><p class="sh3">The likeliest tokens here</p><ul class="alts">{% for text, pct, chosen in t.top %}<li{% if chosen %} class="chosen"{% endif %}><span class="w">{{ text }}</span><span>{{ pct }}</span>{% if chosen %}<span class="d2">chosen</span>{% endif %}</li>{% endfor %}</ul></div>{% endfor %}
+<p class="d2">The probabilities come from the model’s raw scores (logits) before any sampler, so they don’t show what temperature, top_k or the penalties did.</p>
+{% endif %}</details>
+{% endif %}<details class="sec" data-key="record"><summary class="sh2">Request and response <span class="n">the whole call record</span></summary>
 <pre class="pre">{{ record }}</pre>
 </details>
 </div>

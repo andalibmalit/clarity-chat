@@ -933,3 +933,64 @@ def test_details_on_a_failed_call(clarity, page):
     assert "! Failed: A made-up failure." in page.text_content("#panel")
     assert page.locator("#panel [data-action=replay]").count() == 0
     shot(page, "G8-failed-call", "c4b")
+
+
+# --- Probabilities (C4c)
+
+
+def test_probabilities_shade_the_reply_and_a_token_shows_its_chance(clarity, page):
+    _, redirect, backend = clarity
+    tokenizer = backend.tokenizer
+    chat_on(page, redirect, "long")
+    backend.replies = [" Café, olé!"]
+    ids = tokenizer.encode(" Café, olé!") + [tokenizer.tok.eos_token_id]
+    (z,) = tokenizer.encode("z")
+    backend.logprobs = {
+        "view": "raw logits, before any sampler",
+        "n": 2,
+        "tokens": [
+            {"id": t, "logprob": -0.05 * (i % 40), "top": [[t, -0.05 * (i % 40)], [z, -3.0]]}
+            for i, t in enumerate(ids)
+        ],
+    }
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    page.click(".reply.last [data-action=details]")
+    page.wait_for_selector("#panel [data-key=probs]")
+    assert "2 likeliest per token" in page.text_content("#panel [data-key=probs] summary")
+    page.click("#panel [data-key=probs] summary")
+    page.wait_for_selector("#thread .msg.shaded .tok")
+    call = page.evaluate("clarity.command('prompt')")["result"]["call"]
+    shaded = page.text_content("#thread .msg.shaded")
+    assert shaded.startswith(call["output_text"])  # the reply, then its end token
+    page.click("#thread .msg.shaded .tok >> nth=2")
+    info = page.text_content("#panel .tokinfo:not([hidden])")
+    assert "chance" in info and "The likeliest tokens here" in info
+    page.keyboard.press("ArrowRight")
+    assert page.get_attribute("#thread .msg.shaded .tok >> nth=3", "aria-pressed") == "true"
+    shot(page, "H1-shaded", "c4c")
+    page.click("#panel [data-key=probs] summary")  # closing the section clears the shading
+    page.wait_for_selector("#thread .msg.shaded", state="detached")
+
+
+@pytest.mark.parametrize(
+    ("backend_name", "heading", "name"),
+    [
+        ("llama.cpp", "not on llama.cpp, for now", "H3-llama-cpp"),
+        ("transformers", "not recorded", "H2-not-recorded"),
+    ],
+)
+def test_probabilities_say_why_there_are_none(clarity, page, backend_name, heading, name):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    backend.name = backend_name
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    page.click(".reply.last [data-action=details]")
+    page.wait_for_selector("#panel [data-key=probs]")
+    assert page.text_content("#panel [data-key=probs] summary .n") == heading
+    page.click("#panel [data-key=probs] summary")
+    if backend_name == "llama.cpp":
+        href = page.get_attribute("#panel [data-key=probs] a[data-docs]", "href")
+        assert href.endswith("/docs/guides.md#use-the-transformers-backend")
+    shot(page, name, "c4c")

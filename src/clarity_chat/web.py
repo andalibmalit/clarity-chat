@@ -17,6 +17,7 @@ import asyncio
 import concurrent.futures
 import html
 import json
+import math
 import os
 import queue
 import secrets
@@ -1073,6 +1074,42 @@ def replay_result(replay: dict[str, Any]) -> dict[str, Any]:
     return {**replay, "label": label, "changed": changed}
 
 
+def percent(chance: float) -> str:
+    return f"{chance:.0%}" if chance >= 0.01 else "under 1%"
+
+
+def probs_section(probs: dict[str, Any] | None, reply: str) -> dict[str, Any]:
+    """Probabilities, from /probs: each token's piece of the reply, its band of shading (under
+    10%, 10–30%, 30–60%, or none), its chance and log-probability, and the likeliest tokens
+    the record holds; or, without them, the reason code."""
+    if probs is None:
+        return {"reason": "waits"}
+    if probs.get("reason"):
+        return {"reason": probs["reason"], "why": probs["unavailable"]}
+    tokens = []
+    for t in probs["tokens"]:
+        chance = math.exp(t["logprob"])
+        band = "p0" if chance < 0.1 else "p1" if chance < 0.3 else "p2" if chance < 0.6 else ""
+        tokens.append(
+            {
+                **t,
+                "piece": reply[t["start"] : t["end"]] if t["start"] is not None else None,
+                "band": band,
+                "pct": percent(chance),
+                "top": [
+                    (o["text"], percent(math.exp(o["logprob"])), o["id"] == t["id"])
+                    for o in t["top"]
+                ],
+            }
+        )
+    return {
+        "reason": None,
+        "n": probs["logprobs"]["n"],
+        "tokens": tokens,
+        "shaded": all(t["piece"] is not None for t in tokens),
+    }
+
+
 async def _details(worker: Worker, params: dict[str, str | None]) -> str:
     """Details for one call: what the model got, the summary, Replay, the settings as logged
     and the whole record. /prompt and /settings answer during a reply (a replay included)."""
@@ -1100,6 +1137,9 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
     produced = call.get("tokens_predicted") or len(call.get("output_ids") or [])
     running = state["running"] or {}
     first = call.get("prompt_ids") or [None]
+    probs = None
+    if not call.get("error") and not running:  # /probs waits its turn
+        probs = await result_of(worker, "probs", call["call_id"])
     return templates.get_template("details.html").render(
         call=call,
         k=k,
@@ -1134,6 +1174,7 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
         seed_drawn=call.get("seed_drawn"),
         ctx=settings["ctx_size"],
         record=json.dumps(call, indent=2, ensure_ascii=False, default=str),
+        probs=probs_section(probs, call.get("output_text") or ""),
     )
 
 
