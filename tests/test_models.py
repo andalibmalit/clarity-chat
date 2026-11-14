@@ -115,7 +115,10 @@ def test_a_gated_repo_without_access_is_refused_with_what_to_do(
 
     from clarity_chat import cli
 
+    asked: list[dict] = []  # each download's keyword arguments
+
     def gated(repo, *args, **kwargs):
+        asked.append(kwargs)
         response = httpx2.Response(401, request=httpx2.Request("GET", f"https://hf.co/{repo}"))
         raise GatedRepoError(f"Access to model {repo} is restricted.", response=response)
 
@@ -124,7 +127,7 @@ def test_a_gated_repo_without_access_is_refused_with_what_to_do(
     monkeypatch.setattr(
         huggingface_hub,
         "hf_hub_download",
-        gated if refused == "weights" else lambda *a, **k: weights,
+        gated if refused == "weights" else lambda *a, **k: (asked.append(k), weights)[1],
     )
     monkeypatch.setattr(huggingface_hub, "snapshot_download", gated)
     (root / "models.toml").write_text(GGUF_MODEL.format(sha256=WEIGHTS_SHA256), encoding="utf-8")
@@ -138,6 +141,9 @@ def test_a_gated_repo_without_access_is_refused_with_what_to_do(
     assert f"https://huggingface.co/{repo}" in message
     assert "licence" in message and "hf auth login" in message
     assert "ready" not in models.read_lock(root)["models"]
+    # Clarity passes no token: huggingface_hub finds the login itself (the whole-branch
+    # review: in both cases, the weights' download and the tokenizer's).
+    assert asked and all(k.get("token") is None for k in asked), asked
 
 
 def test_portable_path_can_keep_a_symlinks_name(tmp_path):

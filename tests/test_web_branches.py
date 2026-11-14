@@ -55,16 +55,22 @@ def test_every_branch_end_newest_first_says_where_it_came_from(chat):
         ("reply", True): "From reply {k} of {n} · seed {seed}",
         ("reply", False): "Reply {k} of {n} · seed {seed}, not continued",
     }
-    for end in ends:
+    ends_list = fragment.split('<ul class="cards" data-list="ends">')[1].split("</ul>")[0]
+    cards = {
+        re.search(r'data-turn="([^"]+)"', card).group(1): card  # ty: ignore
+        for card in ends_list.split("<li ")[1:]
+    }
+    for end in ends:  # each card's own words, not somewhere in the panel
+        card = cards[end["turn_id"]]
         source = end["from"]
         label = labels[(source["kind"], end["continued"])].format(**source)
-        assert label in fragment
+        assert f'<span class="lbl">{label}</span>' in card
         where = f"{end['turns']} turns" + (f" · {end['marked']} marked" if end["marked"] else "")
-        assert where in fragment
+        assert f'<p class="d2">{where}</p>' in card
         if end["current"]:
-            assert "You are here" in fragment
+            assert "You are here" in card and "data-switch" not in card
         else:
-            assert f'data-switch="{end["turn_id"]}"' in fragment
+            assert f'data-switch="{end["turn_id"]}"' in card and "You are here" not in card
     assert (
         "Nothing is deleted: Regenerate, Edit, or a message sent after going back adds a branch."
         in fragment
