@@ -556,3 +556,56 @@ def test_a_chance_near_certain_reads_over_99_percent():
     """The fact-check (F4): rounded to whole percents, 0.996 read "100%", certain."""
     assert web.percent(0.996) == "over 99%" and web.percent(0.995) == "over 99%"
     assert web.percent(0.994) == "99%" and web.percent(0.005) == "under 1%"
+
+
+# --- The lead's adjustment (c): a record missing a field never stops the session
+
+READS_OF_A_CALL = [
+    ("probs", True),
+    ("history", False),
+    ("branches", False),
+    ("compare", True),
+    ("prompt", True),
+    ("settings", False),
+    ("export", False),
+]
+
+
+@pytest.mark.parametrize("field", ["prompt_ids", "output_ids", "settings"])
+@pytest.mark.parametrize(("name", "takes_call"), READS_OF_A_CALL)
+def test_a_call_record_missing_a_field_gets_an_answer_not_a_stopped_session(
+    chat, field, name, takes_call
+):
+    """A log another program wrote can leave out any field. Its calls here lack `field`
+    (two replies with the same seed and other settings, so Compare pairs them). The log
+    reopens, or is refused with a sentence; each read answers with a result or a refusal;
+    none ends the session with an unexpected error."""
+    import json
+
+    client, session = chat
+    tokenizer = session.tokenizer
+    session.backend.replies = [" Hello!", " Hello!"]
+    session.backend.logprobs = fake_logprobs(
+        tokenizer, [*tokenizer.encode(" Hello!"), tokenizer.tok.eos_token_id]
+    )
+    result(client, "set", "seed 7")
+    call = result(client, "say", "Hi")["call"]["call_id"]
+    result(client, "set", "temperature 0.3")
+    result(client, "regen", "same")
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    lines = []
+    for line in log.read_text(encoding="utf-8").splitlines():
+        record = json.loads(line)
+        if record.get("type") == "call":
+            record.pop(field, None)
+        lines.append(json.dumps(record))
+    log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    reopened = command(client, "resume", log.stem).json()
+    assert not reopened.get("stopped"), reopened
+    if "result" not in reopened:
+        assert reopened["type"] == "ConfigError", reopened
+        return
+    answer = command(client, name, call if takes_call else "").json()
+    assert not answer.get("stopped"), answer
+    assert "result" in answer or answer["type"] == "ConfigError", answer
