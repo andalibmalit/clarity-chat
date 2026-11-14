@@ -814,3 +814,29 @@ def test_every_shipped_font_has_its_licence_beside_it_and_is_served(server):
         assert response.headers["content-type"].startswith("font/")
     css = (folder / "app.css").read_text(encoding="utf-8")
     assert sorted(re.findall(r'url\("/static/([^"]+)"\)', css)) == sorted(f.name for f in fonts)
+
+
+# --- The security review's deferred findings (5 and 10)
+
+
+def test_enter_s_redirect_is_deleted_by_a_new_tab_not_the_open_one(fetched_root, tiny_tokenizer):
+    """Finding 5: after Enter writes a second redirect file, the open tab's next request
+    mustn't delete it before the new tab opens it: only a new tab's first /events does."""
+    session = Session(
+        fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    used: list[str] = []
+    app = web.make_app(session, SECRET.encode(), port=PORT, on_first_use=lambda: used.append("1"))
+    with TestClient(app, base_url=ORIGIN) as client:
+        with client.stream("GET", "/events?tab=tab-1", headers={**AUTH, **SAME}) as stream:
+            next(stream.iter_lines())
+        assert used == ["1"]
+        app.app.state.rearm(lambda: used.append("2"))  # the terminal's Enter
+        command(client, "state")
+        client.get("/view/thread", headers={**AUTH, **SAME})
+        with client.stream("GET", "/events?tab=tab-1", headers={**AUTH, **SAME}) as stream:
+            next(stream.iter_lines())  # the open tab's stream, reconnecting
+        assert used == ["1"]
+        with client.stream("GET", "/events?tab=tab-2", headers={**AUTH, **SAME}) as stream:
+            next(stream.iter_lines())  # the new tab Enter opened
+        assert used == ["1", "2"]
