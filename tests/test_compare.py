@@ -143,3 +143,25 @@ def test_the_terminal_prints_the_groups_and_where_matched_seeds_part(chat):
     assert "Group 2: temperature 0.9" in text
     assert "part at token 7 (character 7)." in text
     assert text.endswith("/regen same makes seeds 43 again at temperature 0.9.")
+
+
+def test_two_replies_with_the_same_seed_and_settings_are_not_a_pair(chat):
+    """A pair shows where a setting made two same-seed replies part; within a group there's
+    no setting to blame (mutation check: pairs within a group)."""
+    c, session = chat([" one", " one"])
+    session.say("Hi")
+    again_with_seed(session, 42)
+    result = compare(c)
+    assert [r["group"] for r in result["replies"]] == [0, 0] and result["pairs"] == []
+
+
+def test_again_is_only_offered_for_your_last_message(chat):
+    """Mutation check: after a /set, an earlier message has seeds to remake, but /regen acts
+    on your last message only."""
+    c, session = chat([" one", " two", " three"])
+    first = session.say("a")
+    session.regen()
+    session.say("b")
+    session.set_setting("temperature", "0.9")
+    assert compare(c, first.record["call_id"])["again"] is None
+    assert compare(c)["again"] == {"seeds": [42], "now": {"temperature": 0.9}}

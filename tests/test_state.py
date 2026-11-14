@@ -129,3 +129,19 @@ def test_the_terminal_prints_state_in_one_line(commands):
     text = format_state(state(c))
     assert f"Conversation {c.session.conversation.conversation_id} (profile text)" in text
     assert "2 turns on this branch; the model is ready." in text
+
+
+def test_the_reply_so_far_starts_again_with_each_reply_of_regen_n(commands):
+    """Mutation check: during /regen 2, the second reply's text, not both."""
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    backend.replies = [" First one.", " Second one."]
+    seen: list[str] = []
+
+    def on_event(event):
+        if event["event"] == "text":
+            seen.append(state(c)["reply_so_far"])
+
+    c.run("regen", "2", on_event)
+    assert seen[-1] == " Second one."
