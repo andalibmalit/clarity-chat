@@ -21,9 +21,11 @@ from clarity_chat.profiles import (
     ModelEntry,
     ServerConfig,
     check_setting,
+    fetch_hint,
     load_defaults,
     load_models,
     load_profile,
+    run_hint,
 )
 from clarity_chat.render import TOKENIZER_FILES
 
@@ -111,10 +113,7 @@ def lock_entry(root: Path, model: ModelEntry) -> dict[str, Any]:
     """The lock entry for `model`; an error if it's missing or was fetched from other settings."""
     entry = read_lock(root)["models"].get(model.name)
     if entry is None:
-        raise ConfigError(
-            f"Model {model.name!r} is not fetched. In a new terminal window, in Clarity's "
-            f"folder, run: uv run clarity fetch {model.name}. Then try again."
-        )
+        raise ConfigError(f"Model {model.name!r} is not fetched. {fetch_hint(model.name)}")
     keys = ["route", "repo", "revision", "tokenizer_repo", "tokenizer_revision"]
     if model.route == "gguf":
         keys.append("file")
@@ -122,12 +121,12 @@ def lock_entry(root: Path, model: ModelEntry) -> dict[str, Any]:
         if entry.get(key) != getattr(model, key):
             raise ConfigError(
                 f"models.lock has {model.name!r} with {key} = {entry.get(key)!r}, but models.toml "
-                f"says {getattr(model, key)!r}. Run `clarity fetch {model.name}` again."
+                f"says {getattr(model, key)!r}. {fetch_hint(model.name)}"
             )
     if model.route == "gguf" and entry.get("gguf", {}).get("sha256") != model.sha256:
         raise ConfigError(
             f"models.lock has {model.name!r} with a different sha256 than models.toml. "
-            f"Run `clarity fetch {model.name}` again."
+            f"{fetch_hint(model.name)}"
         )
     return entry
 
@@ -206,7 +205,7 @@ def source_weights(root: Path, entry: dict[str, Any]) -> Path:
     path = Path(entry["source_dir"]).expanduser()
     path = path if path.is_absolute() else root / path
     if not (path / "config.json").is_file():
-        raise ConfigError(f"{path} has no config.json. Run `clarity fetch {entry['name']}`.")
+        raise ConfigError(f"{path} has no config.json. {fetch_hint(entry['name'])}")
     return path
 
 
@@ -214,12 +213,12 @@ def check_weights_quick(root: Path, entry: dict[str, Any]) -> Path:
     """Size and modified time against models.lock (a full re-hash is `clarity verify`)."""
     path = weights_path(root, entry)
     if not path.is_file():
-        raise ConfigError(f"{path} is missing. Run `clarity fetch {entry['name']}`.")
+        raise ConfigError(f"{path} is missing. {fetch_hint(entry['name'])}")
     stat = path.stat()
     if stat.st_size != entry["gguf"]["size"] or stat.st_mtime_ns != entry["gguf"]["mtime_ns"]:
         raise ConfigError(
             f"{path} changed since it was fetched (size or modified time differs from "
-            f"models.lock). Run `clarity verify {entry['name']}` or fetch it again."
+            f"models.lock). {run_hint('verify ' + entry['name'])}"
         )
     return path
 
@@ -250,7 +249,8 @@ def gated_refusal(repo: str) -> str:
     return (
         f"{repo} is gated: Hugging Face gives its files only to accounts with access. "
         f"Accept its licence at https://huggingface.co/{repo} and wait until access is "
-        "granted, then run `uv run hf auth login` and fetch again."
+        "granted, then run `uv run hf auth login` (again, if your login has expired) and fetch "
+        "again."
     )
 
 

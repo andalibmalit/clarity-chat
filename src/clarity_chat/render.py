@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.files import read_text, sha256_text
-from clarity_chat.profiles import ConfigError, Profile
+from clarity_chat.profiles import ConfigError, Profile, run_hint
 
 os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")  # no "PyTorch was not found" banner
 
@@ -84,8 +84,8 @@ class Tokenizer:
             )
         except Exception as e:  # huggingface_hub raises several types for "not cached"
             raise ConfigError(
-                f"Tokenizer {repo}@{revision[:12]} is not in the Hugging Face cache. "
-                f"Run `clarity fetch` for the model that uses it. ({e})"
+                f"Tokenizer {repo}@{revision[:12]} is not in the Hugging Face cache "
+                f"({e}). {run_hint('fetch MODEL')} MODEL is the model that uses it."
             ) from e
         return cls.from_dir(Path(folder), {"repo": repo, "revision": revision})
 

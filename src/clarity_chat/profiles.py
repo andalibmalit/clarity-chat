@@ -23,6 +23,20 @@ class ConfigError(Exception):
     """A config file is missing, malformed or asks for something the client can't do exactly."""
 
 
+def run_hint(command: str) -> str:
+    """How to run a `clarity` command as written, for someone whose terminal is busy
+    running Clarity (the web interface): a new window, `uv run`, and what to do after."""
+    return (
+        f"In a new terminal window, in Clarity's folder, run: uv run clarity {command}. "
+        "Then try again."
+    )
+
+
+def fetch_hint(name: str) -> str:
+    """The fetch hint every "fetch it" sentence ends with."""
+    return run_hint(f"fetch {name}")
+
+
 # One set of setting names for every backend; each backend maps them.
 SETTING_NAMES = (
     "temperature",
