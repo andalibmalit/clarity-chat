@@ -1189,6 +1189,56 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
     )
 
 
+# --- Branches (C4d), from /branches all
+
+
+def branch_source(source: dict[str, Any] | None) -> str:
+    """Where a branch left the rest: a reply ("reply 2 of 4 · seed 43") or your edited
+    message ("your edited message · seed 42")."""
+    if source is None:
+        return ""
+    what = (
+        "your edited message"
+        if source["kind"] == "edit"
+        else f"reply {source['k']} of {source['n']}"
+    )
+    return f"{what} · seed {source['seed']}"
+
+
+def end_label(end: dict[str, Any]) -> str:
+    """A branch end's heading: where it came from, or, when it's that fork's own reply and
+    went no further, which reply it is."""
+    source = end["from"]
+    if source is None:
+        label = f"seed {end['seed']}"
+    elif source["kind"] == "reply" and not end["continued"]:
+        label = f"Reply {source['k']} of {source['n']} · seed {source['seed']}, not continued"
+    else:
+        label = "From " + branch_source(source)
+    if end.get("steering_scale"):
+        label += f" · steered ×{end['steering_scale']:g}"
+    return label
+
+
+async def _branches(worker: Worker, params: dict[str, str | None]) -> str:
+    """The Branches panel: every branch end, newest first, and the marked replies ("Marked
+    only", a filter in the page). /branches waits its turn, so it isn't asked mid-reply."""
+    state = await result_of(worker, "state")
+    if changing(state):
+        return templates.get_template("branches.html").render(waits=True)
+    found = await result_of(worker, "branches", "all")
+    ends = [{**e, "label": end_label(e)} for e in found["ends"]]
+    marked = [
+        {
+            **m,
+            "where": f"on the branch from {branch_source(m['from'])}" if m["from"] else "",
+            "note": m["notes"][-1]["text"] if m.get("notes") else None,
+        }
+        for m in found["marked"]
+    ]
+    return templates.get_template("branches.html").render(waits=False, ends=ends, marked=marked)
+
+
 def event_line(event: dict[str, Any]) -> bytes:
     """One line of the event stream. A value JSON can't carry (NaN or infinity) would break
     the page's parser and drop the stream, so it's sent as an error event instead."""
@@ -1221,4 +1271,5 @@ VIEW_RENDERERS = {
     "compare": _compare,
     "settings": _settings,
     "details": _details,
+    "branches": _branches,
 }

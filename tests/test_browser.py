@@ -679,6 +679,9 @@ def wait_for(page, selector: str, timeout: int = 30_000) -> None:
             ("page state", "JSON.stringify(clarity.state && clarity.state.running)"),
             ("replies", "clarity.command('compare').then(a => a.result.replies.length)"),
             ("running now", "clarity.command('state').then(a => JSON.stringify(a.result.running))"),
+            ("head now", "clarity.command('state').then(a => a.result.head)"),
+            ("panel current", "document.querySelector('#panel .bcard.cur')?.dataset.turn"),
+            ("last reply", "document.querySelector('.reply.last')?.dataset.turn"),
         ):
             print("DUMP", label, page.evaluate(script))
         raise
@@ -994,3 +997,52 @@ def test_probabilities_say_why_there_are_none(clarity, page, backend_name, headi
         href = page.get_attribute("#panel [data-key=probs] a[data-docs]", "href")
         assert href.endswith("/docs/guides.md#use-the-transformers-backend")
     shot(page, name, "c4c")
+
+
+# --- Branches (C4d)
+
+
+def test_branches_appear_with_the_second_and_take_you_to_one(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    assert page.is_hidden("#branches-button")  # one branch: nothing to list
+    backend.replies = [" Second one."]
+    page.click(".reply.last [data-action=regen]")
+    page.wait_for_selector("#branches-button:not([hidden])")
+    assert page.text_content("#branches-count") == "2"
+    page.click("#branches-button")
+    page.wait_for_selector("#panel .bcard")
+    ends = page.evaluate("clarity.command('branches', 'all')")["result"]["ends"]
+    assert page.locator("#panel [data-list=ends] .bcard").count() == len(ends) == 2
+    shot(page, "J2-branch-ends", "c4d")
+    page.click("#marked-only")
+    assert "No marked replies in this chat yet." in page.text_content(
+        "#panel div[data-list=marked]"
+    )
+    shot(page, "J3-nothing-marked", "c4d")
+    page.click("#marked-only")
+    first = next(e for e in ends if not e["current"])
+    page.click(f"#panel [data-switch='{first['turn_id']}']")
+    wait_for(page, f"#panel .bcard.cur[data-turn='{first['turn_id']}']")
+    assert page.text_content(".reply.last .msg") == first["text"]
+
+
+def test_a_marked_reply_picked_in_branches_is_outlined(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    first = page.evaluate("clarity.command('prompt')")["result"]["call"]
+    page.evaluate(f"clarity.command('mark', '{first['call_id']} landed')")
+    backend.replies = [" Second one."]
+    page.click(".reply.last [data-action=regen]")
+    page.wait_for_selector("#branches-button:not([hidden])")
+    page.click("#branches-button")
+    page.click("#marked-only")
+    page.wait_for_selector("#panel [data-list=marked] .bcard")
+    assert page.text_content("#panel [data-list=marked] .lbl") == "Marked: landed"
+    shot(page, "J2-marked-only", "c4d")
+    page.click("#panel [data-list=marked] [data-reveal]")
+    page.wait_for_selector(f"li.revealed[data-turn='{first['turn_id']}']")

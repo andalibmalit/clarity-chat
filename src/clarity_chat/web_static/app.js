@@ -285,6 +285,7 @@ async function draw(number) {
   $("new-chat").setAttribute("aria-disabled", String(waits));
   showWriting(state.running);
   if (panelOf) showPanel(panelOf.name, panelOf.params);
+  countBranches(chat);
   if (state.unanswered && clarity.filled !== state.unanswered.turn_id) {
     clarity.filled = state.unanswered.turn_id; // your failed message, back in the box once
     if (!$("message").value) $("message").value = state.unanswered.text;
@@ -455,9 +456,11 @@ document.addEventListener("click", (event) => {
   const version = event.target.closest("[data-switch]");
   if (version) {
     if (!$("compare").hidden) closeCompare(); // picking a reply in Compare goes back to it
-    command("switch", version.dataset.switch).then((answer) => {
-      refresh();
+    const turn = version.dataset.reveal;
+    command("switch", version.dataset.switch).then(async (answer) => {
+      await refresh();
       if (answer.error) notice("!", answer.error);
+      else if (turn) reveal(turn);
     });
     return;
   }
@@ -762,6 +765,7 @@ async function showPanel(name, params, opener) {
     link.href = `${clarity.docs || ""}${link.dataset.docs}`; // the guide at this version
   }
   shade();
+  if (name === "branches") markedOnly(Boolean(clarity.markedOnly));
   const again = focused && $(focused);
   if (again) again.focus();
   else if (opening) $("panel-title").focus();
@@ -803,6 +807,48 @@ async function setting(args, row = null, box = null) {
 }
 
 clarity.on.settings = (element) => showPanel("settings", {}, element);
+
+// Branches (C4d): the top bar's count of branch ends, shown from the second one, and the
+// panel of branch ends and marked replies ("Marked only" filters it in the page).
+async function countBranches(chat) {
+  // /branches waits its turn (behind a reply, say), so one count at a time, and one more
+  // after it if a redraw asked meanwhile; the button keeps its count until then.
+  if (clarity.counting) {
+    clarity.recount = true;
+    return;
+  }
+  clarity.counting = true;
+  try {
+    const answer = chat ? await command("branches", "all") : null;
+    const ends = answer && answer.result ? answer.result.ends.length : 0;
+    $("branches-count").textContent = String(ends);
+    $("branches-button").hidden = ends < 2;
+  } finally {
+    clarity.counting = false;
+  }
+  if (clarity.recount) {
+    clarity.recount = false;
+    countBranches(Boolean(clarity.state.conversation_id));
+  }
+}
+
+function markedOnly(on) {
+  clarity.markedOnly = on;
+  const button = $("marked-only");
+  if (!button) return;
+  button.setAttribute("aria-pressed", String(on));
+  for (const part of $("panel").querySelectorAll("[data-list]")) {
+    part.hidden = (part.dataset.list === "marked") !== on;
+  }
+}
+
+function reveal(turn) {
+  // A marked reply picked in Branches: its branch is drawn; scroll to it and outline it.
+  const item = $("thread").querySelector(`li[data-turn="${CSS.escape(turn)}"]`);
+  if (!item) return;
+  item.scrollIntoView({ block: "center" });
+  item.classList.add("revealed");
+}
 
 // Probabilities (C4c): while its section is open, the reply is drawn shaded, token by
 // token, from the panel's copy; picking a token shows its chance and alternatives.
@@ -889,6 +935,8 @@ document.addEventListener("change", (event) => {
 
 const THREAD = {
   "panel-close": () => closePanel(),
+  branches: (element) => showPanel("branches", {}, element),
+  "marked-only": () => markedOnly(!clarity.markedOnly),
   replay: (element, call) => replay(call, element),
   "replay-stop": () => command("cancel"),
   "reset-all": async (element) => {
