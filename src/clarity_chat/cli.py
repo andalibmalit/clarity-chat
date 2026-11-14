@@ -219,7 +219,8 @@ def format_branch_ends(result: dict[str, Any]) -> str:
 def format_compare(result: dict[str, Any]) -> str:
     """The replies to one message, by group, what's the same in all, and where they part."""
     groups = result["groups"]
-    lines = [f"{len(result['replies'])} replies to {short(result['message']['text'], 50)}:"]
+    n = len(result["replies"])
+    lines = [f"{n} repl{'y' if n == 1 else 'ies'} to {short(result['message']['text'], 50)}:"]
     for r in result["replies"]:
         star = "*" if r["current"] else " "
         group = f", group {r['group'] + 1}" if len(groups) > 1 else ""
@@ -327,7 +328,10 @@ def format_resume(result: dict[str, Any]) -> str:
             "! This log is from v0.1.0, which didn't record /undo or failed calls, so it "
             "continues after the last reply. /branches shows the others."
         )
-    lines += [f"! {item['text']}" for item in what_differs(record)]
+    differ = what_differs(record)
+    lines += [f"! {item['text']}" for item in differ]
+    if not differ:
+        lines.append("Nothing differs from when this chat was written.")
     if record["chat_settings"]:
         values = ", ".join(f"{k} = {v!r}" for k, v in record["chat_settings"].items())
         lines.append(f"Restored /set values: {values}.")
