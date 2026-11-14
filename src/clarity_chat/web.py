@@ -283,15 +283,6 @@ def make_app(
             if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
                 raise Refused(415, "Send JSON.")
 
-    def refusing(endpoint: Any) -> Any:
-        def wrapped(request: Request) -> Response:
-            try:
-                return endpoint(request)
-            except Refused as e:
-                return PlainTextResponse(str(e), e.status)
-
-        return wrapped
-
     def live(tab: str) -> None:
         if tabs["live"] is None:
             tabs["live"] = tab
@@ -404,13 +395,15 @@ def make_app(
         except Refused as e:
             return PlainTextResponse(str(e), e.status)
 
-    @refusing
     def export(request: Request) -> Response:
-        check(request)
+        try:
+            check(request)
+        except Refused as e:
+            return PlainTextResponse(str(e), e.status)
         result = worker.export_now().get("result")
         path = Path(result["path"]) if result else None
         if path is None or not path.is_file():
-            raise Refused(409, NOT_EXPORTED)
+            return PlainTextResponse(NOT_EXPORTED, 409)
         return FileResponse(path, media_type="application/x-ndjson", filename=path.name)
 
     app = Starlette(
