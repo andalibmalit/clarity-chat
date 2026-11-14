@@ -3,8 +3,7 @@
 // picker and the row under the message box, the first screen and a model starting, About,
 // Quit, and the plain pages. The thread (C2): sending, writing and Stop, Edit, the
 // counter, Copy, Regenerate, marks and notes, and failed and refused calls. Later screens
-// build on `clarity` below; `clarity.on` holds their handlers for controls already drawn
-// (Chats, Appearance, Settings, the replies pop-out, Details).
+// build on `clarity` below; THREAD holds every control's handler, by its data-action.
 //
 // Rules this file keeps (tests/test_web.py checks the first):
 // - Server HTML goes into the page only through swap(); text only through textContent.
@@ -24,7 +23,6 @@ const clarity = {
   writing: { k: null, text: "", end: 0 }, // the reply being written, joined by numbers
   listeners: [], // screens' event handlers
   buffer: null, // events held while the page loads; null once it has
-  on: {}, // later screens' handlers: chats, appearance, settings, replies, details
   sending: false, // this page waits for a command that writes or starts
   failedCall: null, // the last failed call's ID, from its record on the stream
   alerted: new Set(), // sentences already announced, so a redraw doesn't repeat them
@@ -461,8 +459,6 @@ function act(element) {
     quit();
   } else if (THREAD[action]) {
     THREAD[action](element, element.closest("[data-call]")?.dataset.call);
-  } else if (clarity.on[action]) {
-    clarity.on[action](element);
   }
 }
 
@@ -844,8 +840,6 @@ function closeCompare() {
   (button || $("message")).focus();
 }
 
-clarity.on.replies = (element) => openReplies(element);
-
 // The side panel (C4a Settings, C4b Details): a view drawn beside the thread. It's drawn
 // again after every redraw, so its controls wait, or stop waiting, with the page.
 let panelOf = null; // { name, params, opener }
@@ -940,8 +934,6 @@ async function setting(args, row = null, box = null) {
   await refresh();
 }
 
-clarity.on.settings = (element) => showPanel("settings", {}, element);
-
 // Branches (C4d): the top bar's count of branch ends, shown from the second one, and the
 // panel of branch ends and marked replies ("Marked only" filters it in the page).
 async function countBranches(chat) {
@@ -1029,11 +1021,6 @@ document.addEventListener("toggle", (event) => {
   if (event.target.matches && event.target.matches('#panel details[data-key="probs"]')) shade();
 }, true);
 
-// Details (C4b): one call's record, from the toolbar, the facts line or a failed line.
-clarity.on.details = (element) => {
-  showPanel("details", { call: element.closest("[data-call]").dataset.call }, element);
-};
-
 async function replay(call, button) {
   // Replay re-sends the call; Stop sends /cancel. The section says "Replaying…" until the
   // command ends, then the panel is drawn again with the replay's result.
@@ -1087,11 +1074,6 @@ document.addEventListener("change", (event) => {
 });
 
 // --- Chats and export (C5)
-
-clarity.on.chats = (element) => {
-  if (!$("drawer").hidden && element.id === "chats-handle") closeDrawer(true);
-  else showDrawer(element);
-};
 
 async function showDrawer(opener = null) {
   // The Chats drawer, from /view/chats. Redrawn with the page, it keeps a refusal under the
@@ -1330,12 +1312,6 @@ function applyAppearance() {
   }
 }
 
-clarity.on.appearance = () => {
-  applyAppearance();
-  $("appearance").showModal();
-  $("appearance").querySelector('input[name="theme"]:checked').focus();
-};
-
 document.addEventListener("change", (event) => {
   const input = event.target.closest("#appearance input");
   if (!input) return;
@@ -1399,6 +1375,19 @@ document.addEventListener("keydown", (event) => {
 });
 
 const THREAD = {
+  // Details (C4b): one call's record, from the toolbar, the facts line or a failed line.
+  details: (element, call) => showPanel("details", { call }, element),
+  settings: (element) => showPanel("settings", {}, element),
+  replies: (element) => openReplies(element),
+  appearance() {
+    applyAppearance();
+    $("appearance").showModal();
+    $("appearance").querySelector('input[name="theme"]:checked').focus();
+  },
+  chats(element) {
+    if (!$("drawer").hidden && element.id === "chats-handle") closeDrawer(true);
+    else showDrawer(element);
+  },
   "panel-close": () => closePanel(),
   branches: (element) => showPanel("branches", {}, element),
   "marked-only": () => markedOnly(!clarity.markedOnly),
@@ -1486,10 +1475,7 @@ clarity.listeners.push((event) => {
 clarity.command = command;
 clarity.view = view;
 clarity.swap = swap;
-clarity.download = download;
-clarity.useHere = useHere;
 clarity.refresh = refresh;
-clarity.notice = notice;
 
 document.addEventListener("DOMContentLoaded", () => {
   clarity.key = readKey();
