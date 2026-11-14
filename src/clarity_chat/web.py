@@ -1013,7 +1013,7 @@ def setting_row(name: str, setting: dict[str, Any], model: dict[str, Any]) -> di
     }
     if row["slider"]:
         if name in NEUTRAL:
-            row["marks"].append((NEUTRAL[name], f"▲ {value_words(NEUTRAL[name])} neutral"))
+            row["marks"].append((NEUTRAL[name], f"neutral {value_words(NEUTRAL[name])}"))
         if name in model:
             row["marks"].append((model[name], f"model {value_words(model[name])}"))
     if name == "steering_scale" and value != 0:  # rule 10: Off whenever it's on

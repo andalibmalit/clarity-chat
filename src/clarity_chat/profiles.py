@@ -180,7 +180,9 @@ SETTING_HELP = {
     ),
     "seed": (
         "The same seed, settings and conversation give the same reply on the same computer and "
-        "software. At temperature 0 nothing is random, so the seed changes nothing."
+        "software. Used for the next message you send or edit. Regenerate and More replies "
+        "take the next seed up instead; to run a reply again with its own seed, use Replay in "
+        "Details. At temperature 0 nothing is random, so the seed changes nothing."
     ),
     "repeat_penalty": (
         "Makes tokens already used less likely, counting the prompt as well as the reply so "
