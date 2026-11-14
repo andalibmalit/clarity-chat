@@ -331,3 +331,13 @@ def test_clarity_ui_serves_under_the_projects_lock(fetched_root, monkeypatch):
     monkeypatch.setattr(web, "serve", fake_serve)
     assert cli.main(["--root", str(fetched_root), "ui"]) == 0
     assert seen and seen[0][0] == fetched_root.resolve()
+
+
+def test_the_styles_load_nothing_from_the_network():
+    """Fonts and images ship with the package or come from the system (CSP 'self' only)."""
+    from pathlib import Path
+
+    folder = Path(web.__file__).parent / "web_static"
+    for name in web.STATIC_FILES:
+        text = (folder / name).read_text(encoding="utf-8")
+        assert "@import" not in text and "http://" not in text and "https://" not in text, name

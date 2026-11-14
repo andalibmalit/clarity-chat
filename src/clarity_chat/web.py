@@ -50,7 +50,11 @@ from clarity_chat.session import ContextError, Session
 
 PORT = 8765  # fixed, a constant: server.toml describes llama-server only
 STATIC = Path(__file__).parent / "web_static"
-STATIC_FILES = {"app.js": "text/javascript", "app.css": "text/css"}  # nothing else is served
+STATIC_FILES = {  # nothing else is served
+    "app.js": "text/javascript",
+    "app.css": "text/css",
+    "clarity-ds.css": "text/css",
+}
 VIEWS = {
     "thread",
     "details",
