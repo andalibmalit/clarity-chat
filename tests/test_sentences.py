@@ -180,3 +180,26 @@ def test_regen_sames_refusal_names_no_command(make):
     with pytest.raises(ConfigError) as caught:
         c.run("regen", "same", lambda e: None)
     assert "already has a reply" in str(caught.value) and names_no_command(str(caught.value))
+
+
+# --- The design walkthrough at bd59488, finding 3
+
+
+def test_a_model_that_isnt_fetched_says_how_to_fetch_it_as_written(fetched_root, tiny_tokenizer):
+    """The command must run as written for someone whose terminal is busy running Clarity:
+    no backticks, `uv run` in front, a new window, and what to do after."""
+    from tests.test_web_shell import OTHER_MODEL
+
+    with (fetched_root / "models.toml").open("a", encoding="utf-8") as f:
+        f.write(OTHER_MODEL)
+    far = TEXT_PROFILE.replace('model = "tiny"', 'model = "other"')
+    (fetched_root / "profiles" / "far.toml").write_text(far, encoding="utf-8")
+    session = Session(
+        fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    with pytest.raises(ConfigError) as caught:
+        session.new_conversation("far")
+    assert str(caught.value) == (
+        "Model 'other' is not fetched. In a new terminal window, in Clarity's folder, run: "
+        "uv run clarity fetch other. Then try again."
+    )
