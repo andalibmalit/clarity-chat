@@ -504,6 +504,8 @@ document.addEventListener("click", (event) => {
     for (const button of pane.parentElement.children) {
       button.setAttribute("aria-pressed", String(button === pane));
     }
+    const caption = pane.closest("details").querySelector("[data-caption]");
+    if (caption) caption.hidden = pane.dataset.pane === "ids"; // nothing is marked in the IDs
     for (const pre of pane.closest("details").querySelectorAll("pre[data-pane]")) {
       pre.hidden = pre.dataset.pane !== pane.dataset.pane;
     }
