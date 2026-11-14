@@ -100,3 +100,22 @@ def test_a_resumed_call_records_the_logged_recommended_values(fetched_root, tiny
     assert record["settings"]["temperature"] == {"value": 0.7, "origin": "model"}
     # the recommended values the setting came from, not today's
     assert record["recommended"]["values"]["temperature"] == 0.7
+
+
+def test_both_llama_profiles_take_meta_s_values_from_the_committed_lock():
+    """SHOULD 5 (e): the shipped Llama 3.1 profiles opt in, and models.lock as committed
+    gives temperature 0.6 and top_p 0.9 (Meta's generation_config.json), origin "model"."""
+    from pathlib import Path
+
+    from clarity_chat.models import lock_entry
+    from clarity_chat.profiles import load_defaults, load_models, load_profile, resolve_settings
+
+    repo = Path(__file__).resolve().parents[1]
+    defaults, models = load_defaults(repo), load_models(repo)
+    for name in ("llama-3.1-8b-chat", "llama-3.1-8b-base"):
+        profile = load_profile(repo, name, defaults)
+        assert profile.use_recommended, name
+        recommended = lock_entry(repo, models[profile.model])["recommended"]["values"]
+        settings = resolve_settings(profile.raw_settings, defaults, name, recommended)
+        assert (settings["temperature"].value, settings["top_p"].value) == (0.6, 0.9), name
+        assert settings["temperature"].origin == settings["top_p"].origin == "model", name

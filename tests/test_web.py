@@ -104,10 +104,11 @@ def test_a_wrong_host_or_port_is_refused_everywhere(server, host):
         assert client.get(path, headers={**AUTH, **SAME, "Host": host}).status_code == 403
 
 
+@pytest.mark.parametrize("site", ["cross-site", "same-site", "none"])  # same-site: SHOULD 5
 @pytest.mark.parametrize("path", ["/events", "/view/thread", "/export"])
-def test_a_cross_site_read_is_refused(server, path):
+def test_a_cross_site_read_is_refused(server, path, site):
     client, _, _ = server
-    assert client.get(path, headers={**AUTH, "Sec-Fetch-Site": "cross-site"}).status_code == 403
+    assert client.get(path, headers={**AUTH, "Sec-Fetch-Site": site}).status_code == 403
 
 
 @pytest.mark.parametrize(
@@ -121,14 +122,16 @@ def test_a_cross_site_read_is_refused(server, path):
         ({"Sec-Fetch-Site": "cross-site"}, 403),
     ],
 )
-def test_a_post_needs_the_exact_origin_and_json(server, change, status):
+@pytest.mark.parametrize("path", ["/command", "/tab"])  # /tab: SHOULD 5
+def test_a_post_needs_the_exact_origin_and_json(server, change, status, path):
     client, _, _ = server
     headers = {**POST, **{k: v for k, v in change.items() if v is not None}}
     for k, v in change.items():
         if v is None:
             headers.pop(k)
     body = json.dumps({"command": "state", "args": "", "id": 1, "tab": "tab-1"})
-    assert client.post("/command", headers=headers, content=body).status_code == status
+    assert client.post(path, headers=headers, content=body).status_code == status
+    assert client.post(path, headers=POST, content=body).status_code == 200
 
 
 def test_options_is_refused_and_no_cors_header_is_ever_sent(server):
@@ -1070,3 +1073,125 @@ def test_only_the_fixed_wait_attributes_skip_escaping():
         "' aria-disabled=\"true\" aria-describedby=\"settings-waits\"' if waits else ''",
     ]
     assert "Markup" not in (web.STATIC.parent / "web.py").read_text(encoding="utf-8")
+
+
+def serve_on(fetched_root, session, port, keys, read_lines=False):
+    """web.serve on `port` in a thread, with `session`; the secret goes into `keys`, once
+    for each time the redirect file is opened."""
+    import re
+
+    servers: list = []
+
+    def on_open(path):
+        found = re.search(r"#key=([A-Za-z0-9_-]+)", path.read_text())
+        assert found
+        keys.append(found[1])
+
+    thread = threading.Thread(
+        target=web.serve,
+        kwargs={
+            "root": fetched_root,
+            "port": port,
+            "session_factory": lambda: session,
+            "opener": on_open,
+            "on_ready": servers.append,
+            "write": lambda text: None,
+            "read_lines": read_lines,
+        },
+        daemon=True,
+    )
+    thread.start()
+    for _ in range(100):
+        if servers and servers[0].started:
+            break
+        threading.Event().wait(0.05)
+    return thread, servers[0]
+
+
+def test_ctrl_c_mid_reply_logs_the_call_as_stopped_and_returns_soon(fetched_root, tiny_tokenizer):
+    """SHOULD 5 (c): serve's finally sends /cancel and waits for the record before the
+    session closes, so a reply in progress is logged as stopped by you, and the server's
+    graceful wait (2 s) holds the exit no longer than that."""
+    import signal
+    import time
+
+    import httpx
+
+    from clarity_chat.logs import read_records
+
+    words = " one two three four five six seven eight nine ten eleven twelve"
+    backend = FakeBackend([words], tokenizer=tiny_tokenizer)
+    backend.piece_delay = 0.5  # 6 s in all, longer than the server's 2 s graceful wait
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    port, keys = free_port(), []
+    thread, server = serve_on(fetched_root, session, port, keys)
+    origin = f"http://127.0.0.1:{port}"
+    headers = {"Authorization": f"Bearer {keys[0]}", "Origin": origin}
+
+    def post(client, name, args=""):
+        body = {"command": name, "args": args, "id": 1, "tab": "t"}
+        return client.post(f"{origin}/command", headers=headers, json=body)
+
+    with httpx.Client(verify=False, trust_env=False, timeout=30) as client:
+        assert "result" in post(client, "profile", "text").json()
+        assert "result" in post(client, "set", "max_tokens 200").json()
+        assert session.conversation is not None
+        log = session.conversation.log.path
+        with client.stream("GET", f"{origin}/events?tab=t", headers=headers) as stream:
+            lines = stream.iter_lines()
+            next(lines)  # hello
+            threading.Thread(target=lambda: post(client, "say", "Hi"), daemon=True).start()
+            for line in lines:  # until the reply is being written (heartbeats every 15 s)
+                assert '"event": "heartbeat"' not in line
+                if '"event": "text"' in line:
+                    break
+            began = time.monotonic()
+            server.handle_exit(signal.SIGINT, None)
+    thread.join(15)
+    assert not thread.is_alive() and time.monotonic() - began < 5
+    calls = [r for r in read_records(log) if r.get("type") == "call"]
+    assert [c["stop_type"] for c in calls] == ["cancelled"]
+
+
+def test_enter_s_redirect_file_is_gone_once_a_new_tab_connects(
+    fetched_root, tiny_tokenizer, monkeypatch
+):
+    """SHOULD 5 (d): Enter in the terminal writes the redirect file again; the open tab's
+    stream reconnecting leaves it, and the new tab's first /events deletes it."""
+    import os
+
+    import httpx
+
+    read, write = os.pipe()
+    monkeypatch.setattr(sys, "stdin", os.fdopen(read, encoding="utf-8"))
+    session = Session(
+        fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    port, keys = free_port(), []
+    thread, server = serve_on(fetched_root, session, port, keys, read_lines=True)
+    redirect = fetched_root / "local" / "clarity-open.html"
+    auth = {"Authorization": f"Bearer {keys[0]}"}
+
+    def connect(client, tab):
+        url = f"http://127.0.0.1:{port}/events?tab={tab}"
+        with client.stream("GET", url, headers=auth) as stream:
+            next(stream.iter_lines())
+
+    try:
+        with httpx.Client(verify=False, trust_env=False, timeout=10) as client:
+            connect(client, "first")
+            assert not redirect.exists()
+            os.write(write, b"\n")  # Enter
+            for _ in range(100):
+                if len(keys) == 2:
+                    break
+                threading.Event().wait(0.05)
+            assert keys == [keys[0], keys[0]] and redirect.exists()
+            connect(client, "first")
+            assert redirect.exists()
+            connect(client, "second")
+            assert not redirect.exists()
+    finally:
+        os.close(write)
+        server.should_exit = True
+        thread.join(10)
