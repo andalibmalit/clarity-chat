@@ -36,7 +36,9 @@ The same call on the same machine and llama.cpp build gives the same output. Liv
 - Replay of any completed call, with a list of everything recorded that changed since.
 - Export of a conversation to one JSON Lines file a notebook can load, with exact token IDs, where each message sits in the prompt, and marks and notes.
 - Blind batch runs for comparing setups.
+- A web interface on your own computer (`clarity ui`), over the same commands and logs: the exact prompt, Replay, Settings, Compare, branches and chats.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
+- Profiles for SmolLM2-135M, OLMo 3 7B (Instruct and base) and Llama 3.1 8B (Instruct and base; Meta gates its download, see [Fetch a gated model](docs/guides.md#fetch-a-gated-model)).
 - A llama-server that Clarity starts and checks itself, and a Transformers backend that runs the same weights in-process (`uv sync --extra hf`).
 - Steering on the Transformers backend: a vector made by another tool, pinned by its hash, logged with every reply and replayed.
 
@@ -53,6 +55,7 @@ cmake --build vendor/llama.cpp/build --config Release -j 8 --target llama-server
 
 uv run clarity fetch smollm2-135m-instruct   # download at the pinned commit, convert to GGUF
 uv run clarity chat --profile smol-text      # chat; /help lists the commands
+uv run clarity ui                            # the same, in your browser
 uv run clarity run --openings FILE --profiles smol-chat smol-text  # blind test; FILE holds openings separated by --- lines
 uv run clarity replay logs/CONVERSATION_ID.jsonl CALL_ID           # re-send a call, compare
 uv run clarity chats                                                # list your conversations

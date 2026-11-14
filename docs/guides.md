@@ -187,10 +187,10 @@ It lists each condition that differs from the export's. Transformers doesn't kee
 
 ## Resume a conversation
 
-`clarity chats` lists your conversations. To continue one, pass its ID:
+`clarity chats` lists your conversations. To continue one, pass its ID, the log file's name:
 
 ```
-uv run clarity chat --resume CONVERSATION_ID
+uv run clarity chat --resume ID
 ```
 
 A path to its log file works too. In a chat, `/resume ID` does the same, by ID only. The conversation continues where it left off, with its profile, settings, `/set` values and context size as they were logged, and new records go to the same log. Clarity lists what differs today, such as an edited profile file or a new llama.cpp build, and checks that the current reply's prompt still renders to the same token IDs. `/history` shows the conversation so far. To pick up today's profile instead, start a new conversation with `/new`.

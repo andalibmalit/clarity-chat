@@ -244,8 +244,8 @@ function connect(onHello) {
 }
 
 function reconnect() {
-  // A dropped stream: try again, waiting longer each time, then load the page again. A
-  // Clarity that doesn't answer has stopped (A5).
+  // A dropped stream: try again, waiting longer each time, then load the page again. After
+  // 3 tries the page says Clarity isn't answering and keeps asking (lost()).
   // A tab showing A4 waits for "Use it here": polling would take over when the live tab
   // drops its stream for a moment (a reload). Checked again when the wait is over, since a
   // tab learns it isn't live from a command's answer, after its stream has closed.
