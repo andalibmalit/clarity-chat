@@ -23,6 +23,7 @@ uv run clarity export ID [--out PATH]     # write a conversation for a notebook 
 uv run pytest                             # offline tests (no network, model or server)
 uv run pytest -m live                     # SmolLM2 via the managed llama-server
 uv run pytest -m olmo                     # OLMo 3 (needs both OLMo models fetched)
+uv run pytest -m llama                    # Llama 3.1 8B (needs both models fetched; gated)
 uv run pytest -m measure -v -s            # timings and memory figures behind design choices
 uv run pytest -m embed -v -s              # embedding determinism on bge-small (decides v0.3.3)
 uv run pytest -m browser                  # the web UI in Chrome (needs `uv sync --group browser`)
@@ -53,7 +54,7 @@ Clarity writes files only visibly. Shipped files stay read-only; the user's own 
 - An offline test never skips in CI. A test that needs a model or torch goes on a live tier, and the plan marks its behaviour "live only".
 - A bug fix starts with a failing test, committed before the fix. A fix commit that edits a test from its failing-test commit says what changed and why in its message.
 - Each release follows its approved plan in `notes/plans/`. If the build departs from the plan, update the plan in the same step and say so.
-- A release is done when `CONTRIBUTING.md`'s release checklist is complete. I may run the live tests while building, to catch my own bugs. Before `-m olmo` (it loads 15 GB), I check that no model is loaded and about 16 GB is free; if the check passes I run it, otherwise I ask. The owner runs them again for the release checklist, pushes and tags.
+- A release is done when `CONTRIBUTING.md`'s release checklist is complete. I may run the live tests while building, to catch my own bugs. Before `-m olmo` or `-m llama` (each loads 15–16 GB), I check that no model is loaded and about 16 GB is free; if the check passes I run it, otherwise I ask. The owner runs them again for the release checklist, pushes and tags.
 - A change to the llama.cpp commit, `tokenizers`, `transformers` or `jinja2` can change output: give it its own commit and a changelog line, and ask the owner to run the live tests.
 - Add user-visible changes to `CHANGELOG.md` under Unreleased in the same commit.
 - If you make a mistake that an earlier session also made, propose one line for this file.
