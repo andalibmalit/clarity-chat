@@ -340,3 +340,18 @@ def test_probs_of_a_call_cancelled_before_its_reply_says_cancelled(commands):
         commands.run("say", "Hi", lambda e: None)
     cancelled = commands.session.conversation.last_call
     assert commands.run("probs", cancelled["call_id"], lambda e: None)["reason"] == "cancelled"
+
+
+def test_reply_spans_are_null_rather_than_wrong():
+    """Final checkpoint, finding 7: both guards, with stand-in decoders."""
+    from types import SimpleNamespace
+
+    from clarity_chat.commands import reply_spans
+
+    def tokenizer(prefixes):
+        decode = lambda ids, **kw: prefixes[len(ids) - 1]  # noqa: E731
+        return SimpleNamespace(tok=SimpleNamespace(decode=decode))
+
+    assert reply_spans(tokenizer(["a", "ab"]), [1, 2], "ab") == [(0, 1), (1, 2)]
+    assert reply_spans(tokenizer(["a", "xb"]), [1, 2], "xb") is None  # rewrites earlier text
+    assert reply_spans(tokenizer(["a", "ab"]), [1, 2], "zz") is None  # isn't the reply

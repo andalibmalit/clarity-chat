@@ -165,3 +165,12 @@ def test_a_bad_chat_setting_in_a_resumed_log_names_no_command(make, fetched_root
     with pytest.raises(ConfigError) as caught:
         session.resume(path)
     assert "top_k" in str(caught.value) and names_no_command(str(caught.value).split(": ", 1)[1])
+
+
+def test_regen_sames_refusal_names_no_command(make):
+    session, _ = make()
+    c = Commands(session)
+    c.run("say", "Hi", lambda e: None)
+    with pytest.raises(ConfigError) as caught:
+        c.run("regen", "same", lambda e: None)
+    assert "already has a reply" in str(caught.value) and names_no_command(str(caught.value))

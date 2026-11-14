@@ -194,11 +194,33 @@ def test_state_gives_what_differs_after_a_resume_until_the_next_call(commands, f
 
 
 def test_a_failed_start_leaves_no_model_starting(commands):
-    """Checkpoint 1, finding 4: a /profile that fails with no conversation isn't "starting"."""
-    c, _ = commands
-    with pytest.raises(Exception):  # noqa: B017 - which error isn't the point
-        c.run("profile", "no-such-profile", lambda e: None)
-    assert state(c)["model"] == "none"
+    """Checkpoint 1, finding 4; the final checkpoint showed the first version couldn't fail
+    (an unknown name is refused before "starting"): here the start itself fails."""
+    from clarity_chat.profiles import ConfigError
+
+    c, backend = commands
+
+    def fails(model, weights, ctx_size):
+        raise ConfigError("no GPU")
+
+    backend.start = fails
+    with pytest.raises(ConfigError):
+        c.run("profile", "text", lambda e: None)
+    assert c.session.conversation is None and state(c)["model"] == "none"
+
+
+def test_running_has_no_k_or_n_after_a_regen(commands):
+    """Final checkpoint, finding 5: a /say after /regen 3 isn't "reply 3 of 3"."""
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    backend.replies = [" a", " b", " c", " d"]
+    c.run("regen", "3", lambda e: None)
+    seen: list[dict] = []
+    c.run(
+        "say", "Next", lambda e: seen.append(state(c)["running"]) if e["event"] == "text" else None
+    )
+    assert seen[-1] == {"command": "say", "args": "Next", "k": None, "n": None}
 
 
 def test_unanswered_comes_back_after_a_resume(commands):

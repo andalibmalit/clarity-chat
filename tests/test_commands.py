@@ -496,3 +496,19 @@ def test_profiles_are_listed_by_name_not_by_file_name(commands, fetched_root):
         (fetched_root / "profiles" / f"{name}.toml").write_text(text, encoding="utf-8")
     names = [p["name"] for p in c.run("profiles", "", lambda e: None)["profiles"]]
     assert names.index("a") < names.index("a-b")
+
+
+def test_profiles_lists_an_unreadable_file_with_its_error(commands, fetched_root):
+    """Final checkpoint, finding 12: the OSError branch (a folder named like a profile)."""
+    c, _ = commands
+    (fetched_root / "profiles" / "folder.toml").mkdir()
+    by_name = {p["name"]: p for p in c.run("profiles", "", lambda e: None)["profiles"]}
+    assert by_name["folder"]["error"]
+
+
+def test_the_terminal_list_of_profiles_ends_with_what_it_doesnt_check(commands):
+    from clarity_chat.cli import format_profiles
+
+    c, _ = commands
+    result = c.run("profiles", "", lambda e: None)
+    assert format_profiles(result).endswith(result["not_checked"])
