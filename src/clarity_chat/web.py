@@ -182,7 +182,10 @@ class Security:
         self.routes, self.state = app.routes, app.state
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
+        if scope["type"] == "websocket":  # none is served: refused before any route sees it
+            await send({"type": "websocket.close", "code": 1008})
+            return
+        if scope["type"] != "http":  # lifespan, which `clarity ui` turns off
             await self.app(scope, receive, send)
             return
 

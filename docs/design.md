@@ -165,7 +165,7 @@ There is no general "results may vary" notice. Replay flags the one case that ne
 - **Fetch metadata and Origin** are checked as well, as a second layer, and every response carries a strict content security policy (scripts, styles and fonts from the page's own origin only; no framing).
 - **Untrusted text is escaped.** Replies, notes, labels, titles, descriptions and error sentences go into the page through autoescaped templates or as plain text; the page's script has one way to put server HTML into the page and none to build HTML from text, and the content security policy's Trusted Types make the browser refuse any other way, where it supports them.
 - **The port is Clarity's before the link exists.** `clarity ui` binds and listens on it before printing or opening the link, so no other program can take the port in between and receive the secret.
-- **Its limits:** anyone who can read the terminal, the browser's stored session or this user's files can find the secret while Clarity runs; another user on the same computer can reach the port but not the secret. For now Clarity assumes one user per computer.
+- **Its limits:** while Clarity runs, the secret is in the terminal's output (and in any file that output is sent to), in `local/clarity-open.html` until the page first uses it, in the tab's session storage, and in the browser's stored session and possibly its history; anyone who can read those can use it. Another user on the same computer can reach the port and tie it up, but can't read the secret. For now Clarity assumes one user per computer.
 
 ## Not in scope
 

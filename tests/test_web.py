@@ -740,3 +740,13 @@ def test_the_csp_requires_trusted_types(server):
     client, _, _ = server
     csp = client.get("/").headers["Content-Security-Policy"]
     assert "require-trusted-types-for 'script'" in csp and "trusted-types clarity" in csp
+
+
+def test_a_websocket_is_refused_before_any_route_sees_it(server):
+    """Security review, finding 9: only HTTP passes the Host check's layer."""
+    from starlette.websockets import WebSocketDisconnect
+
+    client, _, _ = server
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect("/events", headers={**AUTH, "Host": f"127.0.0.1:{PORT}"}):
+            pass
