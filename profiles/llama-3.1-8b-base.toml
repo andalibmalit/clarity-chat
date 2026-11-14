@@ -1,6 +1,6 @@
 # Llama 3.1 8B base (pretrained only, no chat tuning) continuing a plain document, as
 # 5-raw-base does for OLMo 3. No chat template runs; the tokenizer's BOS is prepended.
-description = "Plain text, no chat format: the untuned base model continues a written conversation"
+description = "Plain text, no chat format: the base model, not tuned for chat, continues a written conversation"
 backend = "llama.cpp"
 model = "llama-3.1-8b-base"
 mode = "text"

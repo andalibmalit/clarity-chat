@@ -132,7 +132,7 @@ Some repos are gated: Hugging Face gives their files only to accounts the publis
 
 Clarity never asks for or stores the token; the Hugging Face library reads it. Without access, `clarity fetch` stops and says what to do.
 
-Llama 3.1 comes under Meta's [Llama 3.1 Community License](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/blob/main/LICENSE). Its "Built with Llama" attribution applies to distributing the model, and Clarity doesn't distribute it: `fetch` downloads it to your computer. If you share the files it downloads or converts, the licence's terms for distributing apply to you. Meta's [Acceptable Use Policy](https://llama.meta.com/llama3_1/use-policy) applies to how you use the model.
+Llama 3.1 comes under Meta's [Llama 3.1 Community License](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/blob/main/LICENSE). Its "Built with Llama" attribution applies if you distribute or make available the model, a file converted from it, or a product or service that contains it; `clarity fetch` only downloads it to your computer. If you share the files it downloads or converts, the licence's terms for distributing apply to you. Meta's [Acceptable Use Policy](https://llama.meta.com/llama3_1/use-policy) applies to how you use the model.
 
 ## Run and rate a blind test
 
@@ -245,7 +245,7 @@ The Transformers backend runs the official weights in-process with PyTorch. It i
 2. Fetch the model with the `convert` route; a ready-made GGUF has no official weights.
 3. Set `backend = "transformers"` in a profile. It runs on MPS by default; add `device = "cpu"` or `device = "cuda"` to change it.
 
-In the web interface, the new profile is in the picker once you save it under `local/profiles/`: open the picker under the message box and choose it. To see why a word was chosen, open **Settings**, set `logprobs` to 5 under Probabilities, send a message, then open **Details** under the reply and open **Probabilities**: the reply is shaded token by token, and picking a token shows its chance and the likeliest others.
+In the web interface, the new profile is in the picker once you save it under `local/profiles/`: open the picker under the message box and choose it. To see how likely each word was, open **Settings**, set `logprobs` to 5 under Probabilities, send a message, then open **Details** under the reply and open **Probabilities**: the reply is shaded token by token, and picking a token shows its chance and the likeliest others.
 
 Some settings can't run on Transformers exactly as written; [Settings](reference.md#settings) lists which. When that can change the reply, the call is flagged `not_applied`, and `/settings` gives the reason. The most common case is sampler order: `defaults.toml` and most profiles, including `smol-chat`, list temperature last, so with temperature ≠ 1 and `top_p` < 1, every Transformers call is flagged.
 

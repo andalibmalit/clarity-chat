@@ -146,7 +146,7 @@ ok    smollm2-135m-instruct: sha256 matches (0f049d7126689b64…)
 
 ## Chat in the browser
 
-The web interface runs the same chats in a page on your computer. Everything it does goes through the same commands as the terminal, and the same log.
+The web interface runs the same chats in a page on your computer. Everything it does to a chat goes through the same commands as the terminal, and into the same log.
 
 1. Start it:
 
@@ -160,7 +160,7 @@ The web interface runs the same chats in a page on your computer. Everything it 
    Keep this window open while you use Clarity.
    ```
 
-   Clarity opens the page in your browser. The link holds a secret made for this start, so only a page opened from it can use Clarity. One tab at a time can use it.
+   Clarity opens the page in your browser. The link holds a secret made for this start, so only someone with the link can use Clarity. One tab at a time can use it.
 
 2. In **Choose a profile to start**, pick `smol-chat`. The page says "Starting smol-chat…" while the model starts, then shows the profile, the model and its backend.
 

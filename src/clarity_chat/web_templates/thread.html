@@ -31,7 +31,7 @@
 {% if facts.restart %}{{ restart() }}
 {% endif %}{% endif %}{% endif %}</li>
 {% endif %}{% endfor %}</ol>
-{% if differ is not none %}<div class="resume"><p class="line">{% if differ.count %}<span>{{ differ_line(differ) }} from when this chat was written</span> · <button type="button" class="linkbtn" aria-expanded="false" aria-controls="differ" data-action="differ">Show what changed{{ icon("right") }}</button>{% else %}Nothing differs from when this chat was written.{% endif %}</p>{% if differ.count %}
+{% if differ is not none %}<div class="resume"><p class="line">{% if differ.count %}<span>{{ differ_line(differ) }} from when this chat was written</span> · <button type="button" class="linkbtn" aria-expanded="false" aria-controls="differ" data-action="differ">Show what changed{{ icon("right") }}</button>{% else %}Nothing Clarity checks differs from when this chat was written.{% endif %}</p>{% if differ.count %}
 <ul id="differ" class="differ" hidden>{% for item in differ["items"] %}<li>{{ item.text }}</li>{% endfor %}</ul>{% endif %}</div>
 {% endif %}{% if back_in_box %}<div class="problem"><p data-alert><strong>!</strong> Your last message got no reply (its call failed or was cut off). It’s back in the box: send it to get one.</p></div>
 {% endif %}{% if failed %}{% if failed.kind == "CancelledBeforeReply" %}<p class="status" role="status" data-failed="{{ failed.call_id }}">{{ failed.message }}</p>

@@ -145,7 +145,8 @@ def test_reopened_with_nothing_different_says_so_and_goes_after_the_next_reply(c
     client, session = chat
     first = two_chats(client, session)
     assert result(client, "resume", first)["differ"]["count"] == 0
-    assert "Nothing differs from when this chat was written." in view(client, "thread")
+    nothing = "Nothing Clarity checks differs from when this chat was written."
+    assert nothing in view(client, "thread")
     result(client, "say", "Again")
     fragment = view(client, "thread")
     assert "Nothing differs" not in fragment and "differ from when" not in fragment
@@ -167,7 +168,7 @@ def test_reopened_with_an_unanswered_message_says_it_s_back_in_the_box(chat):
         "<strong>!</strong> Your last message got no reply (its call failed or was cut off). "
         "It’s back in the box: send it to get one." in fragment
     )
-    assert "Nothing differs from when this chat was written." in fragment
+    assert "Nothing Clarity checks differs from when this chat was written." in fragment
     assert "Failed:" not in fragment  # the resumed chat says it once, as L5 draws it
 
 
