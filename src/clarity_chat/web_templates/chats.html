@@ -1,0 +1,7 @@
+{% macro icon(name, size="sm") %}<svg class="icon{% if size %} {{ size }}{% endif %}" aria-hidden="true"><use href="#i-{{ name }}"></use></svg>{% endmacro %}{% set wait = ' aria-disabled="true" aria-describedby="chats-waits"' if waits else '' %}<div class="dh"><button type="button" class="newchat" data-action="new"{% if not in_chat %} aria-disabled="true"{% else %}{{ wait | safe }}{% endif %}>{{ icon("plus") }}New chat</button><button type="button" class="iconbtn" aria-label="Hide chats" data-action="chats-close">{{ icon("left", "") }}</button></div>
+{% if waits %}<p class="waits" id="chats-waits">{{ waits }}</p>
+{% endif %}{% if not today and not earlier %}<p class="empty">No chats yet. Each chat you start is listed here.</p>
+{% endif %}{% for heading, group in (("Today", today), ("Earlier", earlier)) if group %}<div><h3>{{ heading }}</h3><ul>
+{% for c in group %}<li><button type="button" class="crow" data-resume="{{ c.conversation_id }}"{% if c.current %} aria-current="true"{% endif %}{{ wait | safe }}>{% if c.error %}<span class="t idm">{{ c.conversation_id }}</span><span class="bad">! can’t be read</span>{% else %}{% if c.title %}<span class="t">{{ c.title }}</span>{% else %}<span class="t none">No messages</span>{% endif %}<span class="p">{% if c.date %}<span class="dt">{{ c.date }}</span> · {% endif %}{{ c.profile or "" }}</span>{% endif %}</button><div class="problem" hidden><p role="alert"><strong>! Didn’t open.</strong> <span class="why"></span></p></div></li>
+{% endfor %}</ul></div>
+{% endfor %}

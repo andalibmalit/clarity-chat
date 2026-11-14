@@ -120,13 +120,13 @@ function swap(element, html, prepare = null) {
   element.replaceChildren(...parsed.body.childNodes);
 }
 
-async function download() {
+async function download(name = "export.jsonl") {
   const response = await request("/export");
   if (!response.ok) return response.text();
   const blob = await response.blob();
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = "export.jsonl";
+  link.download = name;
   link.click();
   URL.revokeObjectURL(link.href);
   return null;
@@ -265,13 +265,16 @@ async function draw(number) {
   openPop = null; // the thread's popovers are drawn again, closed
   openList = null;
   swap($("thread"), thread, alertOnce);
+  if (clarity.differOpen) showDiffer(true);
   shade(); // the thread is new: shade its reply again if Probabilities is open
   swap($("composer-row"), row);
   const state = clarity.state;
   const starting = state.model === "starting";
   const chat = Boolean(state.conversation_id) && !starting;
   const again = starting && state.running && state.running.command === "resume"; // same chat
-  $("title").hidden = !chat && !again;
+  $("title").hidden = (!chat && !again) || clarity.renaming;
+  if (changing(state.running)) $("title").setAttribute("aria-disabled", "true");
+  else $("title").removeAttribute("aria-disabled");
   $("title-text").textContent = state.title || "New chat";
   $("title").classList.toggle("fresh", !state.title);
   $("message").disabled = !chat && !starting; // you can type while a model starts
@@ -285,6 +288,7 @@ async function draw(number) {
   $("new-chat").setAttribute("aria-disabled", String(waits));
   showWriting(state.running);
   if (panelOf) showPanel(panelOf.name, panelOf.params);
+  if (!$("drawer").hidden) await showDrawer();
   countBranches(chat);
   if (state.unanswered && clarity.filled !== state.unanswered.turn_id) {
     clarity.filled = state.unanswered.turn_id; // your failed message, back in the box once
@@ -361,11 +365,13 @@ function notice(strong, text, action = null, label = "", call = null) {
     box.append(button);
   }
   $("notice").replaceChildren(box);
+  return box;
 }
 
 async function start(name, args) {
   // A new chat: with a profile from the picker, or the same profile (New chat).
   const label = name === "profile" ? args : clarity.state.profile;
+  closeDrawer(false);
   notice(null, null);
   clarity.sending = true;
   const answer = await command(name, args).finally(() => (clarity.sending = false));
@@ -494,6 +500,21 @@ document.addEventListener("click", (event) => {
     annotate("unmark", unmark.closest("[data-call]").dataset.call, unmark.dataset.unmark);
     return;
   }
+  const row = event.target.closest("[data-resume]");
+  if (row) {
+    openChat(row);
+    return;
+  }
+  const copy = event.target.closest("[data-copy]");
+  if (copy) {
+    const status = copy.nextElementSibling;
+    navigator.clipboard.writeText(copy.dataset.copy).then(
+      () => (status.textContent = "Copied"),
+      () => (status.textContent = "Couldn’t copy"),
+    );
+    setTimeout(() => (status.textContent = ""), 1600);
+    return;
+  }
   const control = event.target.closest("[data-action]");
   if (control) act(control);
 });
@@ -524,6 +545,15 @@ document.addEventListener("keydown", (event) => {
   }
   if (event.key === "Escape" && $("panel").contains(event.target)) {
     closePanel();
+    return;
+  }
+  if (event.key === "Escape" && $("drawer").contains(event.target)) {
+    closeDrawer(true);
+    return;
+  }
+  if (event.key === "Escape" && $("rename").contains(event.target)) {
+    event.preventDefault();
+    renaming(false, true);
     return;
   }
   if (event.key === "Escape" && $("compare").contains(event.target)) {
@@ -765,14 +795,18 @@ async function showPanel(name, params, opener) {
     refused.hidden = false;
   }
   $("panel").hidden = false;
-  for (const link of $("panel").querySelectorAll("a[data-docs]")) {
-    link.href = `${clarity.docs || ""}${link.dataset.docs}`; // the guide at this version
-  }
+  docsLinks($("panel"));
   shade();
   if (name === "branches") markedOnly(Boolean(clarity.markedOnly));
   const again = focused && $(focused);
   if (again) again.focus();
   else if (opening) $("panel-title").focus();
+}
+
+function docsLinks(root) {
+  for (const link of root.querySelectorAll("a[data-docs]")) {
+    link.href = `${clarity.docs || ""}${link.dataset.docs}`; // the guide at this version
+  }
 }
 
 function closePanel() {
@@ -953,6 +987,185 @@ document.addEventListener("change", (event) => {
   else setting(`${box.dataset.name} ${box.value}`, box.closest(".srow"), box);
 });
 
+// --- Chats and export (C5)
+
+clarity.on.chats = (element) => {
+  if (!$("drawer").hidden && element.id === "chats-handle") closeDrawer(true);
+  else showDrawer(element);
+};
+
+async function showDrawer(opener = null) {
+  // The Chats drawer, from /view/chats. Redrawn with the page, it keeps a refusal under the
+  // row it was for, and the row being opened.
+  let html;
+  try {
+    html = await view("chats");
+  } catch (error) {
+    notice("!", error.message);
+    return;
+  }
+  const active = document.activeElement;
+  const held = active && $("drawer").contains(active) ? active.dataset.resume || active.className : null;
+  swap($("drawer"), html);
+  if (held) {
+    // A redraw keeps the focus on the same row or button.
+    const again = [...$("drawer").querySelectorAll("button")].find(
+      (b) => (b.dataset.resume || b.className) === held,
+    );
+    if (again) again.focus();
+  }
+  const refusal = clarity.drawerRefusal;
+  for (const row of $("drawer").querySelectorAll("[data-resume]")) {
+    row.classList.toggle("busy", row.dataset.resume === clarity.opening);
+    if (refusal && row.dataset.resume === refusal.id) {
+      const problem = row.nextElementSibling;
+      problem.querySelector(".why").textContent = refusal.text;
+      problem.hidden = false;
+    }
+  }
+  $("drawer").hidden = false;
+  $("scrim").hidden = false;
+  $("chats-handle").setAttribute("aria-expanded", "true");
+  if (opener) {
+    clarity.drawerOpener = opener;
+    const current = $("drawer").querySelector('.crow[aria-current="true"]');
+    (current || $("drawer").querySelector(".crow") || $("drawer").querySelector(".iconbtn")).focus();
+  }
+}
+
+function closeDrawer(returnFocus) {
+  if ($("drawer").hidden) return;
+  $("drawer").hidden = true;
+  $("scrim").hidden = true;
+  $("chats-handle").setAttribute("aria-expanded", "false");
+  clarity.drawerRefusal = null;
+  const opener = clarity.drawerOpener;
+  if (returnFocus) (opener && opener.isConnected ? opener : $("message")).focus();
+}
+
+async function openChat(row) {
+  // Picking a row sends /resume. A refusal before anything starts stays under the row and
+  // the chat you were in stays as it was (L6); once open, the drawer closes.
+  if (row.getAttribute("aria-disabled") === "true" || clarity.opening) return;
+  clarity.opening = row.dataset.resume;
+  clarity.drawerRefusal = null;
+  for (const problem of $("drawer").querySelectorAll(".problem")) problem.hidden = true;
+  row.classList.add("busy");
+  notice(null, null);
+  clarity.sending = true;
+  const answer = await command("resume", row.dataset.resume).finally(() => {
+    clarity.sending = false;
+    clarity.opening = null;
+  });
+  if (answer.error && answer.type === "ConfigError") {
+    clarity.drawerRefusal = { id: row.dataset.resume, text: answer.error };
+    await refresh();
+    const shown = $("drawer").querySelector(`[data-resume="${CSS.escape(row.dataset.resume)}"]`);
+    if (shown) shown.focus();
+    return;
+  }
+  closeDrawer(false);
+  if (answer.error && !answer.stopped) notice("! Didn’t open.", answer.error);
+  await refresh();
+  if (!answer.error) $("message").focus();
+}
+
+function showDiffer(on) {
+  // "Show what changed" after a resume: closed at first (L3), kept as left on redraws.
+  clarity.differOpen = on;
+  const button = $("thread").querySelector('[data-action="differ"]');
+  if (!button) return;
+  button.setAttribute("aria-expanded", String(on));
+  $("differ").hidden = !on;
+}
+
+async function restartModel() {
+  // "Start the model again": /resume for this chat. A refusal says so, with the server's
+  // output after its first line in a box that scrolls (C23).
+  notice(null, null);
+  clarity.sending = true;
+  const answer = await command("resume", clarity.state.log_id).finally(() => (clarity.sending = false));
+  if (answer.error && !answer.stopped) {
+    const [first, ...rest] = answer.error.split("\n");
+    const box = notice("! The model didn’t start again.", first);
+    if (rest.length) {
+      const output = document.createElement("pre");
+      output.className = "outbox";
+      output.tabIndex = 0;
+      output.setAttribute("aria-label", "llama-server’s output");
+      output.textContent = rest.join("\n");
+      box.append(output);
+    }
+  }
+  await refresh();
+}
+
+function renaming(on, returnFocus = false) {
+  // Rename… turns the title into a box, its text selected; Save sends /title and waits
+  // while the box is empty; Cancel, Escape or leaving the box keeps the old title.
+  clarity.renaming = on;
+  $("rename").hidden = !on;
+  $("title").hidden = on || !clarity.state.conversation_id;
+  if (on) {
+    $("rename-text").value = clarity.state.title || "";
+    renameWaits();
+    $("rename-text").focus();
+    $("rename-text").select();
+  } else if (returnFocus) {
+    $("title").focus();
+  }
+}
+
+function renameWaits() {
+  if ($("rename-text").value.trim()) $("rename-save").removeAttribute("aria-disabled");
+  else $("rename-save").setAttribute("aria-disabled", "true");
+}
+
+async function rename() {
+  const text = $("rename-text").value.trim();
+  if (!text) return;
+  const answer = await command("title", text);
+  renaming(false, true);
+  if (answer.error) notice("!", answer.error);
+  await refresh();
+}
+
+async function exportChat() {
+  // Export writes the file at once; the sheet is the result, or the refusal with Try again.
+  closeDrawer(false);
+  await command("export");
+  let html;
+  try {
+    html = await view("export");
+  } catch (error) {
+    notice("!", error.message);
+    return;
+  }
+  swap($("export-body"), html);
+  docsLinks($("export-body"));
+  if (!$("export-sheet").open) $("export-sheet").showModal();
+  $("export-title").focus();
+}
+
+document.addEventListener("input", (event) => {
+  if (event.target.id === "rename-text") renameWaits();
+});
+
+document.addEventListener("mousedown", (event) => {
+  // Save and Cancel keep the focus in the rename box, so leaving it means leaving the form
+  // (Safari doesn't focus a clicked button).
+  if (event.target.closest("#rename button")) event.preventDefault();
+});
+
+document.addEventListener("focusout", (event) => {
+  // Leaving the rename box (not for its own buttons) keeps the old title.
+  const form = $("rename");
+  if (form.hidden || !form.contains(event.target)) return;
+  setTimeout(() => {
+    if (clarity.renaming && !form.contains(document.activeElement)) renaming(false);
+  }, 0);
+});
+
 const THREAD = {
   "panel-close": () => closePanel(),
   branches: (element) => showPanel("branches", {}, element),
@@ -983,7 +1196,20 @@ const THREAD = {
     setTimeout(() => (status.textContent = ""), 1600);
   },
   regen: () => write("regen", ""),
-  restart: () => start("resume", clarity.state.log_id),
+  restart: () => restartModel(),
+  "chats-close": () => closeDrawer(true),
+  differ: () => showDiffer(!clarity.differOpen),
+  rename: () => renaming(true),
+  "rename-cancel": () => renaming(false, true),
+  export: () => exportChat(),
+  "export-close": () => $("export-sheet").close(),
+  download: async () => {
+    // Saved under the export's own name; a refusal shows in the sheet.
+    const why = await download($("export-body").querySelector(".path").textContent.split("/").pop());
+    const refused = $("export-body").querySelector(".refused");
+    refused.textContent = why || "";
+    refused.hidden = !why;
+  },
   edit: (element) => editing(element.closest("li"), true),
   "edit-cancel": (element) => editing(element.closest("li"), false),
   marks: (element) => (openPop && openPop.id === element.getAttribute("aria-controls") ? hidePop(true) : showPop(element)),
@@ -998,6 +1224,8 @@ document.addEventListener("submit", (event) => {
   event.preventDefault();
   if (form.id === "composer") {
     send();
+  } else if (form.id === "rename") {
+    rename();
   } else if (form.matches("[data-edit]")) {
     const text = form.querySelector("textarea").value;
     if (text) write("edit", text, text);

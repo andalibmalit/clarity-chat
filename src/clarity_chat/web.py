@@ -27,6 +27,7 @@ import sys
 import threading
 import webbrowser
 from collections.abc import AsyncIterator, Callable
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -106,6 +107,8 @@ class Worker:
         self.lock = threading.Lock()
         self.failed: str | None = None  # an unexpected error ended the session
         self.export_path: Path | None = None  # the export made in this start, if any
+        # The last /export's answer, for the sheet, with the conversation it was for.
+        self.exported: tuple[str, dict[str, Any]] | None = None
         self.probs: dict[str, dict[str, Any]] = {}  # /probs by call ID, for Details
         threading.Thread(target=self._loop, daemon=True, name="clarity-worker").start()
 
@@ -167,9 +170,12 @@ class Worker:
     def _run(self, name: str, args: str, at_once: bool | None = None) -> dict[str, Any]:
         if self.failed:
             return {"error": self.failed, "type": "Stopped", "stopped": True}
+        conversation = self.commands.session.conversation
         try:
             result = self.commands.run(name, args, self.emit, at_once=at_once)
         except (ConfigError, ContextError, BackendError) as e:
+            if name == "export" and conversation is not None:
+                self.exported = (conversation.conversation_id, {"error": str(e)})
             return {"error": str(e), "type": type(e).__name__}
         except Exception as e:  # noqa: BLE001 - as in --json, it ends the session
             self.failed = f"Clarity stopped after an unexpected error: {type(e).__name__}: {e}"
@@ -177,6 +183,8 @@ class Worker:
             return {"error": self.failed, "type": "Stopped", "stopped": True}
         if name == "export":
             self.export_path = Path(result["path"])
+            assert conversation is not None
+            self.exported = (conversation.conversation_id, {"result": result})
         return {"result": result}
 
 
@@ -399,7 +407,7 @@ def make_app(
             and (path.stem == conversation.conversation_id)
         )
         if not current or path is None or not path.is_file():
-            raise Refused(409, "Export this chat first; the file is made when you export it.")
+            raise Refused(409, NOT_EXPORTED)
         return FileResponse(path, media_type="application/x-ndjson", filename=path.name)
 
     app = Starlette(
@@ -705,6 +713,9 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
         turn["controls"] = bool(CALL_ID.fullmatch(turn["call_id"] or ""))
     starting = has_chats = intro = facts = failed = None
     idle = changing(state) is None
+    # Reopened with your last message unanswered: one sentence says it's back in the box,
+    # in place of the failed line (V3Chats L5).
+    back_in_box = state["resume_differ"] is not None and state["unanswered"] is not None
     if state["model"] == "starting":
         starting = starting_profile(state, (await result_of(worker, "profiles"))["profiles"])
         # A new chat, or another chat resumed: this chat's turns aren't drawn. Any other start
@@ -723,7 +734,8 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
         if turns and turns[-1]["role"] == "assistant" and turns[-1]["controls"]:
             call = (await result_of(worker, "prompt", turns[-1]["call_id"]))["call"]
             facts = facts_line(call, steerable=settings["steering"] is not None)
-        failed = failed_line((await result_of(worker, "prompt"))["call"], state)
+        if not back_in_box:
+            failed = failed_line((await result_of(worker, "prompt"))["call"], state)
     users = [i for i, turn in enumerate(turns) if turn["role"] == "user"]
     return templates.get_template("thread.html").render(
         state=state,
@@ -737,6 +749,9 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
         failed=failed,
         stopped=state["model"] == "stopped",
         mark_label=mark_label,
+        differ=state["resume_differ"] if starting is None else None,
+        differ_line=differ_line,
+        back_in_box=back_in_box,
     )
 
 
@@ -1286,6 +1301,88 @@ async def _branches(worker: Worker, params: dict[str, str | None]) -> str:
     return templates.get_template("branches.html").render(waits=False, ends=ends, marked=marked)
 
 
+# --- Chats and export (C5), from /chats, /state and /export
+
+
+NOT_EXPORTED = "Export this chat first; the file is made when you export it."
+
+
+def chat_date(chat_id: str, today: date) -> tuple[str, str | None]:
+    """A chat's group, "today" or "earlier", and the date an earlier one shows ("30 Oct",
+    with the year when it isn't this one), read from the start of its ID, which is the
+    local time the chat started. An ID that doesn't start with a time is earlier, undated."""
+    try:
+        started = datetime.strptime(chat_id[:15], "%Y%m%d-%H%M%S").date()
+    except ValueError:
+        return "earlier", None
+    if started == today:
+        return "today", None
+    words = f"{started.day} {started.strftime('%b')}"
+    return "earlier", words if started.year == today.year else f"{words} {started.year}"
+
+
+def differ_line(differ: dict[str, Any]) -> str:
+    """ "2 things differ", from /resume's count (teaching check, item 23)."""
+    n = differ["count"]
+    return f"{n} thing differs" if n == 1 else f"{n} things differ"
+
+
+async def _chats(worker: Worker, params: dict[str, str | None]) -> str:
+    """The Chats drawer: every chat, newest first, under Today and Earlier, the current one
+    marked. While a command changes the chat, picking one waits."""
+    state = await result_of(worker, "state")
+    chats = (await result_of(worker, "chats"))["chats"]
+    today = datetime.now().date()
+    groups: dict[str, list[dict[str, Any]]] = {"today": [], "earlier": []}
+    for chat in chats:
+        group, when = chat_date(chat["conversation_id"], today)
+        groups[group].append(
+            {**chat, "date": when, "current": chat["conversation_id"] == state["log_id"]}
+        )
+    running = changing(state)
+    waits = None
+    if running is not None:
+        waits = (
+            "Waits until the model has started."
+            if state["model"] == "starting"
+            else "Waits until the reply is done."
+        )
+    return templates.get_template("chats.html").render(
+        today=groups["today"],
+        earlier=groups["earlier"],
+        in_chat=state["conversation_id"] is not None,
+        waits=waits,
+    )
+
+
+def export_sheet(answer: dict[str, Any]) -> dict[str, Any]:
+    """The export sheet: the file and what it holds, from /export's result, or the
+    refusal's sentence."""
+    if "error" in answer:
+        return {"error": answer["error"]}
+    result = answer["result"]
+    n = result["failed_calls_left_out"] + result["calls_without_a_turn_left_out"]
+    return {
+        "error": None,
+        "path": result["path"],
+        "replaced": result["replaced"],
+        "left_out": f"{n} call that produced no reply"
+        if n == 1
+        else f"{n} calls that produced no reply"
+        if n
+        else None,
+        "steered": result["steered"],
+    }
+
+
+async def _export(worker: Worker, params: dict[str, str | None]) -> str:
+    """The sheet after Export: this start's last /export for the chat that's open."""
+    state = await result_of(worker, "state")
+    if worker.exported is None or worker.exported[0] != state["conversation_id"]:
+        raise Refused(409, NOT_EXPORTED)
+    return templates.get_template("export.html").render(**export_sheet(worker.exported[1]))
+
+
 def event_line(event: dict[str, Any]) -> bytes:
     """One line of the event stream. A value JSON can't carry (NaN or infinity) would break
     the page's parser and drop the stream, so it's sent as an error event instead."""
@@ -1319,4 +1416,6 @@ VIEW_RENDERERS = {
     "settings": _settings,
     "details": _details,
     "branches": _branches,
+    "chats": _chats,
+    "export": _export,
 }
