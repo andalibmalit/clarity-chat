@@ -95,9 +95,21 @@ async function command(name, args = "") {
     notLive();
     throw new Error("not the live tab");
   }
-  const answer = await response.json();
+  // A refusal before the command table (a body too big, a 500) is plain text, not JSON.
+  const text = await response.text();
+  let answer;
+  try {
+    answer = JSON.parse(text);
+  } catch {
+    answer = { error: text || `Clarity answered ${response.status}.`, type: "Refused" };
+  }
   if (answer.stopped) stopped(answer.error);
   return answer;
+}
+
+function unanswered(error) {
+  // A command whose request failed (a dropped connection): an answer the callers can show.
+  return { error: `Clarity didn't answer (${error.message}).`, type: "Refused" };
 }
 
 async function view(name, params = {}) {
@@ -645,7 +657,9 @@ async function write(name, args, keep = null, from = null) {
   $("finished").textContent = "";
   showWriting({ command: name, k: 1, n: 1 });
   $(name === "say" ? "message" : "stop").focus(); // Send is hidden now: never drop the focus
-  const answer = await command(name, args).finally(() => (clarity.sending = false));
+  const answer = await command(name, args)
+    .catch(unanswered)
+    .finally(() => (clarity.sending = false));
   if (!answer.error) finished();
   await refresh();
   if (answer.stopped) return;
@@ -681,7 +695,7 @@ function reopenEdit(text) {
 function refused(name, type, sentence) {
   const call = clarity.failedCall; // the failed call's record came on the stream
   if (type === "CancelledBeforeReply") notice(null, sentence);
-  else if (type === "ContextError" || type === "ConfigError") notice("!", sentence);
+  else if (type === "ContextError" || type === "ConfigError" || type === "Refused") notice("!", sentence);
   else if (clarity.state.model === "stopped") notice("! Failed:", sentence, "restart", "Start the model again", call);
   else if (name === "regen") notice("! Failed:", sentence, "regen", "Try again", call);
   else notice("! Failed:", sentence, null, "", call);
@@ -689,7 +703,9 @@ function refused(name, type, sentence) {
 
 function send() {
   const text = $("message").value;
-  if (!text || $("send").disabled || $("send").getAttribute("aria-disabled") === "true") return;
+  // While a reply is written, Send is hidden (Stop is in its place) and Enter waits too.
+  if (!text || clarity.sending || $("send").hidden || $("send").disabled) return;
+  if ($("send").getAttribute("aria-disabled") === "true") return;
   $("message").value = "";
   write("say", text, text);
 }
@@ -803,14 +819,19 @@ clarity.on.replies = (element) => openReplies(element);
 // again after every redraw, so its controls wait, or stop waiting, with the page.
 let panelOf = null; // { name, params, opener }
 
+let panelAsked = 0;
 async function showPanel(name, params, opener) {
+  // The newest call wins; a redraw (no opener) for a panel closed or changed meanwhile
+  // draws nothing, so a late view can't reopen it or take the focus.
+  const asked = ++panelAsked;
   let html;
   try {
     html = await view(name, params);
   } catch (error) {
-    notice("!", error.message);
+    if (asked === panelAsked) notice("!", error.message);
     return;
   }
+  if (asked !== panelAsked || (!opener && (!panelOf || panelOf.name !== name))) return;
   // Read what's focused and open when the new panel lands, not when it was asked for.
   const focused = document.activeElement && $("panel").contains(document.activeElement)
     ? document.activeElement.id
@@ -999,7 +1020,13 @@ async function replay(call, button) {
   stop.focus();
   clarity.sending = true;
   if (panelOf) panelOf.refusal = null;
-  const answer = await command("replay", call).finally(() => (clarity.sending = false));
+  const answer = await command("replay", call)
+    .catch((error) => {
+      const lost = unanswered(error);
+      notice("!", lost.error);
+      return lost;
+    })
+    .finally(() => (clarity.sending = false));
   if (panelOf && answer.error) panelOf.refusal = answer.error;
   await showPanel("details", { call });
   await refresh();
@@ -1179,7 +1206,12 @@ async function rename() {
 async function exportChat() {
   // Export writes the file at once; the sheet is the result, or the refusal with Try again.
   closeDrawer(false);
-  await command("export");
+  try {
+    await command("export");
+  } catch (error) {
+    notice("!", unanswered(error).error); // the sheet would show the last export's
+    return;
+  }
   let html;
   try {
     html = await view("export");

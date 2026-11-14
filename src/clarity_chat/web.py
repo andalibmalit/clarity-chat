@@ -244,7 +244,7 @@ async def read_json(request: Request, is_command: bool = True) -> dict[str, Any]
     async for chunk in request.stream():  # counted as it arrives, chunked bodies too
         size += len(chunk)
         if size > MAX_BODY:
-            raise Refused(413, "Too big.")
+            raise Refused(413, "Too big: Clarity takes at most 64 KB at a time.")
         chunks.append(chunk)
     raw = b"".join(chunks)
     if is_command:
