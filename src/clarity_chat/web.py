@@ -46,7 +46,7 @@ from starlette.responses import (
 from starlette.routing import Route
 from starlette.types import Message, Receive, Scope, Send
 
-from clarity_chat.backends import BackendError
+from clarity_chat.backends import CHECK_HELP, BackendError
 from clarity_chat.backends.transformers_hf import FIXED_ORDER
 from clarity_chat.commands import CALL_ID, REPLY_COMMANDS, Commands
 from clarity_chat.json_chat import JsonChat
@@ -1032,30 +1032,6 @@ STOP_WORDS = {  # Stopped, in words, then the record's own code
     "cancelled": "stopped by you",
     "none": "none",
 }
-CHECK_LINES = {  # what each check checks: docs/reference.md, "Checks after each call"
-    "prompt_echo": "The server’s decoding of the token IDs equals the prompt text.",
-    "settings_echo": "Every value sent comes back unchanged in the server’s generation_settings.",
-    "unaccounted_settings": "The server reports no setting Clarity didn’t send or expect.",
-    "tokens_evaluated": "The server read as many prompt tokens as were sent.",
-    "no_cache_reuse": "No prompt tokens came from a cache.",
-    "server_running": "The llama-server process Clarity started is still running.",
-}
-CHECK_FAILED = {  # what a failure means (v030-teaching-check, item 16)
-    "prompt_echo": (
-        "The server’s text for the token IDs differs from Clarity’s, so the model file and the "
-        "tokenizer may disagree."
-    ),
-    "settings_echo": "A value Clarity sent didn’t come back unchanged from the server.",
-    "unaccounted_settings": "The server reported a setting Clarity didn’t send.",
-    "tokens_evaluated": "The server read a different number of prompt tokens than were sent.",
-    "no_cache_reuse": "Some prompt tokens came from a cache.",
-    "server_running": (
-        "The model’s server had stopped. The reply is complete, but the next message needs the "
-        "server started again."
-    ),
-    "generation_config": "Transformers’ generation settings differed from what was sent.",
-    "steering": "A steered step didn’t run every steered layer exactly once.",
-}
 
 
 def unhighlighted(call: dict[str, Any]) -> str | None:
@@ -1235,12 +1211,11 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
         model_line=f"{call['model']['tokenizer_repo'].rsplit('/', 1)[-1]} · runs on "
         f"{(call.get('backend') or {}).get('backend', 'llama.cpp')}",
         failed=failed,
-        check_failed=CHECK_FAILED,
+        check_help=CHECK_HELP,
         checks=[
             (name, v.get("ok") and name not in failed)
             for name, v in (call.get("checks") or {}).items()
         ],
-        check_lines=CHECK_LINES,
         ignored=[e for e in call.get("not_applied") or [] if e.get("affects_output")],
         replays=[replay_result(r) for r in replays],
         replaying=replaying,

@@ -20,6 +20,7 @@ Two headings are Clarity's own, used when they apply:
 - `text` events carry `at` and `end`, the piece's place in the reply, and `/state` gives `reply_end`, so a reader that starts mid-reply joins the stream without dropping or repeating text.
 
 ### Changed
+- The reference's checks after each call are a table that also says what each failure means, and covers `generation_config`, `steering` and the older `server_props`. Details in the web interface uses the same words.
 - New dependencies for the web interface: `starlette` and `uvicorn`. Tests of the web interface in a browser use `pytest-playwright`, in its own dependency group (`uv sync --group browser`); a normal install doesn't get it.
 
 ## [0.2.3] - 2026-11-14

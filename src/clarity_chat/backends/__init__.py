@@ -19,6 +19,68 @@ if TYPE_CHECKING:
     from clarity_chat.steering import Steering
 
 
+# What each check after a call checks, and what its failure means: the one place for this
+# text. The web interface's Details panel shows it, and docs/reference.md's table of checks
+# repeats it (tests/test_docs.py checks they match). The failures' words: notes/research/
+# v030-teaching-check.md, item 16. server_props is in logs before v0.2.1 only.
+CHECK_HELP: dict[str, tuple[str, str]] = {
+    "prompt_echo": (
+        "The server’s decoding of the token IDs equals the prompt text.",
+        (
+            "The server’s text for the token IDs differs from Clarity’s, so the model file and "
+            "the tokenizer may disagree."
+        ),
+    ),
+    "settings_echo": (
+        "Every value sent comes back unchanged in the server’s generation_settings.",
+        "A value Clarity sent didn’t come back unchanged from the server.",
+    ),
+    "unaccounted_settings": (
+        "The server reports no setting Clarity didn’t send or expect.",
+        "The server reported a setting Clarity didn’t send or expect.",
+    ),
+    "tokens_evaluated": (
+        "The server read as many prompt tokens as were sent.",
+        "The server read a different number of prompt tokens than were sent.",
+    ),
+    "no_cache_reuse": (
+        "No prompt tokens came from a cache.",
+        "Some prompt tokens came from a cache.",
+    ),
+    "server_running": (
+        "The llama-server process Clarity started is still running.",
+        (
+            "The model’s server had stopped. The reply is complete, but the next message needs "
+            "the server started again."
+        ),
+    ),
+    "server_props": (
+        (
+            "Logs before v0.2.1 only: after the call, /props showed the server still running, "
+            "with the model and context size it started with."
+        ),
+        (
+            "After the call, the server had stopped, /props named another model or context size,"
+            " or /props couldn’t be read."
+        ),
+    ),
+    "generation_config": (
+        "Transformers only: the effective generation config equals what was sent.",
+        "Transformers’ generation settings differed from what was sent.",
+    ),
+    "steering": (
+        (
+            "Transformers only, on a steered call: every forward pass ran each steered block "
+            "exactly once, and there was a pass for every generated token."
+        ),
+        (
+            "A forward pass didn’t run each steered block exactly once, or a generated token had"
+            " no pass."
+        ),
+    ),
+}
+
+
 class BackendError(Exception):
     """The backend failed. `partial` holds whatever reply arrived before the failure.
     `server_stopped`: the model's server process has exited, so it needs starting again."""
