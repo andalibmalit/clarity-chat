@@ -54,6 +54,7 @@ class Commands:
         self.running_args = ""
         self.reply_k_of_n: dict[str, int | None] = {"k": None, "n": None}
         self.starting = False  # a model start is under way (from the status events)
+        self.written: str | None = None  # the reply whose turn record is logged
         # Paths only from the command line (--profile, --resume), which you type. Commands
         # will also come from the browser (v0.3.0), so they take names and IDs.
         self.paths = False
@@ -89,7 +90,7 @@ class Commands:
         with self.progress:
             self.running, self.running_args = name, args
             self.reply_k_of_n = {"k": None, "n": None}
-            self.streamed, self.streamed_end = [], 0
+            self.streamed, self.streamed_end, self.written = [], 0, None
         self.paths = paths
 
         def tracked(event: dict[str, Any]) -> None:
@@ -101,16 +102,16 @@ class Commands:
                 event = {**event, "at": at, "end": self.streamed_end}
             elif event["event"] == "reply_start":
                 with self.progress:
-                    self.streamed, self.streamed_end = [], 0
+                    self.streamed, self.streamed_end, self.written = [], 0, None
                     self.reply_k_of_n = {"k": event["k"], "n": event["n"]}
             elif event["event"] == "status":
                 with self.progress:
                     self.starting = event["status"] == "starting"
             elif (event.get("record") or {}).get("type") == "turn" and (
                 event["record"].get("role") == "assistant"
-            ):  # the reply is in the turns now: not also being written, for /state
+            ):  # logged, but the head moves after: /state drops the text once it has
                 with self.progress:
-                    self.streamed, self.streamed_end = [], 0
+                    self.written = event["record"]["turn_id"]
             emit(event)
 
         self.session.on_record = lambda record: tracked({"event": "record", "record": record})
@@ -128,6 +129,7 @@ class Commands:
             self.cancel_event = None
             with self.progress:  # done, or failed: /state reads what runs now
                 self.streamed, self.streamed_end, self.running = [], 0, None
+                self.written = None
                 self.starting = False
             self.paths = False
             self.busy.release()
@@ -598,6 +600,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
             else {"command": c.running, "args": c.running_args, **c.reply_k_of_n}
         )
         reply_so_far, reply_end = "".join(c.streamed), c.streamed_end
+        written = c.written  # the reply's turn, once logged (it joins the turns soon after)
         model = model_state(c)
     out: dict[str, Any] = {
         "running": running,
@@ -619,6 +622,11 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     }
     if conversation is None:
         return out
+    turns = session.history(conversation)
+    if written is not None and turns and turns[-1]["turn_id"] == written:
+        # The reply is in the turns now (read after the snapshot, so it can't be in neither):
+        # not also as the reply being written.
+        out["reply_so_far"], out["reply_end"] = "", 0
     return {
         **out,
         "conversation_id": conversation.conversation_id,
@@ -626,7 +634,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "title": chat_summary(conversation.log.path)["title"],
         "profile": conversation.profile.name,
         "head": conversation.head,
-        "turns": session.history(conversation),
+        "turns": turns,
         "unanswered": conversation.unanswered,
         "warnings": [
             *(conversation.started_server or {}).get("warnings", []),

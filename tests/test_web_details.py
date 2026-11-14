@@ -540,6 +540,12 @@ def test_a_call_without_a_bos_record_says_nothing_about_the_start_token(chat):
     logged.pop("bos")
     heading = details(client, call["call_id"]).split("</summary>")[0]
     assert "start token" not in heading, heading
-    logged.pop("prompt_ids")
-    heading = details(client, call["call_id"]).split("</summary>")[0]
+    # No prompt IDs either: a failed call's record (a reply's is read by /probs too).
+    session.backend.fail_with = "A made-up failure."
+    command(client, "say", "Again")
+    failed = result(client, "prompt")["call"]
+    logged = session.conversation.calls[failed["call_id"]]
+    logged.pop("bos", None)
+    logged.pop("prompt_ids", None)
+    heading = details(client, failed["call_id"]).split("</summary>")[0]
     assert "start token" not in heading, heading
