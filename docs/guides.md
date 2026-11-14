@@ -168,13 +168,13 @@ To see what one setting does, hold the randomness fixed. Ask for a few replies (
 
 ## See a reply's token probabilities
 
-On a Transformers profile, `/set logprobs 5` records, for each token of the next replies, the probability the model gave it and its five likeliest alternatives. `/probs` then summarizes the current reply: the ten tokens the model thought least likely, in reply order, each with the model's likeliest other tokens. The probabilities are the model's own, from its raw scores before any sampler: a token picked at temperature 1.2 shows the probability the model gave it, not the reshaped one. Every number is in the call's `logprobs` field in the log, and `/probs` with `--json` returns all of them. `/set logprobs 0` turns it off. llama.cpp profiles refuse the setting for now.
+On a Transformers profile, `/set logprobs 5` records, for each token of the next replies, the probability the model gave it and its five likeliest alternatives. `/probs` then summarizes the current reply: the ten tokens the model thought least likely, in reply order, each with the model's likeliest other tokens. The probabilities are the model's own, from its raw scores before any sampler: a token picked at temperature 1.2 shows the probability the model gave it, not the reshaped one. Every number is in the call's `logprobs` field in the log, and `/probs` with `--json` returns all of them. `/set logprobs 0` turns it off. llama.cpp profiles refuse the setting for now. In the web interface, the same numbers are in **Details**, under **Probabilities**; [Use the Transformers backend](#use-the-transformers-backend) shows the steps.
 
 ## Take a conversation to a notebook
 
-`/export`, or `uv run clarity export ID` afterwards, writes the conversation to `logs/exports/ID.jsonl`: exact token IDs, where each message sits in the prompt, marks, notes and settings for every reply. Its fields are in [Export](reference.md#export).
+`/export`, or `uv run clarity export ID` afterwards, writes the conversation to `logs/exports/ID.jsonl`: exact token IDs, where each message sits in the prompt, marks, notes and settings for every reply. Its fields are in [Export](reference.md#export). In the web interface, choose **Export for a Python notebook** from the chat's title menu: the sheet says where the file is, and **Download** saves a copy where your browser keeps downloads.
 
-Numbers you recompute in a notebook are only comparable with the logged ones under the same conditions: the same weights, precision, device, attention implementation, library versions, PyTorch environment variables, deterministic-algorithms setting, steering and machine. So run the check first, with the model you loaded:
+Numbers you recompute in a notebook are only comparable with the logged ones under the same conditions: the same weights, precision, device, attention implementation, library versions, PyTorch environment variables, deterministic-algorithms setting, steering and machine. So run Clarity's recompute check first, with the model you loaded:
 
 ```python
 from clarity_chat.recompute import check
@@ -210,7 +210,7 @@ A mark without a label is `interesting`. To take a mark back, use `/unmark` in a
 
 ## Replay a call
 
-In a chat, `/replay` re-sends the current reply's call. For any logged call, use:
+In a chat, `/replay` re-sends the current reply's call. In the web interface, open **Details** under a reply and press **Replay**; **Stop** stops it, and the result shows under the button, with what changed since the call. For any logged call, use:
 
 ```
 uv run clarity replay logs/CONVERSATION_ID.jsonl CALL_ID
@@ -244,6 +244,8 @@ The Transformers backend runs the official weights in-process with PyTorch. It i
 1. Install the extra: `uv sync --extra hf`.
 2. Fetch the model with the `convert` route; a ready-made GGUF has no official weights.
 3. Set `backend = "transformers"` in a profile. It runs on MPS by default; add `device = "cpu"` or `device = "cuda"` to change it.
+
+In the web interface, the new profile is in the picker once you save it under `local/profiles/`: open the picker under the message box and choose it. To see why a word was chosen, open **Settings**, set `logprobs` to 5 under Probabilities, send a message, then open **Details** under the reply and open **Probabilities**: the reply is shaded token by token, and picking a token shows its chance and the likeliest others.
 
 Some settings can't run on Transformers exactly as written; [Settings](reference.md#settings) lists which. When that can change the reply, the call is flagged `not_applied`, and `/settings` gives the reason. The most common case is sampler order: `defaults.toml` and most profiles, including `smol-chat`, list temperature last, so with temperature ≠ 1 and `top_p` < 1, every Transformers call is flagged.
 
