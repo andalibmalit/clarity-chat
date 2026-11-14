@@ -291,7 +291,9 @@ async function draw(number) {
   const starting = state.model === "starting";
   const chat = Boolean(state.conversation_id) && !starting;
   const again = starting && state.running && state.running.command === "resume"; // same chat
-  $("title").hidden = (!chat && !again) || clarity.renaming;
+  // Nothing to rename or export before the first message (design walkthrough, finding 9).
+  const said = state.turns.some((turn) => turn.role === "user");
+  $("title").hidden = (!chat && !again) || !said || clarity.renaming;
   if (changing(state.running)) $("title").setAttribute("aria-disabled", "true");
   else $("title").removeAttribute("aria-disabled");
   $("title-text").textContent = state.title || "New chat";
@@ -608,7 +610,7 @@ function showWriting(running) {
   $("send").hidden = on;
   $("stop").hidden = !on;
   if (!on) {
-    $("writing-status").textContent = clarity.finished ? "Reply finished" : ""; // the region stays
+    $("writing-status").textContent = ""; // the region stays in the page, empty
     $("writing-dots").replaceChildren();
     return;
   }
@@ -640,7 +642,7 @@ async function write(name, args, keep = null, from = null) {
   clarity.failedCall = null;
   clarity.writing = { k: null, text: "", end: 0 };
   $("writing").textContent = "";
-  clarity.finished = false;
+  $("finished").textContent = "";
   showWriting({ command: name, k: 1, n: 1 });
   $(name === "say" ? "message" : "stop").focus(); // Send is hidden now: never drop the focus
   const answer = await command(name, args).finally(() => (clarity.sending = false));
@@ -661,14 +663,11 @@ async function write(name, args, keep = null, from = null) {
 }
 
 function finished() {
-  // "Reply finished" in the status region, for a screen reader; gone after a few seconds.
-  clarity.finished = true;
-  $("writing-status").textContent = "Reply finished";
+  // "Reply finished", for a screen reader only (sighted users see the reply and its
+  // toolbar); gone after a few seconds.
+  $("finished").textContent = "Reply finished";
   clearTimeout(clarity.finishedTimer);
-  clarity.finishedTimer = setTimeout(() => {
-    clarity.finished = false;
-    if ($("stop").hidden) $("writing-status").textContent = "";
-  }, 4000);
+  clarity.finishedTimer = setTimeout(() => ($("finished").textContent = ""), 4000);
 }
 
 function reopenEdit(text) {

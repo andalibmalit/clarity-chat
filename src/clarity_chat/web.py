@@ -284,7 +284,9 @@ def make_app(
         given = request.headers.get("authorization", "")
         token = given[7:].encode("utf-8", "replace") if given.startswith("Bearer ") else b""
         if not secrets.compare_digest(token, secret):
-            raise Refused(401, "Open Clarity from the link in the terminal.")
+            raise Refused(
+                401, "Open Clarity from the window where you started it: press Enter there."
+            )
         if request.headers.get("sec-fetch-site", "same-origin") != "same-origin":
             raise Refused(403, "Only Clarity's own page can ask for this.")
         if post:
@@ -640,7 +642,7 @@ async def context_figure(worker: Worker, state: dict[str, Any]) -> dict[str, Any
         return None
     n, ctx = call["n_prompt_client"], call["n_ctx"]
     return {
-        "text": f"{n / ctx:.0%} · {n:,} of {ctx:,} tokens",
+        "text": f"Context {n / ctx:.0%} · {n:,} of {ctx:,} tokens",
         "hot": n > CONTEXT_WARN_FRACTION * ctx,
     }
 

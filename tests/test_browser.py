@@ -108,7 +108,9 @@ def test_a_tab_without_the_secret_is_told_where_the_link_is(clarity, context):
     page = context.new_page()
     page.goto(f"{origin}/")
     page.wait_for_selector("body[data-page=no-key]")
-    assert page.text_content("[data-for=no-key] p") == "Open Clarity from the link in the terminal."
+    assert page.text_content("[data-for=no-key] p") == (
+        "Open Clarity from the window where you started it: press Enter there."
+    )
     shot(page, "A3-no-secret")
 
 
@@ -156,7 +158,7 @@ def test_a_page_on_another_port_can_neither_read_nor_act(clarity, page, tmp_path
     finally:
         other.shutdown()
     # Nothing came back that a page could read: blocked by CORS, or refused without the secret.
-    assert all(r == "blocked" or "Open Clarity from the link" in r for r in results), results
+    assert all(r == "blocked" or "Open Clarity from the window" in r for r in results), results
     # And nothing happened: the no-cors text/plain POST added no turn.
     assert len(page.evaluate("clarity.command('state')")["result"]["turns"]) == turns
 
@@ -241,7 +243,7 @@ def test_with_no_profile_chosen_a_pick_starts_the_model(clarity, page):
     shot(page, "B2-starting")
     # B5: ready.
     page.wait_for_selector("#thread .intro")
-    assert page.text_content("#picker-button .nm") == "tiny · text"
+    assert page.text_content("#picker-button .nm") == "text · tiny"
     assert page.text_content("#title-text") == "New chat"
     assert page.is_enabled("#send") and focused(page) == "message"
     shot(page, "B5-new-chat")
@@ -1259,6 +1261,7 @@ def test_with_no_chats_the_drawer_says_so(clarity, page):
 def test_rename_in_place_waits_on_an_empty_box_and_cancels(clarity, page):
     _, redirect, _ = clarity
     chat_on(page, redirect)
+    assert page.is_hidden("#title")  # nothing to rename before the first message
     say(page, "Hi")
     page.wait_for_selector(".reply.last .tb")
     page.click("#title")
@@ -1438,7 +1441,8 @@ def test_a_toolbar_is_one_tab_stop_with_arrow_keys_inside(clarity, page):
     assert focused(page) == "stop"
     page.wait_for_selector(".reply.last [data-action=replies]:has-text('2 replies')")
     page.wait_for_function("document.activeElement.dataset.action === 'regen'")
-    assert page.text_content("#writing-status") == "Reply finished"
+    assert page.text_content("#finished") == "Reply finished"  # for screen readers only
+    assert page.text_content("#writing-status") == ""
 
 
 def test_enter_sends_and_shift_enter_starts_a_new_line(clarity, page):

@@ -7,9 +7,9 @@
 <p class="refused" role="alert" hidden></p>
 <p>The file stays at <span class="path">{{ path }}</span>{{ copy(path, "the file’s path") }} {% if replaced %}It replaced the earlier export of this chat. {% endif %}Readable only by you (on Mac and Linux).</p>
 <p>One file with every reply in this chat, including replies on branches you went back from: the exact tokens that went in and came out, where each message sits in them, the settings, your marks and notes, and what computed each reply.</p>
-<p>It also records facts about this computer, such as its model and OS, and the model file’s path.</p>
+<p>It also records facts about this computer, such as its model and OS, and the model file’s path, which can include your user name.</p>
 {% if left_out %}<p>Left out: {{ left_out }}. Replays aren’t exported: they re-ran replies already here.</p>
-{% endif %}<div class="callout"><p>Recomputing these replies under other conditions, such as different hardware or software, can give slightly different numbers, sometimes enough to change the likeliest token. Run the check first: it lists what differs.{% if steered %} Some replies were steered: apply the same vector before recomputing them.{% endif %} <a data-docs="{{ guide }}" target="_blank" rel="noopener noreferrer">How to check, in the guide</a></p></div>
+{% endif %}<div class="callout"><p>Recomputing these replies under other conditions, such as different hardware or software, can give slightly different numbers, sometimes enough to change the likeliest token. Run Clarity’s recompute check first: it lists what differs.{% if steered %} Some replies were steered: apply the same vector before recomputing them.{% endif %} <a data-docs="{{ guide }}" target="_blank" rel="noopener noreferrer">How to check, in the guide</a></p></div>
 <p>Sending it to a friend? Your friend can read it with pandas; the check needs Clarity installed (<a data-docs="{{ guide }}" target="_blank" rel="noopener noreferrer">guide</a>).</p>
 {% if steered %}<p>The file names the steering vector but doesn’t contain it, so send the vector too:</p>
 {% for v in steered %}<p><span class="path">{{ v.file }}</span>{{ copy(v.file, "the vector’s path") }}</p>
