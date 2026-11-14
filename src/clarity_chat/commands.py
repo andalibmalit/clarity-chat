@@ -28,6 +28,10 @@ from clarity_chat.session import CallOutcome, CancelledBeforeReply, Session
 Emit = Callable[[dict[str, Any]], None]
 MESSAGE_COMMANDS = {"say", "edit"}  # their args are message text, sent exactly
 REPLY_COMMANDS = {"say", "regen", "edit", "replay"}  # commands that write or replay a reply
+# Commands that only read the conversation's records: one waiting its turn doesn't change
+# the chat, and one that meets a record another program wrote without a field it needs is
+# refused, as resume and export refuse such a log, not an unexpected error.
+READS = {"history", "branches", "compare", "prompt", "probs", "settings"}
 
 
 @dataclass(frozen=True)
@@ -63,6 +67,16 @@ class Commands:
         # talking to this Clarity (another program took the port after it stopped).
         self.start = secrets.token_urlsafe(16)
 
+    def _call(self, name: str, args: str, emit: Emit) -> dict[str, Any]:
+        if name not in READS:
+            return COMMANDS[name].run(self, args, emit)
+        try:
+            return COMMANDS[name].run(self, args, emit)
+        except (KeyError, TypeError, AttributeError) as e:  # a log Clarity didn't write
+            raise ConfigError(
+                f"/{name} can't read this conversation: a record lacks or mangles {e}."
+            ) from e
+
     def run(
         self,
         name: str,
@@ -83,7 +97,7 @@ class Commands:
         if command.needs_conversation and self.session.conversation is None:
             raise ConfigError("No conversation is running. Start one with a profile first.")
         if at_once if at_once is not None else self.at_once_now(name):
-            return command.run(self, args, emit)
+            return self._call(name, args, emit)
         if not self.busy.acquire(blocking=False):
             raise ConfigError(
                 "Another command is still running. Wait for it to finish, or cancel it if it "
@@ -120,7 +134,7 @@ class Commands:
 
         self.session.on_record = lambda record: tracked({"event": "record", "record": record})
         try:
-            return command.run(self, args, tracked)
+            return self._call(name, args, tracked)
         except (BackendError, ConfigError) as e:
             # A call that found the server gone, or a start that failed and left the open
             # chat's model stopped (a ConfigError too: llama.cpp moved, say).

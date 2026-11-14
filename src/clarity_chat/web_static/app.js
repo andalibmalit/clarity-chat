@@ -353,7 +353,7 @@ async function draw(number) {
   clarity.docs = `${$("help").dataset.base}${ref}/docs/`;
 }
 
-// Commands that only read: one waiting its turn doesn't change the chat (web.READS).
+// Commands that only read: one waiting its turn doesn't change the chat (commands.READS).
 const READS = new Set(["history", "branches", "compare", "prompt", "probs", "settings"]);
 const changing = (running) => Boolean(running) && !READS.has(running.command);
 

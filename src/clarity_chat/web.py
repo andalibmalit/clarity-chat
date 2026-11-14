@@ -49,7 +49,7 @@ from starlette.types import Message, Receive, Scope, Send
 
 from clarity_chat.backends import CHECK_HELP, BackendError
 from clarity_chat.backends.transformers_hf import FIXED_ORDER
-from clarity_chat.commands import CALL_ID, REPLY_COMMANDS, Commands
+from clarity_chat.commands import CALL_ID, READS, REPLY_COMMANDS, Commands
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.profiles import NEUTRAL, SETTING_HELP, SETTING_RANGES, ConfigError
 from clarity_chat.replay import CANNOT_CHANGE_OUTPUT, replay_notes
@@ -546,11 +546,10 @@ async def result_of(worker: Worker, name: str, args: str = "") -> dict[str, Any]
     return answer["result"]
 
 
-# Commands that only read. Queued, one of them sets /state's `running` while it runs (another
-# view's /branches, say), but the chat isn't changing: a view mustn't wait for it.
-# app.js keeps the same list (test_web_thread). /chats and /profiles answer at once, so they
-# never wait their turn.
-READS = {"history", "branches", "compare", "prompt", "probs", "settings"}
+# Commands that only read (commands.READS). Queued, one of them sets /state's `running` while
+# it runs (another view's /branches, say), but the chat isn't changing: a view mustn't wait
+# for it. app.js keeps the same list (test_web_thread). /chats and /profiles answer at once,
+# so they never wait their turn.
 
 
 def changing(state: dict[str, Any]) -> dict[str, Any] | None:
