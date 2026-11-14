@@ -160,7 +160,7 @@ def list_profiles(root: Path) -> list[dict[str, Any]]:
                 model = models.get(profile.model)
                 if model is None:
                     raise ConfigError(f"{path}: model {profile.model!r} isn't in models.toml.")
-            except ConfigError as e:
+            except (ConfigError, OSError, UnicodeDecodeError) as e:  # as list_chats does
                 out.append({**entry, "error": str(e)})
                 continue
             try:

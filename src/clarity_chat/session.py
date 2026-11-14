@@ -255,17 +255,17 @@ class Conversation:
         order = {turn_id: i for i, turn_id in enumerate(self.turns)}
         current_end = newest.get(self.head) if self.head else None
         on_head_path = {t.turn_id for t in self.path_to(self.head)}
+        children: dict[str | None, list[Turn]] = {}  # built once: forks are looked up often
+        for t in self.turns.values():
+            if t.turn_id in newest:  # as forks() does: a message with no reply isn't a branch
+                children.setdefault(t.parent_id, []).append(t)
 
         def came_from(turn: Turn) -> tuple[dict[str, Any] | None, Turn | None]:
             """The deepest fork above `turn` (or at it), and the reply that fork made."""
             path = self.path_to(turn.turn_id)
             for i in range(len(path) - 1, -1, -1):
                 here = path[i]
-                siblings = [
-                    t
-                    for t in self.turns.values()
-                    if t.parent_id == here.parent_id and t.turn_id in newest
-                ]
+                siblings = children.get(here.parent_id, [])
                 if len(siblings) > 1:
                     reply = here if here.role == "assistant" else path[i + 1]
                     return {
