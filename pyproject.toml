@@ -13,8 +13,10 @@ dependencies = [
     "jinja2>=3.1.6",
     "numpy>=2.5.4",  # steering vectors; also a dependency of transformers
     "prompt-toolkit>=3.0.53",
+    "starlette>=1.0.1",
     "tokenizers>=0.23.3",
     "transformers>=5.22.2",
+    "uvicorn>=0.54.0",
 ]
 
 [project.scripts]
@@ -33,6 +35,9 @@ build-backend = "uv_build"
 module-name = "clarity_chat"
 
 [dependency-groups]
+browser = [
+    "pytest-playwright>=0.10.0",
+]
 dev = [
     "gguf==0.19.0",  # tests write control vectors with the reference writer; never imported by Clarity
     "hypothesis>=6.170.15",
@@ -67,12 +72,14 @@ allowed-unresolved-imports = ["torch"]
 testpaths = ["tests"]
 # Offline by default. Opt in with `pytest -m live` (SmolLM2 via llama-server),
 # `pytest -m olmo` (OLMo 3, needs it fetched), `pytest -m hf` (Transformers backend) or
-# `pytest -m measure -s` (timings and memory for design decisions; prints, barely asserts).
-addopts = "-m 'not live and not olmo and not hf and not measure and not embed'"
+# `pytest -m measure -s` (timings and memory for design decisions; prints, barely asserts) or
+# `pytest -m browser` (the web UI in Chrome; needs `uv sync --group browser`).
+addopts = "-m 'not live and not olmo and not hf and not measure and not embed and not browser'"
 markers = [
     "live: needs the built llama-server and the fetched SmolLM2 model",
     "olmo: needs the fetched OLMo 3 models",
     "hf: needs the hf extra (torch) and a fetched model",
     "measure: measurements on OLMo 3 for design decisions; run with -s to see them",
     "embed: embedding determinism on bge-small; decides whether v0.3.3 goes ahead",
+    "browser: the web UI in a real browser (Playwright; `uv sync --group browser`)",
 ]

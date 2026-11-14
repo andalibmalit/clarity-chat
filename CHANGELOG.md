@@ -12,6 +12,9 @@ Two headings are Clarity's own, used when they apply:
 - `/chats` and `/profiles` answer at once, even during a reply, and `/settings` does while a reply is written or replayed, as `/state` and `/cancel` do; with `--json` they run as soon as they're read.
 - `text` events carry `at` and `end`, the piece's place in the reply, and `/state` gives `reply_end`, so a reader that starts mid-reply joins the stream without dropping or repeating text.
 
+### Changed
+- New dependencies for the web interface: `starlette` and `uvicorn`. Tests of the web interface in a browser use `pytest-playwright`, in its own dependency group (`uv sync --group browser`); a normal install doesn't get it.
+
 ## [0.2.3] - 2026-11-14
 
 Live tests on an M2 Max (macOS), 2026-11-14, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 19 passed (including the backend contract and a llama-server killed between two calls), `-m hf` 18 passed, `-m olmo` 12 passed.
