@@ -1430,8 +1430,19 @@ def export_sheet(answer: dict[str, Any]) -> dict[str, Any]:
         else f"{n} calls that produced no reply"
         if n
         else None,
-        "steered": result["steered"],
+        # From the log, which another program can write: control or invisible characters
+        # show as escapes, with no Copy (the copy wouldn't name the file).
+        "steered": [
+            {**v, "file": shown(v["file"]), "can_copy": v["file"].isprintable()}
+            for v in result["steered"]
+        ],
     }
+
+
+def shown(text: str) -> str:
+    """`text`, or, if it holds control or invisible characters, `text` with those written
+    as Python writes them (\\x1b, \\u202e)."""
+    return text if text.isprintable() else repr(text)[1:-1]
 
 
 async def _export(worker: Worker, params: dict[str, str | None]) -> str:
