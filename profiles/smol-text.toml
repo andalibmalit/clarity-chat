@@ -1,4 +1,5 @@
 # Development profile: SmolLM2-135M-Instruct continuing a plain document.
+description = "Tiny model (SmolLM2 135M) in plain text, no chat format. Fast, but replies are rough and capped at 128 tokens"
 backend = "llama.cpp"
 model = "smollm2-135m-instruct"
 mode = "text"

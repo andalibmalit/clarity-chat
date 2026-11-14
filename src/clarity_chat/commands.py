@@ -62,7 +62,10 @@ class Commands:
         if command.during_call:
             return command.run(self, args, emit)
         if not self.busy.acquire(blocking=False):
-            raise ConfigError("Another command is still running. Wait for it, or cancel it.")
+            raise ConfigError(
+                "Another command is still running. Wait for it to finish, or cancel it if it "
+                "can be cancelled."
+            )
         # Made before the command starts, so a cancel that arrives early isn't lost.
         self.cancel_event = threading.Event()
         self.running, self.running_args = name, args
@@ -149,7 +152,7 @@ def _regen(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         if not seeds:
             raise ConfigError(
                 "Every seed used for this message already has a reply under the current "
-                "settings. Change a setting first, or make a new reply with /regen."
+                "settings. Change a setting first, or ask for another reply."
             )
         return {**regen_replies(c, emit, list(seeds)), "seeds": seeds}
     # ASCII digits only: str.isdigit() also accepts "²", which int() refuses.

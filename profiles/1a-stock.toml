@@ -1,5 +1,6 @@
 # Check 0, setup 1a: chat with no system message. OLMo 3's template then writes
 # its own ("You are a helpful function-calling AI assistant...").
+description = "Standard chat with no system message of your own, so the model's chat template adds its default one"
 backend = "llama.cpp"
 model = "olmo-3-7b-instruct"
 mode = "chat"

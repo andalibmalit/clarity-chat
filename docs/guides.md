@@ -150,7 +150,7 @@ Each call is its own conversation. Profiles are read once, at the start, so edit
 
 ## Compare replies
 
-To see what one setting does, hold the randomness fixed. Ask for a few replies (`/regen 2`), change the setting (`/set temperature 0.9`), then `/regen same`: it makes the message's replies again with the same seeds under the new value. `/compare` then lists every reply to the message, grouped by its settings, and for each pair with the same seed it shows the token and character where the two replies part. With the same seed and prompt, the setting is the only difference between them.
+To see what one setting does, hold the randomness fixed. Ask for a few replies (`/regen 2`), change the setting (`/set temperature 0.9`), then `/regen same`: it makes the message's replies again with the same seeds under the new value. `/compare` then lists every reply to the message, grouped by its settings, and for each pair with the same seed and different settings it shows the token and character where the two replies part. On the same machine and build, with the same seed and prompt, the setting is the only difference between their inputs. Where they part is where the new setting first changed a pick; it doesn't show how much the setting matters in general.
 
 `/compare CALL_ID` does the same for an earlier message, from the ID of any of its replies, without moving you there. `/branches all` lists every branch end in the conversation, and every marked reply, so you can find one again.
 

@@ -1065,7 +1065,7 @@ class Session:
             if new_message:
                 warnings.append(
                     f"Your message contains {new_message}: the tokenizer reads these as control "
-                    "tokens, not text. The prompt's token IDs show them."
+                    "tokens, not text. The prompt's token IDs, in the call's details, show them."
                 )
             n_ctx, max_tokens = self.backend.n_ctx, values["max_tokens"]
             if room_left(n_ctx, len(prompt.ids), max_tokens) < 0:

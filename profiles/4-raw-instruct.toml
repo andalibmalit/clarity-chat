@@ -1,4 +1,5 @@
 # Check 0, setup 4: the instruct model continuing a plain document (no chat template).
+description = "Plain text, no chat format: the chat-tuned model continues a written conversation"
 backend = "llama.cpp"
 model = "olmo-3-7b-instruct"
 mode = "text"

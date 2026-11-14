@@ -1,4 +1,5 @@
 # Development profile: SmolLM2-135M-Instruct through its own chat template.
+description = "Tiny model (SmolLM2 135M) in chat format. Fast, but replies are rough and capped at 128 tokens"
 backend = "llama.cpp"
 model = "smollm2-135m-instruct"
 mode = "chat"

@@ -1,4 +1,5 @@
 # Check 0, setup 5: the base model continuing the same plain document as setup 4.
+description = "Plain text, no chat format: the untuned base model continues the same written conversation"
 backend = "llama.cpp"
 model = "olmo-3-7b-base"
 mode = "text"
