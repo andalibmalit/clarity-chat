@@ -55,7 +55,7 @@ Every merged contribution of any kind counts: code, docs, design, testing, resea
 - **[`CONTRIBUTORS.md`](CONTRIBUTORS.md)** lists everyone with a merged contribution, with their roles from the [CRediT taxonomy](https://credit.niso.org/), such as Software, Validation or Writing – review & editing. Your pull request can add you, or the maintainer will.
 - **Authors in [`CITATION.cff`](CITATION.cff)**, and so in the citation and the Zenodo record, are people who made a substantial contribution: a feature, a meaningful part of a release, or sustained work. The bar is generous. You can ask to be added, decline, or add your ORCID.
 - **Order:** the maintainer first, then others in the order of their first substantial contribution.
-- **AI tools** are disclosed in commit trailers (`Co-Authored-By`), not credited as authors, because a tool can't take an author's responsibility for the work. Clarity is built with AI assistance: the maintainer approves each plan, reads the review findings, runs the live tests and uses each release.
+- **AI tools** are disclosed in commit trailers (`Co-Authored-By`), not credited as authors, because a tool can't take an author's responsibility for the work. Clarity is built with AI assistance. The maintainer sets the plans' direction and reads the review findings; from v0.2.3 to 1.0, in one sprint, the plans are approved under the maintainer's delegation and the maintainer uses the whole before 1.0 rather than each release.
 
 ## Release checklist
 
@@ -67,7 +67,7 @@ A release is done when every item is checked.
 4. A golden log for this release is added to `tests/fixtures/golden/`: a small log written by this release's code with the fake backend and made-up text. `tests/test_golden.py` checks that current code still reads and replays every one.
 5. `CHANGELOG.md`: Unreleased becomes the new version, with **Migration** and **Output may change** where they apply.
 6. The version is bumped in `pyproject.toml` and `CITATION.cff` (`version` and `date-released`) together, and `ROADMAP.md` is updated.
-7. From v0.3.0, the maintainer uses the release as a user would, following its by-hand list. Releases before the web interface skip this; their live tests carry the weight, plus a one-minute check of what the QA pass, which runs SmolLM2 only, can't show: a short chat on one OLMo 3 profile.
+7. The maintainer uses the release as a user would, following its by-hand list. During the sprint to 1.0 (v0.2.3 onward) this is done once, for all the sprint's releases, before the final review; until then the live tests and the QA pass carry the weight.
 8. A pull request merges the release branch into `main`, and the maintainer tags it `vX.Y.Z`.
 9. Only for a version worth citing: a GitHub Release, which mints a Zenodo DOI; that DOI goes in `CITATION.cff`.
 
