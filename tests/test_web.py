@@ -202,7 +202,9 @@ def test_no_command_can_name_a_path(server, tmp_path, fetched_root):
 
 def test_a_view_name_or_call_id_outside_the_list_is_refused(server):
     client, _, _ = server
-    assert client.get("/view/nope", headers={**AUTH, **SAME}).status_code == 404
+    for name in ("nope", "__class__", "get"):  # a renderer's name, and only that, is a view
+        nope = client.get(f"/view/{name}", headers={**AUTH, **SAME})
+        assert (nope.status_code, nope.text) == (404, "No such view.")
     bad = client.get("/view/details?call=call-zz", headers={**AUTH, **SAME})
     assert bad.status_code == 400
 
@@ -430,6 +432,13 @@ def test_a_server_error_carries_the_security_headers_and_says_why(server, monkey
     assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
 
 
+def submit(worker, name, args):
+    """Run a command through the worker and wait for its result, as Worker.ask does for a
+    route (a caller on its own thread)."""
+    now, future = worker.enqueue(name, args)
+    return worker._run(name, args, at_once=True) if now else future.result()
+
+
 def test_a_listener_that_fails_is_dropped_and_the_worker_goes_on(fetched_root, tiny_tokenizer):
     """Finding 4: a closed event loop must not end the session or kill the worker."""
     session = Session(
@@ -443,13 +452,13 @@ def test_a_listener_that_fails_is_dropped_and_the_worker_goes_on(fetched_root, t
     worker.listen(broken)
     answers: list[dict] = []
     probe = threading.Thread(
-        target=lambda: answers.append(worker.submit("profile", "text")), daemon=True
+        target=lambda: answers.append(submit(worker, "profile", "text")), daemon=True
     )
     probe.start()
     probe.join(10)
     assert answers and "result" in answers[0], "the worker died: a submit never came back"
     assert worker.failed is None and broken not in worker.listeners
-    assert "result" in worker.submit("say", "Hello")
+    assert "result" in submit(worker, "say", "Hello")
 
 
 # --- the tripwire review, part 2 (findings 7, 9, 10, 12) and the Enter handler
@@ -774,10 +783,10 @@ def test_a_wait_cancelled_in_the_queue_doesnt_stop_the_worker(fetched_root, tiny
         fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
     )
     worker = web.Worker(session)
-    worker.submit("profile", "text")
+    submit(worker, "profile", "text")
     gate, real = threading.Event(), session.history
     session.history = lambda *a, **k: (gate.wait(5), real(*a, **k))[1]
-    blocker = threading.Thread(target=lambda: worker.submit("history", ""), daemon=True)
+    blocker = threading.Thread(target=lambda: submit(worker, "history", ""), daemon=True)
     blocker.start()
     threading.Event().wait(0.2)  # the worker holds "history" at the gate
 
@@ -791,7 +800,9 @@ def test_a_wait_cancelled_in_the_queue_doesnt_stop_the_worker(fetched_root, tiny
     gate.set()
     blocker.join(5)
     after: list = []
-    later = threading.Thread(target=lambda: after.append(worker.submit("history", "")), daemon=True)
+    later = threading.Thread(
+        target=lambda: after.append(submit(worker, "history", "")), daemon=True
+    )
     later.start()
     later.join(5)
     assert after and "result" in after[0]
