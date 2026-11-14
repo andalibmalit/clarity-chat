@@ -786,20 +786,24 @@ function closePanel() {
   (back || $("message")).focus();
 }
 
+function refuseRow(row, box, sentence) {
+  // A refusal shows its sentence under its row, and the box keeps what you typed.
+  const refused = row.querySelector(".refused");
+  refused.textContent = sentence;
+  refused.hidden = false;
+  const note = row.querySelector(".note");
+  note.textContent = `Not applied: the next reply still uses ${box.dataset.inUse}.`;
+  note.hidden = false;
+  box.setAttribute("aria-invalid", "true");
+  const slider = row.querySelector('input[type="range"]');
+  if (slider) slider.value = slider.getAttribute("value");
+}
+
 async function setting(args, row = null, box = null) {
-  // /set NAME VALUE, or /set NAME (back to the profile's value). A refusal shows the
-  // backend's sentence under its row, and the box keeps what you typed.
+  // /set NAME VALUE, or /set NAME (back to the profile's value).
   const answer = await command("set", args);
   if (answer.error && row) {
-    const refused = row.querySelector(".refused");
-    refused.textContent = answer.error;
-    refused.hidden = false;
-    const note = row.querySelector(".note");
-    note.textContent = `Not applied: the next reply still uses ${box.dataset.inUse}.`;
-    note.hidden = false;
-    box.setAttribute("aria-invalid", "true");
-    const slider = row.querySelector('input[type="range"]');
-    if (slider) slider.value = slider.getAttribute("value");
+    refuseRow(row, box, answer.error);
     return;
   }
   if (answer.error) notice("!", answer.error);
@@ -939,7 +943,10 @@ document.addEventListener("change", (event) => {
     showPanel(panelOf.name, panelOf.params); // it waits: back to the value in use
     return;
   }
-  setting(`${box.dataset.name} ${box.value}`, box.closest(".srow"), box);
+  // An empty box (or one a number box can't read) would send /set NAME, which puts the
+  // setting back: refused here instead, and nothing is sent.
+  if (!box.value.trim()) refuseRow(box.closest(".srow"), box, "Type a value; an empty box changes nothing.");
+  else setting(`${box.dataset.name} ${box.value}`, box.closest(".srow"), box);
 });
 
 const THREAD = {
@@ -949,7 +956,10 @@ const THREAD = {
   replay: (element, call) => replay(call, element),
   "replay-stop": () => command("cancel"),
   "reset-all": async (element) => {
-    for (const name of element.dataset.names.split(" ")) await command("set", name);
+    for (const name of element.dataset.names.split(" ")) {
+      const answer = await command("set", name);
+      if (answer.error) notice("!", answer.error);
+    }
     await refresh();
   },
   "replies-close": () => closeReplies(true),
