@@ -6,7 +6,7 @@ This tutorial takes you from a fresh clone to a first chat and a first blind tes
 
 You need:
 - [uv](https://docs.astral.sh/uv/), CMake and a C++ compiler.
-- About 2 GB of disk for llama.cpp, SmolLM2 and the converter's own Python environment. The OLMo 3 models used later take about 58 GB more.
+- About 2 GB of disk for llama.cpp, SmolLM2 and the converter's own Python environment. The OLMo 3 models used later take about 58 GB more, and the Llama 3.1 8B models about 64 GB.
 - A GPU that llama.cpp supports. `server.toml` puts every layer on the GPU, and Clarity stops if the model lands on the CPU instead. To run on the CPU, set `n-gpu-layers = 0` in `server.toml`.
 
 Clarity's live tests have run on Apple Silicon (Metal) only. Its offline tests run on macOS, Linux and Windows.
@@ -237,4 +237,5 @@ flowchart LR
 
 - Write your own profile: see [Write a profile](guides.md#write-a-profile).
 - Fetch the OLMo 3 models (`uv run clarity fetch olmo-3-7b-instruct`, then `olmo-3-7b-base`) and try the four OLMo 3 profiles in `profiles/`: `1a-stock` (no system message, so OLMo 3's template writes its own), `1b-blank` (a blank one, so none), `4-raw-instruct` (the instruct model continuing a plain document) and `5-raw-base` (the base model on the same document).
+- Fetch Llama 3.1 8B (`llama-3.1-8b-instruct` and `llama-3.1-8b-base`). Meta gates its repos, so accept the licence and log in first: see [Fetch a gated model](guides.md#fetch-a-gated-model). Then try `llama-3.1-8b-chat` and `llama-3.1-8b-base`. Llama's chat template starts every chat with a system header that says today is 26 Jul 2024, even with no system message of yours. That date is the template's fixed default, not today's, so a chat renders the same tokens on any day. `/prompt` shows it.
 - Read [Design](design.md) for why Clarity works the way it does.

@@ -122,6 +122,18 @@ uv run python -c "from huggingface_hub import HfApi; print(HfApi().get_paths_inf
 
 After every call, Clarity checks that the server's own decoding of the token IDs matches the prompt text. If a GGUF and its `tokenizer_repo` don't agree, that check fails.
 
+## Fetch a gated model
+
+Some repos are gated: Hugging Face gives their files only to accounts the publisher has let in. Meta's Llama 3.1 repos, which `llama-3.1-8b-instruct` and `llama-3.1-8b-base` come from, are gated.
+
+1. Sign in at [huggingface.co](https://huggingface.co), open the model's page ([Instruct](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct), [base](https://huggingface.co/meta-llama/Llama-3.1-8B)) and accept its licence. Access isn't always immediate; the page says when you have it.
+2. Run `uv run hf auth login` and follow its prompts. It saves a token where the Hugging Face library finds it. Setting `HF_TOKEN` in your shell works too.
+3. Run `uv run clarity fetch NAME`.
+
+Clarity never asks for or stores the token; the Hugging Face library reads it. Without access, `clarity fetch` stops and says what to do.
+
+Llama 3.1 comes under Meta's [Llama 3.1 Community License](https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct/blob/main/LICENSE). Its "Built with Llama" attribution applies to distributing the model, and Clarity doesn't distribute it: `fetch` downloads it to your computer. If you share the files it downloads or converts, the licence's terms for distributing apply to you. Meta's [Acceptable Use Policy](https://llama.meta.com/llama3_1/use-policy) applies to how you use the model.
+
 ## Run and rate a blind test
 
 1. Write the openings to a text file, separated by lines that are exactly `---`. Each opening is stripped of surrounding whitespace.
@@ -239,7 +251,7 @@ The context size comes from the profile's `ctx_size` or `server.toml` here too, 
 
 ## Steer a chat with a vector
 
-A steering vector nudges a model's replies in a direction, such as calm rather than hurried, by adding a fixed vector to the output of some of its blocks. Clarity applies a vector made by another tool; it never makes one. Steering runs on the Transformers backend, on OLMo 3 and on Llama-architecture models such as SmolLM2.
+A steering vector nudges a model's replies in a direction, such as calm rather than hurried, by adding a fixed vector to the output of some of its blocks. Clarity applies a vector made by another tool; it never makes one. Steering runs on the Transformers backend, on OLMo 3 and on Llama-architecture models such as SmolLM2 and Llama 3.1.
 
 1. Make a vector elsewhere. [repeng](https://github.com/vgel/repeng) trains one from pairs of contrasting prompts and writes a file in llama.cpp's control-vector layout, which Clarity reads (repeng's own docs call its export work in progress). Install repeng from git in a separate environment: its PyPI release needs numpy below 2, which Clarity's dependencies don't allow. `tests/fixtures/steering/README.md` has a script that makes a small one for SmolLM2.
 2. Leave the model's last block out (pass `hidden_layers` that stop before it). repeng includes it by default, but it reads that block's output after the model's final normalization (Transformers' last `hidden_states` entry), which isn't what the vector gets added to.
