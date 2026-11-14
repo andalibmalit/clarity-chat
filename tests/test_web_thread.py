@@ -374,3 +374,25 @@ def test_resuming_another_chat_doesnt_draw_this_one_while_it_starts(chat):
         gate.set()
         worker.join(10)
     assert "Words of the second chat" not in fragment and "Starting" in fragment
+
+
+def test_a_read_waiting_its_turn_doesnt_make_the_views_wait(chat):
+    """A read in the queue (another view's /branches or /settings, say) sets /state's
+    `running` while it runs. The views mustn't take it for a command that changes the chat:
+    they'd draw the thread without its controls, and nothing would redraw it after."""
+    client, session = chat
+    result(client, "say", "Hi")
+    gate, real = threading.Event(), session.history
+    session.history = lambda *a, **k: (gate.wait(5), real(*a, **k))[1]
+    holder = threading.Thread(target=lambda: command(client, "history"), daemon=True)
+    holder.start()
+    threading.Event().wait(0.2)
+    got: list[str] = []
+    reader = threading.Thread(target=lambda: got.append(thread(client)), daemon=True)
+    reader.start()
+    threading.Event().wait(0.3)  # the view read /state while history ran
+    gate.set()
+    holder.join(5)
+    reader.join(5)
+    assert result(client, "state")["running"] is None
+    assert got and 'data-action="regen"' in got[0]  # the controls are drawn
