@@ -376,23 +376,95 @@ def test_resuming_another_chat_doesnt_draw_this_one_while_it_starts(chat):
     assert "Words of the second chat" not in fragment and "Starting" in fragment
 
 
-def test_a_read_waiting_its_turn_doesnt_make_the_views_wait(chat):
-    """A read in the queue (another view's /branches or /settings, say) sets /state's
-    `running` while it runs. The views mustn't take it for a command that changes the chat:
-    they'd draw the thread without its controls, and nothing would redraw it after."""
-    client, session = chat
-    result(client, "say", "Hi")
+def held_read(client, session):
+    """`history` held at a gate, as a read waiting its turn would be; returns (gate, holder,
+    the `running` each /state call saw)."""
+    import dataclasses
+
+    from clarity_chat import commands
+
+    seen: list = []
+    real_state = commands.COMMANDS["state"]
+
+    def state(c, args, emit):
+        seen.append(c.running)
+        return real_state.run(c, args, emit)
+
+    commands.COMMANDS["state"] = dataclasses.replace(real_state, run=state)
     gate, real = threading.Event(), session.history
     session.history = lambda *a, **k: (gate.wait(5), real(*a, **k))[1]
     holder = threading.Thread(target=lambda: command(client, "history"), daemon=True)
     holder.start()
     threading.Event().wait(0.2)
+    return gate, holder, seen, lambda: commands.COMMANDS.__setitem__("state", real_state)
+
+
+VIEW_NOT_WAITING = {  # each view, drawn while a read waits its turn: what mustn't be there
+    "thread": ("", lambda f: 'data-action="regen"' in f),
+    "picker": ("", lambda f: "aria-disabled" not in f),
+    "branches": ("", lambda f: "Waits until" not in f),
+    "settings": ("", lambda f: "Changes wait" not in f),
+    "details": ("call", lambda f: not re.search(r'data-action="replay"[^>]*aria-disabled', f)),
+}
+
+
+@pytest.mark.parametrize("name", list(VIEW_NOT_WAITING))
+def test_a_read_waiting_its_turn_doesnt_make_the_views_wait(chat, name):
+    """A read in the queue (another view's /branches or /settings, say) sets /state's
+    `running` while it runs. The views mustn't take it for a command that changes the chat:
+    they'd draw the chat busy, and nothing would redraw it after (Checkpoint 4, finding 8:
+    each view, and proof that it read /state while `history` ran)."""
+    client, session = chat
+    call = result(client, "say", "Hi")["call"]
+    param, check = VIEW_NOT_WAITING[name]
+    path = f"/view/{name}" + (f"?call={call['call_id']}" if param else "")
+    gate, holder, seen, restore = held_read(client, session)
     got: list[str] = []
-    reader = threading.Thread(target=lambda: got.append(thread(client)), daemon=True)
-    reader.start()
-    threading.Event().wait(0.3)  # the view read /state while history ran
-    gate.set()
-    holder.join(5)
-    reader.join(5)
-    assert result(client, "state")["running"] is None
-    assert got and 'data-action="regen"' in got[0]  # the controls are drawn
+    try:
+        reader = threading.Thread(
+            target=lambda: got.append(
+                html.unescape(client.get(path, headers={**AUTH, **SAME}).text)
+            ),
+            daemon=True,
+        )
+        reader.start()
+        threading.Event().wait(0.3)  # the view read /state while history ran
+        assert "history" in seen
+    finally:
+        gate.set()
+        holder.join(5)
+        reader.join(5)
+        restore()
+    assert got and check(got[0]), got[0][:300]
+
+
+def test_start_the_model_again_resumes_by_the_log_s_id(chat):
+    """Finding 10: a resumed log's file name and its conversation ID differ; /resume takes
+    the file's, so /state gives it (`log_id`), and the thread keeps its turns while the
+    model starts again."""
+    import shutil
+    from pathlib import Path
+
+    client, session = chat
+    golden = Path(__file__).parent / "fixtures" / "golden" / "v0.1.0.jsonl"
+    log = Path(shutil.copy(golden, session.logs_dir / "old-v010.jsonl"))
+    result(client, "resume", log.stem)
+    state = result(client, "state")
+    assert state["conversation_id"] != log.stem and state.get("log_id") == log.stem
+    gate, worker = start_held(client, session, log.stem, how="resume")
+    try:
+        fragment = thread(client)
+    finally:
+        gate.set()
+        worker.join(10)
+    assert state["turns"][-1]["text"] in fragment and "Starting" in fragment
+
+
+def test_the_page_knows_the_same_reads_as_the_server():
+    """Finding 16: draw()'s wait after a reload uses the READS rule too, from the same list."""
+    from pathlib import Path
+
+    code = (Path(web.__file__).parent / "web_static" / "app.js").read_text(encoding="utf-8")
+    found = re.search(r"const READS = new Set\(\[([^\]]*)\]\)", code)
+    page = set(re.findall(r'"(\w+)"', found.group(1))) if found else set()
+    assert page == web.READS

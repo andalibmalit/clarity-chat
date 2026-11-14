@@ -216,3 +216,25 @@ def test_setting_words():
     assert web.setting_words("temperature", 0.3) == "temperature 0.3"
     assert web.setting_words("samplers", ["top_k", "min_p"]) == "samplers top_k, min_p"
     assert web.changed_words({"steering_scale": 0.5}) == "strength 0.5"
+
+
+# --- Checkpoint 4's findings
+
+
+def test_untrusted_text_in_the_replies_pop_out_is_escaped(chat):
+    """B5's fixture, for the pop-out: a reply's text and a mark."""
+    client, session = chat
+    session.backend.replies = [HOSTILE]
+    result(client, "regen")
+    result(client, "mark", f"{last_call(client)} {HOSTILE}")
+    raw = client.get(f"/view/replies?call={last_call(client)}", headers={**AUTH, **SAME}).text
+    # max_tokens 16 cuts the reply; its first 16 characters are the opening tag, escaped.
+    assert "<script>" not in raw and "<img" not in raw and "&lt;script&gt;" in raw
+
+
+def test_values_are_shown_as_python_writes_them():
+    """Finding 11: repr, not :g, so 1.0 doesn't read as 1 and 1e-05 keeps its digits."""
+    assert web.setting_words("temperature", 1.0) == "temperature 1.0"
+    assert web.setting_words("min_p", 0.00001) == "min_p 1e-05"
+    assert web.setting_words("steering_scale", 1.0) == "steered ×1.0"
+    assert web.changed_words({"steering_scale": 0.5}) == "strength 0.5"
