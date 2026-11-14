@@ -127,8 +127,8 @@ def test_in_a_chat_the_picker_ticks_the_profile_and_the_button_names_its_model(s
     command(client, "profile", "text")
     state = command(client, "state").json()["result"]
     fragment = get_view(client, "picker")
-    name = f"{state['model_name']} · {state['profile']}"
-    assert name == "tiny · text"
+    name = f"{state['profile']} · {state['model_name']}"  # the profile first, as elsewhere
+    assert name == "text · tiny"
     assert f">{name}<" in fragment
     assert f'aria-label="Profile: {name}. Start a new chat with another profile"' in fragment
     ticked = re.findall(r'aria-checked="true"[^>]*data-profile="([^"]*)"', fragment)
@@ -159,7 +159,7 @@ def test_the_context_figure_is_the_last_prompts_share_of_the_context(server):
     call = command(client, "prompt").json()["result"]["call"]
     n, ctx = call["n_prompt_client"], call["n_ctx"]
     fragment = get_view(client, "picker")
-    assert f"{n / ctx:.0%} · {n:,} of {ctx:,} tokens" in fragment
+    assert f"Context {n / ctx:.0%} · {n:,} of {ctx:,} tokens" in fragment
     assert "ctx hot" not in fragment and n <= CONTEXT_WARN_FRACTION * ctx
 
 
@@ -179,7 +179,7 @@ def test_over_80_percent_the_figure_turns_to_a_warning(small):
     call = command(client, "prompt").json()["result"]["call"]
     n, ctx = call["n_prompt_client"], call["n_ctx"]
     assert n > CONTEXT_WARN_FRACTION * ctx  # the setup: over 80%, and it fit
-    assert f'class="ctx hot">! {n / ctx:.0%} · {n:,} of {ctx:,} tokens' in get_view(
+    assert f'class="ctx hot">! Context {n / ctx:.0%} · {n:,} of {ctx:,} tokens' in get_view(
         client, "picker"
     )
 
@@ -191,7 +191,7 @@ def test_under_80_percent_the_figure_isnt_a_warning(small):
     n, ctx = call["n_prompt_client"], call["n_ctx"]
     assert 0.5 * ctx < n <= CONTEXT_WARN_FRACTION * ctx  # the setup: over half, under 80%
     fragment = get_view(client, "picker")
-    assert f'class="ctx">{n / ctx:.0%}' in fragment and "ctx hot" not in fragment
+    assert f'class="ctx">Context {n / ctx:.0%}' in fragment and "ctx hot" not in fragment
 
 
 def test_after_a_message_that_doesnt_fit_the_figure_is_the_reply_s(small):
@@ -238,7 +238,7 @@ def test_while_a_model_starts_the_picker_waits_and_says_why(server):
         thread.join(10)
     assert 'aria-disabled="true"' in fragment
     assert "Waits until the model has started." in fragment
-    assert ">tiny · text<" in fragment  # the profile being started, not "Choose a profile"
+    assert ">text · tiny<" in fragment  # the profile being started, not "Choose a profile"
     assert "Settings" not in fragment  # no chat to set yet
 
 

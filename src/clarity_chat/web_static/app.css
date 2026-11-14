@@ -445,3 +445,13 @@ html.scenic .pn { z-index: 1; }
   html.scenic .mn { margin-top: 24px; }
 }
 @media (max-width: 480px) { .ctx { flex-basis: 100%; margin-left: 4px; } }
+
+/* The design walkthrough's small faults (finding 19): the Chats handle sits on the page
+   (inside the main column, so in Sky and Space it's on the card, not the scenery); a picked
+   token is marked under it, not over its neighbours; High contrast's name fits on one line
+   (the tick moves onto the swatch); the open chat's row has its own mark, apart from hover. */
+.msg.shaded .tok[aria-pressed="true"] { box-shadow: 0 2px 0 var(--ink); border-radius: 0; }
+.appearance .card { padding-top: 6px; }
+.appearance .tick { position: absolute; top: 10px; right: 10px; }
+.appearance .cn { white-space: nowrap; }
+.crow[aria-current="true"] { box-shadow: inset 3px 0 0 var(--accent); font-weight: 500; }
