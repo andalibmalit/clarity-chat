@@ -743,7 +743,9 @@ def failed_line(call: dict[str, Any] | None, state: dict[str, Any]) -> dict[str,
     if not call or not call.get("error") or not state["unanswered"]:
         return None
     kind, _, message = call["error"].partition(": ")
-    return {"kind": kind, "message": message, "call_id": call["call_id"]}
+    # No controls without a call ID (a log another program wrote), as for a reply.
+    call_id = call["call_id"] if CALL_ID.fullmatch(call["call_id"] or "") else None
+    return {"kind": kind, "message": message, "call_id": call_id}
 
 
 async def _thread(worker: Worker, params: dict[str, str | None]) -> str:

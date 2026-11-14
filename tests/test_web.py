@@ -1054,7 +1054,9 @@ def test_every_view_shows_hostile_text_as_text(fetched_root, tiny_tokenizer, tmp
             parser.feed(response.text)
             found[f"{name} {at}"] = parser.found
             texts[f"{name} {at}"] = response.text
-        session.conversation.last_call["call_id"] = 'x" onclick="alert(3)'  # a hand-edited log
+        conversation = session.conversation
+        assert conversation is not None and conversation.last_call is not None
+        conversation.last_call["call_id"] = 'x" onclick="alert(3)'  # a hand-edited log
         parser = Unsafe()
         parser.feed(client.get("/view/thread", headers=GET).text)
         found["thread, hand-edited"] = parser.found
