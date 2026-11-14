@@ -470,7 +470,8 @@ class ChatLoop:
         elif name == "help":
             self.write(format_help(result) + "\n")
         elif name == "prompt":
-            self.write(format_prompt(result["call"], as_repr=args == "repr") + "\n")
+            as_repr = args.split()[-1:] == ["repr"]
+            self.write(format_prompt(result["call"], as_repr=as_repr) + "\n")
         elif name == "settings":
             self.write(format_settings(result) + "\n")
         elif name == "probs":

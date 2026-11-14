@@ -36,8 +36,8 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 |---|---|
 | `/help` | List the commands. |
 | `/say TEXT` | Send a message, exactly as written after the one space that follows `/say`. Typing it without a command does the same; scripts use `/say`. Other commands ignore spaces around their arguments. |
-| `/prompt` | The exact prompt text of the current reply's call (or of your last message, if its call failed), the BOS decision, and the token IDs. |
-| `/prompt repr` | The same, with each line shown as a Python string, so spaces, tabs and newlines are visible. |
+| `/prompt [CALL_ID]` | The exact prompt text of the current reply's call (or of your last message, if its call failed), the BOS decision, and the token IDs. With a call ID, that call's, failed calls included. |
+| `/prompt [CALL_ID] repr` | The same, with each line shown as a Python string, so spaces, tabs and newlines are visible. |
 | `/probs` | A summary of the current reply's token probabilities, if `logprobs` was on: how many tokens, and the 10 least likely chosen tokens in reply order, each with its probability and the model's likeliest other tokens. With `--json`, the result also holds every token's record. Without them, it says why. |
 | `/settings` | Every setting, its value and origin; the fixed values sent for the backend's other fields; the model's recommended values; what wasn't applied; the context size and stop strings; the end-of-reply tokens llama.cpp read from the model file; and a steered profile's vector: its file, the first 12 characters of its sha256, and its blocks, marked off at `steering_scale` 0. |
 | `/set NAME [VALUE]` | Change a setting for this chat only, for example `/set temperature 0.7`, `/set seed random` or `/set samplers top_k temperature`. It's checked like a profile's value, its origin is `chat`, and it's logged. With no value, the setting goes back to the profile's. |
@@ -47,10 +47,10 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/history` | The conversation so far on the current branch, from its start to where you are, with each reply's marks and notes. |
 | `/branches` | Where the conversation branches along the current path: each regenerated reply and edited message, numbered "reply 2 of 3", the current one starred, with its turn ID. Branches you went back from with `/undo` are listed too. |
 | `/switch TURN_ID` | Go to another branch, at its newest reply. Nothing is sent. In a resumed conversation, it also checks that reply's prompt still renders to the same token IDs. |
-| `/mark [LABEL]` | Label the current reply, for example `landed` or `dropped`. Without a label, the mark is `interesting`. |
-| `/unmark [LABEL]` | Remove the current reply's mark. If it has marks with different labels, name the one to remove. The log keeps the mark and records its removal. |
-| `/note TEXT` | Add a note to the current reply. A reply has one note: a new one replaces it, and the log keeps both. Notes from before v0.2.0 have no ID, so they all stay. |
-| `/replay` | Re-send the current reply's call on the running server and compare the output. |
+| `/mark [CALL_ID] [LABEL]` | Label the current reply, or the reply of the call named, for example `landed` or `dropped`. Without a label, the mark is `interesting`. |
+| `/unmark [CALL_ID] [LABEL]` | Remove a reply's mark. If it has marks with different labels, name the one to remove. The log keeps the mark and records its removal. |
+| `/note [CALL_ID] TEXT` | Add a note to a reply. A reply has one note: a new one replaces it, and the log keeps both. Notes from before v0.2.0 have no ID, so they all stay. |
+| `/replay [CALL_ID]` | Re-send the current reply's call, or the call named, on the running server and compare the output. |
 | `/export` | Write this conversation for a notebook to `logs/exports/ID.jsonl`, as `clarity export` does. It takes no path; `clarity export --out` writes elsewhere. |
 | `/resume ID` | Continue a logged conversation, by its ID from `/chats` (not a path; `--resume` takes a log file): its profile, settings, `/set` values and context size as logged, starting where it left off. Clarity shows what differs today: a changed profile file, settings today's files would set differently, server, machine or library changes since its last call, and whether the current reply's prompt still renders to the same token IDs. |
 | `/title TEXT` | Name this conversation in the chat list. Without a title, the list shows the first eight words of its first message; Clarity never asks a model for one. |
@@ -61,6 +61,8 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/cancel` | Stop the call in progress, like Ctrl-C: a reply (`/say`, `/regen`, `/edit`) or a `/replay`. It's the one command that runs during another, for scripts and the web interface. It says which command it stopped, or why it stopped nothing: nothing was running, or the running command (such as a model start) can't be stopped. |
 | `/quit` | Stop the server and exit. `/exit`, `/q` and Ctrl-D also work. |
 | `//text` | Send a message that starts with `/`. |
+
+**Naming a call.** `/prompt`, `/mark`, `/unmark`, `/note` and `/replay` act on the current reply, or on another call when their first word is its call ID: `call-` and 12 lowercase hex digits, as the status line and `/prompt` show it. The ID must be one of this conversation's calls, failed ones included, or the command is refused; it's never read as text. A first word that only looks like an ID, such as `call-me`, is the command's own text, so `/mark call-me` labels the current reply "call-me".
 
 After each reply, a status line shows the stop reason, the reply length in tokens, the time, the seed (with its origin unless it came from the profile), the context used (prompt plus reply tokens, of the context size) and the call ID, then, for a steered reply, `steered ×S` with the scale it was steered at. Warnings and [call flags](#call-flags) appear above it, marked `!`. A warning appears when the prompt uses more than 80% of the context.
 
@@ -85,7 +87,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 |---|---|
 | `say`, `edit` | `call` (the call record) and `warnings` |
 | `regen` | `replies`, a list of `call` and `warnings`, and `stopped` (why it stopped early) if a reply failed. A cancel ends it without `stopped`, whenever it comes. |
-| `prompt` | `call`: the latest call record, which can be a failed one; null before any |
+| `prompt` | `call`: the latest call record, or the one named, which can be a failed one; null before any. It's the record as logged, the same before and after a resume. |
 | `probs` | `call_id`, `logprobs` (the call's record) and `least_likely`: up to 10 entries with `index`, `id`, `text`, `logprob` and `top` (each `id`, `text`, `logprob`). With no probabilities, `least_likely` is empty and `unavailable` says why. |
 | `settings` | `profile`, `settings` (each with its value and origin), `backend`, `backend_settings`, `eog_tokens`, `recommended`, `not_applied`, `ctx_size`, `stop`, and `steering` (`file`, `sha256` and `layers` of the profile's vector, or null) |
 | `set` | `record` (the `setting` record) and `setting` (its value and origin) |
