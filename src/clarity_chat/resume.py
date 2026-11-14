@@ -70,7 +70,9 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
         elif kind == "server_start":
             out.servers.setdefault(record["server_id"], record)
     last = out.turns[-1] if out.turns else None
-    if last and last["role"] == "user":  # its call failed, or Clarity stopped during it
+    # Your last message, if its call failed or Clarity stopped during it. Not an edit: a
+    # failed edit leaves you on the reply it would have replaced, as it does live.
+    if last and last["role"] == "user" and last.get("origin") != "edit":
         out.unanswered = {"turn_id": last["turn_id"], "text": last["text"]}
     if out.head is not None and roles[out.head]["role"] == "user":
         out.head = roles[out.head]["parent_id"]
