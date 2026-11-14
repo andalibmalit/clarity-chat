@@ -204,6 +204,42 @@ def format_branch_ends(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_compare(result: dict[str, Any]) -> str:
+    """The replies to one message, by group, what's the same in all, and where they part."""
+    groups = result["groups"]
+    lines = [f"{len(result['replies'])} replies to {short(result['message']['text'], 50)}:"]
+    for r in result["replies"]:
+        star = "*" if r["current"] else " "
+        group = f", group {r['group'] + 1}" if len(groups) > 1 else ""
+        labels = ", ".join(m["label"] for m in r["marks"])
+        lines.append(
+            f" {star} {r['k']}. {r['call_id']}  seed {r['seed']}{group}, stop {r['stop_type']}"
+            f"{f', marked {labels}' if labels else ''}: {short(r['text'], 50)}"
+        )
+    for i, group in enumerate(groups, 1):
+        if len(groups) > 1:
+            values = ", ".join(f"{k} {v!r}" for k, v in group["settings"].items())
+            lines.append(f"Group {i}: {values}")
+    lines.append(
+        f"The same in all: {len(result['same'])} settings, "
+        + ("the same prompt." if result["same_prompt"] else "but not the same prompt.")
+    )
+    for pair in result["pairs"]:
+        where = (
+            "identical"
+            if pair["first_different_token"] is None
+            else f"part at token {pair['first_different_token']} "
+            f"(character {pair['first_different_char']})"
+        )
+        lines.append(f"Seed {pair['seed']}: {pair['a']} and {pair['b']} {where}.")
+    again = result["again"]
+    if again:
+        now = ", ".join(f"{k} {v!r}" for k, v in again["now"].items())
+        seeds = ", ".join(str(seed) for seed in again["seeds"])
+        lines.append(f"/regen same makes seeds {seeds} again{f' at {now}' if now else ''}.")
+    return "\n".join(lines)
+
+
 def format_profiles(result: dict[str, Any]) -> str:
     """One line per profile: name, model and backend, what's notable, and its description."""
     lines = []
@@ -523,6 +559,8 @@ class ChatLoop:
                 self.write(f"{record['name']} = {record['value']!r} for this chat.\n")
         elif name == "title":
             self.write(f"Titled {result['record']['title']!r}.\n")
+        elif name == "compare":
+            self.write(format_compare(result) + "\n")
         elif name == "profiles":
             self.write(format_profiles(result) + "\n")
         elif name == "chats":

@@ -198,6 +198,20 @@ def _branches(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return {"head": conversation.head, "forks": conversation.forks()}
 
 
+def _compare(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    """The replies to the current message, or to the message the call named answers."""
+    call, rest = target(c, args)
+    if rest:
+        raise ConfigError("Usage: /compare [CALL_ID]")
+    conversation = c.session.conversation
+    assert conversation is not None
+    if call is None:
+        return c.session.compare(conversation.current_reply("compare").turn_id)
+    if not call.get("turn_id"):
+        raise ConfigError(f"Call {call['call_id']} failed, so it has no reply to compare.")
+    return c.session.compare(call["turn_id"])
+
+
 def _switch(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     head, render = c.session.switch(needs(args, "/switch TURN_ID"))
     return {"head": head.turn_id, "head_text": head.text, "render": render}
@@ -502,6 +516,11 @@ COMMANDS: dict[str, Command] = {
         "/branches [all]",
         "where this conversation branches, with the turn IDs to /switch to (all: every end)",
         _branches,
+    ),
+    "compare": Command(
+        "/compare [CALL_ID]",
+        "the replies to your last message (or the call named's): what differs, where they part",
+        _compare,
     ),
     "switch": Command(
         "/switch TURN_ID", "go to another branch: its newest reply (nothing is sent)", _switch

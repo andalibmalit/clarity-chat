@@ -677,6 +677,117 @@ class Session:
             )
         return reply, conversation.turns[reply.parent_id], first, seed
 
+    def current_values(self) -> dict[str, Any]:
+        """The values the next call would use, by name, without the seed."""
+        conversation = self._require_conversation()
+        return {k: s.value for k, s in conversation.settings.items() if k != "seed"}
+
+    def seeds_to_make(self, message_id: str) -> list[int]:
+        """The seeds used for a message's replies that have no reply under the current
+        settings, in the order they were first used: what /regen same makes."""
+        conversation = self._require_conversation()
+        now = self.current_values()
+        seeds: dict[int, bool] = {}  # seed -> it has a reply under the current settings
+        for turn in conversation.replies_to(message_id):
+            call = conversation.calls.get(turn.call_id or "")
+            if call is None or turn.seed is None:
+                continue
+            same = setting_values(call) == now
+            seeds[turn.seed] = seeds.get(turn.seed, False) or same
+        return [seed for seed, made in seeds.items() if not made]
+
+    def compare(self, reply_id: str) -> dict[str, Any]:
+        """The replies to the message `reply_id` answers, on every branch, oldest first:
+        grouped by their settings (all but the seed), what's the same in all, where two
+        replies with the same seed in different groups part, and, for the current message,
+        what /regen same would make. Reads only; the head stays."""
+        conversation = self._require_conversation()
+        message = conversation.turns[conversation.turns[reply_id].parent_id or ""]
+        replies = [
+            t for t in conversation.replies_to(message.turn_id) if t.call_id in conversation.calls
+        ]
+        calls = [conversation.calls[t.call_id or ""] for t in replies]
+        values = [setting_values(call) for call in calls]
+        names = sorted(set().union(*values))
+        differ = [n for n in names if any(v.get(n) != values[0].get(n) for v in values)]
+        groups: list[dict[str, Any]] = []
+        group_of = []
+        for v in values:
+            key = {n: v.get(n) for n in differ}
+            if key not in groups:
+                groups.append(key)
+            group_of.append(groups.index(key))
+        notes = self.marks_and_notes()
+        newest = conversation.newest_replies()
+        on_head_path = {t.turn_id for t in conversation.path_to(conversation.head)}
+        out_replies = []
+        for k, (turn, call) in enumerate(zip(replies, calls, strict=True), 1):
+            annotations = notes.get(turn.turn_id, {})
+            out_replies.append(
+                {
+                    "k": k,
+                    "call_id": turn.call_id,
+                    "turn_id": turn.turn_id,
+                    "text": turn.text,
+                    "seed": turn.seed,
+                    "steering_scale": call["settings"].get("steering_scale", {}).get("value"),
+                    "stop_type": call.get("stop_type"),
+                    "group": group_of[k - 1],
+                    "marks": [
+                        {"mark_id": m.get("mark_id"), "label": m["label"]}
+                        for m in annotations.get("marks", [])
+                    ],
+                    "notes": [
+                        {"note_id": n.get("note_id"), "text": n["text"]}
+                        for n in annotations.get("notes", [])
+                    ],
+                    "current": turn.turn_id in on_head_path,
+                    "later_turns": len(conversation.path_to(newest[turn.turn_id].turn_id))
+                    - len(conversation.path_to(turn.turn_id)),
+                }
+            )
+        pairs = []
+        for i, a in enumerate(calls):
+            for j in range(i + 1, len(calls)):
+                b = calls[j]
+                if group_of[i] == group_of[j] or replies[i].seed != replies[j].seed:
+                    continue
+                same = a["output_ids"] == b["output_ids"]
+                token = None if same else first_difference(a["output_ids"], b["output_ids"])
+                pairs.append(
+                    {
+                        "seed": replies[i].seed,
+                        "a": a["call_id"],
+                        "b": b["call_id"],
+                        "first_different_token": token,
+                        "first_different_char": None
+                        if token is None
+                        else self._chars_before(b, token),
+                    }
+                )
+        head = conversation.turns.get(conversation.head or "")
+        again = None
+        if head is not None and head.role == "assistant" and head.parent_id == message.turn_id:
+            seeds = self.seeds_to_make(message.turn_id)
+            now = self.current_values()
+            changed = {n: now[n] for n in sorted(now) if any(v.get(n) != now[n] for v in values)}
+            again = {"seeds": seeds, "now": changed} if seeds else None
+        return {
+            "message": {"turn_id": message.turn_id, "text": message.text},
+            "replies": out_replies,
+            "groups": [{"settings": key} for key in groups],
+            "same": {n: values[0].get(n) for n in names if n not in differ},
+            "same_prompt": all(c["prompt_ids"] == calls[0]["prompt_ids"] for c in calls),
+            "pairs": pairs,
+            "again": again,
+        }
+
+    def _chars_before(self, call: dict[str, Any], token: int) -> int:
+        """How many characters of a reply's text its first `token` output tokens make."""
+        assert self.tokenizer is not None
+        text = self.tokenizer.decode(call["output_ids"][:token]).rstrip("\ufffd")
+        return min(len(text), len(call["output_text"]))
+
     def regen(
         self, on_text: Callable[[str], None] | None = None, cancel: threading.Event | None = None
     ) -> CallOutcome:
@@ -1455,6 +1566,11 @@ def prompt_turns(conversation: Conversation, user_turn: Turn) -> list[Turn]:
     """The turns a prompt for `user_turn` holds: its path, without the profile's priming
     (which the profile renders itself)."""
     return [t for t in conversation.path_to(user_turn.turn_id) if t.origin != "priming"]
+
+
+def setting_values(call: dict[str, Any]) -> dict[str, Any]:
+    """A call's setting values by name, without the seed: what /compare groups replies by."""
+    return {k: v["value"] for k, v in call["settings"].items() if k != "seed"}
 
 
 def result_fields(result: Result) -> tuple[dict[str, Any], str | None]:
