@@ -13,6 +13,7 @@ once, and `settings` and `prompt`, which run at once while a reply is written or
 from __future__ import annotations
 
 import re
+import secrets
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -58,6 +59,9 @@ class Commands:
         # Paths only from the command line (--profile, --resume), which you type. Commands
         # will also come from the browser (v0.3.0), so they take names and IDs.
         self.paths = False
+        # Random, made for this start: a page that reads another value from its port isn't
+        # talking to this Clarity (another program took the port after it stopped).
+        self.start = secrets.token_urlsafe(16)
 
     def run(
         self,
@@ -607,6 +611,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "reply_so_far": reply_so_far,
         "reply_end": reply_end,
         "model": model,
+        "start": c.start,
         "clarity": {"version": version("clarity-chat"), **client_git()},
         "llama_cpp_commit": session.server_config.llama_cpp_commit,
         "model_name": session.model.display_name if session.model else None,
