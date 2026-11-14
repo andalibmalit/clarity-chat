@@ -4,6 +4,6 @@
 {% endif %}<div class="lrow{% if row.current %} cur{% endif %}"{% if row.current %} aria-current="true"{% endif %}><span class="n">reply {{ row.k }} of {{ n }}</span><span class="fw">{{ row.text }}</span><span class="mkc">{% if row.marks %}<svg class="icon sm" role="img" aria-label="marked"><use href="#i-mark"></use></svg>{% endif %}</span><span class="df">{{ row.words }}</span><span class="act">{% if row.current %}You are here{% else %}<button type="button" class="go" data-switch="{{ row.turn_id }}">Show this reply<span class="vh"> (reply {{ row.k }} of {{ n }})</span></button>{% endif %}</span></div>
 {% endfor %}</div>
 {% endif %}{% if last %}<form class="more" data-more><label for="more-n">More replies to this message</label><input id="more-n" class="num" type="number" min="1" value="3" required><button type="submit" class="btn pri">Make them</button></form>
-{% if again %}<div class="more again"><span>Again with the same {{ again.seeds | length }} seeds, now at {{ again_words }}</span><button type="button" class="btn pri" data-action="again">Make {{ again.seeds | length }}</button></div>
+{% if again %}<div class="more again"><span>Again with {{ same_seeds(again.seeds | length) }}, now at {{ again_words }}</span><button type="button" class="btn pri" data-action="again">Make {{ again.seeds | length }}</button></div>
 {% endif %}{% endif %}{% if n > 1 %}<div class="foot"><button type="button" class="btn" data-action="compare">{{ icon("cols") }}Compare these replies</button></div>
 {% endif %}
