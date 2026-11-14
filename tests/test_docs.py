@@ -75,6 +75,47 @@ def test_every_setting_has_one_line_of_help_and_the_docs_show_the_same():
         assert table[name].get("What it does") == help_text, name
 
 
+CHECK_NAMES = {  # every check a backend writes, and server_props, which old logs have
+    "prompt_echo",
+    "settings_echo",
+    "unaccounted_settings",
+    "tokens_evaluated",
+    "no_cache_reuse",
+    "server_running",
+    "server_props",
+    "generation_config",
+    "steering",
+}
+
+
+def checks_table() -> dict[str, dict[str, str]]:
+    """docs/reference.md's table of checks after each call, by check: each column's text."""
+    found = re.search(r"\nChecks after each call:\n\n((?:\|.*\n)+)", REFERENCE)
+    if not found:
+        return {}
+    rows = [line for line in found.group(1).splitlines() if not line.startswith("|---")]
+    header = [cell.strip() for cell in rows[0].strip("|").split("|")]
+    table = {}
+    for line in rows[1:]:
+        cells = [cell.strip() for cell in line.strip("|").split("|")]
+        table[cells[0].strip("`")] = dict(zip(header, cells, strict=True))
+    return table
+
+
+def test_every_check_has_its_lines_and_the_docs_show_the_same():
+    """Checkpoint 4, finding 9: what a check checks and what its failure means live in one
+    place, backends.CHECK_HELP, which Details shows; the docs' table repeats it."""
+    from clarity_chat import backends
+
+    check_help = getattr(backends, "CHECK_HELP", {})
+    assert set(check_help) == CHECK_NAMES
+    table = checks_table()
+    assert set(table) == CHECK_NAMES
+    for name, (checks, fails) in check_help.items():
+        assert table[name]["What it checks"] == checks, name
+        assert table[name]["A failure means"] == fails, name
+
+
 def test_the_llama_cpp_commit_in_the_docs_is_the_pinned_one():
     pinned = tomllib.loads((REPO / "server.toml").read_text(encoding="utf-8"))["llama_cpp_commit"]
     for path in (REPO / "README.md", REPO / "docs" / "getting-started.md"):
