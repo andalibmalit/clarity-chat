@@ -1662,3 +1662,58 @@ def test_a_replay_or_export_whose_request_drops_says_so(clarity, page):
     page.click("#title-menu [data-action=export]")
     page.wait_for_selector("#notice .problem", timeout=10_000)
     page.unroute("**/command")
+
+
+# --- The security review's follow-up (batch 3)
+
+
+def squat(page) -> None:
+    """From here on, another program answers on Clarity's port: a /state like Clarity's
+    with another start's value, and views of its own."""
+    fake = {**page.evaluate("clarity.command('state')")["result"], "start": "another-start"}
+    fake["title"] = "Not Clarity"
+    page.route("**/command", lambda route: route.fulfill(json={"id": 1, "result": fake}))
+    page.route("**/view/**", lambda route: route.fulfill(body="<p id=squat>Not Clarity</p>"))
+    page.route(
+        "**/events*",
+        lambda route: route.fulfill(
+            body='{"event": "hello"}\n', content_type="application/x-ndjson"
+        ),
+    )
+
+
+def test_a_reconnect_to_another_start_stops_and_draws_nothing(clarity, page):
+    """Batch 3, 1: a stream that drops and reconnects to a program with another start's
+    /state shows "Clarity has stopped" and draws nothing it sent."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    page.evaluate("window.samePage = true")
+    squat(page)
+    page.evaluate("clarity.dropStream()")
+    page.wait_for_selector("body[data-page=stopped], #squat")
+    assert page.get_attribute("body", "data-page") == "stopped"
+    assert page.query_selector("#squat") is None
+    assert page.text_content("#title-text") != "Not Clarity"
+    assert page.is_visible("#stopped-plain") and page.evaluate("window.samePage") is True
+
+
+def test_a_lost_page_doesnt_reload_from_another_start(clarity, page):
+    """Batch 3, 1: a page that lost Clarity, then hears from a program with another start's
+    /state, shows "Clarity has stopped" and doesn't reload (which would load that program's
+    page here, with this origin's storage)."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    state = {**page.evaluate("clarity.command('state')")["result"], "start": "another-start"}
+    for path in ("**/events*", "**/command"):
+        page.route(path, lambda route: route.abort())
+    page.evaluate("window.samePage = true")
+    page.evaluate("clarity.dropStream()")
+    page.wait_for_selector("body[data-page=lost]", timeout=20_000)
+    page.unroute("**/events*")
+    page.unroute("**/command")
+    page.route("**/command", lambda route: route.fulfill(json={"id": 1, "result": state}))
+    page.wait_for_selector("body[data-page=stopped], body[data-page=ready]", timeout=10_000)
+    assert page.evaluate("window.samePage") is True  # not reloaded
+    assert page.get_attribute("body", "data-page") == "stopped"

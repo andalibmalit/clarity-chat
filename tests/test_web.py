@@ -922,3 +922,57 @@ def test_a_long_message_reaches_the_command_table_and_a_huge_one_is_refused_with
     tab = client.post("/tab", headers=POST, content=json.dumps({"tab": "x", "pad": "a" * 70_000}))
     assert tab.status_code == 413
     assert tab.text == "Too big: Clarity takes at most 64 KB at a time."
+
+
+# --- The security review's follow-up (batch 3), and C14
+
+
+def test_state_gives_a_random_value_made_for_this_start(server, fetched_root, tiny_tokenizer):
+    """Batch 3, 1: the page keeps the first `start` it reads and stops at any other, so a
+    program that takes the port after Clarity stops is never drawn or loaded. It's the same
+    for every `state` of one start, random, and another start's differs."""
+    client, _, _ = server
+    first, again = (command(client, "state").json()["result"].get("start") for _ in range(2))
+    assert isinstance(first, str) and len(first) >= 16 and first == again
+    other = Session(
+        fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    with TestClient(web.make_app(other, SECRET.encode(), port=PORT), base_url=ORIGIN) as second:
+        assert command(second, "state").json()["result"]["start"] != first
+
+
+def test_ctrl_c_tells_the_page_clarity_stopped_before_its_stream_closes(
+    fetched_root, tiny_tokenizer
+):
+    """C14 (Opus review, batch 4): Ctrl-C closed the event stream with nothing on it, so
+    the page said Clarity wasn't answering and kept trying. A plain `stopped` goes first."""
+    import re
+    import signal
+
+    import httpx
+
+    port, keys = free_port(), []
+
+    def on_open(path):
+        keys.append(re.search(r"#key=([A-Za-z0-9_-]+)", path.read_text()).group(1))
+
+    thread, servers = run_ui(fetched_root, tiny_tokenizer, port, on_open)
+    for _ in range(100):
+        if servers and servers[0].started:
+            break
+        threading.Event().wait(0.05)
+    lines: list[str] = []
+    auth = {"Authorization": f"Bearer {keys[0]}"}
+    with httpx.Client(verify=False, trust_env=False, timeout=10) as client:
+        url = f"http://127.0.0.1:{port}/events?tab=t"
+        with client.stream("GET", url, headers=auth) as stream:
+            got = stream.iter_lines()
+            assert next(got) == '{"event": "hello"}'
+            servers[0].handle_exit(signal.SIGINT, None)  # as Ctrl-C does
+            try:
+                lines.extend(line for line in got if line and "heartbeat" not in line)
+            except httpx.HTTPError:  # the server cut the stream: what came before counts
+                pass
+    thread.join(10)
+    assert not thread.is_alive()
+    assert [json.loads(line) for line in lines] == [{"event": "stopped"}]
