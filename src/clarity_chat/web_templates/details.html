@@ -9,11 +9,11 @@
 </details>
 <details class="sec" data-key="summary" open><summary class="sh2">Summary <span class="n">{% if error %}failed{% elif failed %}{{ failed | length }} check{{ "s" if failed | length > 1 }} failed{% else %}{{ stopped.split(" · ")[0] }} · all checks passed{% endif %}</span></summary>
 {% if error %}<p class="warn">! Failed: {{ error }}</p>
-{% endif %}{% if failed %}<p class="warn">! {{ failed | length }} check{{ "s" if failed | length > 1 }} failed: {{ failed | join(", ") }}. {% for name in failed %}{{ check_failed.get(name, "") }}{% if not loop.last %} {% endif %}{% endfor %}</p>
+{% endif %}{% if failed %}<p class="warn">! {{ failed | length }} check{{ "s" if failed | length > 1 }} failed: {{ failed | join(", ") }}. {% for name in failed %}{{ check_help.get(name, ("", ""))[1] }}{% if not loop.last %} {% endif %}{% endfor %}</p>
 {% endif %}{% for e in ignored %}<p class="warn">! 1 setting not applied: {{ e.name }}. Reason: {{ e.reason }}.</p>
 {% endfor %}<dl class="kv">{% if error %}<dt>Output</dt><dd>none</dd>{% else %}<dt>Stopped</dt><dd>{{ stopped }}{% if call.stop_type == "eos" %}<span class="gl">The model wrote a token that ends a reply.</span>{% endif %}</dd><dt>Length</dt><dd>{{ length }}</dd>{% endif %}<dt>Model</dt><dd>{{ model_line }}</dd><dt>Profile</dt><dd>{{ call.profile.name }}</dd><dt>Call</dt><dd>{{ call.call_id }}</dd></dl>
 {% if not error %}{% if not failed %}<p class="d2">All checks passed.</p>
-{% endif %}<details class="checks" data-key="checks"{% if failed %} open{% endif %}><summary>Checks</summary><ul class="checks">{% for name, ok in checks %}<li><span class="tag">{{ "passed" if ok else "failed" }}</span> <span class="key">{{ name }}</span> {{ check_lines.get(name, "") }}</li>{% endfor %}</ul></details>
+{% endif %}<details class="checks" data-key="checks"{% if failed %} open{% endif %}><summary>Checks</summary><ul class="checks">{% for name, ok in checks %}<li><span class="tag">{{ "passed" if ok else "failed" }}</span> <span class="key">{{ name }}</span> {{ check_help.get(name, ("", ""))[0] }}</li>{% endfor %}</ul></details>
 {% endif %}</details>
 {% if not error %}<details class="sec" data-key="replay" open><summary class="sh2">Replay <span class="n">{% if replaying %}replaying{% elif replays %}replayed {{ replays | length }}×{% if not replays[-1].identical %}, different{% endif %}{% else %}not replayed yet{% endif %}</span></summary>
 {% if replaying %}<p class="st" role="status">Replaying…</p><button type="button" class="btn" data-action="replay-stop">Stop</button>

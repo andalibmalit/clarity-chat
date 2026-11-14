@@ -361,13 +361,19 @@ A call's `flags` list marks anything to look at. The terminal shows them after t
 | `check_failed:NAME` | A check after the call failed. See below. |
 
 Checks after each call:
-- `prompt_echo`: the server's decoding of the token IDs equals the prompt text.
-- `settings_echo`: every value sent comes back unchanged in the server's `generation_settings`. Floats are compared at float32 precision, as the server stores them, so `0.6` sent and `0.6000000238418579` echoed is a match.
-- `unaccounted_settings`: the server reports no setting Clarity didn't send or expect.
-- `tokens_evaluated`: the server read as many prompt tokens as were sent.
-- `no_cache_reuse`: no prompt tokens came from a cache.
-- `server_running`: the llama-server process Clarity started is still running (`exit_code` if not). Its model and context size are checked through `/props` once, after start. Logs before v0.2.1 have `server_props` here, from a `/props` request after each call.
-- `generation_config` (Transformers): the effective generation config equals what was sent.
-- `steering` (Transformers, a steered call): every forward pass ran each steered block exactly once, and there was a pass for every generated token (`model_passes`, `forward_passes`).
+
+| Check | What it checks | A failure means |
+|---|---|---|
+| `prompt_echo` | The server’s decoding of the token IDs equals the prompt text. | The server’s text for the token IDs differs from Clarity’s, so the model file and the tokenizer may disagree. |
+| `settings_echo` | Every value sent comes back unchanged in the server’s generation_settings. | A value Clarity sent didn’t come back unchanged from the server. |
+| `unaccounted_settings` | The server reports no setting Clarity didn’t send or expect. | The server reported a setting Clarity didn’t send or expect. |
+| `tokens_evaluated` | The server read as many prompt tokens as were sent. | The server read a different number of prompt tokens than were sent. |
+| `no_cache_reuse` | No prompt tokens came from a cache. | Some prompt tokens came from a cache. |
+| `server_running` | The llama-server process Clarity started is still running. | The model’s server had stopped. The reply is complete, but the next message needs the server started again. |
+| `server_props` | Logs before v0.2.1 only: after the call, /props showed the server still running, with the model and context size it started with. | After the call, the server had stopped, /props named another model or context size, or /props couldn’t be read. |
+| `generation_config` | Transformers only: the effective generation config equals what was sent. | Transformers’ generation settings differed from what was sent. |
+| `steering` | Transformers only, on a steered call: every forward pass ran each steered block exactly once, and there was a pass for every generated token. | A forward pass didn’t run each steered block exactly once, or a generated token had no pass. |
+
+`settings_echo` compares floats at float32 precision, as the server stores them, so `0.6` sent and `0.6000000238418579` echoed is a match. A failed `server_running` check records the process's `exit_code`; the server's model and context size are checked through `/props` once, after it starts. `steering` records `model_passes` and `forward_passes`, by block. Details in the web interface shows each check with these words.
 
 A batch run stops on any error, any `check_failed:*` flag, a cancelled call, or a server restart. Other flags are logged, and each flagged call is named on screen with its flags; other warnings print once.
