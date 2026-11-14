@@ -291,19 +291,23 @@ async function draw(number) {
     if (!$("message").value) $("message").value = state.unanswered.text;
   }
   clearTimeout(clarity.poll);
-  if (state.running && !clarity.sending) clarity.poll = setTimeout(waitForEnd, 1000);
+  if (changing(state.running) && !clarity.sending) clarity.poll = setTimeout(waitForEnd, 1000);
   const commit = state.clarity.commit || "";
   const ref = /^[0-9a-f]{40}$/.test(commit) ? commit : `v${state.clarity.version}`;
   $("help").href = `${$("help").dataset.base}${ref}/docs`; // the docs at this version
   clarity.docs = `${$("help").dataset.base}${ref}/docs/`;
 }
 
+// Commands that only read: one waiting its turn doesn't change the chat (web.READS).
+const READS = new Set(["history", "branches", "compare", "prompt", "probs", "settings"]);
+const changing = (running) => Boolean(running) && !READS.has(running.command);
+
 async function waitForEnd() {
   // After a reload mid-reply, nothing tells this page the command ended: read /state alone
   // each second, and redraw everything once it has.
   const answer = await command("state").catch(() => null);
   if (!answer || !answer.result) return;
-  if (answer.result.running) {
+  if (changing(answer.result.running)) {
     showWriting(answer.result.running);
     clarity.poll = setTimeout(waitForEnd, 1000);
   } else {
@@ -979,7 +983,7 @@ const THREAD = {
     setTimeout(() => (status.textContent = ""), 1600);
   },
   regen: () => write("regen", ""),
-  restart: () => start("resume", clarity.state.conversation_id),
+  restart: () => start("resume", clarity.state.log_id),
   edit: (element) => editing(element.closest("li"), true),
   "edit-cancel": (element) => editing(element.closest("li"), false),
   marks: (element) => (openPop && openPop.id === element.getAttribute("aria-controls") ? hidePop(true) : showPop(element)),

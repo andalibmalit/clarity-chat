@@ -84,7 +84,7 @@ def test_the_neutral_and_the_model_s_value_are_marked_on_a_slider(chat):
     client, _ = chat
     recommended = result(client, "settings")["recommended"]["values"]
     r = row(panel(client), "temperature")
-    assert "▲ 1 neutral" in r and f"model {recommended['temperature']}" in r
+    assert "▲ 1.0 neutral" in r and f"model {recommended['temperature']}" in r
     assert '<option value="1.0">' in r and f'<option value="{recommended["temperature"]}">' in r
 
 

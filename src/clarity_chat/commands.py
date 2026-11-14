@@ -104,7 +104,8 @@ class Commands:
                     self.streamed, self.streamed_end = [], 0
                     self.reply_k_of_n = {"k": event["k"], "n": event["n"]}
             elif event["event"] == "status":
-                self.starting = event["status"] == "starting"
+                with self.progress:
+                    self.starting = event["status"] == "starting"
             elif (event.get("record") or {}).get("type") == "turn" and (
                 event["record"].get("role") == "assistant"
             ):  # the reply is in the turns now: not also being written, for /state
@@ -120,11 +121,11 @@ class Commands:
                 tracked({"event": "status", "status": "stopped"})
             raise
         finally:
-            self.starting = False  # done, or failed: /state reads what runs now
             self.session.on_record = None
             self.cancel_event = None
-            with self.progress:
+            with self.progress:  # done, or failed: /state reads what runs now
                 self.streamed, self.streamed_end, self.running = [], 0, None
+                self.starting = False
             self.paths = False
             self.busy.release()
 
@@ -594,15 +595,17 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
             else {"command": c.running, "args": c.running_args, **c.reply_k_of_n}
         )
         reply_so_far, reply_end = "".join(c.streamed), c.streamed_end
+        model = model_state(c)
     out: dict[str, Any] = {
         "running": running,
         "reply_so_far": reply_so_far,
         "reply_end": reply_end,
-        "model": model_state(c),
+        "model": model,
         "clarity": {"version": version("clarity-chat"), **client_git()},
         "llama_cpp_commit": session.server_config.llama_cpp_commit,
         "model_name": session.model.display_name if session.model else None,
         "conversation_id": None,
+        "log_id": None,
         "title": None,
         "profile": None,
         "head": None,
@@ -616,6 +619,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return {
         **out,
         "conversation_id": conversation.conversation_id,
+        "log_id": conversation.log.path.stem,  # what /resume takes
         "title": chat_summary(conversation.log.path)["title"],
         "profile": conversation.profile.name,
         "head": conversation.head,
