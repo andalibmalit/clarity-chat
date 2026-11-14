@@ -342,3 +342,40 @@ def test_the_drawer_rows_wait_while_the_chat_changes(chat, how):
     assert f'<p class="waits" id="chats-waits">{why}</p>' in fragment
     controls = re.findall(r'<button type="button" class="(?:crow|newchat)"[^>]*>', fragment)
     assert controls and all('aria-disabled="true"' in c for c in controls)
+
+
+def test_the_export_is_for_the_open_log_not_a_copy_with_its_id(chat):
+    """Finding 6: the sheet and the Download are this start's export of the open log. A
+    copy of the log has the same conversation ID, but its export wasn't made."""
+    client, session = chat
+    result(client, "say", "Hi")
+    original = result(client, "state")["log_id"]
+    result(client, "export")
+    assert client.get("/export", headers={**AUTH, **SAME}).status_code == 200
+    shutil.copy(session.logs_dir / f"{original}.jsonl", session.logs_dir / "my-copy.jsonl")
+    result(client, "resume", "my-copy")
+    for path in ("/export", "/view/export"):
+        response = client.get(path, headers={**AUTH, **SAME})
+        assert response.status_code == 409, path
+        assert response.text == "Export this chat first; the file is made when you export it."
+
+
+@pytest.mark.parametrize("view_name", ["chats", "branches"])
+def test_a_command_other_than_a_reply_says_the_command(chat, view_name):
+    """Finding 9: a running command that isn't a reply or a start (an export, a switch)
+    isn't "the reply"."""
+    from tests.test_web_thread import held_read
+
+    client, _ = chat
+    result(client, "say", "Hi")
+    result(client, "regen")
+    gate, holder, seen, restore = held_read(client, "export", "")
+    try:
+        fragment = view(client, view_name)
+    finally:
+        gate.set()
+        holder.join(5)
+        restore()
+    assert "export" in seen
+    assert "Waits until the command is done." in fragment
+    assert "Waits until the reply is done." not in fragment
