@@ -306,7 +306,11 @@ def test_a_model_file_gone_at_start_says_so_plainly(root):
     except Exception as e:  # noqa: BLE001 - which error is the point
         caught = e
     assert isinstance(caught, ConfigError), repr(caught)
-    assert str(missing) in str(caught) and "uv run clarity verify tiny" in str(caught)
+    # The lead's adjustment (a): it points to the fix, fetching the file again, through the
+    # one fetch hint; `verify` would only report it missing.
+    from clarity_chat.profiles import fetch_hint
+
+    assert str(caught) == f"The model file {missing} is missing. {fetch_hint('tiny')}"
 
 
 def test_the_reply_is_in_reply_so_far_or_the_turns_at_every_moment(commands):
