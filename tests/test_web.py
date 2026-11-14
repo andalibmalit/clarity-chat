@@ -954,7 +954,9 @@ def test_ctrl_c_tells_the_page_clarity_stopped_before_its_stream_closes(
     port, keys = free_port(), []
 
     def on_open(path):
-        keys.append(re.search(r"#key=([A-Za-z0-9_-]+)", path.read_text()).group(1))
+        found = re.search(r"#key=([A-Za-z0-9_-]+)", path.read_text())
+        assert found
+        keys.append(found[1])
 
     thread, servers = run_ui(fetched_root, tiny_tokenizer, port, on_open)
     for _ in range(100):

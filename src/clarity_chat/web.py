@@ -501,7 +501,17 @@ def serve(
         lifespan="off",
         timeout_graceful_shutdown=2,  # an open event stream mustn't hold the exit
     )
-    server = uvicorn.Server(config)
+    worker: Worker = app.state.worker
+
+    class Server(uvicorn.Server):
+        def handle_exit(self, sig: int, frame: Any) -> None:
+            # Ctrl-C or SIGTERM: the page says Clarity has stopped, sent before the server
+            # closes the stream (a closed stream alone says it isn't answering, and the page
+            # keeps trying).
+            worker.emit({"event": "stopped"})
+            super().handle_exit(sig, frame)
+
+    server = Server(config)
     app.state.quit = lambda: setattr(server, "should_exit", True)
     if on_ready:
         on_ready(server)
@@ -518,7 +528,6 @@ def serve(
     try:
         server.run(sockets=[listener])
     finally:
-        worker: Worker = app.state.worker
         worker.commands.run("cancel", "", lambda event: None)  # a reply in progress stops
         with worker.commands.busy:  # and its record is written before the session closes
             pass

@@ -20,6 +20,7 @@ const clarity = {
   key: null, // the start's secret
   live: false,
   state: null, // the latest /state
+  start: null, // the first /state's `start`: this Clarity's start
   writing: { k: null, text: "", end: 0 }, // the reply being written, joined by numbers
   listeners: [], // screens' event handlers
   buffer: null, // events held while the page loads; null once it has
@@ -105,6 +106,14 @@ async function command(name, args = "") {
   }
   if (answer.stopped) stopped(answer.error);
   return answer;
+}
+
+function sameStart(state) {
+  // Another start's value means another program answers on this port (Clarity stopped and
+  // something took the port): the page stops, and draws or loads nothing it sends.
+  if (!state || typeof state.start !== "string") return false;
+  if (clarity.start === null) clarity.start = state.start;
+  return state.start === clarity.start;
 }
 
 function unanswered(error) {
@@ -216,6 +225,10 @@ async function load() {
   await new Promise((resolve) => connect(resolve));
   const answer = await command("state");
   const state = answer.result;
+  if (!sameStart(state)) {
+    stopped();
+    return;
+  }
   clarity.state = state;
   clarity.live = true;
   const k = state.running ? state.running.k : null;
@@ -267,7 +280,10 @@ function lost() {
   setTimeout(async () => {
     if (document.body.dataset.page !== "lost") return;
     const answer = await command("state").catch(() => null);
-    if (answer && answer.result) location.reload();
+    if (answer && answer.result) {
+      if (sameStart(answer.result)) location.reload();
+      else stopped();
+    }
     else if (answer && answer.stopped) stopped(answer.error);
     else if (document.body.dataset.page === "lost") lost();
   }, 2000);
@@ -288,6 +304,10 @@ function refresh() {
 async function draw(number) {
   const answer = await command("state");
   if (!answer.result) return;
+  if (!sameStart(answer.result)) {
+    stopped();
+    return;
+  }
   const [thread, row] = await Promise.all([view("thread"), view("picker")]);
   if (number !== drawn) return;
   clarity.state = answer.result;
