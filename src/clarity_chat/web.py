@@ -530,6 +530,17 @@ async def result_of(worker: Worker, name: str, args: str = "") -> dict[str, Any]
     return answer["result"]
 
 
+# Commands that only read. Queued, one of them sets /state's `running` while it runs (another
+# view's /branches, say), but the chat isn't changing: a view mustn't wait for it.
+READS = {"history", "branches", "compare", "prompt", "probs", "settings", "chats", "profiles"}
+
+
+def changing(state: dict[str, Any]) -> dict[str, Any] | None:
+    """The running command that changes the chat, or None when nothing does."""
+    running = state["running"]
+    return None if running is None or running["command"] in READS else running
+
+
 def starting_profile(state: dict[str, Any], profiles: list[dict[str, Any]]) -> dict | None:
     """The profile a model start is for, as /profiles lists it, or None when nothing starts.
     /state's chat is still the one before the start, so the name comes from the command."""
@@ -689,7 +700,7 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
     for turn in turns:  # a reply's controls name its call: none without a call ID (old logs)
         turn["controls"] = bool(CALL_ID.fullmatch(turn["call_id"] or ""))
     starting = has_chats = intro = facts = failed = None
-    idle = state["running"] is None
+    idle = changing(state) is None
     if state["model"] == "starting":
         starting = starting_profile(state, (await result_of(worker, "profiles"))["profiles"])
         # A new chat, or another chat resumed: this chat's turns aren't drawn. Any other start
@@ -732,7 +743,7 @@ async def _picker(worker: Worker, params: dict[str, str | None]) -> str:
     profiles = (await result_of(worker, "profiles"))["profiles"]
     starting = starting_profile(state, profiles)
     in_chat = state["conversation_id"] is not None and starting is None
-    running = (state["running"] or {}).get("command")
+    running = (changing(state) or {}).get("command")
     waits = (
         "Waits until the model has started."
         if starting
@@ -1122,7 +1133,7 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
     turns = state["turns"]
     head = turns[-1]["call_id"] if turns and turns[-1]["role"] == "assistant" else None
     k = n = None
-    if call.get("turn_id") and state["running"] is None:  # /compare waits its turn
+    if call.get("turn_id") and changing(state) is None:  # /compare waits its turn
         replies = (await result_of(worker, "compare", params["call"]))["replies"]
         k = next((r["k"] for r in replies if r["call_id"] == call["call_id"]), None)
         n = len(replies)
@@ -1135,7 +1146,7 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
     known = "prompt_ms" in timings or "predicted_ms" in timings
     seconds = (timings.get("prompt_ms", 0) + timings.get("predicted_ms", 0)) / 1000
     produced = call.get("tokens_predicted") or len(call.get("output_ids") or [])
-    running = state["running"] or {}
+    running = changing(state) or {}
     first = call.get("prompt_ids") or [None]
     probs = None
     if not call.get("error") and not running:  # /probs waits its turn
