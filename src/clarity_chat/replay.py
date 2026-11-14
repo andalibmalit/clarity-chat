@@ -25,6 +25,21 @@ MAX_DIFFS = 50  # per fact; a /props diff can be long
 PROPS_NOT_COMPARED = {"media_marker", "endpoint_slots", "ui"}
 
 
+# What a replay reads from the call record: what to send, and what to compare with.
+REPLAY_NEEDS = (
+    "model",
+    "n_ctx",
+    "settings",
+    "prompt_ids",
+    "stop",
+    "request",
+    "output_ids",
+    "output_text",
+    "stop_type",
+    "conversation_id",
+)
+
+
 def find_call(path: Path, call_id: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """The call record and the start record of the server that ran it (None if not logged)."""
     call = None
@@ -38,8 +53,8 @@ def find_call(path: Path, call_id: str) -> tuple[dict[str, Any], dict[str, Any] 
             call = record
     if call is None:
         raise ConfigError(f"{path} has no call {call_id}.")
-    if call.get("error") or "output_ids" not in call:
-        raise ConfigError(f"Call {call_id} has no reply to compare with ({call.get('error')}).")
+    if call.get("error"):
+        raise ConfigError(f"Call {call_id} has no reply to compare with ({call['error']}).")
     if call.get("stop_type") == "cancelled":
         raise ConfigError(f"Call {call_id} was cancelled, so its reply is incomplete.")
     server_id = (call.get("backend") or {}).get("server_id")
