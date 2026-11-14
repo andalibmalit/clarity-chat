@@ -263,3 +263,38 @@ def test_the_sheet_is_for_this_chat_only(chat):
     response = client.get("/view/export", headers={**AUTH, **SAME})
     assert response.status_code == 409
     assert response.text == "Export this chat first; the file is made when you export it."
+
+
+# --- The tripwire review after C5
+
+
+def test_a_resent_message_that_fails_again_shows_its_own_failure(chat):
+    """Finding 2: after a resume, the line about what differs goes with the next message,
+    sent or failed, so a new failure shows its sentence and Details, not "back in the box"."""
+    client, session = chat
+    result(client, "say", "Hi")
+    session.backend.fail_with = "A made-up failure."
+    command(client, "say", "Lost one")
+    first = result(client, "state")["log_id"]
+    session.backend.fail_with = None
+    result(client, "new")
+    result(client, "resume", first)
+    session.backend.fail_with = "The second, different failure."
+    command(client, "say", "Lost one")
+    assert result(client, "state")["resume_differ"] is None
+    fragment = view(client, "thread")
+    assert "<strong>! Failed:</strong> The second, different failure." in fragment
+    assert 'data-action="details"' in fragment.split("The second, different failure.")[1]
+    assert "back in the box" not in fragment
+
+
+def test_spans_without_a_reason_draw_the_prompt_unmarked(chat):
+    """Finding 13: a `message_spans` dict without "unavailable" (a log another program
+    wrote) mustn't answer 500."""
+    client, session = chat
+    call = result(client, "say", "Hi")["call"]
+    session.conversation.calls[call["call_id"]]["message_spans"] = {}
+    lenient = TestClient(client.app, base_url=ORIGIN, raise_server_exceptions=False)
+    response = lenient.get(f"/view/details?call={call['call_id']}", headers={**AUTH, **SAME})
+    assert response.status_code == 200, response.text
+    assert "Not highlighted: the log gives no reason." in html.unescape(response.text)
