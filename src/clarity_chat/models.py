@@ -171,8 +171,7 @@ def list_profiles(root: Path) -> list[dict[str, Any]]:
                 {
                     **entry,
                     "model": model.name,
-                    # The tokenizer's repo names the model; a GGUF's is often a repackager's.
-                    "model_name": model.tokenizer_repo.rsplit("/", 1)[-1],
+                    "model_name": model.display_name,
                     "backend": profile.backend,
                     "description": profile.description,
                     "steered": profile.steering is not None,

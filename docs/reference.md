@@ -91,9 +91,9 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 |---|---|
 | `say`, `edit` | `call` (the call record) and `warnings` |
 | `regen` | `replies`, a list of `call` and `warnings`, and `stopped` (why it stopped early) if a reply failed. A cancel ends it without `stopped`, whenever it comes. `/regen same` adds `seeds`, the seeds it set out to make. |
-| `prompt` | `call`: the latest call record, or the one named, which can be a failed one; null before any. It's the record as logged, the same before and after a resume. |
+| `prompt` | `call`: the latest call record, or the one named, which can be a failed one; null before any. It's the record as logged, the same before and after a resume. `replays`: the call's `replay` records, oldest first, read from the log. |
 | `probs` | `call_id`, `logprobs` (the call's record), `tokens` and `least_likely`. Each of `tokens` has `index`, `id`, `text`, `start` and `end` (its characters in the reply's text), `logprob` and `top` (each `id`, `text`, `logprob`). A character split across tokens belongs to the token that completes it, so the texts join up to the decoded output; a stop string or end token past the reply has `start` equal to `end`. `least_likely` holds up to 10 of the same entries, in reply order. With no probabilities, both lists are empty, `reason` is a code (`no_reply`, `failed`, `llama_cpp`, `off`, `cancelled` or `other`) and `unavailable` says why. |
-| `settings` | `profile`, `settings` (each with its value and origin), `backend`, `backend_settings`, `eog_tokens`, `recommended`, `not_applied`, `ctx_size`, `stop`, and `steering` (`file`, `sha256` and `layers` of the profile's vector, or null) |
+| `settings` | `profile`, `settings` (each with its value and origin; a row set with `/set` also has `profile`, the profile's own value and origin), `model_name` (the last part of the model's tokenizer repo), `backend`, `backend_settings`, `eog_tokens`, `recommended`, `not_applied` (what the backend can't apply at the current values, as the next call will report; empty on llama.cpp), `ctx_size`, `stop`, and `steering` (`file`, `sha256` and `layers` of the profile's vector, or null) |
 | `set` | `record` (the `setting` record) and `setting` (its value and origin) |
 | `undo`, `switch` | `head` and `head_text`, null at the start; `switch` adds `render` |
 | `history` | `head` and `turns` |
@@ -106,9 +106,9 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `chats` | `chats`, each with `conversation_id`, `path`, `profile`, `description` (the profile's), `model`, `started`, `title`, `title_set` and `error` |
 | `profiles` | `profiles`, each with `name`, `model`, `model_name` (the last part of the model's tokenizer repo), `backend`, `description`, `steered`, `local` (in `local/profiles/`), `fetched` and `error` (null, or why it doesn't load); and `not_checked`, a sentence on what isn't checked until a start |
 | `profile`, `new` | `conversation_id`, `profile`, `model`, `mode` and `warnings` |
-| `resume` | the same, plus `resume` (the record) and `head_text` |
+| `resume` | the same, plus `resume` (the record), `head_text` and `differ`: `count`, how many things differ today, and `items`, each a sentence the terminal also prints and the `count` of things it covers. Counted: a changed profile file, each changed `models.toml` key, each setting today's files would set differently, each fact changed since the last call, a prompt that renders differently, and a context size the log doesn't give. Not counted: an unanswered message, a guessed head, restored `/set` values and facts the log doesn't record. |
 | `cancel` | `cancelled`, and `command` or `reason` |
-| `state` | `running` (the command's name, or null), `reply_so_far`, `model` (`none`, `starting` or `ready`), `clarity` (`version`, `commit`, `dirty`), `llama_cpp_commit`, and the conversation's `conversation_id`, `title`, `profile`, `head`, `turns` (as `history` gives them), `unanswered` (`turn_id` and `text` of your last message if its call failed, else null), `warnings` and `resume` (the `resume` record, or null). Before any conversation, those are null or empty. |
+| `state` | `running` (the command's name, or null), `reply_so_far`, `model` (`none`, `starting` or `ready`), `model_name`, `clarity` (`version`, `commit`, `dirty`), `llama_cpp_commit`, and the conversation's `conversation_id`, `title`, `profile`, `head`, `turns` (as `history` gives them), `unanswered` (`turn_id` and `text` of your last message if its call failed, else null), `warnings` and `resume` (the `resume` record, or null). Before any conversation, those are null or empty. |
 | `help` | `commands`, each with `usage` and `help` |
 | `quit` | `quit`: true |
 
