@@ -17,6 +17,8 @@ from clarity_chat.session import Session, annotate_log
 from tests.fakes import FakeBackend
 
 GOLDEN = Path(__file__).parent / "fixtures" / "golden"
+# Written by the fake before it took llama.cpp's shapes (end token, max_tokens).
+BEFORE_V0_2_3 = {"v0.1.0", "v0.2.0", "v0.2.1", "v0.2.2"}
 LOGS = sorted(GOLDEN.glob("*.jsonl"))
 
 
@@ -61,7 +63,7 @@ def test_every_reply_replays_identically(golden, steerable, tiny_tokenizer):
     calls = [r for r in read_records(golden) if r["type"] == "call" and r.get("turn_id")]
     complete = [c for c in calls if c["stop_type"] != "cancelled"]
     backend = FakeBackend([c["output_text"] for c in complete], tokenizer=tiny_tokenizer)
-    backend.before_v0_2_3 = True  # the fake that wrote these logs
+    backend.before_v0_2_3 = golden.stem in BEFORE_V0_2_3  # the fake that wrote these logs
     session = Session(steerable, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
     for call in complete:
         record = session.replay(golden, call["call_id"])
@@ -111,3 +113,15 @@ def test_the_v0_2_2_golden_log_holds_a_steered_and_an_unsteered_call():
     assert calls[-1]["settings"]["steering_scale"] == {"value": 0.0, "origin": "chat"}
     assert not calls[-1]["request"].get("steering")
     assert any(r["type"] == "settings" and r["name"] == "steering_scale" for r in rows)
+
+
+def test_the_v0_2_3_golden_log_holds_regen_same_a_failed_call_and_end_tokens():
+    rows = list(read_records(GOLDEN / "v0.2.3.jsonl"))
+    calls = [r for r in rows if r["type"] == "call"]
+    seeds = [(c["settings"]["seed"]["value"], c["settings"]["temperature"]["value"]) for c in calls]
+    assert seeds[:4] == [(42, 0.6), (43, 0.6), (42, 0.9), (43, 0.9)]  # /regen same's seeds
+    assert all(c["output_ids"][-1] == 257 for c in calls[:4])  # the end token </s>
+    assert calls[4]["error"] and not calls[4].get("turn_id")  # a failed call
+    assert calls[5]["stop_type"] == "cancelled" and calls[5]["timings"] == {}
+    assert "description" in calls[0]["profile"]["toml"]
+    assert any(r["type"] == "mark" and r["call_id"] == calls[0]["call_id"] for r in rows)

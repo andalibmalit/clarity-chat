@@ -1,6 +1,6 @@
 # Roadmap
 
-What the next releases hold. Each release has a written plan, and the next is planned only after it's tagged, so later entries can change. From v0.3.0, the maintainer uses each release as a user would, following its by-hand list, before it's tagged. Released versions and their changes are in [`CHANGELOG.md`](CHANGELOG.md); v0.2.0 built in the terminal the core a graphical interface needs, v0.2.1 added resampling, token probabilities and export, and v0.2.2 added steering on the Transformers backend.
+What the next releases hold. Each release has a written plan, so later entries can change. From v0.2.3 to 1.0 the releases are built in one sprint: each gets its plan, reviews and QA pass, and the maintainer uses the whole as a user would before the final review and 1.0, rather than each release before its tag. Released versions and their changes are in [`CHANGELOG.md`](CHANGELOG.md); v0.2.0 built in the terminal the core a graphical interface needs, v0.2.1 added resampling, token probabilities and export, v0.2.2 added steering on the Transformers backend, and v0.2.3 the commands the web interface reads: comparing replies, every branch, any reply by its call ID, and where things are mid-reply.
 
 - **v0.3.0, the web interface on macOS.** A local web page for the same chats, with themes, sliders for settings, and marks and notes. Every feature still works from the terminal.
 - **v0.3.1 to v0.3.3, documents.** Attach a document to a chat, then search it by words, then by meaning, with what was retrieved and where it went in the prompt logged.

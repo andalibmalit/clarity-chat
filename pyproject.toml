@@ -1,6 +1,6 @@
 [project]
 name = "clarity-chat"
-version = "0.2.2"
+version = "0.2.3"
 description = "Clarity: a chat client for exact, replayable prompting experiments with local LLMs."
 readme = "README.md"
 license = "Apache-2.0"
