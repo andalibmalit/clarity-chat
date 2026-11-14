@@ -272,3 +272,12 @@ def test_compare_says_one_reply_not_one_replies(chat):
     c, session = chat([" one"])
     session.say("Hi")
     assert format_compare(compare(c)).startswith("1 reply to 'Hi':")
+
+
+def test_prefix_holds_whichever_reply_is_the_shorter(chat):
+    """Fix review: the longer reply first, then the shorter."""
+    c, session = chat([" abc", " ab"])
+    session.say("Hi")
+    session.set_setting("temperature", "0.9")
+    again_with_seed(session, 42)
+    assert compare(c)["pairs"][0]["prefix"] is True

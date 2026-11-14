@@ -157,3 +157,21 @@ def test_llama_cpp_says_its_server_stopped_when_the_connection_drops(monkeypatch
     with pytest.raises(BackendError, match="stopped during the call") as caught:
         backend.complete([1, 2], settings, [])
     assert caught.value.server_stopped is True
+
+
+def test_the_terminal_suggests_resume_when_regen_n_finds_the_server_stopped(
+    fetched_root, tiny_tokenizer
+):
+    """Fix review, finding 3."""
+    from clarity_chat.cli import ChatLoop
+
+    backend = FakeBackend([" one", " two", " three"], tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    output: list[str] = []
+    loop = ChatLoop(session, "text", read=lambda d: "", write=output.append)
+    loop.start()
+    loop.handle("Hi")
+    backend.on_call = lambda: setattr(backend, "stopped", True)  # after reply 1's own check
+    loop.handle("/regen 2")
+    assert session.conversation is not None
+    assert f"/resume {session.conversation.conversation_id} starts it again." in "".join(output)
