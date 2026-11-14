@@ -450,6 +450,7 @@ def test_start_the_model_again_resumes_by_the_log_s_id(chat):
     result(client, "resume", log.stem)
     state = result(client, "state")
     assert state["conversation_id"] != log.stem and state.get("log_id") == log.stem
+    assert "from when this chat was written" in thread(client)
     gate, worker = start_held(client, session, log.stem, how="resume")
     try:
         fragment = thread(client)
@@ -457,6 +458,9 @@ def test_start_the_model_again_resumes_by_the_log_s_id(chat):
         gate.set()
         worker.join(10)
     assert state["turns"][-1]["text"] in fragment and "Starting" in fragment
+    # The tripwire review after C5, finding 5c: while the model starts, no line about
+    # what differs (it's the last resume's, and the new one is coming).
+    assert "from when this chat was written" not in fragment
 
 
 def test_the_page_knows_the_same_reads_as_the_server():

@@ -298,3 +298,47 @@ def test_spans_without_a_reason_draw_the_prompt_unmarked(chat):
     response = lenient.get(f"/view/details?call={call['call_id']}", headers={**AUTH, **SAME})
     assert response.status_code == 200, response.text
     assert "Not highlighted: the log gives no reason." in html.unescape(response.text)
+
+
+def test_the_drawer_marks_a_copied_log_by_its_own_name(chat):
+    """Finding 5a: the open chat is marked by /state's log_id, which a copied log's
+    conversation ID doesn't match."""
+    client, session = chat
+    result(client, "say", "Hi")
+    original = result(client, "state")["log_id"]
+    shutil.copy(session.logs_dir / f"{original}.jsonl", session.logs_dir / "my-copy.jsonl")
+    result(client, "resume", "my-copy")
+    assert result(client, "state")["conversation_id"] == original  # the copy's ID
+    listed = rows(view(client, "chats"))
+    current = [r for r in listed if 'aria-current="true"' in r]
+    assert len(current) == 1 and 'data-resume="my-copy"' in current[0]
+
+
+@pytest.mark.parametrize("how", ["say", "start"])
+def test_the_drawer_rows_wait_while_the_chat_changes(chat, how):
+    """Finding 5b: while a reply is written or a model starts, the rows and New chat wait,
+    and say why."""
+    import threading
+
+    from tests.test_web_shell import start_held
+
+    client, session = chat
+    result(client, "say", "Hi")
+    if how == "say":
+        session.backend.replies, session.backend.piece_delay = [" A slow reply"], 0.3
+        worker = threading.Thread(target=lambda: command(client, "say", "Again"))
+        worker.start()
+        threading.Event().wait(0.4)
+        gate = None
+    else:
+        gate, worker = start_held(client, session, "", how="new")
+    try:
+        fragment = view(client, "chats")
+    finally:
+        if gate:
+            gate.set()
+        worker.join(10)
+    why = "Waits until the reply is done." if how == "say" else "Waits until the model has started."
+    assert f'<p class="waits" id="chats-waits">{why}</p>' in fragment
+    controls = re.findall(r'<button type="button" class="(?:crow|newchat)"[^>]*>', fragment)
+    assert controls and all('aria-disabled="true"' in c for c in controls)

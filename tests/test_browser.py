@@ -1480,3 +1480,22 @@ def test_the_shipped_fonts_load_from_clarity_itself(clarity, page):
         loaded = page.evaluate(f"document.fonts.load('16px \"{family}\"').then(f => f.length)")
         assert loaded >= 1, family
         assert page.evaluate(f"document.fonts.check('16px \"{family}\"')"), family
+
+
+def test_the_title_menu_waits_while_a_reply_is_written(clarity, page):
+    """The tripwire review after C5, finding 5b: Rename and Export wait during a reply."""
+    _, redirect, backend = clarity
+    chat_on(page, redirect, "long")
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    backend.replies = [" One two three four five six seven eight nine ten."]
+    backend.piece_delay = 0.3
+    say(page, "Again")
+    page.wait_for_selector("#writing:has-text('two')")
+    assert page.get_attribute("#title", "aria-disabled") == "true"
+    # force: Playwright would otherwise wait for aria-disabled to go, i.e. the reply's end.
+    page.click("#title", force=True)
+    assert page.is_hidden("#title-menu") and page.is_visible("#stop")
+    page.click("#stop")
+    page.wait_for_selector(".reply.last .tb")
+    assert page.get_attribute("#title", "aria-disabled") is None
