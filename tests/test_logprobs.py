@@ -58,7 +58,7 @@ def test_probs_lists_the_least_likely_tokens_in_reply_order(commands):
     commands.run("say", "Hi", lambda e: None)
     conversation = commands.session.conversation
     assert conversation is not None and conversation.last_call is not None
-    assert "/set logprobs 5" in commands.run("probs", "", lambda e: None)["unavailable"]
+    assert "Turn on logprobs" in commands.run("probs", "", lambda e: None)["unavailable"]
     tokenizer = commands.session.tokenizer
     assert tokenizer is not None
     chosen = tokenizer.encode("abcdefghijkl")
@@ -90,11 +90,13 @@ def test_unavailable_probabilities_say_why(commands):
     assert conversation is not None and conversation.last_call is not None
     conversation.last_call["logprobs"] = {"unavailable": "cancelled"}
     result = commands.run("probs", "", lambda e: None)
-    assert result["unavailable"] == "cancelled"
+    assert result["unavailable"] == "the reply was stopped, so none were recorded"
 
     from clarity_chat.cli import format_probs
 
-    assert format_probs(result) == "No token probabilities for this reply: cancelled."
+    assert format_probs(result) == (
+        "No token probabilities for this reply: the reply was stopped, so none were recorded."
+    )
 
 
 # --- the Transformers backend, with a stand-in model ----------------------------------------

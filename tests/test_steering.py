@@ -999,9 +999,15 @@ def test_the_export_carries_each_calls_steering_and_splits_the_conditions(sessio
     session.set_setting("steering_scale", "-4")
     session.say("Once more")
     assert session.conversation is not None
-    header, rows = read_export(export_log(session, session.conversation.log.path)["path"])
+    result = export_log(session, session.conversation.log.path)
+    header, rows = read_export(result["path"])
     logged = first["request"]["steering"]
     assert [row["steering"] for row in rows] == [logged, "none", {**logged, "scale": -4.0}]
+    # The result names the vector and the calls it steered, for the export sheet.
+    steered_ids = [rows[0]["call_id"], rows[2]["call_id"]]
+    assert result.get("steered") == [
+        {"file": logged["file"], "sha256": logged["sha256"], "call_ids": steered_ids}
+    ]
     pinned = {k: logged[k] for k in ("sha256", "scale", "layers")}
     assert [g["conditions"]["steering"] for g in header["conditions"]] == [
         pinned,
@@ -1019,7 +1025,9 @@ def test_an_unsteered_export_says_none_and_no_steering_note(session):
     session.new_conversation(steered(session.root, name="plain", steering="", scale=None))
     session.say("Hi")
     assert session.conversation is not None
-    header, rows = read_export(export_log(session, session.conversation.log.path)["path"])
+    result = export_log(session, session.conversation.log.path)
+    header, rows = read_export(result["path"])
+    assert result.get("steered") == []
     assert [row["steering"] for row in rows] == ["none"]
     assert header["conditions"][0]["conditions"]["steering"] == "none"
     assert "steered" not in header["note"]

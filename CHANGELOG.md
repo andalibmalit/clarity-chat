@@ -19,6 +19,9 @@ Two headings are Clarity's own, used when they apply:
 - `/profiles` lists every profile you can start, with its model, backend and description, whether it's steered and whether its model is fetched. A profile that doesn't load is listed with the reason. It runs before any conversation, so a script or the web interface can offer a choice.
 
 ### Changed
+- Sentences you can meet outside the terminal no longer name commands: the context refusal, the control-token, template_kwargs and not-applied warnings, a failed profile switch, the replay refusals and the busy refusal. `/probs` words each reason it has no probabilities on its own: llama.cpp, switched off, or a stopped reply. Usage errors still name their command.
+- `/prompt`'s header says whether the prompt starts with the start token (BOS), read from its token IDs, and whether Clarity added it. A chat template can write its own, as Llama 3.1's does, which "no BOS prepended" didn't show.
+- `/export` names each vector the calls were steered with, and those calls (`steered`).
 - `/settings` lists what the Transformers backend can't apply at the current values, so it's right before the first reply and straight after a `/set`; it showed the last call's list. A setting changed with `/set` also gives the profile's own value, and the result names the model (`model_name`).
 - `/prompt` returns the call's replays, read from the log, so a replay's result shows again after a resume. `/resume` returns `differ`: how many things differ today and the sentences that say what, the same ones the terminal prints.
 - The `status` event for a model starting names the profile, not its file's path.
