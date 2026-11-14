@@ -37,6 +37,7 @@ Two headings are Clarity's own, used when they apply:
 - `clarity fetch` of a gated repo you have no access to stops with what to do (accept the licence on the model's page, then `uv run hf auth login`), not a traceback.
 - After a stopped server, the terminal's "/resume ID starts it again" names the log file, which `/resume` takes, not the conversation ID; they differ for a copied or renamed log.
 - A failed start of the open chat's own model ("Start the model again", a `/replay` or `/new` on the same profile after its server stopped) no longer tries the same start a second time and then drops the chat: the chat stays, with its model stopped (`status: stopped`, whether the backend or the configuration refused), and the error is that sentence alone, so you can try again. A llama.cpp start that's refused before launching (llama.cpp moved or rebuilt) now leaves the model stopped, not ready with no server.
+- A read (`/history`, `/branches`, `/compare`, `/prompt`, `/probs`, `/settings`) that meets a record lacking a field it needs, in a log another program wrote, is refused with the field's name, as `/resume` and export refuse such a log; it no longer ends the session with an unexpected error.
 
 ### Security
 - A page left open after Clarity stops neither draws nor loads what another program on its port sends: `/state` gives `start`, a random value made for each start, and the page stops at any other.
