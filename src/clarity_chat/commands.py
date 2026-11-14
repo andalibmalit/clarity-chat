@@ -358,7 +358,9 @@ def _probs(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
     if call is None:
         return unavailable("no_reply", "no reply yet")
-    if call.get("turn_id") is None:
+    if call.get("turn_id") is None:  # no reply: cancelled before it started, or failed
+        if call.get("stop_type") == "cancelled":
+            return unavailable("cancelled", "the reply was stopped, so none were recorded")
         return unavailable("failed", "the call failed, so there is no reply")
     logprobs = call.get("logprobs")
     if logprobs is None:

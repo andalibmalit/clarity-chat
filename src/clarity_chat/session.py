@@ -309,14 +309,16 @@ class Conversation:
             if turn_id not in self.turns:
                 continue
             turn = self.turns[turn_id]
-            note = notes[turn_id].get("notes", [])
             marked.append(
                 {
                     "turn_id": turn_id,
                     "call_id": turn.call_id,
                     "text": turn.text,
                     "marks": marks(turn_id),
-                    "note": note[-1]["text"] if note else None,
+                    "notes": [  # as /history gives them: older logs can hold several
+                        {"note_id": n.get("note_id"), "text": n["text"]}
+                        for n in notes[turn_id].get("notes", [])
+                    ],
                     "from": came_from(turn)[0],
                     "current": turn_id in on_head_path,
                 }
