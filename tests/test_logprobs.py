@@ -328,3 +328,15 @@ def test_probs_offsets_hold_with_a_special_token_inside_the_reply(commands):
     spans = [reply[t["start"] : t["end"]] for t in tokens]
     assert spans == [" ", "a", "", "b"]
     assert [t["text"] for t in tokens] == [" ", "a", "</s>", "b"]
+
+
+def test_probs_of_a_call_cancelled_before_its_reply_says_cancelled(commands):
+    """Review finding 7: logged without a turn, but it was cancelled, not failed."""
+    from clarity_chat.session import CancelledBeforeReply
+
+    backend = commands.session.backend
+    backend.on_call = lambda: commands.run("cancel", "", lambda e: None)
+    with pytest.raises(CancelledBeforeReply):
+        commands.run("say", "Hi", lambda e: None)
+    cancelled = commands.session.conversation.last_call
+    assert commands.run("probs", cancelled["call_id"], lambda e: None)["reason"] == "cancelled"

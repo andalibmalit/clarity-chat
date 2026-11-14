@@ -759,7 +759,8 @@ def test_branches_all_lists_every_marked_reply_with_its_note(branchy):
     (marked,) = all_marked
     assert marked["turn_id"] == t["r2"].turn_id and marked["call_id"] == t["r2"].call_id
     assert [m["label"] for m in marked["marks"]] == ["landed"]
-    assert marked["note"] == "the best one"
+    # A notes list, as /history and /compare give it (review finding 9).
+    assert [n["text"] for n in marked.get("notes", [])] == ["the best one"]
     assert marked["from"] == {"kind": "reply", "k": 1, "n": 3, "seed": 42}
     assert marked["current"] is False
 
