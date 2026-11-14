@@ -314,3 +314,12 @@ def test_a_reply_with_no_timings_says_time_unknown_not_zero(loop):
     chat.handle("Hi")
     status = [line for line in "".join(output).splitlines() if line.startswith("[stop")][-1]
     assert "time unknown" in status and "0.0 s" not in status
+
+
+def test_prompt_of_a_call_that_failed_before_its_prompt_says_so():
+    """Review: /prompt CALL_ID can name such a call; "No call yet." hid the failure."""
+    from clarity_chat.cli import format_prompt
+
+    record = {"call_id": "call-000000000000", "error": "ConfigError: a made-up template error"}
+    text = format_prompt(record, as_repr=False)
+    assert "call-000000000000" in text and "a made-up template error" in text
