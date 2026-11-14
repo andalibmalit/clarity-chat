@@ -5,27 +5,45 @@
 
 Prepares ROOT as qa_session.py does (a scratch project that loads SmolLM2 only), starts
 `clarity --root ROOT ui` with no browser of its own, opens its link in Chrome through
-Playwright, and runs STEPS, one per line:
+Playwright, and runs STEPS, one per line. SELECTOR is a Playwright selector: CSS, or
+`text=Regenerate` and `role=button[name="Copy"]` (none of its engines runs script).
 
-    click SELECTOR          click the element (a CSS selector, the rest of the line)
-    fill SELECTOR :: TEXT   put TEXT in a text box
+    click SELECTOR          click the element (the rest of the line)
+    fill SELECTOR :: TEXT   put TEXT in a text box; `fill SELECTOR ::` empties it
     type TEXT               type at the focus
-    press KEY               press a key or a chord: Enter, Escape, Shift+Enter, ArrowRight
-    wait SELECTOR           wait until it's visible (a model start or a reply: up to 10 min)
-    gone SELECTOR           wait until it's hidden or removed
-    sleep SECONDS           wait that long
-    shot NAME               save DIR/NN-NAME.png and the page's text as DIR/NN-NAME.txt
+    press KEY               press a key, or Shift with one: Enter, Escape, Tab, Shift+Tab,
+                            Shift+Enter, Space, ArrowRight, Home (no Meta, Control or Alt,
+                            so no paste from the clipboard)
+    wait SELECTOR           wait until it's visible (a model start or a reply: up to 2 min)
+    gone SELECTOR           wait until it's hidden or removed (up to 2 min)
+    sleep SECONDS           wait that long, up to 60
+    shot NAME               save DIR/NN-NAME.png, the page's text as DIR/NN-NAME.txt, and its
+                            accessibility tree (roles, names, values, states) as
+                            DIR/NN-NAME.aria.yml
     reload                  load the page again
     width PIXELS            resize the window to that width
 
 Lines starting with `#` are skipped. Everything happens through the page, as a user's
-clicks and keys: no script runs in it and no other address is opened, and the web
-interface takes no file paths. DIR/transcript.txt gets each step, what failed, and what
-`clarity ui` printed. The exit status is 0 when every step ran, 1 when one failed (the
-rest are skipped), 2 when the root, the paths or the steps are refused.
+clicks and keys: no script runs in it, and the web interface takes no file paths. The
+browser may load only Clarity (http://127.0.0.1:8765/) and local files: any other
+request is aborted and written to the transcript as `[qa: blocked URL]`, so a link's
+address is evidence without being fetched. To test Ctrl-C mid-reply, end the steps right
+after the send: the driver then stops Clarity as Ctrl-C does, while the reply streams.
+
+DIR/transcript.txt gets each step, what Clarity printed as it printed it (with the link's
+secret cut), the page's JavaScript and console errors, what was blocked, and a failure
+whole, with DIR/NN-failed.png, .txt and .aria.yml. The exit status is 0 when every step
+ran, 1 when one failed (the rest are skipped), 2 when the root, the paths or the steps
+are refused. Every file is created new: DIR must not hold an earlier run, and nothing is
+written through a link.
+
+Not driven here; these stay in the owner's by-hand script, so report them as not
+covered: a second tab and "Use it here", Enter in the terminal, a closed terminal,
+opening by the printed link, Safari and Firefox, the file Download saves, and what Copy
+put on the clipboard (a click on Copy may still write to the owner's real clipboard).
 
 The owner allowlists this script to run outside the sandbox (which hides the GPU and
-can't launch Chrome), so the root, DIR and STEPS must be inside notes/qa/.
+can't launch Chrome), so the root, DIR and STEPS must be in folders below notes/qa/.
 """
 
 from __future__ import annotations
@@ -37,25 +55,40 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, TextIO
+from typing import IO, TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from playwright.sync_api import Page
+    from playwright.sync_api import Page, Route
 
 REPO = Path(__file__).resolve().parents[1]
 QA_DIR = REPO / "notes" / "qa"  # local-only; scratch roots, steps and what they showed
+CLARITY = "http://127.0.0.1:8765/"  # web.PORT
 VERBS = {"click", "fill", "type", "press", "wait", "gone", "sleep", "shot", "reload", "width"}
 NAME = re.compile(r"[A-Za-z0-9_-]+")
-KEY = re.compile(r"[A-Za-z0-9+]+")
-LONG_MS = 600_000  # a model start or a reply on a slow machine
-START_S = 120.0  # `clarity ui` prints its link once it listens
+KEY = re.compile(r"(Shift\+)?[A-Za-z0-9]+")
+WAIT_MS = 120_000  # SmolLM2 starts and replies in seconds; a wrong selector fails in time
+SLEEP_MAX_S = 60
 
 
 class Refused(Exception):
     """A path or step the driver won't run."""
+
+
+class Transcript:
+    """DIR/transcript.txt, written from the steps, Clarity's output and the page's events."""
+
+    def __init__(self, file: IO[str]) -> None:
+        self.file = file
+        self.lock = threading.Lock()
+
+    def write(self, text: str) -> None:
+        with self.lock:
+            self.file.write(text)
+            self.file.flush()
 
 
 def qa_session() -> ModuleType:
@@ -67,10 +100,29 @@ def qa_session() -> ModuleType:
     return module
 
 
+def new_file(path: Path, data: str | bytes) -> None:
+    """Create `path` with `data`. Exclusive mode never follows a link and never replaces a
+    file, so a link planted in DIR can't send a write elsewhere."""
+    if isinstance(data, bytes):
+        with path.open("xb") as f:
+            f.write(data)
+    else:
+        with path.open("x", encoding="utf-8") as f:
+            f.write(data)
+
+
+def fill_parts(arg: str) -> tuple[str, str] | None:
+    """`SELECTOR :: TEXT` as (selector, text); TEXT may be empty."""
+    selector, sep, text = arg.partition(" ::")
+    if not sep or not selector or (text and not text.startswith(" ")):
+        return None
+    return selector, text[1:]
+
+
 def parse_steps(path: Path) -> list[tuple[str, str]]:
     """The steps as (verb, argument), all checked before anything starts."""
     steps = []
-    for n, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
+    for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         if not line.strip() or line.startswith("#"):
             continue
         verb, _, arg = line.strip().partition(" ")
@@ -79,14 +131,18 @@ def parse_steps(path: Path) -> list[tuple[str, str]]:
             raise Refused(f"{where}: unknown step {verb!r}; the steps are {sorted(VERBS)}")
         if verb in ("click", "wait", "gone", "type") and not arg:
             raise Refused(f"{where}: {verb} needs an argument")
-        if verb == "fill" and " :: " not in arg:
+        if verb == "fill" and fill_parts(arg) is None:
             raise Refused(f"{where}: fill takes SELECTOR :: TEXT")
         if verb == "press" and not KEY.fullmatch(arg):
-            raise Refused(f"{where}: press takes a key name, such as Enter or Shift+Enter")
+            raise Refused(f"{where}: press takes a key name, or Shift+ one, such as Shift+Enter")
         if verb == "shot" and not NAME.fullmatch(arg):
             raise Refused(f"{where}: shot takes a name of letters, digits, - and _")
-        if verb in ("sleep", "width") and not re.fullmatch(r"[0-9]+(\.[0-9]+)?", arg):
-            raise Refused(f"{where}: {verb} takes a number")
+        if verb == "sleep" and not (
+            re.fullmatch(r"[0-9]+(\.[0-9]+)?", arg) and float(arg) <= SLEEP_MAX_S
+        ):
+            raise Refused(f"{where}: sleep takes a number of seconds, up to {SLEEP_MAX_S}")
+        if verb == "width" and not re.fullmatch(r"[0-9]+", arg):
+            raise Refused(f"{where}: width takes a whole number of pixels")
         if verb == "reload" and arg:
             raise Refused(f"{where}: reload takes nothing")
         steps.append((verb, arg))
@@ -94,35 +150,63 @@ def parse_steps(path: Path) -> list[tuple[str, str]]:
 
 
 def allowed(url: str) -> bool:
-    """Whether the browser may load `url`. Nothing is blocked yet."""
-    return True
+    """Whether the browser may load `url`: Clarity's own address, or anything not on the
+    network (the redirect file, data: and blob: URLs)."""
+    return url.startswith(CLARITY) or not url.startswith(("http://", "https://"))
+
+
+def shot(page: Page, out: Path, stem: str) -> None:
+    new_file(out / f"{stem}.png", page.screenshot(full_page=True))
+    new_file(out / f"{stem}.txt", page.locator("body").inner_text())
+    new_file(out / f"{stem}.aria.yml", page.locator("body").aria_snapshot())
 
 
 def run_step(page: Page, verb: str, arg: str, out: Path, n: int) -> None:
     if verb == "click":
         page.click(arg)
     elif verb == "fill":
-        selector, text = arg.split(" :: ", 1)
-        page.fill(selector, text)
+        parts = fill_parts(arg)
+        assert parts is not None  # parse_steps checked it
+        page.fill(*parts)
     elif verb == "type":
         page.keyboard.type(arg)
     elif verb == "press":
         page.keyboard.press(arg)
     elif verb == "wait":
-        page.wait_for_selector(arg, timeout=LONG_MS)
+        page.wait_for_selector(arg, timeout=WAIT_MS)
     elif verb == "gone":
-        page.wait_for_selector(arg, state="hidden", timeout=LONG_MS)
+        page.wait_for_selector(arg, state="hidden", timeout=WAIT_MS)
     elif verb == "sleep":
         time.sleep(float(arg))
     elif verb == "shot":
-        page.screenshot(path=out / f"{n:02d}-{arg}.png", full_page=True)
-        text = page.locator("body").inner_text()
-        (out / f"{n:02d}-{arg}.txt").write_text(text, encoding="utf-8")
+        shot(page, out, f"{n:02d}-{arg}")
     elif verb == "reload":
         page.reload()
-        page.wait_for_selector("body[data-page]", state="attached", timeout=LONG_MS)
+        page.wait_for_selector("body[data-page]", state="attached", timeout=WAIT_MS)
     elif verb == "width":
-        page.set_viewport_size({"width": int(float(arg)), "height": 900})
+        page.set_viewport_size({"width": int(arg), "height": 900})
+
+
+def cut(line: str) -> str:
+    """A line of Clarity's output with the link's secret cut."""
+    return line.split("#key=")[0] + "#key=…\n" if "#key=" in line else line
+
+
+def copy_output(
+    stream: IO[str], log: Transcript, linked: threading.Event, ready: threading.Event
+) -> None:
+    """Copy Clarity's output to the transcript as it comes, so the pipe never fills.
+    `ready` is set once Clarity prints its link (`linked` too) or exits."""
+    for line in stream:
+        log.write(cut(line))
+        if "Clarity is at" in line:
+            linked.set()
+            ready.set()
+    ready.set()
+
+
+def stop(signum: int, frame: object) -> None:
+    raise SystemExit(128 + signum)  # so the cleanup in `finally` runs and frees port 8765
 
 
 def main() -> int:
@@ -132,18 +216,24 @@ def main() -> int:
     parser.add_argument("--steps", type=Path, required=True)
     parser.add_argument("--init", action="store_true")
     args = parser.parse_args()
-    for path in (args.root, args.out, args.steps):  # scratch paths only
-        if not path.resolve().is_relative_to(QA_DIR):
-            parser.error(f"{path} must be inside {QA_DIR}")
+    root, out, steps_path = (path.resolve() for path in (args.root, args.out, args.steps))
+    for given, path in ((args.root, root), (args.out, out), (args.steps, steps_path)):
+        if path == QA_DIR or not path.is_relative_to(QA_DIR):  # scratch paths only
+            parser.error(f"{given} must be in a folder below {QA_DIR}")
     session = qa_session()
     try:
-        steps = parse_steps(args.steps)
-        session.prepare_root(args.root, init=args.init)
+        steps = parse_steps(steps_path)
+        session.prepare_root(root, init=args.init)
+        out.mkdir(parents=True, exist_ok=True)
+        file = (out / "transcript.txt").open("x", encoding="utf-8")
     except (Refused, session.Refused) as e:
         parser.error(str(e))
-    root = args.root.resolve()
-    out = args.out.resolve()
-    out.mkdir(parents=True, exist_ok=True)
+    except FileExistsError:
+        parser.error(f"{out} already holds a run's transcript.txt (or a link there): use a new DIR")
+    log = Transcript(file)
+    log.write(f"$ clarity --root {args.root} ui\n")
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, stop)
     program = Path(sys.executable).parent / "clarity"
     # BROWSER=true: `clarity ui` opens its redirect file with a command that does nothing,
     # and the driver opens it in Playwright's browser instead. No downloads: SmolLM2 is
@@ -158,55 +248,67 @@ def main() -> int:
         stderr=subprocess.STDOUT,
         text=True,
     )
-    log = (out / "transcript.txt").open("w", encoding="utf-8")
-    log.write(f"$ clarity --root {args.root} ui\n")
-    status = 0
+    assert clarity.stdout is not None
+    linked, ready = threading.Event(), threading.Event()
+    reader = threading.Thread(
+        target=copy_output, args=(clarity.stdout, log, linked, ready), daemon=True
+    )
+    reader.start()
     try:
-        assert clarity.stdout is not None
-        deadline = time.monotonic() + START_S
-        line = ""
-        while "Clarity is at" not in line and time.monotonic() < deadline:
-            line = clarity.stdout.readline()
-            if not line:
-                break
-            log.write(line.split("#key=")[0] + ("#key=…\n" if "#key=" in line else ""))
-        if "Clarity is at" not in line:
+        ready.wait()  # Clarity prints its link once it listens, or why it can't and exits
+        if not linked.is_set():
             log.write("[qa: clarity ui didn't print its link]\n")
             return 1
-        status = drive(root / "local" / "clarity-open.html", steps, out, log)
+        return drive(root / "local" / "clarity-open.html", steps, out, log)
     finally:
         clarity.send_signal(signal.SIGINT)  # as Ctrl-C in its terminal
         try:
-            rest, _ = clarity.communicate(timeout=30)
+            clarity.wait(timeout=30)
         except subprocess.TimeoutExpired:
             clarity.kill()
-            rest, _ = clarity.communicate()
-        log.write(rest or "")
+            clarity.wait()
+        reader.join(timeout=5)
         log.write(f"\n[qa: clarity ui exited with status {clarity.returncode}]\n")
-        log.close()
-    return status
+        file.close()
 
 
-def drive(redirect: Path, steps: list[tuple[str, str]], out: Path, log: TextIO) -> int:
+def drive(redirect: Path, steps: list[tuple[str, str]], out: Path, log: Transcript) -> int:
     from playwright.sync_api import Error, sync_playwright
 
-    channel = {"channel": "chrome"} if sys.platform == "darwin" else {}
+    def route(route: Route) -> None:
+        if allowed(route.request.url):
+            route.continue_()
+        else:
+            log.write(f"[qa: blocked {route.request.url}]\n")
+            route.abort()
+
     with sync_playwright() as p:
-        browser = p.chromium.launch(**channel)
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
-        page.goto(redirect.as_uri())
-        page.wait_for_selector("body[data-page=ready]", timeout=LONG_MS)
-        for n, (verb, arg) in enumerate(steps, 1):
-            log.write(f"[qa step {n}: {verb} {arg}]\n".rstrip() + "\n")
-            log.flush()
-            try:
+        browser = p.chromium.launch(channel="chrome")
+        context = browser.new_context(viewport={"width": 1280, "height": 900})
+        context.route("**/*", route)  # covers new tabs too
+        page = context.new_page()
+        page.on("pageerror", lambda error: log.write(f"[page error: {error}]\n"))
+        page.on(
+            "console",
+            lambda message: (
+                log.write(f"[console error: {message.text}]\n") if message.type == "error" else None
+            ),
+        )
+        n = 0
+        try:
+            page.goto(redirect.as_uri())
+            page.wait_for_selector("body[data-page=ready]", timeout=WAIT_MS)
+            for n, (verb, arg) in enumerate(steps, 1):
+                log.write(f"[qa step {n}: {verb} {arg}]\n" if arg else f"[qa step {n}: {verb}]\n")
                 run_step(page, verb, arg, out, n)
-            except Error as e:
-                log.write(f"[qa step {n} failed: {str(e).splitlines()[0]}]\n")
-                page.screenshot(path=out / f"{n:02d}-failed.png", full_page=True)
-                browser.close()
-                return 1
-        browser.close()
+        except (Error, OSError) as e:
+            where = f"step {n}" if n else "the first load"
+            log.write(f"[qa: {where} failed: {e}]\n")  # whole: it says why
+            try:
+                shot(page, out, f"{n:02d}-failed")
+            except (Error, OSError) as e:
+                log.write(f"[qa: no failure screenshot: {e}]\n")
+            return 1
     return 0
 
 
