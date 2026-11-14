@@ -241,12 +241,25 @@ class FakeStream:
         yield from self.lines
 
 
+class ExitsAfterSending:
+    """A process running when the request is sent (the first poll) and exited after."""
+
+    def __init__(self) -> None:
+        self.polls = 0
+
+    def poll(self) -> int | None:
+        self.polls += 1
+        return None if self.polls == 1 else 1
+
+
 class ExitedServer:
     """A server whose process exited once the reply was in."""
 
     url = "http://127.0.0.1:1"
     headers = {"Authorization": "Bearer test-key"}
-    proc = type("Exited", (), {"poll": lambda self: 1})()
+
+    def __init__(self) -> None:
+        self.proc = ExitsAfterSending()
 
 
 def fake_backend(monkeypatch, root, lines):

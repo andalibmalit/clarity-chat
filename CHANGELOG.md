@@ -19,6 +19,7 @@ Two headings are Clarity's own, used when they apply:
 - `/profiles` lists every profile you can start, with its model, backend and description, whether it's steered and whether its model is fetched. A profile that doesn't load is listed with the reason. It runs before any conversation, so a script or the web interface can offer a choice.
 
 ### Changed
+- When llama-server has stopped between calls, the next call says so and sends nothing; it said "connection failed". A `status` event marks the model stopped, and resuming the conversation (`/resume ID`, which the terminal suggests) starts it again. Resuming the chat that's open writes a `resume` record, as any resume does.
 - A reply whose record has no timings, such as a llama.cpp reply cancelled mid-stream, shows "time unknown" in its status line, not "0.0 s".
 - Sentences you can meet outside the terminal no longer name commands: the context refusal, the control-token, template_kwargs and not-applied warnings, a failed profile switch, the replay refusals and the busy refusal. `/probs` words each reason it has no probabilities on its own: llama.cpp, switched off, or a stopped reply. Usage errors still name their command.
 - `/prompt`'s header says whether the prompt starts with the start token (BOS), read from its token IDs, and whether Clarity added it. A chat template can write its own, as Llama 3.1's does, which "no BOS prepended" didn't show.
