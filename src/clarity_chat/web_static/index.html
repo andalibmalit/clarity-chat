@@ -47,11 +47,12 @@
 </div>
 <div class="threadarea"><div class="col">
 <div id="thread"></div>
-<div class="writing" id="writing-box" hidden><div class="msg" id="writing"></div><p class="status"><span id="writing-status" role="status"></span><span class="dots" id="writing-dots" aria-hidden="true"></span></p></div>
+<div class="writing" id="writing-box" hidden><div class="msg" id="writing"></div></div>
+<p class="status"><span id="writing-status" role="status"></span><span class="dots" id="writing-dots" aria-hidden="true"></span></p>
 <div id="notice"></div>
 </div></div>
 <div class="cpwrap">
-<form class="cp" id="composer"><label class="vh" for="message">Message</label><textarea id="message" rows="2" placeholder="Message" disabled></textarea><div class="row"><span class="spacer"></span><button type="submit" class="send" id="send" aria-label="Send" disabled><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button><button type="button" class="stop" id="stop" hidden><span class="sq" aria-hidden="true"></span><span id="stop-label">Stop</span></button></div></form>
+<form class="cp" id="composer"><label class="vh" for="message">Message</label><textarea id="message" rows="2" placeholder="Message" disabled></textarea><div class="row"><span class="spacer"></span><span class="vh" id="send-waits"></span><button type="submit" class="send" id="send" aria-label="Send" aria-describedby="send-waits" disabled><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button><button type="button" class="stop" id="stop" hidden><span class="sq" aria-hidden="true"></span><span id="stop-label">Stop</span></button></div></form>
 <div class="under" id="composer-row"></div>
 </div>
 </main>
