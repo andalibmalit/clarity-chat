@@ -357,3 +357,15 @@ def test_reply_spans_are_null_rather_than_wrong():
     # guard can catch it.
     assert reply_spans(tokenizer(["ab", "a"]), [1, 2], "ab") is None
     assert reply_spans(tokenizer(["a", "ab"]), [1, 2], "zz") is None  # isn't the reply
+
+
+def test_a_stop_strings_tokens_sit_at_the_end_of_the_reply(commands):
+    """Mutation 12: the tokens of the stop string run past the reply; their spans don't."""
+    backend, tokenizer = commands.session.backend, commands.session.tokenizer
+    backend.replies = [" Hi\nUser: more"]  # the text profile stops at "\nUser:"
+    backend.logprobs = fake_logprobs(tokenizer, tokenizer.encode(" Hi\nUser:"))
+    reply = commands.run("say", "Hi", lambda e: None)["call"]["output_text"]
+    tokens = commands.run("probs", "", lambda e: None)["tokens"]
+    assert reply == " Hi"
+    assert [(t["start"], t["end"]) for t in tokens[3:]] == [(3, 3)] * 6
+    assert "".join(t["text"] for t in tokens[3:]) == "\nUser:"
