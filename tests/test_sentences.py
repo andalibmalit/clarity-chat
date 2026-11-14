@@ -203,3 +203,38 @@ def test_a_model_that_isnt_fetched_says_how_to_fetch_it_as_written(fetched_root,
         "Model 'other' is not fetched. In a new terminal window, in Clarity's folder, run: "
         "uv run clarity fetch other. Then try again."
     )
+
+
+# --- The Opus whole-branch review (batch 4), SHOULD 4
+
+
+FETCH_HINT = (
+    "In a new terminal window, in Clarity's folder, run: uv run clarity fetch {}. Then try again."
+)
+
+
+def test_every_fetch_hint_is_one_sentence_that_runs_as_written():
+    """One helper for every "fetch it" sentence (models.py, session.py, render.py): no
+    backticks, `uv run` in front, a new window, and what to do after."""
+    from pathlib import Path
+
+    from clarity_chat import models
+
+    src = Path(models.__file__).parent
+    for name in ("models.py", "session.py", "render.py"):
+        text = (src / name).read_text(encoding="utf-8")
+        assert "Run `clarity" not in text and "run `clarity" not in text, name
+    hint = getattr(models, "fetch_hint", None)
+    assert hint is not None and hint("tiny") == FETCH_HINT.format("tiny")
+
+
+def test_a_lock_entry_from_other_settings_says_how_to_fetch_again(make, fetched_root):
+    session, _ = make()
+    lock = fetched_root / "models.lock"
+    lock.write_text(
+        lock.read_text(encoding="utf-8").replace("0123456789abcdef", "fedcba9876543210", 1),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError) as caught:
+        session.new_conversation("text")
+    assert str(caught.value).endswith(FETCH_HINT.format("tiny")), str(caught.value)
