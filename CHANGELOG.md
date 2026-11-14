@@ -9,6 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Added
+- The shipped profiles have descriptions. Because the profile's whole file is logged and compared, resuming an older chat on one of them reports that the profile file has changed; the chat still uses the profile as logged.
 - A profile can have a one-line `description`. `clarity chats` shows it after the profile's name.
 - `/prompt`, `/mark`, `/unmark`, `/note` and `/replay` can name any call in the conversation by its ID, for example `/note call-3f9a1b2c4d5e was better`; without one they act on the current reply, as before. A failed call can be read by its ID with `/prompt`, live and after a resume. `/replay` with anything else after it is now refused (it ignored its argument).
 - `/probs` can name a call by its ID, and its `--json` result gives every token's text and place in the reply, with its alternatives' texts. Without probabilities, it adds a `reason` code beside the sentence.
@@ -30,7 +31,7 @@ Two headings are Clarity's own, used when they apply:
 - Call records returned by commands are the records as logged, with their `time` and `schema_version`, so `/prompt` gives the same answer before and after a resume.
 
 ### Output may change
-- The default seed is 42, not `"random"`, so the same message gets the same reply until you change something. A profile that sets no seed now uses 42; `seed = "random"` still draws one per call. A batch run's seeds start at 42, not 333. Resuming a chat that drew random seeds by default shows the seed among the settings that differ today.
+- The default seed is 42, not `"random"`, so on the same machine and build the same message, history and settings get the same reply. A profile that sets no seed now uses 42; `seed = "random"` still draws one per call. A batch run's seeds start at 42, not 333. Resuming a chat that drew random seeds by default shows the seed among the settings that differ today.
 
 ## [0.2.2] - 2026-11-11
 

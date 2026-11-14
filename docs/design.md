@@ -43,7 +43,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 
 **The model's recommended settings are opt-in.** With the shared neutral defaults, two models are compared under the same settings unless you choose otherwise. `use_recommended = true` is the one-line way to choose otherwise, and its values are logged with origin `model`.
 
-**Seeds are always concrete, and the default is 42.** A fixed default means the same message gets the same reply until you change something, so a difference between two replies comes from what you changed. `seed = "random"` makes Clarity draw a seed and log it, because llama-server doesn't report a seed it picks itself, and that call couldn't be replayed.
+**Seeds are always concrete, and the default is 42.** With a fixed default, on the same machine and build, the same message with the same history and settings gets the same reply, so a difference between two replies comes from what you changed. `seed = "random"` makes Clarity draw a seed and log it, because llama-server doesn't report a seed it picks itself, and that call couldn't be replayed.
 
 ## The server
 

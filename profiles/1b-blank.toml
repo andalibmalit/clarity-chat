@@ -1,5 +1,6 @@
 # Check 0, setup 1b: chat with a blank system message (a single space), which
 # replaces the template's own.
+description = "Chat with a one-space system message, so the model's chat template adds no default one"
 backend = "llama.cpp"
 model = "olmo-3-7b-instruct"
 mode = "chat"

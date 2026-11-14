@@ -193,7 +193,8 @@ def format_branch_ends(result: dict[str, Any]) -> str:
         what = "reply" if start["kind"] == "reply" else "message"
         return f"from {what} {start['k']} of {start['n']} (seed {start['seed']})"
 
-    lines = [f"{len(result['ends'])} branch ends, newest first. /switch TURN_ID goes to one."]
+    n = len(result["ends"])
+    lines = [f"{n} branch end{'' if n == 1 else 's'}, newest first. /switch TURN_ID goes to one."]
     for end in result["ends"]:
         star = "*" if end["current"] else " "
         went_on = "" if end["continued"] or end["from"] is None else ", not continued"
@@ -282,7 +283,9 @@ def format_profiles(result: dict[str, Any]) -> str:
         about = f"  {p['name']}  {p['model_name']} on {p['backend']}"
         about += f" ({', '.join(notes)})" if notes else ""
         lines.append(about + (f": {p['description']}" if p["description"] else ""))
-    return "\n".join(lines or ["No profiles in profiles/ or local/profiles/."])
+    if not lines:
+        return "No profiles in profiles/ or local/profiles/."
+    return "\n".join([*lines, result["not_checked"]])
 
 
 def format_chats(chats: list[dict[str, Any]]) -> str:
