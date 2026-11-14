@@ -449,3 +449,21 @@ def test_a_reply_cancelled_mid_way_can_be_marked_by_its_id(three_replies):
     run(c, "say e")
     (mark,) = run(c, f"mark {cancelled['call_id']}")["records"]
     assert mark["call_id"] == cancelled["call_id"]
+
+
+def test_profiles_lists_a_profile_that_isnt_utf8_with_its_error(commands, fetched_root):
+    """Checkpoint review, finding 2: one bad file mustn't break the list."""
+    c, _ = commands
+    local = fetched_root / "local" / "profiles"
+    local.mkdir(parents=True)
+    (local / "latin.toml").write_bytes('description = "café"\n'.encode("latin-1"))
+    by_name = {p["name"]: p for p in c.run("profiles", "", lambda e: None)["profiles"]}
+    assert by_name["latin"]["error"] and by_name["text"]["error"] is None
+
+
+@pytest.mark.parametrize("gap", ["\n", "\t", "  "])
+def test_a_call_id_is_followed_by_any_whitespace(three_replies, gap):
+    """Checkpoint review, finding 3: Alt+Enter or a tab after the ID still names the call."""
+    c, _, (first, _, _) = three_replies
+    (note,) = c.run("note", f"{first}{gap}was better", lambda e: None)["records"]
+    assert (note["call_id"], note["text"]) == (first, "was better")
