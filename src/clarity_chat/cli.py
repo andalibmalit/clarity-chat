@@ -302,11 +302,11 @@ def format_chats(chats: list[dict[str, Any]]) -> str:
     lines = []
     for chat in chats:
         if chat["error"]:
-            lines.append(f"{chat['conversation_id']}  can't be read: {chat['error']}")
+            lines.append(f"{chat['log_id']}  can't be read: {chat['error']}")
             continue
         title = chat["title"] if chat["title"] is not None else "(no messages)"
         profile = chat["profile"] + (f": {chat['description']}" if chat["description"] else "")
-        lines.append(f"{chat['conversation_id']}  {profile}  {title}")
+        lines.append(f"{chat['log_id']}  {profile}  {title}")
     return "\n".join(lines)
 
 

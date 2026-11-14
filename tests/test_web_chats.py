@@ -62,7 +62,7 @@ def test_the_drawer_lists_every_chat_newest_first_today_and_earlier(chat):
     fragment = view(client, "chats")
     listed = rows(fragment)
     assert [re.findall(r'data-resume="([^"]+)"', r)[0] for r in listed] == [
-        c["conversation_id"] for c in chats
+        c["log_id"] for c in chats
     ]
     today, earlier = fragment.split("<h3>Earlier</h3>")
     assert "<h3>Today</h3>" in today
@@ -70,7 +70,7 @@ def test_the_drawer_lists_every_chat_newest_first_today_and_earlier(chat):
     assert f'data-resume="{state["log_id"]}"' in current and "No messages" in current
     first = next(c for c in chats if c["title"] and c["title"].startswith("Hi there"))
     assert f'<span class="t">{first["title"]}</span><span class="p">text</span>' in today
-    old = next(c for c in chats if c["conversation_id"] == "20261030-162210-e41b07")
+    old = next(c for c in chats if c["log_id"] == "20261030-162210-e41b07")
     assert (
         f'<span class="t">{old["title"]}</span><span class="p"><span class="dt">30 Oct</span>'
         f" · {old['profile']}</span>" in earlier

@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends import BackendError
-from clarity_chat.logs import list_chats
+from clarity_chat.logs import LOG_NAME, list_chats
 from clarity_chat.profiles import ConfigError, profile_path
 from clarity_chat.session import CallOutcome, CancelledBeforeReply, Session
 
@@ -320,7 +320,7 @@ def _switch(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 def _resume(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     log = needs(args, "/resume ID")
-    if not c.paths and not re.fullmatch(r"[A-Za-z0-9_-]+", log):
+    if not c.paths and not LOG_NAME.fullmatch(log):
         raise ConfigError("/resume takes a conversation ID from /chats, not a path.")
     # An ID means logs/ID.jsonl only, never a file of that name in the working folder.
     path = c.session.log_for(log) if c.paths else c.session.logs_dir / f"{log}.jsonl"
