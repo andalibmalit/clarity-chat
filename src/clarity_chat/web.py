@@ -40,10 +40,10 @@ from starlette.responses import (
     StreamingResponse,
 )
 from starlette.routing import Route
-from starlette.types import ASGIApp, Message, Receive, Scope, Send
+from starlette.types import Message, Receive, Scope, Send
 
 from clarity_chat.backends import BackendError
-from clarity_chat.commands import CALL_ID, COMMANDS, Commands
+from clarity_chat.commands import CALL_ID, Commands
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import ContextError, Session
@@ -104,10 +104,16 @@ class Worker:
         threading.Thread(target=self._loop, daemon=True, name="clarity-worker").start()
 
     def emit(self, event: dict[str, Any]) -> None:
+        """Send an event to every open stream. Never raises: it runs inside the session (a
+        record's event follows the record), so one broken stream, such as one whose event
+        loop has closed, is dropped instead of ending the session."""
         with self.lock:
             listeners = list(self.listeners)
         for listener in listeners:
-            listener(event)
+            try:
+                listener(event)
+            except Exception:  # noqa: BLE001 - see above
+                self.stop_listening(listener)
 
     def listen(self, listener: Callable[[dict[str, Any]], None]) -> None:
         with self.lock:
@@ -115,29 +121,36 @@ class Worker:
 
     def stop_listening(self, listener: Callable[[dict[str, Any]], None]) -> None:
         with self.lock:
-            self.listeners.remove(listener)
+            if listener in self.listeners:
+                self.listeners.remove(listener)
 
     def submit(self, name: str, args: str) -> dict[str, Any]:
-        found = COMMANDS.get(name)
-        now = found is not None and (
-            found.during_call or (found.during_reply and self.commands.reply_running())
-        )
-        if now:
-            return self._run(name, args)
+        """Run a command and wait for its result (a caller on its own thread)."""
+        now, future = self.enqueue(name, args)
+        return self._run(name, args, at_once=True) if now else future.result()
+
+    def enqueue(self, name: str, args: str) -> tuple[bool, concurrent.futures.Future]:
+        """Decide once whether `name` runs at once; if not, queue it. Returns the decision
+        and the future its result arrives in (unused when it runs at once)."""
         future: concurrent.futures.Future = concurrent.futures.Future()
+        if self.commands.at_once_now(name):
+            return True, future
         self.jobs.put((name, args, future))
-        return future.result()
+        return False, future
 
     def _loop(self) -> None:
         while True:
             name, args, future = self.jobs.get()
-            future.set_result(self._run(name, args))
+            try:
+                future.set_result(self._run(name, args))
+            except BaseException as e:  # noqa: BLE001 - the thread must live to serve the next
+                future.set_exception(e)
 
-    def _run(self, name: str, args: str) -> dict[str, Any]:
+    def _run(self, name: str, args: str, at_once: bool | None = None) -> dict[str, Any]:
         if self.failed:
             return {"error": self.failed, "type": "Stopped", "stopped": True}
         try:
-            result = self.commands.run(name, args, self.emit)
+            result = self.commands.run(name, args, self.emit, at_once=at_once)
         except (ConfigError, ContextError, BackendError) as e:
             return {"error": str(e), "type": type(e).__name__}
         except Exception as e:  # noqa: BLE001 - as in --json, it ends the session
@@ -151,10 +164,12 @@ class Worker:
 
 class Security:
     """Every request: the exact Host, no OPTIONS, and the security headers on every
-    response (refusals included)."""
+    response, refusals and server errors included. It wraps the whole app, outside
+    Starlette's error handling, so a 500 gets them too."""
 
-    def __init__(self, app: ASGIApp, port: int) -> None:
+    def __init__(self, app: Starlette, port: int) -> None:
         self.app, self.host = app, f"127.0.0.1:{port}".encode()
+        self.routes, self.state = app.routes, app.state
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -186,7 +201,7 @@ def make_app(
     secret: bytes,
     port: int = PORT,
     on_first_use: Callable[[], None] | None = None,
-) -> Starlette:
+) -> Security:
     """The app. `on_first_use` runs once, at the first request with the secret."""
     worker = Worker(session)
     first_use = [on_first_use]
@@ -262,8 +277,13 @@ def make_app(
             live(tab)
         except Refused as e:
             return PlainTextResponse(str(e), e.status)
-        answer = await run_in_threadpool(worker.submit, parsed["command"], parsed.get("args", ""))
-        return JSONResponse({"id": parsed.get("id"), **answer})
+        name, args = parsed["command"], parsed.get("args", "")
+        now, future = worker.enqueue(name, args)
+        if now:
+            answer = await run_in_threadpool(worker._run, name, args, True)
+        else:  # waits in the event loop, not in a thread: queued commands can't use them up
+            answer = await asyncio.wrap_future(future)
+        return json_response({"id": parsed.get("id"), **answer})
 
     async def take_tab(request: Request) -> Response:
         try:
@@ -347,9 +367,8 @@ def make_app(
             Route("/export", export, methods=["GET"]),
         ]
     )
-    app.add_middleware(Security, port=port)
     app.state.worker = worker
-    return app
+    return Security(app, port)
 
 
 def serve(
@@ -435,9 +454,25 @@ REDIRECT = """<!doctype html>
 
 
 def _thread(worker: Worker, params: Any) -> str:
-    answer = worker.submit("history", "") if worker.commands.session.conversation else None
-    turns = (answer or {}).get("result", {}).get("turns", [])
-    return templates.get_template("thread.html").render(turns=turns)
+    """The thread, from /state's turns: a read that runs at once, mid-reply included."""
+    answer = worker._run("state", "", at_once=True)
+    if "error" in answer:
+        raise Refused(503, answer["error"])
+    return templates.get_template("thread.html").render(turns=answer["result"]["turns"])
+
+
+def json_response(content: dict[str, Any]) -> Response:
+    """JSON as the page can read it. A value JSON can't carry (NaN or infinity, from a log
+    another program wrote) is refused with a sentence, never sent as invalid JSON."""
+    try:
+        body = json.dumps(content, allow_nan=False)
+    except ValueError:
+        return PlainTextResponse(
+            "The result holds a number JSON can't carry (NaN or infinity), from a log "
+            "Clarity didn't write.",
+            500,
+        )
+    return Response(body, media_type="application/json")
 
 
 VIEW_RENDERERS = {"thread": _thread}
