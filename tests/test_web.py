@@ -174,11 +174,13 @@ def test_a_command_from_a_tab_that_isnt_live_is_refused(server):
     assert command(client, "state", tab="tab-1").status_code == 409
 
 
-def test_no_command_can_name_a_path(server, tmp_path):
+def test_no_command_can_name_a_path(server, tmp_path, fetched_root):
+    """A valid profile outside the profile folders: refused by name, never read by path."""
     client, _, _ = server
-    outside = tmp_path / "x.toml"
-    outside.write_text("x", encoding="utf-8")
-    assert command(client, "profile", str(outside)).json().get("error")
+    outside = tmp_path / "outside.toml"
+    outside.write_text((fetched_root / "profiles" / "text.toml").read_text("utf-8"), "utf-8")
+    answer = command(client, "profile", str(outside)).json()
+    assert "not a path" in answer.get("error", "")
 
 
 def test_a_view_name_or_call_id_outside_the_list_is_refused(server):
@@ -518,3 +520,92 @@ def test_enter_in_the_terminal_never_puts_the_secret_in_a_process_argument(
 def test_options_is_refused_on_any_path_not_only_known_routes(server):
     client, _, _ = server
     assert client.options("/nope").status_code == 405
+
+
+# --- finding 8: the checks' tests, aimed at the review's surviving mutations
+
+
+def test_every_data_route_in_the_table_refuses_without_the_secret(server):
+    client, _, _ = server
+    for (method, path), needs in ROUTES.items():
+        url = path.replace("{file}", "app.js").replace("{name}", "thread")
+        headers = {**SAME, "Origin": ORIGIN, "Content-Type": "application/json"}
+        response = client.request(method, url, headers=headers, content=b"{}")
+        assert (response.status_code == 401) == needs, (method, path, response.status_code)
+
+
+def test_a_secret_with_extra_text_is_refused(server):
+    client, _, _ = server
+    headers = {**SAME, "Authorization": f"Bearer {SECRET}extra"}
+    assert client.get("/view/thread", headers=headers).status_code == 401
+
+
+def test_the_csp_names_every_directive(server):
+    client, _, _ = server
+    csp = client.get("/").headers["Content-Security-Policy"]
+    for directive in (
+        "base-uri 'none'",
+        "form-action 'none'",
+        "object-src 'none'",
+        "default-src 'self'",
+    ):
+        assert directive in csp
+
+
+def test_the_headers_are_on_a_stream_and_a_refusal(server):
+    client, _, _ = server
+    with client.stream("GET", "/events?tab=tab-1", headers={**AUTH, **SAME}) as stream:
+        assert stream.headers["Cache-Control"] == "no-store"
+    refused = client.get("/view/thread", headers=SAME)
+    assert refused.status_code == 401 and refused.headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_state_cancel_and_settings_answer_at_once_while_a_reply_streams(server):
+    client, session, _ = server
+    command(client, "profile", "text")
+    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 0.3
+    said: list = []
+    worker = threading.Thread(target=lambda: said.append(command(client, "say", "Hi")))
+    worker.start()
+    threading.Event().wait(0.4)
+    state = command(client, "state").json()["result"]
+    assert state["running"]["command"] == "say"  # answered while the reply was written
+    assert "settings" in command(client, "settings").json()["result"]
+    assert command(client, "cancel").json()["result"]["cancelled"] is True
+    worker.join(10)
+    assert said and said[0].json()["result"]["call"]["stop_type"] == "cancelled"
+
+
+def test_an_unexpected_error_inside_a_command_ends_the_session(server, monkeypatch):
+    client, session, app = server
+    command(client, "profile", "text")
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("made-up crash")
+
+    monkeypatch.setattr(app.state.worker.commands.session, "history", boom)
+    first = command(client, "history").json()
+    assert first.get("stopped") and "unexpected error" in first["error"]
+    assert command(client, "state").json().get("stopped")  # every command after it too
+
+
+def test_a_takeover_closes_the_old_tabs_stream(server):
+    client, _, _ = server
+    command(client, "state", tab="tab-1")
+    with client.stream("GET", "/events?tab=tab-1", headers={**AUTH, **SAME}) as stream:
+        lines = stream.iter_lines()
+        assert json.loads(next(lines)) == {"event": "hello"}
+        client.post("/tab", headers=POST, content=json.dumps({"tab": "tab-2"}))
+        assert json.loads(next(lines)) == {"event": "not_live", "live": "tab-2"}
+        assert list(lines) == []  # and the stream ended
+
+
+def test_a_second_tab_doesnt_take_over_while_the_live_one_listens(server):
+    client, _, _ = server
+    with client.stream("GET", "/events?tab=tab-1", headers={**AUTH, **SAME}) as first:
+        listening = first.iter_lines()  # kept: dropping the iterator closes the stream
+        next(listening)  # tab-1 listening: live
+        with client.stream("GET", "/events?tab=tab-2", headers={**AUTH, **SAME}) as second:
+            lines = second.iter_lines()
+            next(lines)
+            assert json.loads(next(lines))["event"] == "not_live"

@@ -325,14 +325,17 @@ def make_app(
         def push(event: dict[str, Any]) -> None:  # from the worker's thread
             loop.call_soon_threadsafe(inbox.put_nowait, event)
 
-        async def lines() -> AsyncIterator[bytes]:
-            yield json.dumps({"event": "hello"}).encode() + b"\n"
-            if tab != tabs["live"]:
-                yield json.dumps({"event": "not_live", "live": tabs["live"]}).encode() + b"\n"
-                return
+        live_here = tab == tabs["live"]
+        if live_here:  # listening from now, before hello: nothing sent after it is lost
             worker.listen(push)
             tabs["streams"][tab] = tabs["streams"].get(tab, 0) + 1
+
+        async def lines() -> AsyncIterator[bytes]:
             try:  # a client that leaves cancels this at its next await
+                yield json.dumps({"event": "hello"}).encode() + b"\n"
+                if not live_here:
+                    yield json.dumps({"event": "not_live", "live": tabs["live"]}).encode() + b"\n"
+                    return
                 while True:
                     try:
                         event = await asyncio.wait_for(inbox.get(), HEARTBEAT)
@@ -343,8 +346,9 @@ def make_app(
                     if event["event"] == "not_live" and event.get("live") != tab:
                         return
             finally:
-                worker.stop_listening(push)
-                tabs["streams"][tab] -= 1
+                if live_here:
+                    worker.stop_listening(push)
+                    tabs["streams"][tab] -= 1
 
         return StreamingResponse(lines(), media_type="application/x-ndjson")
 
