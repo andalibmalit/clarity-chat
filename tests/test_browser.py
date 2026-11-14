@@ -1717,3 +1717,22 @@ def test_a_lost_page_doesnt_reload_from_another_start(clarity, page):
     page.wait_for_selector("body[data-page=stopped], body[data-page=ready]", timeout=10_000)
     assert page.evaluate("window.samePage") is True  # not reloaded
     assert page.get_attribute("body", "data-page") == "stopped"
+
+
+# --- The Opus review, batch 4
+
+
+def test_the_picker_reads_the_profiles_again_when_it_opens(clarity, page):
+    """SHOULD 3: the picker listed the profiles as of the page's last redraw, so a profile
+    saved since (in local/profiles/, say) wasn't there until something else redrew it."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    root = redirect.parent.parent
+    (root / "profiles" / "later.toml").write_text(TEXT_PROFILE, encoding="utf-8")
+    page.click("#picker-button")
+    page.wait_for_selector("#picker-menu:not([hidden])")
+    assert page.query_selector("#picker-menu [data-profile=later]") is not None
+    assert page.get_attribute("#picker-button", "aria-expanded") == "true"
+    page.keyboard.press("Escape")
+    assert page.is_hidden("#picker-menu")
+    assert page.evaluate("document.activeElement.id") == "picker-button"
