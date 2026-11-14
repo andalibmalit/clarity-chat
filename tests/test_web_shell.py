@@ -91,6 +91,19 @@ def test_the_picker_lists_every_profile_grouped_by_model_with_fetched_models_fir
     assert "No model is on this computer yet" not in fragment
 
 
+def test_models_with_a_fetched_profile_come_first_whatever_the_names(server):
+    """A profile on a model that isn't fetched, first by name, still goes after the
+    fetched model's group."""
+    client, session, _ = server
+    with (session.root / "models.toml").open("a", encoding="utf-8") as f:
+        f.write(OTHER_MODEL)
+    first = TEXT_PROFILE.replace('model = "tiny"', 'model = "other"')
+    (session.root / "profiles" / "aaa.toml").write_text(first, encoding="utf-8")
+    names = [p["name"] for p in command(client, "profiles").json()["result"]["profiles"]]
+    assert names[0] == "aaa"
+    assert rows(get_view(client, "picker")) == ["chat", "text", "aaa"]
+
+
 def test_the_picker_escapes_a_description(server):
     """B5's fixture, for the picker: a description holding markup is shown as text."""
     client, session, _ = server
@@ -171,10 +184,22 @@ def test_over_80_percent_the_figure_turns_to_a_warning(small):
     )
 
 
+def test_under_80_percent_the_figure_isnt_a_warning(small):
+    client = small
+    command(client, "say", "x" * 70)
+    call = command(client, "prompt").json()["result"]["call"]
+    n, ctx = call["n_prompt_client"], call["n_ctx"]
+    assert 0.5 * ctx < n <= CONTEXT_WARN_FRACTION * ctx  # the setup: over half, under 80%
+    fragment = get_view(client, "picker")
+    assert f'class="ctx">{n / ctx:.0%}' in fragment and "ctx hot" not in fragment
+
+
 def test_after_a_message_that_doesnt_fit_the_figure_is_the_reply_s(small):
-    """The data walk: a call refused for its size isn't counted; the head reply's is."""
+    """The data walk: a call refused for its size isn't counted; the head reply's is (the
+    last reply, not the first)."""
     client = small
     command(client, "say", "Hi")
+    command(client, "say", "Hello there")
     replied = command(client, "prompt").json()["result"]["call"]
     refused = command(client, "say", "x" * 200).json()
     assert refused["type"] == "ContextError"
@@ -234,6 +259,25 @@ def test_the_context_figure_stays_while_a_reply_is_written(server):
         thread.join(10)
     n, ctx = call["n_prompt_client"], call["n_ctx"]
     assert still and f"{n / ctx:.0%} · {n:,} of {ctx:,} tokens" in fragment
+
+
+def test_the_picker_doesnt_wait_for_a_command_that_isnt_a_reply(server):
+    """Only a reply or a model start makes the picker wait; a quick command doesn't."""
+    client, session, _ = server
+    command(client, "profile", "text")
+    gate, real = threading.Event(), session.history
+    session.history = lambda *a, **k: (gate.wait(5), real(*a, **k))[1]
+    holder = threading.Thread(target=lambda: command(client, "history"), daemon=True)
+    holder.start()
+    threading.Event().wait(0.2)
+    got: list[str] = []
+    reader = threading.Thread(target=lambda: got.append(get_view(client, "picker")), daemon=True)
+    reader.start()
+    threading.Event().wait(0.3)  # the view read /state while history ran
+    gate.set()
+    holder.join(5)
+    reader.join(5)
+    assert got and "aria-disabled" not in got[0]
 
 
 def test_while_a_reply_is_written_the_picker_waits_and_says_why(server):
