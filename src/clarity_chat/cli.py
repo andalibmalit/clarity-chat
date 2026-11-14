@@ -333,7 +333,7 @@ def format_resume(result: dict[str, Any]) -> str:
     differ = what_differs(record)
     lines += [f"! {item['text']}" for item in differ]
     if not differ:
-        lines.append("Nothing differs from when this chat was written.")
+        lines.append("Nothing Clarity checks differs from when this chat was written.")
     if record["chat_settings"]:
         values = ", ".join(f"{k} = {v!r}" for k, v in record["chat_settings"].items())
         lines.append(f"Restored /set values: {values}.")

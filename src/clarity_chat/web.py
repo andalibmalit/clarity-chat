@@ -960,7 +960,10 @@ async def _compare(worker: Worker, params: dict[str, str | None]) -> str:
                         if cell["note"] is None and cut is not None:
                             cell["parts"] = (cell["text"][:cut], cell["text"][cut:])
                 rows.append({"seed": seed, "cells": row})
-        complete = len(groups) == 2 and all(all(row["cells"]) for row in rows)
+        # "differs only in" holds only when every reply had the same prompt.
+        complete = (
+            len(groups) == 2 and all(all(row["cells"]) for row in rows) and compared["same_prompt"]
+        )
         if complete:
             first_ks = [r["k"] for r in replies if r["group"] == 0]
             later_ks = [r["k"] for r in replies if r["group"] == 1]
@@ -1170,6 +1173,9 @@ def replay_result(replay: dict[str, Any]) -> dict[str, Any]:
 
 
 def percent(chance: float) -> str:
+    # Rounded to whole percents, 0.996 would read "100%", certain; it isn't.
+    if chance >= 0.995:
+        return "over 99%"
     return f"{chance:.0%}" if chance >= 0.01 else "under 1%"
 
 

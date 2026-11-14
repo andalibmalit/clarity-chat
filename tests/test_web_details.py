@@ -260,7 +260,8 @@ def test_each_band_of_shading_and_the_chosen_alternative(chat):
             "transformers",
             {"unavailable": "cancelled"},
             "none recorded",
-            "None recorded: the reply was stopped.",
+            "None recorded: the reply was stopped, and Clarity can’t get the scores from a reply "
+            "it stops part way.",
         ),
     ],
 )
@@ -549,3 +550,9 @@ def test_a_call_without_a_bos_record_says_nothing_about_the_start_token(chat):
     logged.pop("prompt_ids", None)
     heading = details(client, failed["call_id"]).split("</summary>")[0]
     assert "start token" not in heading, heading
+
+
+def test_a_chance_near_certain_reads_over_99_percent():
+    """The fact-check (F4): rounded to whole percents, 0.996 read "100%", certain."""
+    assert web.percent(0.996) == "over 99%" and web.percent(0.995) == "over 99%"
+    assert web.percent(0.994) == "99%" and web.percent(0.005) == "under 1%"

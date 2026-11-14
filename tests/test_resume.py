@@ -422,7 +422,7 @@ def test_the_terminal_says_when_nothing_differs(new_session):
     output: list[str] = []
     path = str(session.conversation.log.path)
     ChatLoop(resumed, "", read=lambda d: "", write=output.append, resume=path).start()
-    assert "Nothing differs from when this chat was written." in "".join(output)
+    assert "Nothing Clarity checks differs from when this chat was written." in "".join(output)
 
 
 def test_a_failed_restart_of_the_open_chat_keeps_it_to_try_again(new_session):
