@@ -321,6 +321,10 @@ class TransformersBackend:
     def server_record(self) -> dict[str, Any] | None:
         return self.record
 
+    @property
+    def stopped(self) -> bool:
+        return False  # in-process: there's no server to stop
+
     def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
         # The context size is a limit Clarity enforces, not a property of the loaded model,
         # so a new size needs no reload, only the positions check again.

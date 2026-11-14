@@ -64,6 +64,11 @@ class Backend(Protocol):
     @property
     def server_record(self) -> dict[str, Any] | None: ...
 
+    @property
+    def stopped(self) -> bool:
+        """The model's server process has exited since it started (it needs starting again)."""
+        ...
+
     def complete(
         self,
         token_ids: list[int],

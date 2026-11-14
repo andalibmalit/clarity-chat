@@ -80,8 +80,11 @@ def format_probs(result: dict[str, Any]) -> str:
 
 
 def format_prompt(record: dict[str, Any] | None, as_repr: bool) -> str:
-    if record is None or "prompt_text" not in record:
+    if record is None:
         return "No call yet."
+    if "prompt_text" not in record:  # it failed before its prompt was built
+        call_id, error = record.get("call_id"), record.get("error")
+        return f"Call {call_id} failed before its prompt was built: {error}"
     bos = record.get("bos", {})
     # Read from the token IDs: a chat template can write its own BOS (Llama 3.1's does).
     starts = bos.get("bos_token_id") is not None and record["prompt_ids"][:1] == [
@@ -478,6 +481,11 @@ class ChatLoop:
             return True
         return self.command("say", line)
 
+    def resume_hint(self, server_stopped: bool) -> None:
+        conversation = self.session.conversation
+        if server_stopped and conversation is not None:
+            self.write(f"/resume {conversation.conversation_id} starts it again.\n")
+
     def command(self, name: str, args: str) -> bool:
         """Run a registry command and show its result. Returns False to quit."""
         try:
@@ -497,9 +505,7 @@ class ChatLoop:
         except BackendError as e:
             calling = name in ("say", "regen", "edit")
             self.write(f"\n! Call failed: {e}\n" if calling else f"! {e}\n")
-            conversation = self.session.conversation
-            if e.server_stopped and conversation is not None:
-                self.write(f"/resume {conversation.conversation_id} starts it again.\n")
+            self.resume_hint(e.server_stopped)
             return True
         except (ContextError, ConfigError) as e:
             self.write(f"! {e}\n")
@@ -516,6 +522,7 @@ class ChatLoop:
                 self.show_call(reply)
             if result.get("stopped"):
                 self.write(f"! Stopped. {result['stopped']}\n")
+                self.resume_hint(result.get("server_stopped", False))
             if len(replies) > 1:
                 self.write("/branches lists them.\n")
         elif name == "quit":
