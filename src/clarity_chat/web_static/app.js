@@ -265,6 +265,7 @@ async function draw(number) {
   openPop = null; // the thread's popovers are drawn again, closed
   openList = null;
   swap($("thread"), thread, alertOnce);
+  rove($("thread"));
   if (clarity.differOpen) showDiffer(true);
   shade(); // the thread is new: shade its reply again if Probabilities is open
   swap($("composer-row"), row);
@@ -587,7 +588,7 @@ function showWriting(running) {
   $("send").hidden = on;
   $("stop").hidden = !on;
   if (!on) {
-    $("writing-status").textContent = ""; // the region stays in the page, empty
+    $("writing-status").textContent = clarity.finished ? "Reply finished" : ""; // the region stays
     $("writing-dots").replaceChildren();
     return;
   }
@@ -608,28 +609,46 @@ function failedShown() {
   return line ? line.dataset.failed : null;
 }
 
-async function write(name, args, keep = null) {
+async function write(name, args, keep = null, from = null) {
   // A command that writes replies. A failure the thread doesn't draw (it draws a failed
-  // message from its call) shows here, with its sentence whole. Focus goes to Stop while
-  // it writes, then to the new reply's toolbar (V3Writing).
+  // message from its call) shows here, with its sentence whole. Sent from the message box,
+  // focus stays there; otherwise it goes to Stop while it writes, then to the new reply's
+  // toolbar, on the button that started it (`from`; V3Writing, V3Access).
   notice(null, null);
   const before = failedShown();
   clarity.sending = true;
   clarity.failedCall = null;
   clarity.writing = { k: null, text: "", end: 0 };
   $("writing").textContent = "";
+  clarity.finished = false;
   showWriting({ command: name, k: 1, n: 1 });
-  $("stop").focus();
+  $(name === "say" ? "message" : "stop").focus(); // Send is hidden now: never drop the focus
   const answer = await command(name, args).finally(() => (clarity.sending = false));
+  if (!answer.error) finished();
   await refresh();
   if (answer.stopped) return;
   const failure = answer.error ? [answer.type, answer.error] : answer.result && answer.result.stopped ? ["", answer.result.stopped] : null;
   if (failure && failedShown() === before) refused(name, ...failure);
   if (answer.error && name === "edit") reopenEdit(keep);
   else if (answer.error && keep !== null && !$("message").value) $("message").value = keep;
-  const toolbar = document.querySelector(".reply.last .tb button");
-  if (!answer.error && toolbar) toolbar.focus();
+  // Focus still on Stop (now hidden, so on the page) goes to the new reply's toolbar; focus
+  // you kept in the message box stays there.
+  const toolbar = document.querySelector(".reply.last .tb");
+  const button = toolbar && (toolbar.querySelector(`[data-action="${from}"]`) || toolbar.querySelector("button"));
+  const left = document.activeElement === document.body || document.activeElement === $("stop");
+  if (!answer.error && button && left) button.focus();
   else if (document.activeElement === document.body) $("message").focus();
+}
+
+function finished() {
+  // "Reply finished" in the status region, for a screen reader; gone after a few seconds.
+  clarity.finished = true;
+  $("writing-status").textContent = "Reply finished";
+  clearTimeout(clarity.finishedTimer);
+  clarity.finishedTimer = setTimeout(() => {
+    clarity.finished = false;
+    if ($("stop").hidden) $("writing-status").textContent = "";
+  }, 4000);
 }
 
 function reopenEdit(text) {
@@ -719,6 +738,7 @@ async function openReplies(button) {
     notice("!", error.message);
     return;
   }
+  rove(box);
   button.closest(".tb").after(box);
   button.setAttribute("aria-expanded", "true");
   openList = { button, box };
@@ -864,6 +884,7 @@ async function countBranches(chat) {
     const answer = chat ? await command("branches", "all") : null;
     const ends = answer && answer.result ? answer.result.ends.length : 0;
     $("branches-count").textContent = String(ends);
+    $("branches-button").setAttribute("aria-label", `Branches, ${ends}`); // its name when narrow
     $("branches-button").hidden = ends < 2;
   } finally {
     clarity.counting = false;
@@ -1166,6 +1187,128 @@ document.addEventListener("focusout", (event) => {
   }, 0);
 });
 
+// --- Appearance and access (C6)
+
+// Appearance lives in the browser's own storage, so Clarity writes no file for it.
+const THEMES = {
+  notebook: { cls: "", desc: "Notebook: serif text on warm paper. The default." },
+  neutral: { cls: "t-neutral", desc: "Neutral: plain type on white or near-black." },
+  sky: { cls: "t-sky", desc: "Sky: sea and sky around the page.", scenic: true },
+  space: { cls: "t-space", desc: "Space: stars and galaxies around the page.", scenic: true },
+  hc: { cls: "t-hc", desc: "High contrast: black and white, with heavier borders and focus rings." },
+};
+const REDUCE = window.matchMedia("(prefers-reduced-motion: reduce)");
+
+function stored(name, fallback, allowed) {
+  try {
+    const value = localStorage.getItem(`clarity.${name}`);
+    return allowed.includes(value) ? value : fallback;
+  } catch {
+    return fallback; // storage blocked: the defaults
+  }
+}
+
+function store(name, value) {
+  try {
+    localStorage.setItem(`clarity.${name}`, value);
+  } catch {
+    // storage blocked: the choice lasts until the page closes
+  }
+}
+
+const appearance = {
+  theme: stored("theme", "notebook", Object.keys(THEMES)),
+  look: stored("look", "system", ["light", "dark", "system"]),
+  motion: stored("motion", "default", ["default", "on", "off"]),
+};
+
+function applyAppearance() {
+  // A theme is a class of tokens on the page; Light or dark sets the scheme, and Match
+  // system leaves it to the browser. Motion: the switch's choice, else the system's.
+  const root = document.documentElement;
+  const theme = THEMES[appearance.theme];
+  root.className = ["clarity", theme.cls, theme.scenic ? "scenic" : "", appearance.motion === "default" ? "" : `motion-${appearance.motion}`].filter(Boolean).join(" ");
+  if (appearance.look === "system") delete root.dataset.scheme;
+  else root.dataset.scheme = appearance.look;
+  const on = appearance.motion === "default" ? !REDUCE.matches : appearance.motion === "on";
+  $("motion-row").hidden = !theme.scenic; // nothing moves in the other themes
+  $("motion").setAttribute("aria-checked", String(on));
+  $("motion-word").textContent = on ? "On" : "Off";
+  $("motion-why").hidden = !(appearance.motion === "default" && REDUCE.matches);
+  $("theme-desc").textContent = theme.desc;
+  for (const input of $("appearance").querySelectorAll("input")) {
+    input.checked = input.value === appearance[input.name];
+  }
+}
+
+clarity.on.appearance = () => {
+  applyAppearance();
+  $("appearance").showModal();
+  $("appearance").querySelector('input[name="theme"]:checked').focus();
+};
+
+document.addEventListener("change", (event) => {
+  const input = event.target.closest("#appearance input");
+  if (!input) return;
+  appearance[input.name] = input.value; // changes apply at once; there is no Save
+  store(input.name, input.value);
+  applyAppearance();
+});
+
+REDUCE.addEventListener("change", () => applyAppearance());
+applyAppearance(); // before the page shows, so it never flashes the default
+
+function toggleMotion() {
+  appearance.motion = $("motion").getAttribute("aria-checked") === "true" ? "off" : "on";
+  store("motion", appearance.motion);
+  applyAppearance();
+}
+
+// Toolbars and the replies' rows are one Tab stop each; the arrow keys move inside, and Tab
+// comes back to the control last used there.
+const ROVING = '.tb[role="toolbar"], .listpop .rows';
+
+function rove(root) {
+  for (const group of root.querySelectorAll(ROVING)) {
+    const items = itemsIn(group);
+    const kept = items.find((item) => item.dataset.action === group.dataset.last || item.dataset.switch === group.dataset.last);
+    items.forEach((item) => (item.tabIndex = -1));
+    if (items.length) (kept || items[0]).tabIndex = 0;
+  }
+}
+
+function itemsIn(group) {
+  return [...group.querySelectorAll("button:not([disabled])")];
+}
+
+document.addEventListener("focusin", (event) => {
+  const group = event.target.closest && event.target.closest(ROVING);
+  if (!group || event.target.tagName !== "BUTTON") return;
+  for (const item of itemsIn(group)) item.tabIndex = item === event.target ? 0 : -1;
+  group.dataset.last = event.target.dataset.action || event.target.dataset.switch || "";
+});
+
+$("message").addEventListener("keydown", (event) => {
+  // Enter sends and Shift+Enter starts a new line, the browser chat convention; Enter
+  // while an input method is composing belongs to it.
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+  event.preventDefault();
+  send();
+});
+
+document.addEventListener("keydown", (event) => {
+  const group = event.target.closest && event.target.closest(ROVING);
+  if (!group) return;
+  const keys = group.matches(".tb") ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"];
+  if (![...keys, "Home", "End"].includes(event.key)) return;
+  const items = itemsIn(group);
+  const at = items.indexOf(event.target);
+  if (at < 0) return;
+  event.preventDefault();
+  const to = { [keys[0]]: Math.max(at - 1, 0), [keys[1]]: Math.min(at + 1, items.length - 1), Home: 0, End: items.length - 1 }[event.key];
+  items[to].focus();
+});
+
 const THREAD = {
   "panel-close": () => closePanel(),
   branches: (element) => showPanel("branches", {}, element),
@@ -1182,7 +1325,7 @@ const THREAD = {
   "replies-close": () => closeReplies(true),
   again() {
     closeReplies(false);
-    write("regen", "same");
+    write("regen", "same", null, "replies");
   },
   compare: (element, call) => openCompare(call),
   "compare-back": () => closeCompare(),
@@ -1195,8 +1338,10 @@ const THREAD = {
     );
     setTimeout(() => (status.textContent = ""), 1600);
   },
-  regen: () => write("regen", ""),
+  regen: () => write("regen", "", null, "regen"),
   restart: () => restartModel(),
+  "appearance-close": () => $("appearance").close(),
+  motion: () => toggleMotion(),
   "chats-close": () => closeDrawer(true),
   differ: () => showDiffer(!clarity.differOpen),
   rename: () => renaming(true),
@@ -1232,7 +1377,7 @@ document.addEventListener("submit", (event) => {
   } else if (form.matches("[data-more]")) {
     const n = form.querySelector("input").value;
     closeReplies(false);
-    write("regen", n);
+    write("regen", n, null, "replies");
   } else if (form.matches("[data-note]")) {
     const text = form.querySelector("textarea").value.trim();
     if (text) annotate("note", form.closest("[data-call]").dataset.call, text);
@@ -1266,6 +1411,7 @@ document.addEventListener("DOMContentLoaded", () => {
   $("use-here").addEventListener("click", () => useHere());
   $("about-close").addEventListener("click", () => $("about").close());
   $("about").addEventListener("close", () => $("clarity-button").focus());
+  $("appearance").addEventListener("close", () => $("clarity-button").focus());
   $("stop").addEventListener("click", () => command("cancel"));
   load().catch(() => {});
 });
