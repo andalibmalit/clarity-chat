@@ -847,6 +847,9 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         action="store_true",
         help="read commands as JSON lines on stdin, write events as JSON lines (for scripts)",
     )
+    commands.add_parser(
+        "ui", help="the web interface: a page on this computer, opened in your browser"
+    )
     run = commands.add_parser(
         "run", help="collect replies for a blind test (writes runs/<run-id>/blind.md)"
     )
@@ -903,12 +906,19 @@ def run_command(args: argparse.Namespace) -> int:
         if args.command == "note":
             return cmd_annotate(args.log, "note", args.call_id, args.text)
         root = args.root.resolve() if args.root else find_root()
-        if args.command in ("chat", "run", "replay"):
+        if args.command in ("chat", "ui", "run", "replay"):
             from clarity_chat import instance
 
             with instance.hold(root, args.command) as held:  # these start a model: one at a time
                 if held.orphan:
                     print(f"clarity: {held.orphan}", file=sys.stderr)
+                if args.command == "ui":
+                    from clarity_chat import web
+
+                    on_server = held.record_server
+                    return web.serve(
+                        root, session_factory=lambda: Session(root, on_server=on_server)
+                    )
                 if args.command == "chat" and args.json:
                     return cmd_chat_json(root, args.profile, args.resume, held.record_server)
                 if args.command == "chat":

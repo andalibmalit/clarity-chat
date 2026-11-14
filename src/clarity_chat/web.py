@@ -15,10 +15,14 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import html
 import json
+import os
 import queue
 import secrets
+import sys
 import threading
+import webbrowser
 from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
@@ -173,8 +177,15 @@ class Refused(Exception):
         self.status = status
 
 
-def make_app(session: Session, secret: bytes, port: int = PORT) -> Starlette:
+def make_app(
+    session: Session,
+    secret: bytes,
+    port: int = PORT,
+    on_first_use: Callable[[], None] | None = None,
+) -> Starlette:
+    """The app. `on_first_use` runs once, at the first request with the secret."""
     worker = Worker(session)
+    first_use = [on_first_use]
     origin = f"http://127.0.0.1:{port}"
     tabs: dict[str, Any] = {"live": None, "streams": {}}  # the live tab; open streams per tab
 
@@ -184,6 +195,9 @@ def make_app(session: Session, secret: bytes, port: int = PORT) -> Starlette:
         token = given[7:].encode("utf-8", "replace") if given.startswith("Bearer ") else b""
         if not secrets.compare_digest(token, secret):
             raise Refused(401, "Open Clarity from the link in the terminal.")
+        if first_use[0] is not None:
+            done, first_use[0] = first_use[0], None
+            done()
         if request.headers.get("sec-fetch-site", "same-origin") != "same-origin":
             raise Refused(403, "Only Clarity's own page can ask for this.")
         if post:
@@ -330,7 +344,90 @@ def make_app(session: Session, secret: bytes, port: int = PORT) -> Starlette:
         ]
     )
     app.add_middleware(Security, port=port)
+    app.state.worker = worker
     return app
+
+
+def serve(
+    root: Path,
+    port: int = PORT,
+    session_factory: Callable[[], Session] | None = None,
+    opener: Callable[[Path], Any] | None = None,
+    on_ready: Callable[[Any], None] | None = None,
+    write: Callable[[str], Any] = print,
+    read_lines: bool = True,
+) -> int:
+    """`clarity ui`: serve the page until Ctrl-C, Quit or a closed terminal. The link, with
+    a secret made for this start in its fragment, is printed and opened through a private
+    redirect file (a link in `open`'s arguments would show in other users' process lists).
+    Enter prints and opens it again."""
+    import socket
+
+    import uvicorn
+
+    with socket.socket() as probe:  # refused here, before anything starts
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError as e:
+            raise ConfigError(f"Can't start: port {port} is in use ({e.strerror}).") from e
+    secret = secrets.token_urlsafe(32)
+    link = f"http://127.0.0.1:{port}/#key={secret}"
+    redirect = root / "local" / "clarity-open.html"
+    redirect.parent.mkdir(exist_ok=True)
+    redirect.unlink(missing_ok=True)  # one an earlier start left; this start makes its own
+    fd = os.open(
+        redirect, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o600
+    )
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(REDIRECT.format(link=html.escape(link, quote=True)))
+    session = (session_factory or (lambda: Session(root)))()
+    app = make_app(
+        session, secret.encode(), port, on_first_use=lambda: redirect.unlink(missing_ok=True)
+    )
+    open_page = opener or (lambda path: webbrowser.open(path.as_uri()))
+    write(
+        f"Clarity is at {link}\n(the link works until Clarity stops). Enter opens it again; "
+        "Ctrl-C stops Clarity.\n"
+    )
+    open_page(redirect)
+    config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=port,
+        access_log=False,  # its lines would hold request paths; the secret is in the fragment
+        log_level="warning",
+        lifespan="off",
+        timeout_graceful_shutdown=2,  # an open event stream mustn't hold the exit
+    )
+    server = uvicorn.Server(config)
+    if on_ready:
+        on_ready(server)
+    if read_lines:
+
+        def again() -> None:
+            for _ in sys.stdin:
+                write(f"Clarity is at {link}\n")
+                webbrowser.open(link)
+
+        threading.Thread(target=again, daemon=True).start()
+    try:
+        server.run()
+    finally:
+        worker: Worker = app.state.worker
+        worker.commands.run("cancel", "", lambda event: None)  # a reply in progress stops
+        with worker.commands.busy:  # and its record is written before the session closes
+            pass
+        session.close()
+        redirect.unlink(missing_ok=True)
+    return 0
+
+
+REDIRECT = """<!doctype html>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="0;url={link}">
+<title>Opening Clarity</title>
+<p><a href="{link}">Open Clarity</a></p>
+"""
 
 
 def _thread(worker: Worker, params: Any) -> str:
