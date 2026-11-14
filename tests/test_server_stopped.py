@@ -265,3 +265,24 @@ def test_with_no_chat_open_a_stopped_server_reads_as_no_model(fetched_root, tiny
     session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
     backend.stopped = True
     assert Commands(session).run("state", "", lambda e: None)["model"] == "none"
+
+
+def test_the_terminal_names_the_log_to_resume_a_copied_chat(fetched_root, tiny_tokenizer):
+    """Finding 4: /resume takes the log file's name, which differs from the conversation
+    ID for a copied or renamed log (CP4 finding 10's sibling, in the terminal)."""
+    import shutil
+
+    from clarity_chat.cli import ChatLoop
+
+    backend = FakeBackend([" one", " two"], tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    session.new_conversation("text")
+    session.say("a")
+    copy = shutil.copy(session.conversation.log.path, session.logs_dir / "my-copy.jsonl")
+    output: list[str] = []
+    loop = ChatLoop(session, "", read=lambda d: "", write=output.append, resume=str(copy))
+    loop.start()
+    assert session.conversation.conversation_id != "my-copy"
+    backend.stopped = True
+    loop.handle("Hi")
+    assert "/resume my-copy starts it again." in "".join(output)
