@@ -1,3 +1,17 @@
-<ol class="thread">
+{% macro warnings() %}{% for warning in state.warnings %}<div class="problem"><p role="alert"><strong>!</strong> {{ warning }}</p></div>
+{% endfor %}{% endmacro %}{% if starting %}<div class="center">
+<p class="st" role="status"><span class="dot" aria-hidden="true"></span>{% if starting.name %}Starting {{ starting.name }}…{% else %}Starting…{% endif %}</p>
+{% if starting.model_name %}<p class="d2">{{ starting.model_name }} · runs on {{ starting.backend }}</p>
+{% endif %}<p class="d2">A large model can take a minute to start.</p>
+</div>
+{% elif not state.conversation_id %}<div class="first">{% if has_chats %}<p class="hint">Or open an earlier chat from <button type="button" class="linkbtn" data-action="chats">Chats</button>.</p>{% endif %}</div>
+{% elif intro %}<div class="opening">
+<div class="center intro">
+<p class="pname">{{ state.profile }}</p>
+<p class="d2">{{ state.model_name }} · runs on {{ intro.backend }}{% if intro.steering %} · {{ intro.steering }}{% endif %}</p>
+<p class="lead">Every reply is logged with exactly what the model got. Open Details under a reply to see it, or Settings to change how it answers.</p>
+</div>
+{{ warnings() }}</div>
+{% else %}{{ warnings() }}{% endif %}<ol class="thread">
 {% for turn in turns %}  <li class="turn {{ turn.role }}" data-turn="{{ turn.turn_id }}">{{ turn.text }}</li>
 {% endfor %}</ol>

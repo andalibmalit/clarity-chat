@@ -30,6 +30,7 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from starlette.applications import Starlette
+from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.requests import Request
 from starlette.responses import (
@@ -44,10 +45,10 @@ from starlette.routing import Route
 from starlette.types import Message, Receive, Scope, Send
 
 from clarity_chat.backends import BackendError
-from clarity_chat.commands import CALL_ID, Commands
+from clarity_chat.commands import CALL_ID, REPLY_COMMANDS, Commands
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.profiles import ConfigError
-from clarity_chat.session import ContextError, Session
+from clarity_chat.session import CONTEXT_WARN_FRACTION, ContextError, Session
 
 PORT = 8765  # fixed, a constant: server.toml describes llama-server only
 STATIC = Path(__file__).parent / "web_static"
@@ -301,7 +302,10 @@ def make_app(
         except Refused as e:
             return PlainTextResponse(str(e), e.status)
         answer = await worker.ask(parsed["command"], parsed.get("args", ""))
-        return json_response({"id": parsed.get("id"), **answer})
+        response = json_response({"id": parsed.get("id"), **answer})
+        if parsed["command"] == "quit" and "result" in answer:  # Quit Clarity, from the page
+            response.background = BackgroundTask(lambda: app.state.quit())
+        return response
 
     async def take_tab(request: Request) -> Response:
         try:
@@ -404,6 +408,7 @@ def make_app(
     )
     app.state.worker = worker
     app.state.rearm = lambda callback: first_use.__setitem__(0, callback)
+    app.state.quit = lambda: None  # after a quit's answer is sent; serve() stops the server
     return Security(app, port)
 
 
@@ -459,6 +464,7 @@ def serve(
         timeout_graceful_shutdown=2,  # an open event stream mustn't hold the exit
     )
     server = uvicorn.Server(config)
+    app.state.quit = lambda: setattr(server, "should_exit", True)
     if on_ready:
         on_ready(server)
     if read_lines:
@@ -511,12 +517,133 @@ REDIRECT = """<!doctype html>
 """
 
 
-async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
-    """The thread, from /state's turns: a read that runs at once, mid-reply included."""
-    answer = await worker.ask("state", "")
+async def result_of(worker: Worker, name: str, args: str = "") -> dict[str, Any]:
+    """A command's result for a view. An error here is the session's (a view runs only reads
+    that can't be refused), so the view answers 503 with its sentence."""
+    answer = await worker.ask(name, args)
     if "error" in answer:
         raise Refused(503, answer["error"])
-    return templates.get_template("thread.html").render(turns=answer["result"]["turns"])
+    return answer["result"]
+
+
+def starting_profile(state: dict[str, Any], profiles: list[dict[str, Any]]) -> dict | None:
+    """The profile a model start is for, as /profiles lists it, or None when nothing starts.
+    /state's chat is still the one before the start, so the name comes from the command."""
+    running = state["running"]
+    if state["model"] != "starting" or running is None:
+        return None
+    name = {"profile": running["args"], "new": state["profile"]}.get(running["command"])
+    row = next((p for p in profiles if p["name"] == name), None)
+    return row or {"name": name, "model_name": None, "backend": None}
+
+
+def profile_line(profile: dict[str, Any]) -> str:
+    """A picker row's second line: what it's for, where it runs, and whether it can start."""
+    if profile["error"]:
+        return profile["error"]
+    parts = [profile["description"], f"runs on {profile['backend']}"]
+    return " · ".join([p for p in parts if p] + ([] if profile["fetched"] else ["not fetched"]))
+
+
+def picker_groups(profiles: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Profiles under their model, models with a fetched profile first, then in /profiles'
+    order; profiles that don't load last."""
+    groups: dict[str | None, dict[str, Any]] = {}
+    for profile in profiles:
+        group = groups.setdefault(
+            profile["model"], {"model_name": profile["model_name"], "rows": []}
+        )
+        group["rows"].append(profile)
+    readable = [g for model, g in groups.items() if model is not None]
+    readable.sort(key=lambda g: not any(p["fetched"] for p in g["rows"]))
+    return readable + ([groups[None]] if None in groups else [])
+
+
+def steering_words(settings: dict[str, Any]) -> str | None:
+    """How a new chat says it's steered: "steered ×0.5", "not steered" at 0, or nothing."""
+    if settings["steering"] is None:
+        return None
+    scale = settings["settings"]["steering_scale"]["value"]
+    return "not steered" if scale == 0 else f"steered ×{scale:g}"
+
+
+async def context_figure(worker: Worker, state: dict[str, Any]) -> dict[str, Any] | None:
+    """The last prompt's share of the context. A message refused for its size isn't counted
+    (nothing was sent); the reply at the head is."""
+    call = (await result_of(worker, "prompt"))["call"]
+    if call and (call.get("error") or "").startswith("ContextError"):
+        replies = [t["call_id"] for t in state["turns"] if t["role"] == "assistant"]
+        call = (await result_of(worker, "prompt", replies[-1]))["call"] if replies else None
+    if not call or "n_prompt_client" not in call:
+        return None
+    n, ctx = call["n_prompt_client"], call["n_ctx"]
+    return {
+        "text": f"{n / ctx:.0%} · {n:,} of {ctx:,} tokens",
+        "hot": n > CONTEXT_WARN_FRACTION * ctx,
+    }
+
+
+async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
+    """The thread, from /state: the turns, or the first screen (a pointer to earlier chats, a
+    model starting, a new chat's profile) and the start warnings. Every read here runs at
+    once, mid-reply included, except /settings during a start, which it doesn't ask then."""
+    state = await result_of(worker, "state")
+    starting = has_chats = intro = None
+    if state["model"] == "starting":
+        starting = starting_profile(state, (await result_of(worker, "profiles"))["profiles"])
+    elif state["conversation_id"] is None:
+        has_chats = bool((await result_of(worker, "chats"))["chats"])
+    elif not any(turn["role"] == "user" for turn in state["turns"]):
+        settings = await result_of(worker, "settings")
+        intro = {"backend": settings["backend"], "steering": steering_words(settings)}
+    return templates.get_template("thread.html").render(
+        state=state, turns=state["turns"], starting=starting, has_chats=has_chats, intro=intro
+    )
+
+
+async def _picker(worker: Worker, params: dict[str, str | None]) -> str:
+    """The row under the message box: the picker button and its list of profiles, Settings
+    with how many settings this chat changed, and the context figure."""
+    state = await result_of(worker, "state")
+    profiles = (await result_of(worker, "profiles"))["profiles"]
+    starting = starting_profile(state, profiles)
+    in_chat = state["conversation_id"] is not None and starting is None
+    running = (state["running"] or {}).get("command")
+    waits = (
+        "Waits until the model has started."
+        if starting
+        else "Waits until the reply is done."
+        if running in REPLY_COMMANDS
+        else None
+    )
+    changed = context = None
+    if in_chat:
+        settings = (await result_of(worker, "settings"))["settings"]
+        changed = sum(1 for s in settings.values() if s["origin"] == "chat")
+        if running is None:  # /prompt waits its turn: not asked while a command runs
+            context = await context_figure(worker, state)
+    button = starting or (
+        {"name": state["profile"], "model_name": state["model_name"]} if in_chat else None
+    )
+    return templates.get_template("picker.html").render(
+        button=button,
+        current=state["profile"] if in_chat else None,
+        in_chat=in_chat,
+        waits=waits,
+        changed=changed,
+        context=context,
+        groups=picker_groups(profiles),
+        nothing_fetched=not any(p["fetched"] for p in profiles),
+        line=profile_line,
+    )
+
+
+async def _about(worker: Worker, params: dict[str, str | None]) -> str:
+    """About Clarity: the version and commit running, and the llama.cpp commit it pins."""
+    state = await result_of(worker, "state")
+    return templates.get_template("about.html").render(
+        clarity=state["clarity"], llama_cpp_commit=state["llama_cpp_commit"]
+    )
 
 
 def event_line(event: dict[str, Any]) -> bytes:
@@ -543,4 +670,4 @@ def json_response(content: dict[str, Any]) -> Response:
     return Response(body, media_type="application/json")
 
 
-VIEW_RENDERERS = {"thread": _thread}
+VIEW_RENDERERS = {"thread": _thread, "picker": _picker, "about": _about}

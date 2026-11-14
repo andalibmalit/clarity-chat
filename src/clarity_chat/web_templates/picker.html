@@ -1,0 +1,13 @@
+<button type="button" class="picker" id="picker-button" aria-haspopup="menu" aria-expanded="false" aria-controls="picker-menu"{% if button %} aria-label="Profile: {{ button.model_name }} · {{ button.name }}. Start a new chat with another profile"{% endif %}{% if waits %} aria-disabled="true" aria-describedby="picker-waits"{% endif %}><span class="nm">{% if button %}{{ button.model_name }} · {{ button.name }}{% else %}Choose a profile{% endif %}</span><svg class="icon sm" aria-hidden="true"><use href="#i-up"></use></svg></button>
+{% if waits %}<span class="vh" id="picker-waits">{{ waits }}</span>
+{% endif %}{% if changed is not none %}<button type="button" class="setbtn" data-action="settings"><svg class="icon sm" aria-hidden="true"><use href="#i-sliders"></use></svg>Settings{% if changed %} <span class="ch">· {{ changed }} changed</span>{% endif %}</button>
+{% endif %}{% if context %}<span class="ctx{% if context.hot %} hot{% endif %}">{% if context.hot %}! {% endif %}{{ context.text }}</span>
+{% endif %}{% set heading = "Start a new chat with" if in_chat else "Choose a profile to start" %}<div class="menu pickmenu" id="picker-menu" role="menu" aria-label="{{ heading }}"{% if nothing_fetched %} aria-describedby="picker-none"{% endif %} hidden>
+<div class="mhead{% if not in_chat %} big{% endif %}">{{ heading }}</div>
+{% if nothing_fetched %}<p class="pnote" id="picker-none">No model is on this computer yet, so none of these can start. Pick one to see how to fetch its model.</p>
+{% endif %}{% for group in groups %}<div role="group" aria-label="{{ group.model_name or "Profiles that don't load" }}">
+<div class="grp" aria-hidden="true">{{ group.model_name or "Profiles that don't load" }}</div>
+{% for p in group.rows %}<button type="button" class="mi{% if not p.fetched %} nf{% endif %}{% if p.error %} err{% endif %}" role="menuitemradio" aria-checked="{{ 'true' if p.name == current else 'false' }}"{% if p.name == current %} aria-current="true"{% endif %} data-profile="{{ p.name }}"><span class="t"><span class="pname">{{ p.name }}{% if p.steered %}<span class="stag">steered</span>{% endif %}{% if p.local %}<span class="stag">yours</span>{% endif %}</span><span class="d2">{% if p.error %}! {% endif %}{{ line(p) }}</span></span>{% if p.name == current %}<span class="r chk" aria-hidden="true">✓</span>{% endif %}</button>
+{% endfor %}</div>
+{% endfor %}{% if in_chat %}<p class="note3">Your current chat stays as it is.</p>
+{% endif %}</div>

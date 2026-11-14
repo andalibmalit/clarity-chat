@@ -9,10 +9,66 @@
 <script src="/static/app.js" defer></script>
 </head>
 <body>
-<main id="app">
-<p id="status" role="status">Starting…</p>
-<button id="use-here" type="button" hidden>Use it here</button>
+<svg class="defs" aria-hidden="true"><defs>
+<symbol id="i-logo" viewBox="0 0 64 64"><path d="M47.56 16.44A22 22 0 1 0 47.56 47.56" fill="none" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"></path><circle cx="32" cy="32" r="5.2" fill="currentColor"></circle></symbol>
+<symbol id="i-down" viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"></path></symbol>
+<symbol id="i-up" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"></path></symbol>
+<symbol id="i-right" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"></path></symbol>
+<symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"></path></symbol>
+<symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"></path><circle cx="16" cy="6" r="2"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="18" cy="18" r="2"></circle></symbol>
+</defs></svg>
+
+<div class="app bubbles" id="app">
+<button type="button" class="handle" data-action="chats" aria-label="Show chats" aria-expanded="false"><svg class="icon sm" aria-hidden="true"><use href="#i-right"></use></svg><span>Chats</span></button>
+<main class="mn">
+<div class="top">
+<button type="button" class="brandbtn" id="clarity-button" aria-haspopup="menu" aria-expanded="false" aria-controls="clarity-menu"><svg class="logo" aria-hidden="true"><use href="#i-logo"></use></svg>Clarity<svg class="icon sm" aria-hidden="true"><use href="#i-down"></use></svg></button>
+<button type="button" class="title" id="title" aria-haspopup="menu" aria-expanded="false" hidden><span id="title-text"></span><svg class="icon sm" aria-hidden="true"><use href="#i-down"></use></svg></button>
+<span class="spacer"></span>
+</div>
+<div class="menu appmenu" id="clarity-menu" role="menu" aria-label="Clarity" hidden>
+<button type="button" class="mi" role="menuitem" data-action="new" id="new-chat">New chat</button>
+<button type="button" class="mi" role="menuitem" data-action="chats">Chats</button>
+<div class="msep" role="separator"></div>
+<button type="button" class="mi" role="menuitem" data-action="appearance">Appearance…</button>
+<div class="msep" role="separator"></div>
+<a class="mi" role="menuitem" id="help" data-base="https://github.com/andalibmalit/clarity-chat/tree/" target="_blank" rel="noopener noreferrer">Help and docs</a>
+<button type="button" class="mi" role="menuitem" data-action="about">About Clarity</button>
+<div class="msep" role="separator"></div>
+<button type="button" class="mi" role="menuitem" data-action="quit">Quit Clarity</button>
+</div>
+<div class="threadarea"><div class="col">
+<div id="thread"></div>
 <div id="writing" aria-live="polite"></div>
+<div id="notice"></div>
+</div></div>
+<div class="cpwrap">
+<form class="cp" id="composer"><label class="vh" for="message">Message</label><textarea id="message" rows="2" placeholder="Message" disabled></textarea><div class="row"><span class="spacer"></span><button type="submit" class="send" id="send" aria-label="Send" disabled><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button></div></form>
+<div class="under" id="composer-row"></div>
+</div>
 </main>
+<dialog class="sheet" id="about" aria-labelledby="about-title"><div id="about-body"></div><div class="actions"><button type="button" class="btn" id="about-close">Close</button></div></dialog>
+</div>
+
+<div class="plain" data-for="no-key">
+<svg class="logo" aria-hidden="true"><use href="#i-logo"></use></svg>
+<p class="ink">Open Clarity from the link in the terminal.</p>
+</div>
+
+<div class="plain" data-for="not-live">
+<svg class="logo" aria-hidden="true"><use href="#i-logo"></use></svg>
+<h1>Clarity is open in another tab.</h1>
+<p>One tab at a time can use it, so the chat stays the same in both.</p>
+<button type="button" class="btn pri" id="use-here">Use it here</button>
+</div>
+
+<div class="plain" data-for="stopped">
+<svg class="logo" aria-hidden="true"><use href="#i-logo"></use></svg>
+<h1 id="stopped-plain">Clarity has stopped.</h1>
+<h1 id="stopped-crash" hidden>Clarity stopped after an unexpected error.</h1>
+<p class="errbox" id="stopped-error" role="alert" hidden></p>
+<p>Your chats are saved. To use Clarity again, start it the way you did before and open the new link it gives you.</p>
+<p id="stopped-why">If you didn’t stop it, the window where you started it says why.</p>
+</div>
 </body>
 </html>
