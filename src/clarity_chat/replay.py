@@ -188,6 +188,17 @@ def first_difference(old: Any, new: Any) -> int:
     )
 
 
+def replay_notes(record: dict[str, Any]) -> list[str]:
+    """What a replay couldn't compare, in the sentences the terminal and the web page show."""
+    notes = []
+    if not record["logged_server_found"]:
+        notes.append("The log has no record of the server that made this call.")
+    if record.get("not_recorded"):
+        missing = ", ".join(record["not_recorded"])
+        notes.append(f"Not compared, because the log doesn't record them: {missing}.")
+    return notes
+
+
 def unexplained(identical: bool, diffs: dict[str, Any]) -> bool:
     """The output differs, yet nothing that could change it differs."""
     return not identical and set(diffs) <= CANNOT_CHANGE_OUTPUT

@@ -14,6 +14,7 @@ from clarity_chat.backends import BackendError
 from clarity_chat.commands import Commands
 from clarity_chat.logs import torn_message
 from clarity_chat.profiles import ConfigError, find_root, load_models, load_server_config
+from clarity_chat.replay import replay_notes
 from clarity_chat.resume import render_line, what_differs
 from clarity_chat.session import (
     CancelledBeforeReply,
@@ -392,8 +393,6 @@ def format_replay(record: dict[str, Any]) -> str:
             f"  now:    {short(record['output_text'], 200)}",
         ]
     diffs = record["differences"]
-    if not record["logged_server_found"]:
-        lines.append("The log has no record of the server that made this call.")
     if diffs:
         lines.append("Differs from the logged call:")
         for fact, entries in diffs.items():
@@ -408,9 +407,7 @@ def format_replay(record: dict[str, Any]) -> str:
             "Nothing recorded differs: build, flags, /props, environment, machine, model file, "
             "client."
         )
-    if record.get("not_recorded"):
-        missing = ", ".join(record["not_recorded"])
-        lines.append(f"Not compared, because the log doesn't record them: {missing}.")
+    lines += replay_notes(record)  # what the log doesn't record, so wasn't compared
     if record["unexplained_difference"]:
         lines.append(
             "! The output differs, but nothing that could change it does. That is the "
