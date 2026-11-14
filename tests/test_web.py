@@ -9,11 +9,13 @@ from __future__ import annotations
 import json
 import sys
 import threading
+from html.parser import HTMLParser
 
 import pytest
 from starlette.testclient import TestClient
 
 from clarity_chat import web
+from clarity_chat.commands import CALL_ID
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend
 
@@ -23,6 +25,7 @@ SECRET = "s3cret-for-tests"
 AUTH = {"Authorization": f"Bearer {SECRET}"}
 SAME = {"Sec-Fetch-Site": "same-origin"}
 POST = {**AUTH, **SAME, "Origin": ORIGIN, "Content-Type": "application/json"}
+GET = {**AUTH, **SAME}
 
 # The plan's route table: method, path, needs the secret.
 ROUTES = {
@@ -978,3 +981,83 @@ def test_ctrl_c_tells_the_page_clarity_stopped_before_its_stream_closes(
     thread.join(10)
     assert not thread.is_alive()
     assert [json.loads(line) for line in lines] == [{"event": "stopped"}]
+
+
+HOSTILE = '<script>alert(1)</script>"><img src=x onerror=alert(2)>{{ 7*7 }}\' onmouseover=x a="'
+# Every tag the templates write: anything else in a view came from text that wasn't escaped.
+TAGS = {
+    "a", "button", "code", "datalist", "dd", "details", "div", "dl", "dt", "form", "h2",
+    "h3", "input", "label", "li", "mark", "ol", "option", "p", "pre", "span", "strong",
+    "summary", "svg", "textarea", "ul", "use",
+}  # fmt: skip
+
+
+class Unsafe(HTMLParser):
+    """A view parsed as a browser would: a tag no template writes, an attribute that runs
+    or styles, a link off the page's icons, or a call ID that isn't one."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found: list[tuple[str, ...]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag not in TAGS:
+            self.found.append(("tag", tag))
+        for name, value in attrs:
+            if name.startswith("on") or name in ("style", "srcdoc", "formaction", "action"):
+                self.found.append(("attribute", tag, name))
+            if name == "href" and not (value or "").startswith("#i-"):
+                self.found.append(("href", tag, value or ""))
+            if name in ("data-call", "data-failed") and not CALL_ID.fullmatch(value or ""):
+                self.found.append((name, tag, value or ""))
+
+
+def test_every_view_shows_hostile_text_as_text(fetched_root, tiny_tokenizer, tmp_path):
+    """Batch 3, 2: B5's fixture in every field a user, a model or a log fills (a message,
+    replies, a mark's label, a note, a title, a failed call's error, probabilities), through
+    every view. A failed call whose ID a hand-edited log changed gets no call controls."""
+    from tests.test_web_details import fake_logprobs
+
+    backend = FakeBackend([], tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    with TestClient(web.make_app(session, SECRET.encode(), port=PORT), base_url=ORIGIN) as client:
+
+        def result(name, args=""):
+            answer = command(client, name, args).json()
+            assert "result" in answer, answer
+            return answer["result"]
+
+        result("profile", "text")
+        result("set", "max_tokens 400")
+        backend.replies = [HOSTILE, HOSTILE + " two"]
+        backend.logprobs = fake_logprobs(
+            tiny_tokenizer, [*tiny_tokenizer.encode(HOSTILE), tiny_tokenizer.tok.eos_token_id]
+        )
+        call = result("say", HOSTILE)["call"]["call_id"]
+        result("regen")
+        result("mark", f"{call} {HOSTILE}")
+        result("note", f"{call} {HOSTILE}")
+        result("title", HOSTILE)
+        result("export")
+        backend.fail_with = HOSTILE
+        command(client, "say", HOSTILE)
+        failed = result("prompt")["call"]["call_id"]
+        named = ("replies", "compare", "details")  # these take a call
+        views = [(name, "") for name in web.VIEW_RENDERERS if name not in named]
+        views += [(name, call) for name in named]
+        views += [("details", failed)]
+        found, texts = {}, {}
+        for name, at in views:
+            response = client.get(f"/view/{name}", params={"call": at} if at else {}, headers=GET)
+            assert response.status_code == 200, (name, response.text)
+            parser = Unsafe()
+            parser.feed(response.text)
+            found[f"{name} {at}"] = parser.found
+            texts[f"{name} {at}"] = response.text
+        session.conversation.last_call["call_id"] = 'x" onclick="alert(3)'  # a hand-edited log
+        parser = Unsafe()
+        parser.feed(client.get("/view/thread", headers=GET).text)
+        found["thread, hand-edited"] = parser.found
+    assert {view: bad for view, bad in found.items() if bad} == {}
+    assert "likeliest per token" in texts[f"details {call}"]  # the probabilities were drawn
+    assert "&lt;script&gt;" in texts["thread "] and "! Failed:" in texts["thread "]
