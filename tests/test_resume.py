@@ -392,3 +392,20 @@ def test_the_differ_count_counts_each_changed_models_toml_key():
     }
     (item,) = what_differs(record)
     assert item["count"] == 2 and "revision, tokenizer_revision" in item["text"]
+
+
+def test_the_differ_count_counts_each_changed_fact():
+    """Checkpoint 1, finding 8."""
+    from clarity_chat.resume import what_differs
+
+    record = {
+        "profile_file": "same",
+        "ctx_size": {"value": 8192, "origin": "log"},
+        "model_entry": [],
+        "settings_differ_today": [],
+        "differences": ["machine", "libraries"],
+        "compared_with_call": "call-000000000000",
+        "render": None,
+    }
+    (item,) = what_differs(record)
+    assert item["count"] == 2

@@ -191,3 +191,47 @@ def test_state_gives_what_differs_after_a_resume_until_the_next_call(commands, f
     assert state(c).get("resume_differ") == resumed["differ"] and resumed["differ"]["count"]
     c.run("say", "Again", lambda e: None)
     assert state(c).get("resume_differ") is None
+
+
+def test_a_failed_start_leaves_no_model_starting(commands):
+    """Checkpoint 1, finding 4: a /profile that fails with no conversation isn't "starting"."""
+    c, _ = commands
+    with pytest.raises(Exception):  # noqa: B017 - which error isn't the point
+        c.run("profile", "no-such-profile", lambda e: None)
+    assert state(c)["model"] == "none"
+
+
+def test_unanswered_comes_back_after_a_resume(commands):
+    """Checkpoint 1, finding 5."""
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    backend.fail_with = "made-up failure"
+    with pytest.raises(BackendError):
+        c.run("say", "Lost one", lambda e: None)
+    backend.fail_with = None
+    c.run("resume", c.session.conversation.conversation_id, lambda e: None)
+    assert state(c)["unanswered"]["text"] == "Lost one"
+
+
+def test_state_gives_the_servers_start_warnings(commands):
+    """Checkpoint 1, finding 10."""
+    c, backend = commands
+    backend.start_warnings = ["A made-up start warning."]
+    c.run("profile", "text", lambda e: None)
+    assert state(c)["warnings"] == ["A made-up start warning."]
+
+
+def test_state_on_400_exchanges_is_quick(fetched_root, tiny_tokenizer):
+    """The plan's size test for item 10."""
+    import time
+
+    backend = FakeBackend([" ok"] * 400, n_ctx=100_000, tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    session.new_conversation("text")
+    for _ in range(400):
+        session.say("m")
+    c = Commands(session)
+    started = time.perf_counter()
+    assert len(state(c)["turns"]) == 800
+    assert time.perf_counter() - started < 5
