@@ -383,7 +383,7 @@ def test_undo_mark_and_note_commands(chat):
     loop.handle("/undo")
     text = "".join(output)
     assert "Marked call-" in text
-    assert "Usage: /note TEXT" in text
+    assert "Usage: /note [CALL_ID] TEXT" in text
     assert "continues at the start" in text
 
 

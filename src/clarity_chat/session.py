@@ -721,14 +721,23 @@ class Session:
         assert head is not None
         return head, render
 
-    def annotate(self, kind: str, text: str) -> list[dict[str, Any]]:
-        """A `mark`, `unmark` or `note` on the current reply. See `annotate_call`."""
+    def annotate(
+        self, kind: str, text: str, call: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """A `mark`, `unmark` or `note` on the current reply, or on `call`'s reply. See
+        `annotate_call`."""
         conversation = self._require_conversation()
-        reply = conversation.current_reply(kind)
+        if call is None:
+            reply = conversation.current_reply(kind)
+            call_id, turn_id = reply.call_id, reply.turn_id
+        elif not call.get("turn_id"):
+            raise ConfigError(f"Call {call['call_id']} failed, so it has no reply to {kind}.")
+        else:
+            call_id, turn_id = call["call_id"], call["turn_id"]
         about = {
             "conversation_id": conversation.conversation_id,
-            "call_id": reply.call_id,
-            "turn_id": reply.turn_id,
+            "call_id": call_id,
+            "turn_id": turn_id,
         }
         return annotate_call(conversation.log, about, kind, text, "live")
 
@@ -882,8 +891,10 @@ class Session:
                 record.update(result_fields(partial)[0])
             record["error"] = f"{type(e).__name__}: {e}"
             record["warnings"] = warnings
-            conversation.log.append(record)
+            # As logged (with its time), so it reads the same live and after a resume.
+            record = conversation.log.append(record)
             # A failed message names its call, so a resume shows it in /prompt as the chat did.
+            conversation.calls[call_id] = record  # readable by its ID (/prompt CALL_ID)
             failed = {"call_id": call_id} if back_to is None else {}
             conversation.move_head(back_to or user_turn.parent_id, "failed", **failed)
             if back_to is None:
@@ -905,7 +916,7 @@ class Session:
         # The call record names the reply's turn, and is written before the turn record.
         reply_id = new_id("turn")
         record["turn_id"] = reply_id
-        conversation.log.append(record)
+        record = conversation.log.append(record)  # as logged, as after a resume
         reply = conversation.add_turn(
             "assistant",
             "model",
@@ -953,12 +964,17 @@ class Session:
 
     # --- replay ---------------------------------------------------------------------------
 
-    def replay_current(self, cancel: threading.Event | None = None) -> dict[str, Any]:
-        """Replay the current reply's call on the running server."""
+    def replay_current(
+        self, cancel: threading.Event | None = None, call: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Replay the current reply's call, or `call`, on the running server."""
         conversation = self._require_conversation()
-        reply = conversation.current_reply("replay")
-        assert reply.call_id is not None
-        return self.replay(conversation.log.path, reply.call_id, conversation.log, cancel=cancel)
+        if call is None:
+            call_id = conversation.current_reply("replay").call_id
+            assert call_id is not None
+        else:
+            call_id = call["call_id"]
+        return self.replay(conversation.log.path, call_id, conversation.log, cancel=cancel)
 
     def replay(
         self,

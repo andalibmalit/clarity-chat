@@ -19,7 +19,7 @@ class Rebuilt:
 
     start: dict[str, Any]  # the `conversation` record
     turns: list[dict[str, Any]] = field(default_factory=list)  # `turn` records, in order
-    calls: dict[str, dict[str, Any]] = field(default_factory=dict)  # calls with a reply
+    calls: dict[str, dict[str, Any]] = field(default_factory=dict)  # every call, by ID
     head: str | None = None
     head_guessed: bool = False  # a log from before head records (v0.1.0)
     chat_settings: dict[str, Any] = field(default_factory=dict)
@@ -64,7 +64,7 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
         elif kind == "call" and record.get("turn_id"):
             out.calls[record["call_id"]] = out.last_call = record
         elif kind == "call":
-            failed[record["call_id"]] = record
+            failed[record["call_id"]] = out.calls[record["call_id"]] = record
         elif kind == "settings":
             out.chat_settings = record["chat_settings"]
         elif kind == "server_start":

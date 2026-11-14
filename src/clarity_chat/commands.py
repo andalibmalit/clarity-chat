@@ -80,6 +80,24 @@ class Commands:
         return {"call": outcome.record, "warnings": outcome.warnings}
 
 
+CALL_ID = re.compile(r"call-[0-9a-f]{12}")  # as logs.new_id makes them
+
+
+def target(c: Commands, args: str) -> tuple[dict[str, Any] | None, str]:
+    """The call a command's first word names, and the rest of its arguments. Only a whole
+    call ID names a call, and it must be one of this conversation's, failed calls included;
+    any other first word is the command's own text. None: the current reply."""
+    first, _, rest = args.partition(" ")
+    if not CALL_ID.fullmatch(first):
+        return None, args
+    conversation = c.session.conversation
+    assert conversation is not None
+    call = conversation.calls.get(first)
+    if call is None:
+        raise ConfigError(f"{first} isn't a call in this conversation.")
+    return call, rest.strip()
+
+
 def needs(args: str, usage: str) -> str:
     if not args:
         raise ConfigError(f"Usage: {usage}")
@@ -207,15 +225,24 @@ def _resume(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _annotate(kind: str) -> Callable[[Commands, str, Emit], dict[str, Any]]:
-    """mark and unmark take an optional label; note needs its text."""
-    return lambda c, args, emit: {
-        "records": c.session.annotate(kind, needs(args, "/note TEXT") if kind == "note" else args)
-    }
+    """mark and unmark take an optional label; note needs its text. Each can name a call."""
+
+    def run(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+        call, text = target(c, args)
+        if kind == "note":
+            needs(text, "/note [CALL_ID] TEXT")
+        return {"records": c.session.annotate(kind, text, call)}
+
+    return run
 
 
 def _prompt(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    """The latest call's record, or the call named. `repr` is the terminal's way to show it."""
+    call, rest = target(c, args)
+    if rest not in ("", "repr"):
+        raise ConfigError("Usage: /prompt [CALL_ID]")
     assert c.session.conversation is not None
-    return {"call": c.session.conversation.last_call}
+    return {"call": call or c.session.conversation.last_call}
 
 
 LEAST_LIKELY = 10  # how many of a reply's least likely chosen tokens /probs lists
@@ -280,7 +307,10 @@ def _settings(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _replay(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    return {"replay": c.session.replay_current(c.cancel_event)}
+    call, rest = target(c, args)
+    if rest:
+        raise ConfigError("Usage: /replay [CALL_ID]")
+    return {"replay": c.session.replay_current(c.cancel_event, call)}
 
 
 def _new(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -386,8 +416,8 @@ COMMANDS: dict[str, Command] = {
         cancellable=True,
     ),
     "prompt": Command(
-        "/prompt",
-        "the exact prompt text of the last call, its token IDs and their count",
+        "/prompt [CALL_ID]",
+        "the exact prompt text of the last call (or the call named), its token IDs and count",
         _prompt,
     ),
     "probs": Command(
@@ -428,21 +458,23 @@ COMMANDS: dict[str, Command] = {
         "/switch TURN_ID", "go to another branch: its newest reply (nothing is sent)", _switch
     ),
     "mark": Command(
-        "/mark [LABEL]",
-        "label the current reply (for example landed, dropped; default interesting)",
+        "/mark [CALL_ID] [LABEL]",
+        "label the current reply or the call named (for example landed; default interesting)",
         _annotate("mark"),
     ),
     "unmark": Command(
-        "/unmark [LABEL]",
-        "remove the current reply's mark (name the label if it has several)",
+        "/unmark [CALL_ID] [LABEL]",
+        "remove a reply's mark (name the label if it has several)",
         _annotate("unmark"),
     ),
     "note": Command(
-        "/note TEXT", "add a note to the current reply (replaces its note)", _annotate("note")
+        "/note [CALL_ID] TEXT",
+        "add a note to the current reply or the call named (replaces its note)",
+        _annotate("note"),
     ),
     "replay": Command(
-        "/replay",
-        "re-send the current reply's call and compare the output",
+        "/replay [CALL_ID]",
+        "re-send the current reply's call (or the call named) and compare the output",
         _replay,
         cancellable=True,
     ),

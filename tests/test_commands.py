@@ -361,3 +361,91 @@ def test_profiles_lists_a_name_in_both_folders_as_an_error(commands, fetched_roo
     (fetched_root / "local" / "profiles" / "text.toml").write_text(text, encoding="utf-8")
     errors = [p["error"] for p in c.run("profiles", "", lambda e: None)["profiles"]]
     assert sum(bool(e) and "both" in e for e in errors) == 2
+
+
+@pytest.fixture
+def three_replies(fetched_root, tiny_tokenizer):
+    """A chat with three replies on one path: Hello, Again, Third."""
+    backend = FakeBackend([" Hello!", " Again.", " Third."], tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    c = Commands(session)
+    c.run("profile", "text", lambda e: None)
+    ids = [c.run("say", text, lambda e: None)["call"]["call_id"] for text in ("a", "b", "c")]
+    return c, backend, ids
+
+
+def run(c, line):
+    name, _, args = line.partition(" ")
+    return c.run(name, args, lambda e: None)
+
+
+def test_annotations_name_an_earlier_reply_by_its_call_id(three_replies):
+    c, _, (first, second, third) = three_replies
+    (mark,) = run(c, f"mark {first} landed")["records"]
+    assert (mark["call_id"], mark["label"]) == (first, "landed")
+    (note,) = run(c, f"note {second} was better")["records"]
+    assert (note["call_id"], note["text"]) == (second, "was better")
+    (unmark,) = run(c, f"unmark {first}")["records"]
+    assert unmark["call_id"] == first
+    head = c.session.conversation.head
+    assert c.session.conversation.turns[head].call_id == third  # nothing moved
+
+
+def test_a_label_that_only_looks_like_a_call_id_is_a_label(three_replies):
+    c, _, (_, _, third) = three_replies
+    for label in ("call-me", "call-3f9a1b2c4d5", "call-3F9A1B2C4D5E", "call-3f9a1b2c4d5e7"):
+        (mark,) = run(c, f"mark {label}")["records"]
+        assert (mark["call_id"], mark["label"]) == (third, label)
+
+
+@pytest.mark.parametrize("command", ["mark", "unmark", "note x", "prompt", "replay"])
+def test_an_unknown_call_id_is_refused_never_read_as_text(three_replies, command):
+    c, _, _ = three_replies
+    name, _, rest = command.partition(" ")
+    with pytest.raises(ConfigError, match="call-000000000000 isn't a call in this conversation"):
+        c.run(name, f"call-000000000000 {rest}".strip(), lambda e: None)
+
+
+@pytest.mark.parametrize("args", ["junk", "call-me"])
+def test_replay_refuses_anything_but_a_call_id(three_replies, args):
+    c, _, _ = three_replies
+    with pytest.raises(ConfigError, match=r"Usage: /replay \[CALL_ID\]"):
+        c.run("replay", args, lambda e: None)
+
+
+def test_prompt_and_replay_read_an_earlier_call(three_replies):
+    c, backend, (first, _, _) = three_replies
+    assert run(c, f"prompt {first}")["call"]["call_id"] == first
+    backend.replies = [" Hello!"]
+    replay = run(c, f"replay {first}")["replay"]
+    assert replay["call_id"] == first and replay["identical"]
+
+
+def test_a_failed_call_can_be_read_by_its_id_but_not_marked_or_replayed(three_replies):
+    c, backend, _ = three_replies
+    backend.fail_with = "made-up failure"
+    with pytest.raises(BackendError):
+        run(c, "say d")
+    failed = c.session.conversation.last_call
+    assert failed["error"] and not failed.get("turn_id")
+    backend.fail_with = None
+    run(c, "say e")  # the failed call is no longer the latest
+    assert run(c, f"prompt {failed['call_id']}")["call"] == failed
+    with pytest.raises(ConfigError, match="failed, so it has no reply to mark"):
+        run(c, f"mark {failed['call_id']}")
+    with pytest.raises(ConfigError, match="has no reply to compare with"):
+        run(c, f"replay {failed['call_id']}")
+    # After a resume, the same call reads the same.
+    log = c.session.conversation.conversation_id
+    run(c, f"resume {log}")
+    assert run(c, f"prompt {failed['call_id']}")["call"] == failed
+
+
+def test_a_reply_cancelled_mid_way_can_be_marked_by_its_id(three_replies):
+    c, backend, _ = three_replies
+    backend.cancel_after = 3
+    cancelled = run(c, "say d")["call"]
+    backend.cancel_after = None
+    run(c, "say e")
+    (mark,) = run(c, f"mark {cancelled['call_id']}")["records"]
+    assert mark["call_id"] == cancelled["call_id"]
