@@ -262,7 +262,8 @@ def test_a_refused_start_shows_the_backends_sentence(clarity, page):
     page.click("[data-profile=far]")
     page.wait_for_selector("#notice [role=alert]")
     assert page.text_content("#notice [role=alert]") == (
-        "! far didn’t start. Model 'other' is not fetched. Run `clarity fetch other`."
+        "! far didn’t start. Model 'other' is not fetched. In a new terminal window, in "
+        "Clarity's folder, run: uv run clarity fetch other. Then try again."
     )
     assert page.text_content("#picker-button .nm") == "Choose a profile"
     assert page.is_disabled("#message")
@@ -501,7 +502,7 @@ def test_stopped_before_any_text_says_so(clarity, page):
     backend.cancel_after = 0
     say(page, "Hi")
     page.wait_for_selector("#thread [data-failed][role=status]")
-    assert page.text_content("#thread [data-failed]") == "Cancelled before the reply started."
+    assert page.text_content("#thread [data-failed]") == "Stopped before the reply started."
     assert page.input_value("#message") == "Hi"
     shot(page, "E4-stopped-before-text", "c2")
 
@@ -926,7 +927,7 @@ def test_details_on_a_reply_and_its_replay(clarity, page):
     page.wait_for_selector("#panel [data-action=replay-stop]")
     page.click("#panel [data-action=replay-stop]")
     page.wait_for_selector("#panel .refused:not([hidden])", timeout=20_000)
-    assert "Replay cancelled" in page.text_content("#panel .refused")
+    assert "Replay stopped" in page.text_content("#panel .refused")
     page.wait_for_timeout(500)  # every redraw after the replay has landed
     assert focused(page) == "replay"
     page.keyboard.press("Escape")

@@ -151,7 +151,7 @@ Appearance (in the Clarity menu) sets the theme (Notebook, Neutral, Sky, Space o
 
 The keyboard: Enter sends and Shift+Enter starts a new line (not while an input method is composing). A reply's toolbar and the replies pop-out's rows are one Tab stop each; the arrow keys move inside, and Tab comes back to the control last used. Sent from the message box, a reply leaves the focus there; started from a toolbar or the pop-out, the focus goes to Stop, then to the button that started it on the new reply, and "Reply finished" is announced. Below 1,100 px wide, a side panel opens over the thread; below 760 px, Branches shows as its icon and count.
 
-`quit` from the page answers, then stops `clarity ui`, as Ctrl-C does. "Help and docs" opens these docs on GitHub at the running commit (or at the version's tag, outside a git checkout), so it needs the network. A page that loses its connection tries again for a few seconds, then says Clarity has stopped.
+`quit` from the page answers, then stops `clarity ui`, as Ctrl-C does. "Help and docs" opens these docs on GitHub at the running commit (or at the version's tag, outside a git checkout), so it needs the network. A page that loses its connection says "Clarity isn't answering. Trying again…" after a few seconds and keeps trying every 2 seconds; once Clarity answers, it loads the page again. "Clarity has stopped" is for Quit, or a Clarity that stopped after an unexpected error.
 
 ## Profile keys
 

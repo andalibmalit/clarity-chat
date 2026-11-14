@@ -178,7 +178,7 @@ def test_a_cancelled_replay_logs_nothing(make_session):
     session.new_conversation("text")
     session.say("Hi")
     backend.cancel_after = 2
-    with pytest.raises(ConfigError, match="cancelled"):
+    with pytest.raises(ConfigError, match="Replay stopped"):
         session.replay_current()
     kinds = [r["type"] for r in read_records(session.conversation.log.path)]
     assert "replay" not in kinds

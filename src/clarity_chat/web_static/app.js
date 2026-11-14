@@ -175,7 +175,9 @@ function apply(event) {
 
 async function stream(onHello) {
   // The event stream: JSON lines over fetch (EventSource can't send the secret).
-  const response = await request(`/events?tab=${encodeURIComponent(TAB)}`);
+  const controller = new AbortController();
+  clarity.dropStream = () => controller.abort(); // as a dropped connection does (tests)
+  const response = await request(`/events?tab=${encodeURIComponent(TAB)}`, { signal: controller.signal });
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -239,10 +241,24 @@ function reconnect() {
   if (waiting()) return;
   retry += 1;
   if (retry > 3) {
-    stopped();
+    lost();
     return;
   }
   setTimeout(() => waiting() || load().catch(() => {}), 250 * 2 ** retry);
+}
+
+function lost() {
+  // Clarity isn't answering: say so and keep asking quietly, every 2 seconds. Once it
+  // answers, load the page again. "Clarity has stopped" is only for Quit, or a server
+  // that says it stopped.
+  document.body.dataset.page = "lost";
+  setTimeout(async () => {
+    if (document.body.dataset.page !== "lost") return;
+    const answer = await command("state").catch(() => null);
+    if (answer && answer.result) location.reload();
+    else if (answer && answer.stopped) stopped(answer.error);
+    else if (document.body.dataset.page === "lost") lost();
+  }, 2000);
 }
 
 // --- The shell (C1)

@@ -479,7 +479,7 @@ def serve(
     open_page = opener or (lambda path: webbrowser.open(path.as_uri()))
     write(
         f"Clarity is at {link}\n(the link works until Clarity stops). Enter opens it again; "
-        "Ctrl-C stops Clarity.\n"
+        "Ctrl-C stops Clarity.\nKeep this window open while you use Clarity.\n"
     )
     open_page(redirect)
     config = uvicorn.Config(

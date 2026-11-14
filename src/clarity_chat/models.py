@@ -111,7 +111,10 @@ def lock_entry(root: Path, model: ModelEntry) -> dict[str, Any]:
     """The lock entry for `model`; an error if it's missing or was fetched from other settings."""
     entry = read_lock(root)["models"].get(model.name)
     if entry is None:
-        raise ConfigError(f"Model {model.name!r} is not fetched. Run `clarity fetch {model.name}`.")
+        raise ConfigError(
+            f"Model {model.name!r} is not fetched. In a new terminal window, in Clarity's "
+            f"folder, run: uv run clarity fetch {model.name}. Then try again."
+        )
     keys = ["route", "repo", "revision", "tokenizer_repo", "tokenizer_revision"]
     if model.route == "gguf":
         keys.append("file")
