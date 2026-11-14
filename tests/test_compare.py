@@ -142,7 +142,8 @@ def test_the_terminal_prints_the_groups_and_where_matched_seeds_part(chat):
     assert text.startswith("3 replies to 'Hi':")
     assert "Group 2: temperature 0.9" in text
     assert "part at token 7 (character 7)." in text
-    assert text.endswith("/regen same makes seeds 43 again at temperature 0.9.")
+    # One seed is "seed 43", not "seeds 43" (as the web page's "the same seed").
+    assert text.endswith("/regen same makes seed 43 again at temperature 0.9.")
 
 
 def test_two_replies_with_the_same_seed_and_settings_are_not_a_pair(chat):
