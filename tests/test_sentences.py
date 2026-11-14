@@ -125,3 +125,43 @@ def test_a_prompt_that_starts_with_bos_is_not_labelled_without_one():
     assert "starts with the start token (BOS)" in header and "no BOS" not in header
     record["prompt_ids"], record["prompt_text"] = [72, 105], "Hi"
     assert "no start token (BOS)" in format_prompt(record, as_repr=False).splitlines()[0]
+
+
+def test_no_conversation_and_no_such_log_name_no_command(fetched_root, tiny_tokenizer):
+    """Final checkpoint, finding 11."""
+    session = Session(
+        fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    c = Commands(session)
+    with pytest.raises(ConfigError) as caught:
+        c.run("say", "Hi", lambda e: None)
+    assert "No conversation is running" in str(caught.value)
+    assert names_no_command(str(caught.value))
+    with pytest.raises(ConfigError) as caught:
+        c.run("resume", "no-such-conversation", lambda e: None)
+    assert names_no_command(str(caught.value))
+
+
+def test_a_bad_chat_setting_in_a_resumed_log_names_no_command(make, fetched_root):
+    """Final checkpoint, finding 11: the prefix on a resume refusal."""
+    import json
+
+    session, _ = make()
+    session.say("Hi")
+    path = session.conversation.log.path
+    with path.open("a", encoding="utf-8") as log:  # a hand-edited log: a bad /set value
+        log.write(
+            json.dumps(
+                {
+                    "type": "settings",
+                    "conversation_id": "x",
+                    "name": "top_k",
+                    "value": -5,
+                    "chat_settings": {"top_k": -5},
+                }
+            )
+            + "\n"
+        )
+    with pytest.raises(ConfigError) as caught:
+        session.resume(path)
+    assert "top_k" in str(caught.value) and names_no_command(str(caught.value).split(": ", 1)[1])

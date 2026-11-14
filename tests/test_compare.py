@@ -252,3 +252,23 @@ def test_an_old_logs_missing_settings_are_neither_same_nor_a_group(chat):
     result = compare(c)
     assert None not in result["same"].values()
     assert all(None not in g["settings"].values() for g in result["groups"])
+
+
+def test_a_pair_whose_tokens_part_before_its_texts_do_is_not_a_prefix(chat):
+    """Final checkpoint, finding 8: equal text with other token IDs isn't "one stopped"."""
+    c, session = chat([" ab", " abc"])
+    session.say("Hi")
+    session.set_setting("temperature", "0.9")
+    again_with_seed(session, 42)
+    first, second = (session.conversation.calls[r["call_id"]] for r in compare(c)["replies"])
+    assert compare(c)["pairs"][0]["prefix"] is True  # " ab" stops where " abc" goes on
+    second["output_ids"] = [7] + second["output_ids"][1:]  # parts at the first token
+    assert compare(c)["pairs"][0]["prefix"] is False
+
+
+def test_compare_says_one_reply_not_one_replies(chat):
+    from clarity_chat.cli import format_compare
+
+    c, session = chat([" one"])
+    session.say("Hi")
+    assert format_compare(compare(c)).startswith("1 reply to 'Hi':")
