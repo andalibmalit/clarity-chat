@@ -163,10 +163,11 @@ SETTING_RANGES: dict[str, tuple[str, float | None, float | None, str]] = {
     "steering_scale": ("number", None, None, "a finite number; 0 is off"),
 }
 
-# What each setting does, in one line: the settings table's text that the web interface
-# shows under each row. Checked against sources before it ships (CLAUDE.md, teaching text):
-# notes/research/teaching-text-check.md (2026-11-10) and v030-teaching-check.md #2, #10;
-# logprobs and steering_scale are docs/reference.md's own words.
+# What each setting does, in one line: the one place for this text (CLAUDE.md). The web
+# interface shows it under each row, and docs/reference.md's Settings table repeats it
+# (tests/test_docs.py checks they match). Checked against sources before it ships:
+# notes/research/teaching-text-check.md (2026-11-10) and v030-teaching-check.md #2, #3, #4,
+# #10, #11; logprobs, steering_scale and samplers use docs/reference.md's own words.
 SETTING_HELP = {
     "temperature": "Lower is steadier, higher more varied. 0 always picks the likeliest token.",
     "top_p": (
@@ -186,6 +187,19 @@ SETTING_HELP = {
         "far. On Transformers it looks at everything; on llama.cpp only the last tokens set by "
         "repeat_last_n. 1 is off."
     ),
+    "repeat_last_n": (
+        "How many of the latest tokens, prompt included, the penalties look at (64 by "
+        "default). 0 turns all three penalties off."
+    ),
+    "presence_penalty": (
+        "Lowers the chance of every token that appeared in the last repeat_last_n tokens, by "
+        "the same amount however often it appeared. 0 is off."
+    ),
+    "frequency_penalty": (
+        "Lowers a token’s chance more for each time it appeared in the last repeat_last_n "
+        "tokens. 0 is off."
+    ),
+    "samplers": "The samplers that run, in order. A sampler not listed doesn’t run.",
     "logprobs": (
         "0 is off. N records, for each token of the reply, its log-probability and the N "
         "likeliest tokens with theirs."
