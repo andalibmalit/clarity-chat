@@ -62,7 +62,7 @@ def test_one_reply_offers_only_more_replies(chat):
     fragment = view(client, "replies", last_call(client))
     assert "1 reply to this message" in fragment
     assert re.search(r'<input[^>]*type="number"[^>]*value="3"', fragment)
-    assert "Make them" in fragment
+    assert ">Make 3<" in fragment  # as Again's button (design walkthrough)
     for absent in ("reply 1 of 1", "Compare these replies", "Again with"):
         assert absent not in fragment
 
@@ -76,8 +76,9 @@ def test_the_rows_say_only_what_differs_and_where_each_went(chat):
     assert "3 replies to this message" in fragment and "Compare these replies" in fragment
     for reply in compared["replies"]:
         assert f"reply {reply['k']} of 3" in fragment
-        # One group: only the seed differs, so no setting is named.
-        assert f"seed {reply['seed']} · not continued" in fragment
+        # One group: only the seed differs, so no setting is named; a reply that didn't go
+        # on says nothing about it (design walkthrough, finding 18).
+        assert f'<span class="df">seed {reply["seed"]}</span>' in fragment
         if reply["current"]:
             assert "You are here" in fragment
         else:
@@ -97,9 +98,9 @@ def test_a_continued_reply_says_how_far(chat):
     compared = result(client, "compare", first["call_id"])
     assert compared["replies"][0]["later_turns"] == 2
     fragment = view(client, "replies", first["call_id"])
-    assert "continued, 2 more messages" in fragment
+    assert "continued, 2 more turns" in fragment  # turns, not messages (finding 6)
     # An earlier message: the list and Compare, no More replies (/regen acts on the last).
-    assert "Make them" not in fragment and "Compare these replies" in fragment
+    assert "Make 3" not in fragment and "Compare these replies" in fragment
 
 
 def test_after_a_change_again_makes_the_same_seeds_and_the_rows_name_the_setting(chat):
@@ -121,8 +122,8 @@ def test_after_a_change_again_makes_the_same_seeds_and_the_rows_name_the_setting
     ]
     fragment = view(client, "replies", last_call(client))
     assert 'data-action="again"' not in fragment  # the settings match the newest replies now
-    assert "seed 42 · temperature 0.6 · not continued" in fragment
-    assert "seed 42 · temperature 0.3 · not continued" in fragment
+    assert '<span class="df">seed 42 · temperature 0.6</span>' in fragment
+    assert '<span class="df">seed 42 · temperature 0.3</span>' in fragment
     divider = "You set temperature to 0.3, then chose “Again with the same 3 seeds”"
     assert fragment.index("reply 3 of 6") < fragment.index(divider) < fragment.index("reply 4 of 6")
 
@@ -148,6 +149,10 @@ def test_compare_with_only_the_seed_differing(chat):
         assert f"reply {reply['k']} of 3 · seed {reply['seed']}" in fragment
         assert reply["text"] in fragment
     assert 'class="cmp-grid"' not in fragment  # cards, no columns: nothing lines up
+    # Only what tells a run apart from a default one (design walkthrough, finding 4): no
+    # neutral or off values, no sampler list, no "not steered" without a vector.
+    line = re.search(r'<p class="cmp-same">(.*?)</p>', fragment).group(1)  # ty: ignore
+    assert line == f"{same} · max_tokens 16 · temperature 0.6 · top_p 0.95 · the prompt"
 
 
 def test_compare_lines_up_matched_seeds_and_marks_where_they_part(chat):
@@ -161,7 +166,11 @@ def test_compare_lines_up_matched_seeds_and_marks_where_they_part(chat):
     fragment = view(client, "compare", last_call(client))
     assert REUSED in fragment
     assert 'class="cmp-grid"' in fragment
-    assert "Temperature 0.6" in fragment and "compared against" in fragment
+    assert "Temperature 0.6" in fragment and "compared against" not in fragment  # finding 5
+    assert (
+        '<span class="split" aria-hidden="true"></span> marks where a reply first differs '
+        "from the Temperature 0.6 one." in fragment
+    )
     assert "Temperature 0.3" in fragment
     by_call = {r["call_id"]: r for r in compared["replies"]}
     for pair in compared["pairs"]:
@@ -169,7 +178,7 @@ def test_compare_lines_up_matched_seeds_and_marks_where_they_part(chat):
         if pair["first_different_char"] is None:
             assert "the same text" in fragment
         elif pair["prefix"]:
-            assert "agree until one stops" in fragment
+            assert "the same until the shorter one ends" in fragment
         else:
             cut = pair["first_different_char"]
             assert later["text"][:cut] + MARKER + later["text"][cut:] in fragment
@@ -184,8 +193,9 @@ def test_compare_warns_when_seed_and_a_setting_both_differ(chat):
     compared = result(client, "compare")
     assert compared["pairs"] == [] and len(compared["groups"]) == 2
     fragment = view(client, "compare", last_call(client))
+    # Advice, not a failure: the lead's plain style, no "!" (design walkthrough, finding 24).
     assert (
-        "<strong>!</strong> These replies differ in seed and in temperature, so a difference "
+        '<p class="cmp-lead">These replies differ in seed and in temperature, so a difference '
         "can come from either. For a closer comparison, use Again with the same seeds."
     ) in fragment
     assert "reply 1 of 2 · seed 42 · temperature 0.6" in fragment
@@ -201,7 +211,7 @@ def test_compare_warns_when_seed_and_a_setting_both_differ(chat):
         ),
         (
             {"first_different_token": 3, "prefix": True, "first_different_char": 3},
-            "agree until one stops",
+            "the same until the shorter one ends",
         ),
         ({"first_different_token": 3, "prefix": False, "first_different_char": 3}, None),
     ],

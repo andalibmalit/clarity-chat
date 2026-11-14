@@ -1196,6 +1196,7 @@ async function exportChat() {
 
 document.addEventListener("input", (event) => {
   if (event.target.id === "rename-text") renameWaits();
+  if (event.target.id === "more-n") $("more-make").textContent = `Make ${event.target.value}`; // "Make 3", as Again's
 });
 
 document.addEventListener("mousedown", (event) => {
