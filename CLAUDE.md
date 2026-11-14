@@ -14,6 +14,7 @@ uv run clarity verify [NAME]              # re-hash GGUF files against models.lo
 uv run clarity chat --profile NAME        # chat with a profile from profiles/ or local/profiles/
 uv run clarity chat --resume ID           # continue a conversation (IDs from `clarity chats`)
 uv run clarity chat --json [--profile NAME]  # commands as JSON lines on stdin, events out
+uv run clarity ui                         # the web interface on 127.0.0.1:8765, opened in the browser
 uv run clarity chats                      # list conversations in logs/
 uv run clarity run --openings FILE --profiles A B [--seeds N]   # blind test into runs/RUN_ID/
 uv run clarity replay LOG CALL_ID [--logged-flags]                # re-send a call and compare

@@ -236,3 +236,98 @@ def test_untrusted_text_in_the_thread_is_escaped(server):
     html = client.get("/view/thread", headers={**AUTH, **SAME}).text
     assert "<script>" not in html and "<img" not in html
     assert "&lt;script&gt;" in html and "{{ 7*7 }}" in html  # shown as text, never run
+
+
+# --- B1: clarity ui
+
+
+def free_port() -> int:
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def test_ui_refuses_a_port_in_use_before_starting_anything(fetched_root):
+    import socket
+
+    from clarity_chat.profiles import ConfigError
+
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        port = busy.getsockname()[1]
+        with pytest.raises(ConfigError, match=f"port {port} is in use"):
+            web.serve(fetched_root, port=port, session_factory=lambda: pytest.fail("started"))
+
+
+def test_ui_writes_a_private_redirect_file_opens_it_and_deletes_it_on_first_use(
+    fetched_root, tiny_tokenizer
+):
+    import os
+    import stat
+    import threading
+
+    import httpx
+
+    port = free_port()
+    opened: list = []
+    servers: list = []
+    out: list[str] = []
+    session = Session(
+        fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    closed: list[bool] = []
+    session.close = lambda: closed.append(True)
+    thread = threading.Thread(
+        target=web.serve,
+        kwargs={
+            "root": fetched_root,
+            "port": port,
+            "session_factory": lambda: session,
+            "opener": opened.append,
+            "on_ready": servers.append,
+            "write": out.append,
+            "read_lines": False,
+        },
+    )
+    thread.start()
+    try:
+        for _ in range(100):
+            if servers and servers[0].started:
+                break
+            threading.Event().wait(0.05)
+        (path,) = opened
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+        link = next(line for line in "".join(out).split() if line.startswith("http://127.0.0.1"))
+        assert link in path.read_text(encoding="utf-8") and "#key=" in link
+        secret = link.split("#key=", 1)[1]
+        headers = {"Authorization": f"Bearer {secret}", "Sec-Fetch-Site": "same-origin"}
+        url = f"http://127.0.0.1:{port}/view/thread"
+        # Plain HTTP to 127.0.0.1: no CA bundle (the sandbox blocks reading one), no proxy.
+        response = httpx.get(url, headers=headers, verify=False, trust_env=False)
+        assert response.status_code == 200
+        assert not path.exists()  # deleted at the first authenticated request
+    finally:
+        if servers:
+            servers[0].should_exit = True
+        thread.join(10)
+    assert not thread.is_alive()
+    assert closed == [True]  # the session (and its model) closed on the way out
+
+
+def test_clarity_ui_serves_under_the_projects_lock(fetched_root, monkeypatch):
+    """B1: another Clarity holding the lock refuses it; a killed one's server is cleaned up."""
+    from clarity_chat import cli
+
+    seen: list = []
+
+    def fake_serve(root, session_factory):
+        seen.append((root, session_factory))
+        assert (root / "local" / "clarity.json").is_file()  # the lock is held while it serves
+        return 0
+
+    monkeypatch.setattr(web, "serve", fake_serve)
+    assert cli.main(["--root", str(fetched_root), "ui"]) == 0
+    assert seen and seen[0][0] == fetched_root.resolve()
