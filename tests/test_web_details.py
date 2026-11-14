@@ -74,7 +74,8 @@ def test_the_summary_says_how_it_stopped_how_long_and_what_ran(chat):
     seconds = (timings["prompt_ms"] + timings["predicted_ms"]) / 1000
     assert f"{call['tokens_predicted']} tokens · {seconds:.1f} s" in fragment
     assert "tiny · runs on fake" in fragment and f">{call['call_id']}<" in fragment
-    assert "All checks passed." in fragment
+    assert "all checks passed" in fragment.split("</summary>")[1]  # the heading says it
+    assert "All checks passed." not in fragment  # once (design walkthrough, finding 14)
     # The end token's text, when llama-server's startup named it (/settings' eog_tokens).
     session.backend.record["model_file"] = {"eog_tokens": [{"id": end, "text": "</s>"}]}
     assert "end of text · eos · </s>" in details(client, call["call_id"])
@@ -114,17 +115,25 @@ def test_settings_as_logged_with_origins(chat):
     # off); logprobs and steering_scale at 0 are off.
     assert "0.6</dd>" in fragment and "0 (neutral)" in fragment and "0 (off)" in fragment
     assert "8,192" in fragment and "server.toml" in fragment
+    # Closed at first (design walkthrough, finding 2), so Probabilities is near the top.
+    assert '<details class="sec" data-key="settings">' in fragment
 
 
 def test_replay_and_what_it_found(chat):
     client, _ = chat
     call = result(client, "say", "Hi")["call"]
-    assert "not replayed yet" in details(client, call["call_id"])
+    fragment = details(client, call["call_id"])
+    assert "not replayed yet" in fragment
+    # What Replay does, under its button (design walkthrough, finding 8).
+    assert (
+        "Sends the same prompt and settings again and compares the result with this reply."
+        in fragment.split('data-key="replay"')[1]
+    )
     replay = result(client, "replay", call["call_id"])["replay"]
     assert replay["unexplained_difference"] is True
     fragment = details(client, call["call_id"])
     assert "replayed 1×, different" in fragment
-    assert "Different, and nothing that could explain it changed" in fragment
+    assert "The replay differs, and nothing that could explain it changed" in fragment
     assert f"From output token {replay['first_different_token']}." in fragment
     assert f"Compared: {replay['compared']}." in fragment
     assert replay["logged_output_text"] in fragment and replay["output_text"] in fragment

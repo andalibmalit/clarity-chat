@@ -1146,7 +1146,7 @@ def replay_result(replay: dict[str, Any]) -> dict[str, Any]:
     if replay["identical"]:
         label = "Identical"
     elif replay.get("unexplained_difference"):
-        label = "Different, and nothing that could explain it changed"
+        label = "The replay differs, and nothing that could explain it changed"
     else:
         noun = "thing" if len(facts) == 1 else "things"
         label = f"Different · {len(facts)} {noun} changed since"
