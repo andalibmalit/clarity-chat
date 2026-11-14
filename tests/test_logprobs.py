@@ -313,3 +313,18 @@ def test_probs_of_a_failed_call_says_it_has_no_reply(commands):
     failed = commands.session.conversation.last_call
     result = commands.run("probs", failed["call_id"], lambda e: None)
     assert result.get("reason") == "failed"
+
+
+def test_probs_offsets_hold_with_a_special_token_inside_the_reply(commands):
+    """Transformers writes output_text without special tokens; a base model can write one
+    mid-reply (checkpoint review, finding 1)."""
+    backend, tokenizer = commands.session.backend, commands.session.tokenizer
+    backend.replies = [" ab"]
+    eos = tokenizer.tok.eos_token_id
+    ids = tokenizer.encode(" a") + [eos] + tokenizer.encode("b")
+    backend.logprobs = fake_logprobs(tokenizer, ids)
+    reply = commands.run("say", "Hi", lambda e: None)["call"]["output_text"]
+    tokens = commands.run("probs", "", lambda e: None)["tokens"]
+    spans = [reply[t["start"] : t["end"]] for t in tokens]
+    assert spans == [" ", "a", "", "b"]
+    assert [t["text"] for t in tokens] == [" ", "a", "</s>", "b"]

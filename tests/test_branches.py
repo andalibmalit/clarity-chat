@@ -881,3 +881,26 @@ def test_regen_same_on_400_exchanges_is_quick(fetched_root, tiny_tokenizer):
     started = time.perf_counter()
     assert c.run("regen", "same", lambda e: None).get("seeds") == [42, 43]
     assert time.perf_counter() - started < 5
+
+
+def test_branches_all_with_many_marks_and_an_early_fork_is_quick(fetched_root, tiny_tokenizer):
+    """Checkpoint review, finding 4: every marked reply looks for its fork."""
+    import time
+
+    from clarity_chat.commands import Commands
+
+    backend = FakeBackend([" ok"] * 402, n_ctx=100_000, tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    session.new_conversation("text")
+    first = session.say("m").turn
+    for _ in range(399):
+        reply = session.say("m").turn
+        session.annotate("mark", "seen", session.conversation.calls[reply.call_id])
+    session.switch(first.turn_id)
+    session.say("fork")  # a fork at the first reply, above every mark
+    c = Commands(session)
+    started = time.perf_counter()
+    result = c.run("branches", "all", lambda e: None)
+    elapsed = time.perf_counter() - started
+    assert len(result["marked"]) == 399 and len(result["ends"]) == 2
+    assert elapsed < 5, elapsed
