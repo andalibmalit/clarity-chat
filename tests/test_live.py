@@ -17,6 +17,7 @@ from clarity_chat.profiles import ConfigError, load_models, load_server_config
 from clarity_chat.render import Tokenizer
 from clarity_chat.replay import find_call
 from clarity_chat.session import ContextError, Session
+from tests import contract
 
 pytestmark = pytest.mark.live
 
@@ -411,3 +412,13 @@ def test_converting_twice_gives_the_same_file(tmp_path, capsys):
     with capsys.disabled():
         same = first == lock_entry(REPO, model)["gguf"]["sha256"]
         print(f"\nconverted file equals models.lock's: {same}")
+
+
+def test_the_backend_contract_on_llama_cpp(tmp_path):
+    """The call record's shape for each stop type, kept in fixtures/backend_shapes.json."""
+    session = Session(REPO, logs_dir=tmp_path)
+    try:
+        shapes = contract.run_scenarios(session, chat="smol-chat", text="smol-text")
+    finally:
+        session.close()
+    contract.check_or_write("llama.cpp", shapes)

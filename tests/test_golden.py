@@ -61,6 +61,7 @@ def test_every_reply_replays_identically(golden, steerable, tiny_tokenizer):
     calls = [r for r in read_records(golden) if r["type"] == "call" and r.get("turn_id")]
     complete = [c for c in calls if c["stop_type"] != "cancelled"]
     backend = FakeBackend([c["output_text"] for c in complete], tokenizer=tiny_tokenizer)
+    backend.before_v0_2_3 = True  # the fake that wrote these logs
     session = Session(steerable, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
     for call in complete:
         record = session.replay(golden, call["call_id"])
