@@ -288,8 +288,6 @@ def test_a_reply_without_a_call_id_is_drawn_without_controls(chat):
 
 
 DRAWN_ACTIONS = re.compile(r'data-action="([\w-]+)"')
-LATER = {  # drawn now, handled by a later item of v0.3.0's plan
-}
 
 
 def drawn_actions() -> list[str]:
@@ -302,13 +300,7 @@ def drawn_actions() -> list[str]:
     return sorted(drawn)
 
 
-@pytest.mark.parametrize(
-    "action",
-    [
-        pytest.param(a, marks=pytest.mark.xfail(strict=True, reason=LATER[a])) if a in LATER else a
-        for a in drawn_actions()
-    ],
-)
+@pytest.mark.parametrize("action", drawn_actions())
 def test_every_drawn_action_has_a_handler(action):
     from pathlib import Path
 
