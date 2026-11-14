@@ -594,16 +594,23 @@ class Session:
             "nothing. Check their names against the template: the prompt shows its output."
         ]
 
-    def start_model(self, prepared: Prepared, ctx_size: Setting) -> dict[str, Any] | None:
+    def start_model(
+        self, prepared: Prepared, ctx_size: Setting, again: bool = False
+    ) -> dict[str, Any] | None:
         """Start (or keep) the model a prepared profile needs, at `ctx_size`. Returns the
         server_start record if a server started. On failure the current conversation's
-        model is restarted, so it stays usable."""
+        model is restarted, so it stays usable. With `again` (a /resume of the open
+        conversation, as "Start the model again" sends), that same start isn't tried a
+        second time: the conversation stays, its model stopped, to be tried again."""
         previous = self.backend
         try:
             backend = self.use_backend(prepared.profile.backend, prepared.profile.device)
             started = backend.start(prepared.model, prepared.weights, ctx_size.value)
         except (ConfigError, BackendError) as e:
-            self._restore(previous, e)
+            if not again:
+                self._restore(previous, e)
+            elif isinstance(e, BackendError):
+                e.server_stopped = True  # as a call that finds the server gone says
             raise
         self.model, self.model_lock, self.weights = prepared.model, prepared.lock, prepared.weights
         self.tokenizer = prepared.tokenizer
@@ -1400,7 +1407,9 @@ class Session:
         render = self.check_render(conversation, head, prepared)
         if not os.access(path, os.W_OK):
             raise ConfigError(f"Clarity can't write to {path}, so it can't continue it there.")
-        conversation.started_server = self.start_model(prepared, ctx_size)
+        open_log = self.conversation.log.path if self.conversation else None
+        again = open_log is not None and open_log.resolve() == path.resolve()
+        conversation.started_server = self.start_model(prepared, ctx_size, again=again)
         environment = missing = None
         if last:
             server = state.servers.get((last.get("backend") or {}).get("server_id", ""))

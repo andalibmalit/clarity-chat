@@ -114,7 +114,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
   - Block 0 is refused, only because llama.cpp has no vector slot for block 0 and its loader refuses `direction.0`; Clarity keeps a vector usable on both. The last block can be steered, but repeng, which steers it by default, reads that block's output after the model's final normalization (Transformers' last `hidden_states` entry), so such a vector is trained on a different quantity than the one it's added to. The guide says to leave it out.
   - Steering runs on model types `llama` and `olmo3`, whose blocks Clarity has checked return a plain tensor from `model.model.layers`. Other types are refused until checked.
   - Clarity reads the file with its own small reader rather than the `gguf` package: it parses the bytes it hashed, in one read, and every malformed file gets a message saying what was wrong.
-- Only one model is ever in memory. If a new model fails to start, the previous one is started again, so a bad `/new` or `/profile` leaves you where you were.
+- Only one model is ever in memory. If a new model fails to start, the previous one is started again, so a bad `/new` or `/profile` leaves you where you were. Starting the open conversation's own model again (`/resume` of that conversation, as "Start the model again" sends after its server stopped) is the exception: trying the same start a second time would fail the same way, so the conversation stays with its model stopped, and you can try again.
 
 ## Conversations and runs
 

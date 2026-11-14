@@ -23,6 +23,9 @@ Two headings are Clarity's own, used when they apply:
 - The reference's checks after each call are a table that also says what each failure means, and covers `generation_config`, `steering` and the older `server_props`. Details in the web interface uses the same words.
 - New dependencies for the web interface: `starlette` and `uvicorn`. Tests of the web interface in a browser use `pytest-playwright`, in its own dependency group (`uv sync --group browser`); a normal install doesn't get it.
 
+### Fixed
+- Starting the open chat's model again (`/resume` of that chat after its server stopped) that fails no longer tries the same start a second time and then drops the chat: the chat stays, with its model stopped, and the error is the backend's sentence alone, so you can try again.
+
 ## [0.2.3] - 2026-11-14
 
 Live tests on an M2 Max (macOS), 2026-11-14, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 19 passed (including the backend contract and a llama-server killed between two calls), `-m hf` 18 passed, `-m olmo` 12 passed.
