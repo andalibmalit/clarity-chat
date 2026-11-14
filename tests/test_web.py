@@ -419,3 +419,92 @@ def test_a_listener_that_fails_is_dropped_and_the_worker_goes_on(fetched_root, t
     assert answers and "result" in answers[0], "the worker died: a submit never came back"
     assert worker.failed is None and broken not in worker.listeners
     assert "result" in worker.submit("say", "Hello")
+
+
+# --- the tripwire review, part 2 (findings 7, 9, 10, 12) and the Enter handler
+
+
+def test_a_tab_told_it_isnt_live_cant_take_over_by_reconnecting(server):
+    """Finding 7: only POST /tab or the first load makes a tab live."""
+    client, _, app = server
+    assert command(client, "state", tab="tab-1").status_code == 200  # tab-1 is live
+    taken = client.post("/tab", headers=POST, content=json.dumps({"tab": "tab-2"}))
+    assert taken.status_code == 200  # tab-2 took over; tab-1 was told
+    # tab-2's stream isn't open (its page is reloading): tab-1 reconnects meanwhile.
+    with client.stream("GET", "/events?tab=tab-1", headers={**AUTH, **SAME}) as stream:
+        lines = stream.iter_lines()
+        assert json.loads(next(lines)) == {"event": "hello"}
+        assert json.loads(next(lines))["event"] == "not_live"
+    assert command(client, "state", tab="tab-2").status_code == 200
+
+
+def test_an_empty_secret_is_refused_when_the_app_is_made(fetched_root, tiny_tokenizer):
+    """Finding 9: b"" would leave every data route open."""
+    session = Session(
+        fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    with pytest.raises(ValueError, match="secret"):
+        web.make_app(session, b"", port=PORT)
+
+
+def test_a_body_over_the_limit_is_refused_before_it_is_all_read(server):
+    """Finding 10: a chunked body is counted as it arrives."""
+    client, _, _ = server
+    read = [0]
+
+    def chunks():
+        for _ in range(100):
+            read[0] += 1
+            yield b"x" * 4096  # 400 KB in all; the limit is 64 KB
+
+    response = client.post("/command", headers=POST, content=chunks())
+    assert response.status_code == 413
+    assert read[0] < 100  # stopped reading near the limit, not at the end
+
+
+def test_export_serves_only_the_current_chats_file(server):
+    """Finding 12: after /new, the previous chat's export isn't this chat's."""
+    client, _, _ = server
+    command(client, "profile", "text")
+    command(client, "say", "Hi")
+    command(client, "export")
+    assert client.get("/export", headers={**AUTH, **SAME}).status_code == 200
+    command(client, "new")
+    assert client.get("/export", headers={**AUTH, **SAME}).status_code == 409
+
+
+def test_enter_in_the_terminal_never_puts_the_secret_in_a_process_argument(
+    fetched_root, tiny_tokenizer, monkeypatch
+):
+    """The tripwire review (outside its range): webbrowser.open(link) runs `open LINK`."""
+    import io
+
+    opened: list[str] = []
+    monkeypatch.setattr(web.webbrowser, "open", lambda url, *a, **k: opened.append(url))
+    monkeypatch.setattr(web.sys, "stdin", io.StringIO("\n"))
+    port = free_port()
+    servers: list = []
+    session = Session(
+        fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    thread = threading.Thread(
+        target=web.serve,
+        kwargs={
+            "root": fetched_root,
+            "port": port,
+            "session_factory": lambda: session,
+            "on_ready": servers.append,
+            "write": lambda text: None,
+        },
+        daemon=True,
+    )
+    thread.start()
+    for _ in range(100):
+        if len(opened) >= 2:
+            break
+        threading.Event().wait(0.05)
+    if servers:
+        servers[0].should_exit = True
+    thread.join(10)
+    assert len(opened) == 2  # at start, and after Enter
+    assert all("key=" not in url for url in opened), opened
