@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import platform
+import re
 import secrets
 import subprocess
 import sys
@@ -199,6 +200,9 @@ def read_records(
 
 
 TITLE_WORDS = 8  # a title that isn't set: the first words of the first message
+# A log's name (logs/NAME.jsonl), which /resume and export take: letters, digits, _ and -,
+# and dots after the first character (as v0.2.3.jsonl); never a separator or a leading dot.
+LOG_NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
 
 
 def list_chats(logs_dir: Path) -> list[dict[str, Any]]:
@@ -216,7 +220,9 @@ def list_chats(logs_dir: Path) -> list[dict[str, Any]]:
 def _blank_summary(path: Path) -> dict[str, Any]:
     """Every chat-list entry has these keys, readable or not, so clients needn't branch."""
     return {
-        "conversation_id": path.stem,
+        "log_id": path.stem,  # what /resume takes
+        "openable": LOG_NAME.fullmatch(path.stem) is not None,  # by name, from a page
+        "conversation_id": None,  # the logged ID, the same unless the file was copied
         "path": path.as_posix(),
         "profile": None,
         "description": None,
@@ -249,6 +255,7 @@ def chat_summary(path: Path) -> dict[str, Any]:
     for record in read_records(path, parse):
         kind = record.get("type")
         if kind == "conversation":
+            summary["conversation_id"] = record.get("conversation_id")
             summary["profile"] = (record.get("profile") or {}).get("name")
             summary["description"] = logged_description(record.get("profile") or {})
             summary["model"] = (record.get("model") or {}).get("name")

@@ -1393,10 +1393,8 @@ async def _chats(worker: Worker, params: dict[str, str | None]) -> str:
     today = datetime.now().date()
     groups: dict[str, list[dict[str, Any]]] = {"today": [], "earlier": []}
     for chat in chats:
-        group, when = chat_date(chat["conversation_id"], today)
-        groups[group].append(
-            {**chat, "date": when, "current": chat["conversation_id"] == state["log_id"]}
-        )
+        group, when = chat_date(chat["log_id"], today)
+        groups[group].append({**chat, "date": when, "current": chat["log_id"] == state["log_id"]})
     return templates.get_template("chats.html").render(
         today=groups["today"],
         earlier=groups["earlier"],

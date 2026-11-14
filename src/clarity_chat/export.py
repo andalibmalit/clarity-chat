@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.files import write_text_atomic
-from clarity_chat.logs import client_git, read_records
+from clarity_chat.logs import LOG_NAME, client_git, read_records
 from clarity_chat.profiles import ConfigError, load_profile
 from clarity_chat.render import Prompt, message_spans
 from clarity_chat.replay import facts_from_call
@@ -103,7 +103,7 @@ def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any
         # Named by the log's file, the ID `clarity chats` lists (a copied log keeps the
         # conversation ID, so its export mustn't overwrite the original's). It names a file
         # in logs/exports/, so it must be a name Clarity would write.
-        if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*", log_path.stem):
+        if not LOG_NAME.fullmatch(log_path.stem):
             raise ConfigError(
                 f"{log_path.name} isn't a log name Clarity writes, so it can't name the "
                 "export. Pass --out PATH."
