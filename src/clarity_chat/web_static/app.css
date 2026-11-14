@@ -253,11 +253,15 @@ details.more > summary .d2 { font-weight: 400; margin-left: 6px; }
 .msg.shaded .tok.p2, .probs-legend .sw.p2 { background: var(--shade-3); }
 .msg.shaded .tok.end { color: var(--muted); font-family: var(--mono); font-size: 0.7em; }
 .msg.shaded .tok[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--ink); }
+#panel .toklist { display: flex; flex-wrap: wrap; gap: 4px; }
+#panel .toklist .tok { font-family: var(--mono); font-size: 13px; white-space: pre; padding: 1px 4px; border: 1px solid var(--rule); border-radius: 2px; }
+#panel .toklist .tok[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--ink); }
 .probs-legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: -2px; margin: 0 2px 0 6px; }
 #panel .alts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 #panel .alts li { display: flex; gap: 10px; }
 #panel .alts .w { font-family: var(--mono); min-width: 100px; white-space: pre; }
 #panel .alts li.chosen { font-weight: 500; }
+#panel ul.changed { margin: 0; padding-left: 18px; font-size: 13px; color: var(--muted); font-family: var(--mono); overflow-wrap: anywhere; }
 #panel .sh3 { font-size: 12.5px; font-weight: 600; color: var(--muted); }
 
 /* Branches (C4d) */

@@ -20,6 +20,7 @@ import json
 import math
 import os
 import queue
+import re
 import secrets
 import socket
 import sys
@@ -49,6 +50,7 @@ from clarity_chat.backends import BackendError
 from clarity_chat.commands import CALL_ID, REPLY_COMMANDS, Commands
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.profiles import NEUTRAL, SETTING_HELP, SETTING_RANGES, ConfigError
+from clarity_chat.replay import CANNOT_CHANGE_OUTPUT, replay_notes
 from clarity_chat.session import CONTEXT_WARN_FRACTION, ContextError, Session
 
 PORT = 8765  # fixed, a constant: server.toml describes llama-server only
@@ -62,7 +64,6 @@ VIEWS = {
     "thread",
     "details",
     "compare",
-    "probs",
     "branches",
     "settings",
     "chats",
@@ -104,6 +105,7 @@ class Worker:
         self.lock = threading.Lock()
         self.failed: str | None = None  # an unexpected error ended the session
         self.export_path: Path | None = None  # the export made in this start, if any
+        self.probs: dict[str, dict[str, Any]] = {}  # /probs by call ID, for Details
         threading.Thread(target=self._loop, daemon=True, name="clarity-worker").start()
 
     def emit(self, event: dict[str, Any]) -> None:
@@ -938,6 +940,14 @@ PENALTY_ROWS = ("repeat_penalty", "repeat_last_n", "presence_penalty", "frequenc
 OFF = {**NEUTRAL, "logprobs": 0, "steering_scale": 0.0}
 
 
+def at_rest(name: str, value: Any) -> str:
+    """ " (off)" for logprobs or steering at 0, " (neutral)" for a sampler at the value that
+    leaves it without effect (temperature 1 isn't off), else nothing."""
+    if name in NEUTRAL:
+        return " (neutral)" if value == NEUTRAL[name] else ""
+    return " (off)" if value == OFF.get(name) else ""
+
+
 def setting_row(name: str, setting: dict[str, Any], model: dict[str, Any]) -> dict[str, Any]:
     """One row: its value and origin, its line of help, a slider where the boards draw one
     (with the neutral and the model's value marked), and its one way back when changed."""
@@ -1041,13 +1051,23 @@ CHECK_FAILED = {  # what a failure means (v030-teaching-check, item 16)
     "generation_config": "Transformers’ generation settings differed from what was sent.",
     "steering": "A steered step didn’t run every steered layer exactly once.",
 }
-NOT_COUNTED = {"client", "libraries"}  # can't change a replay (replay.py)
+
+
+def unhighlighted(call: dict[str, Any]) -> str | None:
+    """Why the prompt isn't highlighted, or None when it is: `message_spans` is
+    {"unavailable": REASON}, or missing from a call logged before v0.2.1."""
+    spans = call.get("message_spans")
+    if spans is None:
+        return "this call was logged before Clarity recorded which text the template wrote (v0.2.1)"
+    return spans["unavailable"].rstrip(".") if isinstance(spans, dict) else None
 
 
 def prompt_pieces(call: dict[str, Any]) -> list[tuple[str, bool]]:
-    """The prompt text in pieces, each marked when the template or the profile wrote it."""
+    """The prompt text in pieces, each marked when the template or the profile wrote it;
+    one unmarked piece when the spans aren't there (see unhighlighted)."""
     text, pieces, at = call.get("prompt_text") or "", [], 0
-    for span in call.get("message_spans") or []:
+    spans = call.get("message_spans")
+    for span in spans if isinstance(spans, list) else []:
         start, end = span["chars"]
         if start > at:
             pieces.append((text[at:start], False))
@@ -1072,17 +1092,36 @@ def stopped_words(call: dict[str, Any], eog: list[dict[str, Any]] | None) -> str
     return " · ".join(words)
 
 
+SHOWN_CHANGES = 5  # per fact, as the terminal shows them; the record has the rest
+
+
 def replay_result(replay: dict[str, Any]) -> dict[str, Any]:
-    """A replay's short label and its facts (labels: v030-teaching-check, item 22)."""
-    changed = [n for n in replay.get("differences") or {} if n not in NOT_COUNTED]
+    """A replay's short label (labels: v030-teaching-check, item 22), what changed since the
+    call ("machine · macos.version 26.0.1 → 26.1", as board G4 draws it), its notes and its
+    own flags."""
+
+    def clipped(value: Any) -> str:  # a /props entry can be long; the record has it all
+        words = value_words(value)
+        return words if len(words) <= 70 else words[:69] + "…"
+
+    facts = [n for n in replay.get("differences") or {} if n not in CANNOT_CHANGE_OUTPUT]
+    changed = []
+    for fact in facts:
+        entries = replay["differences"][fact]
+        changed += [
+            f"{fact} · {e['path']} {clipped(e['logged'])} → {clipped(e['now'])}"
+            for e in entries[:SHOWN_CHANGES]
+        ]
+        if len(entries) > SHOWN_CHANGES:
+            changed.append(f"{fact} · {len(entries) - SHOWN_CHANGES} more in the replay record")
     if replay["identical"]:
         label = "Identical"
     elif replay.get("unexplained_difference"):
         label = "Different, and nothing that could explain it changed"
     else:
-        noun = "thing" if len(changed) == 1 else "things"
-        label = f"Different · {len(changed)} {noun} changed since"
-    return {**replay, "label": label, "changed": changed}
+        noun = "thing" if len(facts) == 1 else "things"
+        label = f"Different · {len(facts)} {noun} changed since"
+    return {**replay, "label": label, "changed": changed, "notes": replay_notes(replay)}
 
 
 def percent(chance: float) -> str:
@@ -1121,19 +1160,37 @@ def probs_section(probs: dict[str, Any] | None, reply: str) -> dict[str, Any]:
     }
 
 
+PROBS_KEPT = 32  # calls whose /probs result Details keeps: the record doesn't change
+
+
+def record_text(call: dict[str, Any]) -> str:
+    """The whole record, indented, with each list of numbers on one line (a prompt's IDs
+    would take a line each). JSON strings hold no line breaks, so the pattern only meets
+    the layout."""
+    text = json.dumps(call, indent=2, ensure_ascii=False, default=str)
+    return re.sub(
+        r"\[\n\s*(-?\d+(?:\.\d+)?(?:,\n\s*-?\d+(?:\.\d+)?)*)\n\s*\]",
+        lambda m: "[" + ", ".join(n.strip() for n in m.group(1).split(",")) + "]",
+        text,
+    )
+
+
 async def _details(worker: Worker, params: dict[str, str | None]) -> str:
     """Details for one call: what the model got, the summary, Replay, the settings as logged
-    and the whole record. /prompt and /settings answer during a reply (a replay included)."""
+    and the whole record. /state comes first, so the queued reads after it (/compare,
+    /probs) are asked only when nothing changes the chat; /prompt and /settings answer
+    during a reply (a replay included)."""
     if not params["call"]:
         raise Refused(400, "Name a call.")
+    state = await result_of(worker, "state")
     read = await result_of(worker, "prompt", params["call"])
     call, replays = read["call"], read["replays"]
     settings = await result_of(worker, "settings")
-    state = await result_of(worker, "state")
     turns = state["turns"]
     head = turns[-1]["call_id"] if turns and turns[-1]["role"] == "assistant" else None
+    running = changing(state)
     k = n = None
-    if call.get("turn_id") and changing(state) is None:  # /compare waits its turn
+    if call.get("turn_id") and running is None:  # /compare waits its turn
         replies = (await result_of(worker, "compare", params["call"]))["replies"]
         k = next((r["k"] for r in replies if r["call_id"] == call["call_id"]), None)
         n = len(replies)
@@ -1146,19 +1203,27 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
     known = "prompt_ms" in timings or "predicted_ms" in timings
     seconds = (timings.get("prompt_ms", 0) + timings.get("predicted_ms", 0)) / 1000
     produced = call.get("tokens_predicted") or len(call.get("output_ids") or [])
-    running = changing(state) or {}
     first = call.get("prompt_ids") or [None]
-    probs = None
-    if not call.get("error") and not running:  # /probs waits its turn
+    error = call.get("error")
+    replaying = running is not None and (running["command"], running["args"]) == (
+        "replay",
+        call["call_id"],
+    )
+    probs = worker.probs.get(call["call_id"])
+    if probs is None and not error and running is None:  # /probs waits its turn
         probs = await result_of(worker, "probs", call["call_id"])
+        worker.probs[call["call_id"]] = probs
+        if len(worker.probs) > PROBS_KEPT:
+            del worker.probs[next(iter(worker.probs))]
     return templates.get_template("details.html").render(
         call=call,
         k=k,
         n=n,
         earlier=bool(call.get("turn_id")) and call["call_id"] != head,
-        error=call.get("error", "").partition(": ")[2] or None,
+        error=error.partition(": ")[2] or error if error else None,
         bos=first[0] == (call.get("bos") or {}).get("bos_token_id"),
         pieces=prompt_pieces(call),
+        not_highlighted=unhighlighted(call),
         text_mode=(call.get("bos") or {}).get("mode") == "text",
         stopped=stopped_words(call, settings.get("eog_tokens")),
         length=f"{produced} tokens · " + (f"{seconds:.1f} s" if known else "time unknown"),
@@ -1173,18 +1238,15 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
         check_lines=CHECK_LINES,
         ignored=[e for e in call.get("not_applied") or [] if e.get("affects_output")],
         replays=[replay_result(r) for r in replays],
-        replaying=running.get("command") == "replay" and running.get("args") == call["call_id"],
+        replaying=replaying,
+        waits=running is not None and not replaying,
         settings=[
-            (
-                name,
-                value_words(v["value"]) + (" (off)" if OFF.get(name) == v["value"] else ""),
-                v["origin"],
-            )
+            (name, value_words(v["value"]) + at_rest(name, v["value"]), v["origin"])
             for name, v in call["settings"].items()
         ],
         seed_drawn=call.get("seed_drawn"),
         ctx=settings["ctx_size"],
-        record=json.dumps(call, indent=2, ensure_ascii=False, default=str),
+        record=record_text(call),
         probs=probs_section(probs, call.get("output_text") or ""),
     )
 

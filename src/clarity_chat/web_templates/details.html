@@ -5,7 +5,7 @@
 <pre class="pre" data-pane="text">{% for piece, marked in pieces %}{% if marked %}<mark>{{ piece }}</mark>{% else %}{{ piece }}{% endif %}{% endfor %}</pre>
 <pre class="pre" data-pane="whitespace" hidden>{% for piece, marked in pieces %}{% set shown = piece.replace("\t", "→\t").replace("\n", "↵\n") %}{% if marked %}<mark>{{ shown }}</mark>{% else %}{{ shown }}{% endif %}{% endfor %}</pre>
 <pre class="pre" data-pane="ids" hidden>{{ call.prompt_ids | join(" ") }}</pre>
-<p class="d2">Highlighted: {% if text_mode %}the profile’s header, names and line ends.{% else %}text the chat template wrote.{% endif %}</p>
+<p class="d2">{% if not_highlighted %}Not highlighted: {{ not_highlighted }}.{% else %}Highlighted: {% if text_mode %}the profile’s header, names and line ends.{% else %}text the chat template wrote.{% endif %}{% endif %}</p>
 </details>
 <details class="sec" data-key="summary" open><summary class="sh2">Summary <span class="n">{% if error %}failed{% elif failed %}{{ failed | length }} check{{ "s" if failed | length > 1 }} failed{% else %}{{ stopped.split(" · ")[0] }} · all checks passed{% endif %}</span></summary>
 {% if error %}<p class="warn">! Failed: {{ error }}</p>
@@ -17,10 +17,14 @@
 {% endif %}</details>
 {% if not error %}<details class="sec" data-key="replay" open><summary class="sh2">Replay <span class="n">{% if replaying %}replaying{% elif replays %}replayed {{ replays | length }}×{% if not replays[-1].identical %}, different{% endif %}{% else %}not replayed yet{% endif %}</span></summary>
 {% if replaying %}<p class="st" role="status">Replaying…</p><button type="button" class="btn" data-action="replay-stop">Stop</button>
+{% elif waits %}<button type="button" class="btn" id="replay" data-action="replay" aria-disabled="true" aria-describedby="replay-waits">Replay</button><p class="waits" id="replay-waits">Waits until the reply is done.</p>
 {% else %}<button type="button" class="btn" id="replay" data-action="replay">Replay</button>
 {% endif %}{% if replays and not replaying %}{% set r = replays[-1] %}<p class="result">{{ r.label }}</p>
-<p class="d2">{% if r.first_different_token is not none %}From output token {{ r.first_different_token }}. {% endif %}{% if r.changed %}Changed since the call: {{ r.changed | join(", ") }}. {% endif %}Compared: {{ r.compared }}.</p>
-{% if not r.identical %}<details class="both" data-key="both"><summary>Show both</summary><dl class="kv"><dt>As logged</dt><dd>{{ r.logged_output_text }}</dd><dt>Now</dt><dd>{{ r.output_text }}</dd></dl></details>
+{% for flag in r.flags %}<p class="warn">! {{ flag }}</p>
+{% endfor %}<p class="d2">{% if r.first_different_token is not none %}From output token {{ r.first_different_token }}. {% endif %}Compared: {{ r.compared }}.</p>
+{% if r.changed %}<p class="d2">Changed since the call:</p><ul class="changed">{% for c in r.changed %}<li>{{ c }}</li>{% endfor %}</ul>
+{% endif %}{% for note in r.notes %}<p class="d2">{{ note }}</p>
+{% endfor %}{% if not r.identical %}<details class="both" data-key="both"><summary>Show both</summary><dl class="kv"><dt>As logged</dt><dd>{{ r.logged_output_text }}</dd><dt>Now</dt><dd>{{ r.output_text }}</dd></dl></details>
 {% endif %}{% endif %}<p class="refused" role="alert" hidden></p>
 <p class="d2"><a data-docs="guides.md#replay-a-call" target="_blank" rel="noopener noreferrer">How replay works, in the guide</a></p>
 </details>
@@ -33,10 +37,11 @@
 {% elif probs.reason == "llama_cpp" %}<p>Probabilities need a profile that runs on Transformers. None ships with Clarity yet; <a data-docs="guides.md#use-the-transformers-backend" target="_blank" rel="noopener noreferrer">the guide</a> shows how to add one.</p>
 {% elif probs.reason == "cancelled" %}<p>None recorded: the reply was stopped. Transformers returns no scores for a generation stopped part way.</p>
 {% elif probs.reason %}<p>{{ probs.why }}</p>
-{% else %}<p class="d2">Shading is per token: a word, part of a word, or punctuation. Close this section to clear it.</p>
-{% if probs.shaded %}<div class="msg shaded" hidden>{% for t in probs.tokens %}<button type="button" class="tok{% if t.band %} {{ t.band }}{% endif %}{% if not t.piece %} end{% endif %}" data-i="{{ t.index }}" tabindex="{{ 0 if loop.first else -1 }}" aria-pressed="false">{{ t.piece or t.text }}</button>{% endfor %}</div>
+{% elif probs.shaded %}<p class="d2">Shading is per token: a word, part of a word, or punctuation. Close this section to clear it.</p>
+<div class="msg shaded" hidden>{% for t in probs.tokens %}<button type="button" class="tok{% if t.band %} {{ t.band }}{% endif %}{% if not t.piece %} end{% endif %}" data-i="{{ t.index }}" tabindex="{{ 0 if loop.first else -1 }}" aria-pressed="false">{{ t.piece or t.text }}</button>{% endfor %}</div>
 <p class="legend probs-legend"><span class="sw p0"></span>under 10% <span class="sw p1"></span>10–30% <span class="sw p2"></span>30–60% · unshaded: over 60% · select a token</p>
-{% endif %}{% for t in probs.tokens %}<div class="tokinfo" data-i="{{ t.index }}" hidden><p>The model gave “{{ t.text }}” a {{ t.pct }} chance</p><p class="d2">Log-probability {{ "%.2f" | format(t.logprob) }}: the natural log of that chance. 0 is certain; more negative is less likely.</p><p class="sh3">The likeliest tokens here</p><ul class="alts">{% for text, pct, chosen in t.top %}<li{% if chosen %} class="chosen"{% endif %}><span class="w">{{ text }}</span><span>{{ pct }}</span>{% if chosen %}<span class="d2">chosen</span>{% endif %}</li>{% endfor %}</ul></div>{% endfor %}
+{% else %}<p>The tokens can’t be placed in the reply’s text, so it isn’t shaded.</p><div class="toklist" role="group" aria-label="The reply’s tokens; arrow keys move between them">{% for t in probs.tokens %}<button type="button" class="tok" data-i="{{ t.index }}" tabindex="{{ 0 if loop.first else -1 }}" aria-pressed="false">{{ t.text }}</button>{% endfor %}</div>
+{% endif %}{% if probs.reason is none %}{% for t in probs.tokens %}<div class="tokinfo" data-i="{{ t.index }}" hidden><p>The model gave “{{ t.text }}” a {{ t.pct }} chance</p><p class="d2">Log-probability {{ "%.2f" | format(t.logprob) }}: the natural log of that chance. 0 is certain; more negative is less likely.</p><p class="sh3">The likeliest tokens here</p><ul class="alts">{% for text, pct, chosen in t.top %}<li{% if chosen %} class="chosen"{% endif %}><span class="w">{{ text }}</span><span>{{ pct }}</span>{% if chosen %}<span class="d2">chosen</span>{% endif %}</li>{% endfor %}</ul></div>{% endfor %}
 <p class="d2">The probabilities come from the model’s raw scores (logits) before any sampler, so they don’t show what temperature, top_k or the penalties did.</p>
 {% endif %}</details>
 {% endif %}<details class="sec" data-key="record"><summary class="sh2">Request and response <span class="n">the whole call record</span></summary>

@@ -464,7 +464,7 @@ document.addEventListener("click", (event) => {
     });
     return;
   }
-  const token = event.target.closest("#thread .msg.shaded .tok");
+  const token = event.target.closest(TOKENS);
   if (token) {
     pickToken(token);
     return;
@@ -510,7 +510,7 @@ document.addEventListener("keydown", (event) => {
     closeReplies(true);
     return;
   }
-  const token = event.target.closest && event.target.closest("#thread .msg.shaded .tok");
+  const token = event.target.closest && event.target.closest(TOKENS);
   if (token && (event.key === "ArrowRight" || event.key === "ArrowLeft")) {
     event.preventDefault();
     const tokens = [...token.parentElement.querySelectorAll(".tok")];
@@ -851,10 +851,17 @@ function reveal(turn) {
 }
 
 // Probabilities (C4c): while its section is open, the reply is drawn shaded, token by
-// token, from the panel's copy; picking a token shows its chance and alternatives.
+// token, from the panel's copy; picking a token shows its chance and alternatives. Tokens
+// that can't be placed in the reply are listed in the panel instead.
+const TOKENS = "#thread .msg.shaded .tok, #panel .toklist .tok";
+
 function shade() {
+  // Unhides only the reply it hid (Edit hides one too).
   for (const old of $("thread").querySelectorAll(".msg.shaded")) old.remove();
-  for (const msg of $("thread").querySelectorAll(".msg[hidden]")) msg.hidden = false;
+  for (const msg of $("thread").querySelectorAll(".msg[data-shaded]")) {
+    msg.hidden = false;
+    delete msg.dataset.shaded;
+  }
   const section = $("panel").hidden ? null : $("panel").querySelector('details[data-key="probs"]');
   const shaded = section && section.open && section.querySelector(".msg.shaded");
   if (!shaded) return;
@@ -864,8 +871,10 @@ function shade() {
   copy.hidden = false;
   copy.setAttribute("role", "group");
   copy.setAttribute("aria-label", "The reply, token by token; arrow keys move between them");
-  item.querySelector(".msg").hidden = true;
-  item.querySelector(".msg").after(copy);
+  const msg = item.querySelector(".msg");
+  msg.hidden = true;
+  msg.dataset.shaded = "";
+  msg.after(copy);
 }
 
 function pickToken(token) {

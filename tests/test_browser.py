@@ -976,6 +976,57 @@ def test_probabilities_shade_the_reply_and_a_token_shows_its_chance(clarity, pag
     page.wait_for_selector("#thread .msg.shaded", state="detached")
 
 
+def test_tokens_that_cant_be_placed_are_listed_and_can_be_picked(clarity, page):
+    """Checkpoint 4, finding 5: the panel's list answers clicks and arrow keys."""
+    _, redirect, backend = clarity
+    tokenizer = backend.tokenizer
+    chat_on(page, redirect, "long")
+    backend.replies = [" Hello"]
+    (z,) = tokenizer.encode("z")
+    backend.logprobs = {
+        "view": "raw logits, before any sampler",
+        "n": 2,
+        "tokens": [{"id": z, "logprob": -0.5, "top": [[z, -0.5], [z, -3.0]]}] * 3,
+    }
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    page.click(".reply.last [data-action=details]")
+    page.wait_for_selector("#panel [data-key=probs]")
+    page.click("#panel [data-key=probs] summary")
+    page.click("#panel .toklist .tok >> nth=1")
+    assert page.get_attribute("#panel .toklist .tok >> nth=1", "aria-pressed") == "true"
+    assert "chance" in page.text_content("#panel .tokinfo:not([hidden])")
+    page.keyboard.press("ArrowRight")
+    assert page.get_attribute("#panel .toklist .tok >> nth=2", "aria-pressed") == "true"
+    assert page.query_selector("#thread .msg.shaded") is None
+    shot(page, "H1-unplaced", "c4c")
+
+
+def test_shading_leaves_a_message_being_edited_hidden(clarity, page):
+    """Checkpoint 4, finding 17: shade() unhid every hidden message, Edit's too."""
+    _, redirect, backend = clarity
+    tokenizer = backend.tokenizer
+    chat_on(page, redirect, "long")
+    backend.replies = [" Hello"]
+    ids = tokenizer.encode(" Hello")
+    backend.logprobs = {
+        "view": "raw logits, before any sampler",
+        "n": 1,
+        "tokens": [{"id": t, "logprob": -0.5, "top": [[t, -0.5]]} for t in ids],
+    }
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    page.click(".turn.user [data-action=edit]")
+    assert page.is_hidden(".turn.user .msg")
+    page.click(".reply.last [data-action=details]")
+    page.wait_for_selector("#panel [data-key=probs]")
+    page.click("#panel [data-key=probs] summary")
+    page.wait_for_selector("#thread .msg.shaded .tok")
+    page.click("#panel [data-key=probs] summary")  # closing it unhides the reply only
+    page.wait_for_selector("#thread .msg.shaded", state="detached")
+    assert page.is_hidden(".turn.user .msg") and page.is_visible(".reply.last .msg")
+
+
 @pytest.mark.parametrize(
     ("backend_name", "heading", "name"),
     [

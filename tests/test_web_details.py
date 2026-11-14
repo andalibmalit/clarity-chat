@@ -353,7 +353,8 @@ def test_tokens_without_places_are_listed_unshaded_with_a_reason(chat):
     assert result(client, "probs", call["call_id"])["tokens"][0]["start"] is None
     fragment = details(client, call["call_id"])
     assert "The tokens can’t be placed in the reply’s text, so it isn’t shaded." in fragment
-    assert fragment.count('class="tok') == 3 and 'class="msg shaded"' not in fragment
+    buttons = re.findall(r'<button type="button" class="tok[^"]*"[^>]*>(.*?)</button>', fragment)
+    assert buttons == ["z", "z", "z"] and 'class="msg shaded"' not in fragment
 
 
 def test_probabilities_are_read_once_per_call_and_the_record_keeps_ids_on_one_line(chat):
