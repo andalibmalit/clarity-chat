@@ -1,5 +1,5 @@
 {% macro warnings() %}{% for warning in state.warnings %}<div class="problem"><p role="alert"><strong>!</strong> {{ warning }}</p></div>
-{% endfor %}{% endmacro %}{% if starting %}<div class="center">
+{% endfor %}{% endmacro %}{% macro icon(name) %}<svg class="icon sm" aria-hidden="true"><use href="#i-{{ name }}"></use></svg>{% endmacro %}{% macro restart() %}<button type="button" class="btn" data-action="restart">{{ icon("play") }}Start the model again</button>{% endmacro %}{% if starting and not turns %}<div class="center">
 <p class="st" role="status"><span class="dot" aria-hidden="true"></span>{% if starting.name %}Starting {{ starting.name }}…{% else %}Starting…{% endif %}</p>
 {% if starting.model_name %}<p class="d2">{{ starting.model_name }} · runs on {{ starting.backend }}</p>
 {% endif %}<p class="d2">A large model can take a minute to start.</p>
@@ -12,6 +12,26 @@
 <p class="lead">Every reply is logged with exactly what the model got. Open Details under a reply to see it, or Settings to change how it answers.</p>
 </div>
 {{ warnings() }}</div>
-{% else %}{{ warnings() }}{% endif %}<ol class="thread">
-{% for turn in turns %}  <li class="turn {{ turn.role }}" data-turn="{{ turn.turn_id }}">{{ turn.text }}</li>
-{% endfor %}</ol>
+{% elif not starting %}{{ warnings() }}{% endif %}<ol class="thread">
+{% for turn in turns %}{% set v = turn.versions %}{% if turn.role == "user" %}<li class="turn user" data-turn="{{ turn.turn_id }}"><div class="msg">{{ turn.text }}</div>
+{% if idle and (v or loop.index0 == last_user) %}<div class="msgbar" role="group" aria-label="Your message">{% if v and v.n > 1 %}<button type="button" class="iconbtn" aria-label="Previous version of your message"{% if v.prev %} data-switch="{{ v.prev }}"{% else %} disabled{% endif %}>{{ icon("left") }}</button><span class="n" aria-label="Version {{ v.k }} of {{ v.n }}">{{ v.k }} / {{ v.n }}</span><button type="button" class="iconbtn" aria-label="Next version of your message"{% if v.next %} data-switch="{{ v.next }}"{% else %} disabled{% endif %}>{{ icon("right") }}</button>{% endif %}{% if loop.index0 == last_user %}<button type="button" class="wbtn" data-action="edit">{{ icon("edit") }}Edit</button>{% endif %}</div>
+{% if loop.index0 == last_user %}<form class="editbox" data-edit hidden><label class="vh" for="edit-text">Edit your message</label><textarea id="edit-text" rows="3">{{ turn.text }}</textarea><div class="row"><span class="spacer"></span><button type="button" class="btn ghost" data-action="edit-cancel">Cancel</button><button type="submit" class="btn pri">Send</button></div></form>
+{% endif %}{% endif %}</li>
+{% else %}{% set last = loop.last %}<li class="turn assistant reply {{ 'last' if last else 'early' }}" data-turn="{{ turn.turn_id }}" data-call="{{ turn.call_id }}">
+{% if idle %}{% set note = turn.notes[-1].text if turn.notes else None %}<button type="button" class="bm{% if turn.marks %} marked{% endif %}{% if note %} noted{% endif %}" aria-label="{{ mark_label(turn) }}" aria-haspopup="dialog" aria-expanded="false" aria-controls="pop-{{ turn.call_id }}" data-action="marks"><svg class="icon" aria-hidden="true"><use href="#i-mark"></use></svg></button>
+<div class="pop" id="pop-{{ turn.call_id }}" role="dialog" aria-label="Marks and note" hidden>
+<div class="ph">{% if turn.marks %}<p>Marked: {% for m in turn.marks %}<span class="lab">{{ m.label }}<button type="button" aria-label="Remove the mark {{ m.label }}" data-unmark="{{ m.label }}">{{ icon("close") }}</button></span>{% endfor %}</p>{% else %}<p>Not marked</p>{% endif %}<button type="button" class="iconbtn" aria-label="Close" data-action="pop-close">{{ icon("close") }}</button></div>
+{% if note %}<p class="noted">Note: “{{ note }}”</p>
+{% endif %}<div class="row" data-view><button type="button" class="btn" data-action="note-edit">{{ "Edit note" if note else "Add note" }}</button><span class="spacer"></span>{% if not turn.marks %}<button type="button" class="btn" data-action="mark">Mark as interesting</button>{% endif %}</div>
+<form data-note hidden><label class="vh" for="note-{{ turn.call_id }}">Note</label><textarea id="note-{{ turn.call_id }}" placeholder="What did you notice?">{{ note or "" }}</textarea><div class="row"><span class="spacer"></span><button type="button" class="btn ghost" data-action="note-cancel">Cancel</button><button type="submit" class="btn pri">Save note</button></div></form>
+</div>
+{% endif %}<div class="msg">{{ turn.text }}</div>
+{% if idle %}<div class="tb" role="group" aria-label="{{ 'Actions for this reply' if last else 'Actions for an earlier reply' }}">{% if last %}<button type="button" class="wbtn" data-action="copy">{{ icon("copy") }}Copy</button><button type="button" class="wbtn" data-action="regen">{{ icon("regen") }}Regenerate</button><button type="button" class="wbtn" aria-haspopup="dialog" aria-expanded="false" data-action="replies">{{ (v.n ~ " replies") if v and v.n > 1 else "Replies" }}{{ icon("down") }}</button><button type="button" class="wbtn" data-action="details">{{ icon("details") }}Details</button>{% else %}<button type="button" class="iconbtn hov" aria-label="Copy" data-action="copy">{{ icon("copy") }}</button>{% if v and v.n > 1 %}<button type="button" class="wbtn" aria-haspopup="dialog" aria-expanded="false" data-action="replies">{{ v.n }} replies{{ icon("down") }}</button>{% endif %}<button type="button" class="iconbtn hov" aria-label="Details" data-action="details">{{ icon("details") }}</button>{% endif %}<span class="copied" role="status"></span></div>
+{% if last and facts and (facts.plain or facts.context_full or facts.warn) %}<div class="facts">{% if facts.plain or facts.context_full %}<p>{{ facts.plain | join(" · ") }}{% if facts.context_full %}{% if facts.plain %} · {% endif %}stopped: the context is full · <button type="button" class="linkbtn" data-action="new">start a new chat</button>{% endif %}</p>{% endif %}{% for w in facts.warn %}<p class="warn">{{ w.text }}{% if w.details %} · <button type="button" class="linkbtn" data-action="details">Details</button>{% endif %}</p>{% endfor %}</div>
+{% if facts.restart %}{{ restart() }}
+{% endif %}{% endif %}{% endif %}</li>
+{% endif %}{% endfor %}</ol>
+{% if failed %}{% if failed.kind == "CancelledBeforeReply" %}<p class="status" role="status" data-failed="{{ failed.call_id }}">{{ failed.message }}</p>
+{% else %}<div class="problem" data-failed="{{ failed.call_id }}" data-call="{{ failed.call_id }}"><p role="alert">{% if failed.kind == "ContextError" %}<strong>!</strong> {{ failed.message }}{% else %}<strong>! Failed:</strong> {{ failed.message }} <button type="button" class="linkbtn" data-action="details">Details</button>{% endif %}</p>{% if stopped %}{{ restart() }}{% endif %}</div>
+{% endif %}{% endif %}{% if starting and turns %}<div class="starting"><p class="st" role="status"><span class="dot" aria-hidden="true"></span>{% if starting.name %}Starting {{ starting.name }}…{% else %}Starting…{% endif %}</p><p class="d2">A large model can take a minute to start.</p></div>
+{% endif %}

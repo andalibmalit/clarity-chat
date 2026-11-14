@@ -34,10 +34,9 @@ body[data-page="stopped"] .plain[data-for="stopped"] { display: flex; }
 /* Thread area: the first screen, the thread, and a refusal above the message box */
 .threadarea { flex: 1; min-height: 0; overflow-y: auto; display: flex; }
 .col { flex: 1; width: 100%; max-width: 800px; margin: 0 auto; padding: 14px 32px 12px 72px; display: flex; flex-direction: column; gap: 14px; }
-#thread { flex: 1 0 auto; display: flex; flex-direction: column; gap: 14px; }
-#thread:has(> .first) { flex: none; }
+#thread { display: flex; flex-direction: column; gap: 14px; }
+#thread:has(> .center, > .opening) { flex: 1 0 auto; } /* the first screen, centred */
 #thread:has(> .first) ~ #notice { margin-block: auto; }
-#writing:empty { display: none; }
 ol.thread:empty { display: none; }
 .center, .opening { margin: auto 0; }
 .opening { display: flex; flex-direction: column; gap: 8px; }
@@ -96,3 +95,62 @@ dialog.sheet::backdrop { background: oklch(0% 0 0 / 0.18); }
 .plain p.ink { color: var(--ink); font-size: 15px; }
 .plain :focus-visible { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); }
 .plain .errbox { text-align: left; max-width: 540px; padding: 10px 12px; border-radius: var(--r-sm); background: var(--warn-bg); color: var(--warn); font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* The thread (C2): messages as plain text, your message's bar, replies and their toolbars */
+ol.thread { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 22px; }
+.msg { white-space: pre-wrap; overflow-wrap: anywhere; }
+.turn.user { align-items: flex-end; gap: 4px; }
+.turn.user .msg[hidden] { display: none; }
+.msgbar { display: flex; align-items: center; gap: 2px; font-size: 12.5px; color: var(--muted); }
+.msgbar .iconbtn { width: 26px; height: 26px; }
+.msgbar .iconbtn[disabled] { opacity: 0.35; cursor: default; }
+.msgbar .n { font-variant-numeric: tabular-nums; padding: 0 4px; }
+.editbox { width: 78%; display: flex; flex-direction: column; gap: 8px; background: var(--user); border-radius: var(--r-lg); padding: 10px 12px; }
+.editbox textarea, .pop textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--raised); color: var(--ink); font: 15px/1.5 var(--sans); padding: 8px 10px; box-sizing: border-box; }
+.row { display: flex; align-items: center; gap: 8px; }
+.row .spacer { flex: 1; }
+.wbtn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: var(--r-sm); font-size: 13px; color: var(--muted); }
+.wbtn:hover, .wbtn[aria-expanded="true"] { background: var(--hover); color: var(--ink); }
+.btn.ghost { background: none; border-color: transparent; color: var(--muted); }
+.reply { position: relative; }
+.tb { flex-wrap: wrap; }
+.copied { font-size: var(--small); color: var(--muted); padding-left: 6px; }
+.facts { font-size: var(--small); color: var(--muted); padding-left: 4px; display: flex; flex-direction: column; gap: 2px; }
+.facts .warn { color: var(--warn); }
+.facts .linkbtn, .problem .linkbtn { font-size: inherit; color: inherit; text-decoration: underline; text-underline-offset: 3px; }
+.facts + .btn, .problem .btn { align-self: flex-start; }
+
+/* An earlier reply's controls show on hover, on focus inside, and always on touch screens */
+.reply.early .hov, .reply.early .bm:not(.marked):not(.noted) { opacity: 0; }
+.reply.early:hover .hov, .reply.early:focus-within .hov, .reply.early:hover .bm, .reply.early:focus-within .bm { opacity: 1; }
+@media (hover: none) { .reply.early .hov, .reply.early .bm { opacity: 1; } }
+
+/* The mark in the left margin, and its popover */
+.bm { position: absolute; left: -46px; top: 2px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: var(--r-sm); color: var(--muted); }
+.bm:hover, .bm[aria-expanded="true"] { background: var(--hover); color: var(--ink); }
+.reply.last .bm:not(.marked) { opacity: 0.45; }
+.reply.last .bm:hover, .reply.last .bm:focus-visible, .reply.last .bm[aria-expanded="true"] { opacity: 1; }
+.bm.marked { color: var(--accent); }
+.bm.marked .icon { fill: currentColor; }
+.bm.noted::after { content: ""; position: absolute; right: 3px; top: 4px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 2px var(--paper); }
+.pop { position: absolute; z-index: 9; left: -12px; top: 30px; width: 360px; background: var(--raised); border: 1px solid var(--rule); border-radius: var(--r-md); box-shadow: var(--shadow); padding: 12px; display: flex; flex-direction: column; gap: 10px; font-size: 13px; }
+.pop .ph { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pop .ph p { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.pop .ph .iconbtn { width: 24px; height: 24px; }
+.pop .noted { color: var(--muted); font-size: var(--small); }
+.pop form { display: flex; flex-direction: column; gap: 8px; }
+.lab { display: inline-flex; align-items: center; gap: 1px; padding: 1px 2px 1px 8px; border-radius: 999px; background: var(--you); color: var(--ink); font-size: 12.5px; }
+.lab button { width: 20px; height: 20px; display: inline-grid; place-items: center; border-radius: 50%; color: var(--muted); }
+.lab button:hover { background: var(--hover); color: var(--ink); }
+
+/* Writing, stopping, failing */
+.writing { display: flex; flex-direction: column; gap: 8px; }
+.status { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); align-self: flex-start; }
+.dots { display: inline-flex; gap: 4px; }
+.dots span { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.dots span.off { background: none; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.stop { display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 14px 0 11px; border-radius: 999px; background: var(--ink); color: var(--paper); font-size: 13px; font-weight: 500; }
+.stop .sq { width: 10px; height: 10px; border-radius: 2px; background: currentColor; }
+.problem { align-items: center; flex-wrap: wrap; }
+.starting { display: flex; flex-direction: column; gap: 2px; }
+.starting .d2 { padding-left: 16px; font-size: 12.5px; }

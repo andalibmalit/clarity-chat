@@ -183,8 +183,9 @@ def test_after_a_message_that_doesnt_fit_the_figure_is_the_reply_s(small):
     assert f"{n / ctx:.0%} · {n:,} of {ctx:,} tokens" in get_view(client, "picker")
 
 
-def start_held(client, session, name="text"):
-    """Start `name` with the backend's start held until the returned event is set."""
+def start_held(client, session, name="text", how="profile"):
+    """Start `name` (`how`: profile, or resume a chat by its ID) with the backend's start held
+    until the returned event is set."""
     gate, started = threading.Event(), threading.Event()
     real = session.backend.start
 
@@ -194,7 +195,7 @@ def start_held(client, session, name="text"):
         return real(*args)
 
     session.backend.start = held
-    thread = threading.Thread(target=lambda: command(client, "profile", name))
+    thread = threading.Thread(target=lambda: command(client, how, name))
     thread.start()
     assert started.wait(10)
     return gate, thread
