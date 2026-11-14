@@ -68,18 +68,6 @@ STATIC_FILES = {  # nothing else is served: the name in the URL, its file and ty
     "IBMPlexSans-SemiBold.woff2": ("fonts/ibm-plex-sans/IBMPlexSans-SemiBold.woff2", "font/woff2"),
     "IBMPlexMono-Regular.woff2": ("fonts/ibm-plex-mono/IBMPlexMono-Regular.woff2", "font/woff2"),
 }
-VIEWS = {
-    "thread",
-    "details",
-    "compare",
-    "branches",
-    "settings",
-    "chats",
-    "export",
-    "picker",
-    "replies",
-    "about",
-}
 MAX_BODY = 64 * 1024  # any route's body
 # /command's: any message a profile's context can take (the terminal and --json have no
 # cap, so the page mustn't be the odd one out for a realistic message).
@@ -141,11 +129,6 @@ class Worker:
         with self.lock:
             if listener in self.listeners:
                 self.listeners.remove(listener)
-
-    def submit(self, name: str, args: str) -> dict[str, Any]:
-        """Run a command and wait for its result (a caller on its own thread)."""
-        now, future = self.enqueue(name, args)
-        return self._run(name, args, at_once=True) if now else future.result()
 
     def enqueue(self, name: str, args: str) -> tuple[bool, concurrent.futures.Future]:
         """Decide once whether `name` runs at once; if not, queue it. Returns the decision
@@ -411,15 +394,12 @@ def make_app(
         command's (Worker.ask), and each view reads only the parameters it checks."""
         try:
             check(request)
-            name = request.path_params["name"]
-            if name not in VIEWS:
+            renderer = VIEW_RENDERERS.get(request.path_params["name"])
+            if renderer is None:
                 raise Refused(404, "No such view.")
             call = request.query_params.get("call")
             if call is not None and not CALL_ID.fullmatch(call):
                 raise Refused(400, "That isn't a call ID.")
-            renderer = VIEW_RENDERERS.get(name)
-            if renderer is None:
-                raise Refused(404, "This view isn't built yet.")
             return HTMLResponse(await renderer(worker, {"call": call}))
         except Refused as e:
             return PlainTextResponse(str(e), e.status)
