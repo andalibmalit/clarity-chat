@@ -535,7 +535,9 @@ async def result_of(worker: Worker, name: str, args: str = "") -> dict[str, Any]
 
 # Commands that only read. Queued, one of them sets /state's `running` while it runs (another
 # view's /branches, say), but the chat isn't changing: a view mustn't wait for it.
-READS = {"history", "branches", "compare", "prompt", "probs", "settings", "chats", "profiles"}
+# app.js keeps the same list (test_web_thread). /chats and /profiles answer at once, so they
+# never wait their turn.
+READS = {"history", "branches", "compare", "prompt", "probs", "settings"}
 
 
 def changing(state: dict[str, Any]) -> dict[str, Any] | None:
@@ -550,7 +552,7 @@ def starting_profile(state: dict[str, Any], profiles: list[dict[str, Any]]) -> d
     running = state["running"]
     if state["model"] != "starting" or running is None:
         return None
-    same_chat = running["args"] == state["conversation_id"]  # Start the model again
+    same_chat = running["args"] == state["log_id"]  # Start the model again
     name = {
         "profile": running["args"],
         "new": state["profile"],
@@ -586,8 +588,7 @@ def steering_words(settings: dict[str, Any]) -> str | None:
     """How a new chat says it's steered: "steered ×0.5", "not steered" at 0, or nothing."""
     if settings["steering"] is None:
         return None
-    scale = settings["settings"]["steering_scale"]["value"]
-    return "not steered" if scale == 0 else f"steered ×{scale:g}"
+    return setting_words("steering_scale", settings["settings"]["steering_scale"]["value"])
 
 
 async def context_figure(worker: Worker, state: dict[str, Any]) -> dict[str, Any] | None:
@@ -625,7 +626,7 @@ def facts_line(call: dict[str, Any], steerable: bool) -> dict[str, Any]:
     plain = []
     steering = (call.get("request") or {}).get("steering")
     if steering:
-        plain.append(f"steered ×{steering['scale']:g}")
+        plain.append(f"steered ×{steering['scale']}")
     elif steerable:
         plain.append("not steered")
     if "length" in flags:
@@ -708,8 +709,8 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
         starting = starting_profile(state, (await result_of(worker, "profiles"))["profiles"])
         # A new chat, or another chat resumed: this chat's turns aren't drawn. Any other start
         # (Start the model again, a replay that restarts the server) keeps it on screen.
-        running = state["running"]
-        other = running["command"] == "resume" and running["args"] != state["conversation_id"]
+        running = state["running"] or {"command": None, "args": None}
+        other = running["command"] == "resume" and running["args"] != state["log_id"]
         if running["command"] in ("profile", "new") or other:
             turns = []
     elif state["conversation_id"] is None:
@@ -788,15 +789,16 @@ async def _about(worker: Worker, params: dict[str, str | None]) -> str:
 
 
 def value_words(value: Any) -> str:
+    """A value as Python writes it (1.0, 1e-05), so the screen matches the log and /set."""
     if isinstance(value, list):
         return ", ".join(str(v) for v in value)
-    return f"{value:g}" if isinstance(value, float) else str(value)
+    return str(value)
 
 
 def setting_words(name: str, value: Any) -> str:
     """A setting as a row or a card says it, when it's what differs."""
     if name == "steering_scale":
-        return "not steered" if value == 0 else f"steered ×{value:g}"
+        return "not steered" if value == 0 else f"steered ×{value}"
     return f"{name} {value_words(value)}"
 
 
@@ -1281,7 +1283,7 @@ def end_label(end: dict[str, Any]) -> str:
     else:
         label = "From " + branch_source(source)
     if end.get("steering_scale"):
-        label += f" · steered ×{end['steering_scale']:g}"
+        label += f" · steered ×{end['steering_scale']}"
     return label
 
 
@@ -1290,7 +1292,12 @@ async def _branches(worker: Worker, params: dict[str, str | None]) -> str:
     only", a filter in the page). /branches waits its turn, so it isn't asked mid-reply."""
     state = await result_of(worker, "state")
     if changing(state):
-        return templates.get_template("branches.html").render(waits=True)
+        waits = (
+            "Waits until the model has started."
+            if state["model"] == "starting"
+            else "Waits until the reply is done."
+        )
+        return templates.get_template("branches.html").render(waits=waits)
     found = await result_of(worker, "branches", "all")
     ends = [{**e, "label": end_label(e)} for e in found["ends"]]
     marked = [

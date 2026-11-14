@@ -16,7 +16,7 @@ Two headings are Clarity's own, used when they apply:
 - The web interface's Branches panel: every branch end of the chat, newest first, with where it came from, and the replies you marked, each one click from being shown; "Branches N" in the top bar once a chat has two.
 - The web interface's Settings panel: every setting with its value, where it came from and a line on what it does; sliders and boxes that send `/set` when released or entered; one way back on each changed row, and Reset all; the vector's file, hash and blocks with its strength on a steered profile; and the controls waiting, with the reason, while a reply is written.
 - The web interface's replies pop-out and Compare: every reply to a message with only what differs and where its branch went, "Show this reply", More replies, "Again with the same N seeds" after a setting changed, and Compare, which lines up replies with the same seed and marks where they part, or shows cards and warns when both the seed and a setting differ.
-- `/chats` and `/profiles` answer at once, even during a reply, and `/settings` and `/prompt` do while a reply is written or replayed, as `/state` and `/cancel` do; with `--json` they run as soon as they're read.
+- `/chats` and `/profiles` answer at once, even during a reply, and `/settings` and `/prompt` do while a reply is written or replayed, as `/state` and `/cancel` do; with `--json` they run as soon as they're read. `/state` also gives `log_id`, the name `/resume` takes, which differs from the conversation ID for a copied or renamed log.
 - `text` events carry `at` and `end`, the piece's place in the reply, and `/state` gives `reply_end`, so a reader that starts mid-reply joins the stream without dropping or repeating text.
 
 ### Changed

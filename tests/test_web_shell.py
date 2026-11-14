@@ -366,7 +366,7 @@ def test_a_start_warning_shows_whole_and_escaped(server):
     [
         (None, 0.0, None),
         ({"file": "v.gguf"}, 0.5, "steered ×0.5"),
-        ({"file": "v.gguf"}, 1.0, "steered ×1"),
+        ({"file": "v.gguf"}, 1.0, "steered ×1.0"),  # Checkpoint 4, finding 11: as Python writes it
         ({"file": "v.gguf"}, 0.0, "not steered"),
     ],
 )
