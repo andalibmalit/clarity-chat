@@ -26,6 +26,12 @@ AUTH = {"Authorization": f"Bearer {SECRET}"}
 SAME = {"Sec-Fetch-Site": "same-origin"}
 POST = {**AUTH, **SAME, "Origin": ORIGIN, "Content-Type": "application/json"}
 GET = {**AUTH, **SAME}
+# The CSP, written out: a directive added, dropped or loosened in web.CSP fails here.
+CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; "
+    "connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'; "
+    "frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types clarity"
+)
 
 # The plan's route table: method, path, needs the secret.
 ROUTES = {
@@ -147,8 +153,7 @@ def test_every_response_has_the_security_headers(server):
         assert h["Referrer-Policy"] == "no-referrer"
         assert h["Cross-Origin-Resource-Policy"] == "same-origin"
         assert h["Cross-Origin-Opener-Policy"] == "same-origin"
-        assert "script-src 'self'" in h["Content-Security-Policy"]
-        assert "frame-ancestors 'none'" in h["Content-Security-Policy"]
+        assert h["Content-Security-Policy"] == CSP
 
 
 @pytest.mark.parametrize(
@@ -561,18 +566,6 @@ def test_a_secret_with_extra_text_is_refused(server):
     assert client.get("/view/thread", headers=headers).status_code == 401
 
 
-def test_the_csp_names_every_directive(server):
-    client, _, _ = server
-    csp = client.get("/").headers["Content-Security-Policy"]
-    for directive in (
-        "base-uri 'none'",
-        "form-action 'none'",
-        "object-src 'none'",
-        "default-src 'self'",
-    ):
-        assert directive in csp
-
-
 def test_the_headers_are_on_a_stream_and_a_refusal(server):
     client, _, _ = server
     with client.stream("GET", "/events?tab=tab-1", headers={**AUTH, **SAME}) as stream:
@@ -753,12 +746,6 @@ def test_an_event_holding_nan_reaches_the_page_as_an_error(server):
         app.state.worker.emit({"event": "record", "record": {"x": float("nan")}})
         event = json.loads(next(lines))
     assert event["event"] == "error" and "NaN" in event["message"]
-
-
-def test_the_csp_requires_trusted_types(server):
-    client, _, _ = server
-    csp = client.get("/").headers["Content-Security-Policy"]
-    assert "require-trusted-types-for 'script'" in csp and "trusted-types clarity" in csp
 
 
 def test_a_websocket_is_refused_before_any_route_sees_it(server):
@@ -1063,3 +1050,23 @@ def test_every_view_shows_hostile_text_as_text(fetched_root, tiny_tokenizer, tmp
     assert {view: bad for view, bad in found.items() if bad} == {}
     assert "likeliest per token" in texts[f"details {call}"]  # the probabilities were drawn
     assert "&lt;script&gt;" in texts["thread "] and "! Failed:" in texts["thread "]
+
+
+def test_only_the_fixed_wait_attributes_skip_escaping():
+    """Batch 3, 4: `| safe` is on `wait` alone, and `wait` is one of two fixed strings, so
+    no text from a user, a model or a log reaches a view unescaped."""
+    import re
+
+    sets, safe = [], []
+    for path in sorted((web.STATIC.parent / "web_templates").glob("*.html")):
+        text = path.read_text(encoding="utf-8")
+        assert "autoescape" not in text, path.name
+        safe += re.findall(r"([\w.]+)\s*\|\s*safe\b", text)
+        assert len(re.findall(r"\bsafe\b", text)) == len(re.findall(r"\|\s*safe\b", text))
+        sets += re.findall(r"\{% set wait = (.*?) %\}", text)
+    assert set(safe) == {"wait"}
+    assert sorted(sets) == [
+        "' aria-disabled=\"true\" aria-describedby=\"chats-waits\"' if waits else ''",
+        "' aria-disabled=\"true\" aria-describedby=\"settings-waits\"' if waits else ''",
+    ]
+    assert "Markup" not in (web.STATIC.parent / "web.py").read_text(encoding="utf-8")
