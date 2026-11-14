@@ -532,7 +532,12 @@ def starting_profile(state: dict[str, Any], profiles: list[dict[str, Any]]) -> d
     running = state["running"]
     if state["model"] != "starting" or running is None:
         return None
-    name = {"profile": running["args"], "new": state["profile"]}.get(running["command"])
+    same_chat = running["args"] == state["conversation_id"]  # Start the model again
+    name = {
+        "profile": running["args"],
+        "new": state["profile"],
+        "resume": state["profile"] if same_chat else None,
+    }.get(running["command"])
     row = next((p for p in profiles if p["name"] == name), None)
     return row or {"name": name, "model_name": None, "backend": None}
 
@@ -583,21 +588,126 @@ async def context_figure(worker: Worker, state: dict[str, Any]) -> dict[str, Any
     }
 
 
+CHECK = "check_failed:"
+FLAG_WARNINGS = {  # the facts line's words (teaching check, item 15)
+    "special_tokens_in_content": "! text read as a control token",
+    "incomplete_output_ids": "! some output token IDs are missing, so replay compares text",
+    "text_differs_from_ids": "! the text differs from its token IDs",
+}
+
+
+def facts_line(call: dict[str, Any], steerable: bool) -> dict[str, Any]:
+    """What the last reply's call record says under it: plain facts, joined by " · ", and
+    each "!" item on a line of its own. `steerable`: the profile has a steering vector."""
+    flags = call.get("flags") or []
+    plain = []
+    steering = (call.get("request") or {}).get("steering")
+    if steering:
+        plain.append(f"steered ×{steering['scale']:g}")
+    elif steerable:
+        plain.append("not steered")
+    if "length" in flags:
+        limit = call["settings"]["max_tokens"]["value"]
+        plain.append(f"stopped at the token limit (max_tokens {limit})")
+    if "cancelled" in flags:
+        plain.append("stopped by you")
+    if "empty_reply" in flags:
+        plain.append("empty reply (nothing, or only blank space)")
+    warn = []
+    ignored = sum(1 for e in call.get("not_applied") or [] if e.get("affects_output"))
+    if ignored:
+        noun = "setting" if ignored == 1 else "settings"
+        warn.append({"text": f"! {ignored} {noun} not applied", "details": True})
+    warn += [{"text": text, "details": False} for f, text in FLAG_WARNINGS.items() if f in flags]
+    checks = [f.removeprefix(CHECK) for f in flags if f.startswith(CHECK)]
+    if checks:
+        noun = "check" if len(checks) == 1 else "checks"
+        warn.append(
+            {"text": f"! {len(checks)} {noun} failed: {', '.join(checks)}", "details": True}
+        )
+    warn += [{"text": f"! {w}", "details": False} for w in call.get("warnings") or []]
+    return {
+        "plain": plain,
+        "context_full": "context_full" in flags,
+        "warn": warn,
+        "restart": "server_running" in checks,
+    }
+
+
+def mark_label(turn: dict[str, Any]) -> str:
+    """The bookmark's accessible name, by what the reply has (lanes file, rule 6)."""
+    if turn["marks"]:
+        labels = ", ".join(m["label"] for m in turn["marks"])
+        return f"Marked: {labels}. Edit marks and note"
+    return "Not marked, has a note. Open the note" if turn["notes"] else "Mark this reply"
+
+
+def versions(turns: list[dict[str, Any]], forks: list[dict[str, Any]]) -> None:
+    """Each turn at a fork learns which of its versions it is (k of n) and its neighbours'
+    IDs, for your message's counter and a reply's "N replies"."""
+    by_parent = {fork["at"]: fork["options"] for fork in forks}
+    parent = None
+    for turn in turns:
+        ids = [o["turn_id"] for o in by_parent.get(parent, [])]
+        if turn["turn_id"] in ids:
+            k = ids.index(turn["turn_id"])
+            turn["versions"] = {
+                "k": k + 1,
+                "n": len(ids),
+                "prev": ids[k - 1] if k else None,
+                "next": ids[k + 1] if k + 1 < len(ids) else None,
+            }
+        parent = turn["turn_id"]
+
+
+def failed_line(call: dict[str, Any] | None, state: dict[str, Any]) -> dict[str, Any] | None:
+    """A failed message's line, from its call record: the message is back in the box
+    (`unanswered`), and the record is the last call. A failed Regenerate isn't one (the head
+    stays on the reply), so the page shows that from the command's answer."""
+    if not call or not call.get("error") or not state["unanswered"]:
+        return None
+    kind, _, message = call["error"].partition(": ")
+    return {"kind": kind, "message": message, "call_id": call["call_id"]}
+
+
 async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
     """The thread, from /state: the turns, or the first screen (a pointer to earlier chats, a
-    model starting, a new chat's profile) and the start warnings. Every read here runs at
-    once, mid-reply included, except /settings during a start, which it doesn't ask then."""
+    model starting, a new chat's profile) and the start warnings. While a command runs, only
+    reads that run at once are asked, and the turns come without their controls (they wait);
+    when idle, /branches, /settings and /prompt give the counters, the facts line and a
+    failed message's line."""
     state = await result_of(worker, "state")
-    starting = has_chats = intro = None
+    turns = state["turns"]
+    starting = has_chats = intro = facts = failed = None
+    idle = state["running"] is None
     if state["model"] == "starting":
         starting = starting_profile(state, (await result_of(worker, "profiles"))["profiles"])
+        if state["running"]["command"] != "resume":  # a new chat: its turns aren't drawn
+            turns = []
     elif state["conversation_id"] is None:
         has_chats = bool((await result_of(worker, "chats"))["chats"])
-    elif not any(turn["role"] == "user" for turn in state["turns"]):
+    elif idle:
         settings = await result_of(worker, "settings")
-        intro = {"backend": settings["backend"], "steering": steering_words(settings)}
+        if not any(turn["role"] == "user" for turn in turns):
+            intro = {"backend": settings["backend"], "steering": steering_words(settings)}
+        versions(turns, (await result_of(worker, "branches"))["forks"])
+        if turns and turns[-1]["role"] == "assistant":
+            call = (await result_of(worker, "prompt", turns[-1]["call_id"]))["call"]
+            facts = facts_line(call, steerable=settings["steering"] is not None)
+        failed = failed_line((await result_of(worker, "prompt"))["call"], state)
+    users = [i for i, turn in enumerate(turns) if turn["role"] == "user"]
     return templates.get_template("thread.html").render(
-        state=state, turns=state["turns"], starting=starting, has_chats=has_chats, intro=intro
+        state=state,
+        turns=turns,
+        idle=idle,
+        last_user=users[-1] if users else None,
+        starting=starting,
+        has_chats=has_chats,
+        intro=intro,
+        facts=facts,
+        failed=failed,
+        stopped=state["model"] == "stopped",
+        mark_label=mark_label,
     )
 
 

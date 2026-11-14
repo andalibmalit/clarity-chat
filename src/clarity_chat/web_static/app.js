@@ -1,8 +1,10 @@
 // Clarity's page. The core (v0.3.0 item B6): the secret, the requests, the event stream,
 // the page load and the live tab. The shell (C1): the top bar, the Clarity menu, the
 // picker and the row under the message box, the first screen and a model starting, About,
-// Quit, and the plain pages. Later screens build on `clarity` below; `clarity.on` holds
-// their handlers for controls the shell already draws (Chats, Appearance, Settings, Send).
+// Quit, and the plain pages. The thread (C2): sending, writing and Stop, Edit, the
+// counter, Copy, Regenerate, marks and notes, and failed and refused calls. Later screens
+// build on `clarity` below; `clarity.on` holds their handlers for controls already drawn
+// (Chats, Appearance, Settings, the replies pop-out, Details).
 //
 // Rules this file keeps (tests/test_web.py checks the first):
 // - Server HTML goes into the page only through swap(); text only through textContent.
@@ -21,7 +23,8 @@ const clarity = {
   writing: { k: null, text: "", end: 0 }, // the reply being written, joined by numbers
   listeners: [], // screens' event handlers
   buffer: null, // events held while the page loads; null once it has
-  on: {}, // later screens' handlers: chats, appearance, settings, send
+  on: {}, // later screens' handlers: chats, appearance, settings, replies, details
+  sending: false, // this page waits for a command that writes or starts
 };
 window.clarity = clarity;
 
@@ -234,59 +237,83 @@ function reconnect() {
 
 // --- The shell (C1)
 
-let drawing = Promise.resolve();
+let drawn = 0;
 function refresh() {
-  // Redraw from reads, one redraw at a time, so the last one shows the latest state.
-  drawing = drawing.then(draw).catch(() => {});
-  return drawing;
+  // Redraw from reads. The newest redraw wins: an older one still waiting (a view whose read
+  // queued just before a reply started waits for the whole reply) is dropped when it lands.
+  drawn += 1;
+  return draw(drawn).catch(() => {});
 }
 
-async function draw() {
+async function draw(number) {
   const answer = await command("state");
   if (!answer.result) return;
-  clarity.state = answer.result;
   const [thread, row] = await Promise.all([view("thread"), view("picker")]);
+  if (number !== drawn) return;
+  clarity.state = answer.result;
   if (openMenu && openMenu.menu.id === "picker-menu") hideMenu(false);
+  openPop = null; // the thread's popovers are drawn again, closed
   swap($("thread"), thread);
   swap($("composer-row"), row);
   const state = clarity.state;
   const starting = state.model === "starting";
   const chat = Boolean(state.conversation_id) && !starting;
-  $("title").hidden = !chat;
+  const again = starting && state.running && state.running.command === "resume"; // same chat
+  $("title").hidden = !chat && !again;
   $("title-text").textContent = state.title || "New chat";
   $("title").classList.toggle("fresh", !state.title);
   $("message").disabled = !chat && !starting; // you can type while a model starts
   $("send").disabled = !chat || state.model !== "ready";
   const waits = $("picker-button").getAttribute("aria-disabled") === "true";
   $("new-chat").setAttribute("aria-disabled", String(waits));
+  showWriting(state.running);
+  if (state.unanswered && clarity.filled !== state.unanswered.turn_id) {
+    clarity.filled = state.unanswered.turn_id; // your failed message, back in the box once
+    if (!$("message").value) $("message").value = state.unanswered.text;
+  }
+  clearTimeout(clarity.poll);
+  if (state.running && !clarity.sending) clarity.poll = setTimeout(refresh, 1000); // after a reload
   const commit = state.clarity.commit || "";
   const ref = /^[0-9a-f]{40}$/.test(commit) ? commit : `v${state.clarity.version}`;
   $("help").href = `${$("help").dataset.base}${ref}/docs`; // the docs at this version
 }
 
-function notice(title, text) {
-  // A refusal's sentence, whole, above the message box (B3, B4).
-  if (title === null) {
+function notice(strong, text, action = null, label = "") {
+  // A refusal's sentence, whole, above the message box (B3, B4, E5, E7), with the one thing
+  // to do next, if any. A status, not an alert, when nothing failed (strong null).
+  if (text === null) {
     $("notice").replaceChildren();
     return;
   }
-  const box = document.createElement("div");
-  box.className = "problem";
   const line = document.createElement("p");
-  line.setAttribute("role", "alert");
-  const strong = document.createElement("strong");
-  strong.textContent = `! ${title}`;
-  line.append(strong, ` ${text}`);
+  line.setAttribute("role", strong ? "alert" : "status");
+  if (strong) {
+    const bold = document.createElement("strong");
+    bold.textContent = strong;
+    line.append(bold, " ");
+  }
+  line.append(text);
+  const box = document.createElement("div");
+  box.className = strong ? "problem" : "status";
   box.append(line);
+  if (action) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "btn";
+    button.dataset.action = action;
+    button.textContent = label;
+    box.append(button);
+  }
   $("notice").replaceChildren(box);
 }
 
 async function start(name, args) {
   // A new chat: with a profile from the picker, or the same profile (New chat).
   const label = name === "profile" ? args : clarity.state.profile;
-  notice(null);
-  const answer = await command(name, args);
-  if (answer.error && !answer.stopped) notice(`${label} didn’t start.`, answer.error);
+  notice(null, null);
+  clarity.sending = true;
+  const answer = await command(name, args).finally(() => (clarity.sending = false));
+  if (answer.error && !answer.stopped) notice(`! ${label} didn’t start.`, answer.error);
   await refresh();
   if (!answer.error) $("message").focus();
 }
@@ -317,6 +344,8 @@ function act(element) {
     about();
   } else if (action === "quit") {
     quit();
+  } else if (THREAD[action]) {
+    THREAD[action](element, element.closest("[data-call]")?.dataset.call);
   } else if (clarity.on[action]) {
     clarity.on[action](element);
   }
@@ -368,6 +397,17 @@ document.addEventListener("click", (event) => {
     return;
   }
   if (openMenu && !openMenu.menu.contains(event.target)) hideMenu(false);
+  if (openPop && !openPop.contains(event.target) && !event.target.closest(".bm")) hidePop(false);
+  const version = event.target.closest("[data-switch]");
+  if (version) {
+    command("switch", version.dataset.switch).then(refresh);
+    return;
+  }
+  const unmark = event.target.closest("[data-unmark]");
+  if (unmark) {
+    annotate("unmark", unmark.closest("[data-call]").dataset.call, unmark.dataset.unmark);
+    return;
+  }
   const control = event.target.closest("[data-action]");
   if (control) act(control);
 });
@@ -378,6 +418,10 @@ document.addEventListener("keydown", (event) => {
     if (button.getAttribute("aria-disabled") === "true") return;
     event.preventDefault();
     showMenu(button, event.key === "ArrowUp" ? "last" : "first");
+    return;
+  }
+  if (event.key === "Escape" && openPop && openPop.contains(event.target)) {
+    hidePop(true);
     return;
   }
   if (!openMenu || !openMenu.menu.contains(event.target)) return;
@@ -395,7 +439,146 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+// --- The thread (C2)
+
+const WRITES = new Set(["say", "regen", "edit"]);
+
+function showWriting(running) {
+  // "Writing…" or "Writing reply 2 of 3" in a status region (text only), the reply so far
+  // beside it, and Stop where Send was. The reply's text itself is not announced.
+  const on = Boolean(running) && WRITES.has(running.command);
+  $("writing-box").hidden = !on;
+  $("send").hidden = on;
+  $("stop").hidden = !on;
+  if (!on) return;
+  const several = running.n > 1;
+  $("writing-status").textContent = several ? `Writing reply ${running.k} of ${running.n}` : "Writing…";
+  $("stop-label").textContent = several && running.k < running.n ? "Stop the rest" : "Stop";
+  const steps = [];
+  for (let i = 1; several && i <= running.n; i += 1) {
+    const step = document.createElement("span");
+    if (i > running.k) step.className = "off";
+    steps.push(step);
+  }
+  $("writing-dots").replaceChildren(...steps);
+}
+
+function failedShown() {
+  const line = $("thread").querySelector("[data-failed]");
+  return line ? line.dataset.failed : null;
+}
+
+async function write(name, args, keep = null) {
+  // A command that writes replies. A failure the thread doesn't draw (it draws a failed
+  // message from its call) shows here, with its sentence whole.
+  notice(null, null);
+  const before = failedShown();
+  clarity.sending = true;
+  clarity.writing = { k: null, text: "", end: 0 };
+  $("writing").textContent = "";
+  showWriting({ command: name, k: 1, n: 1 });
+  const answer = await command(name, args).finally(() => (clarity.sending = false));
+  await refresh();
+  if (answer.stopped) return;
+  const failure = answer.error ? [answer.type, answer.error] : answer.result && answer.result.stopped ? ["", answer.result.stopped] : null;
+  if (failure && failedShown() === before) refused(name, ...failure);
+  if (answer.error && keep !== null && !$("message").value) $("message").value = keep;
+}
+
+function refused(name, type, sentence) {
+  if (type === "CancelledBeforeReply") notice(null, sentence);
+  else if (type === "ContextError" || type === "ConfigError") notice("!", sentence);
+  else if (clarity.state.model === "stopped") notice("! Failed:", sentence, "restart", "Start the model again");
+  else if (name === "regen") notice("! Failed:", sentence, "regen", "Try again");
+  else notice("! Failed:", sentence);
+}
+
+function send() {
+  const text = $("message").value;
+  if (!text || $("send").disabled) return;
+  $("message").value = "";
+  write("say", text, text);
+}
+
+let openPop = null;
+
+function showPop(button) {
+  hidePop(false);
+  openPop = $(button.getAttribute("aria-controls"));
+  openPop.hidden = false;
+  button.setAttribute("aria-expanded", "true");
+  openPop.querySelector("button").focus();
+}
+
+function hidePop(returnFocus) {
+  if (!openPop) return;
+  const button = openPop.closest("li").querySelector(".bm");
+  openPop.hidden = true;
+  button.setAttribute("aria-expanded", "false");
+  openPop = null;
+  if (returnFocus) button.focus();
+}
+
+async function annotate(kind, call, text = "") {
+  // /mark, /unmark or /note on this reply by its call ID; the popover opens again after.
+  const answer = await command(kind, `${call} ${text}`.trim());
+  await refresh();
+  if (answer.error) notice("!", answer.error);
+  const button = document.querySelector(`li[data-call="${call}"] .bm`);
+  if (button) showPop(button);
+}
+
+function editing(item, on) {
+  item.querySelector(".msg").hidden = on;
+  item.querySelector(".msgbar").hidden = on;
+  item.querySelector("[data-edit]").hidden = !on;
+  if (on) item.querySelector("[data-edit] textarea").focus();
+  else item.querySelector('[data-action="edit"]').focus();
+}
+
+function noteForm(pop, on) {
+  pop.querySelector("[data-view]").hidden = on;
+  pop.querySelector("[data-note]").hidden = !on;
+  if (on) pop.querySelector("[data-note] textarea").focus();
+}
+
+const THREAD = {
+  copy(element) {
+    const status = element.closest(".tb").querySelector(".copied");
+    const text = element.closest("li").querySelector(".msg").textContent;
+    navigator.clipboard.writeText(text).then(
+      () => (status.textContent = "Copied"),
+      () => (status.textContent = "Couldn’t copy"),
+    );
+    setTimeout(() => (status.textContent = ""), 1600);
+  },
+  regen: () => write("regen", ""),
+  restart: () => start("resume", clarity.state.conversation_id),
+  edit: (element) => editing(element.closest("li"), true),
+  "edit-cancel": (element) => editing(element.closest("li"), false),
+  marks: (element) => (openPop && openPop.id === element.getAttribute("aria-controls") ? hidePop(true) : showPop(element)),
+  "pop-close": () => hidePop(true),
+  mark: (element, call) => annotate("mark", call),
+  "note-edit": (element) => noteForm(element.closest(".pop"), true),
+  "note-cancel": (element) => noteForm(element.closest(".pop"), false),
+};
+
+document.addEventListener("submit", (event) => {
+  const form = event.target;
+  event.preventDefault();
+  if (form.id === "composer") {
+    send();
+  } else if (form.matches("[data-edit]")) {
+    const text = form.querySelector("textarea").value;
+    if (text) write("edit", text, text);
+  } else if (form.matches("[data-note]")) {
+    const text = form.querySelector("textarea").value.trim();
+    if (text) annotate("note", form.closest("[data-call]").dataset.call, text);
+  }
+});
+
 clarity.listeners.push((event) => {
+  if (event.event === "reply_start") showWriting({ command: "regen", k: event.k, n: event.n });
   // A model starting or ready, a reply starting, your message written: redraw from reads.
   const yours = event.event === "record" && event.record.type === "turn" && event.record.role === "user";
   if (event.event === "status" || event.event === "reply_start" || yours) refresh();
@@ -418,9 +601,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("use-here").addEventListener("click", () => useHere());
   $("about-close").addEventListener("click", () => $("about").close());
   $("about").addEventListener("close", () => $("clarity-button").focus());
-  $("composer").addEventListener("submit", (event) => {
-    event.preventDefault();
-    if (clarity.on.send) clarity.on.send();
-  });
+  $("stop").addEventListener("click", () => command("cancel"));
   load().catch(() => {});
 });

@@ -28,12 +28,12 @@ pytestmark = pytest.mark.browser
 SCREENS = Path(__file__).resolve().parent.parent / "notes" / "research" / "v030-screens"
 
 
-def shot(page, name: str) -> None:
+def shot(page, name: str, item: str = "c1") -> None:
     """A screenshot for the design review, kept in a local-only folder: notes/ is gitignored,
     so CI, which has no such folder, saves none."""
     if SCREENS.is_dir():
-        (SCREENS / "c1").mkdir(exist_ok=True)
-        page.screenshot(path=SCREENS / "c1" / f"{name}.png", full_page=True)
+        (SCREENS / item).mkdir(exist_ok=True)
+        page.screenshot(path=SCREENS / item / f"{name}.png", full_page=True)
 
 
 @pytest.fixture(scope="session")
@@ -355,3 +355,205 @@ def test_a_second_tab_offers_use_it_here_and_takes_over(clarity, context):
     second.click("#use-here")
     second.wait_for_selector("body[data-page=ready]")
     first.wait_for_selector("body[data-page=not-live]")
+
+
+# --- the thread (C2)
+
+
+def chat_on(page, redirect, profile: str = "text") -> None:
+    """Open Clarity and start a profile: `long` for replies longer than 16 tokens."""
+    open_clarity(page, redirect)
+    page.click(f"[data-profile={profile}]")
+    page.wait_for_selector("#thread .intro")
+
+
+def say(page, text: str) -> None:
+    page.fill("#message", text)
+    page.click("#send")
+
+
+def test_send_writes_and_stop_keeps_the_part_that_arrived(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect, "long")
+    backend.replies = [" One two three four five six seven eight nine ten eleven twelve."]
+    backend.piece_delay = 0.3
+    say(page, "Hi")
+    # E1: writing, in a status region; Stop where Send was; the picker waits.
+    page.wait_for_selector("#writing:has-text('two')")  # not wait_for_function: the CSP
+    assert page.text_content("#writing-status") == "Writing…"
+    assert page.is_visible("#stop") and page.is_hidden("#send")
+    assert page.text_content("#stop-label") == "Stop"
+    assert page.get_attribute("#picker-button", "aria-disabled") == "true"
+    assert page.get_attribute("#writing", "aria-live") is None  # the reply isn't announced
+    shot(page, "E1-writing", "c2")
+    page.click("#stop")
+    # E3: the part that arrived is kept, and the facts line says who stopped it.
+    page.wait_for_selector(".reply.last .facts")
+    assert page.text_content(".reply.last .facts") == "stopped by you"
+    state = page.evaluate("clarity.command('state')")["result"]
+    assert page.text_content(".reply.last .msg") == state["turns"][-1]["text"]
+    assert page.is_visible("#send") and page.is_hidden("#writing-box")
+    assert page.get_attribute("#picker-button", "aria-disabled") is None
+    shot(page, "E3-stopped-by-you", "c2")
+
+
+def test_several_replies_say_which_is_being_written(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect, "long")
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    backend.replies = [" A first one, " * 5, " A second one, " * 5, " A third."]
+    backend.piece_delay = 0.4
+    page.evaluate("() => { clarity.command('regen', '3'); }")
+    page.wait_for_selector("#writing-status:has-text('Writing reply 2 of 3')")
+    assert page.text_content("#stop-label") == "Stop the rest"
+    assert page.locator("#writing-dots span").count() == 3
+    shot(page, "E2-several-replies", "c2")
+    page.wait_for_selector("#stop", state="hidden", timeout=20_000)  # done: the page knew
+    assert page.text_content(".reply.last [data-action=replies]") == "4 replies"
+
+
+def test_a_failed_message_comes_back_to_the_box(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    backend.fail_with = "A made-up failure."
+    say(page, "Hi there")
+    page.wait_for_selector("#thread [data-failed]")
+    assert page.text_content("#thread [data-failed] [role=alert]") == (
+        "! Failed: A made-up failure. Details"
+    )
+    assert page.input_value("#message") == "Hi there"
+    assert page.locator("text=Try again").count() == 0
+    shot(page, "E5-failed-message", "c2")
+
+
+def test_a_failed_regenerate_offers_try_again(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last [data-action=regen]")
+    backend.fail_with = "A made-up failure."
+    page.click(".reply.last [data-action=regen]")
+    page.wait_for_selector("#notice [role=alert]")
+    assert page.text_content("#notice [role=alert]") == "! Failed: A made-up failure."
+    shot(page, "E5-failed-regenerate", "c2")
+    backend.fail_with = None
+    page.click("#notice [data-action=regen]")
+    page.wait_for_selector(".reply.last [data-action=replies]:has-text('2 replies')")
+
+
+def test_when_the_server_stopped_start_the_model_again(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    backend.stopped = True
+    say(page, "Again")
+    page.wait_for_selector("#thread [data-action=restart]")
+    shot(page, "E6-server-stopped", "c2")
+    hold_start(backend, 1.5)
+    page.click("#thread [data-action=restart]")
+    page.wait_for_selector("#thread .starting")
+    assert page.text_content("#thread .starting [role=status]") == "Starting text…"
+    assert page.input_value("#message") == "Again"  # your text stays in the box
+    shot(page, "E6-starting-again", "c2")
+    page.wait_for_selector("#thread .starting", state="detached")
+    page.click("#send")
+    page.wait_for_selector(".reply.last .msg:has-text('ok')")
+
+
+def test_a_message_that_doesnt_fit_stays_in_the_box(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    backend._n_ctx = 160
+    say(page, "x" * 200)
+    page.wait_for_selector("#thread [data-failed]")
+    sentence = page.text_content("#thread [data-failed] [role=alert]")
+    assert sentence.startswith("! The prompt is ") and "Failed" not in sentence
+    assert page.input_value("#message") == "x" * 200
+    shot(page, "E7-doesnt-fit", "c2")
+
+
+def test_stopped_before_any_text_says_so(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    backend.cancel_after = 0
+    say(page, "Hi")
+    page.wait_for_selector("#thread [data-failed][role=status]")
+    assert page.text_content("#thread [data-failed]") == "Cancelled before the reply started."
+    assert page.input_value("#message") == "Hi"
+    shot(page, "E4-stopped-before-text", "c2")
+
+
+def test_edit_your_message_then_step_through_its_versions(clarity, page, context):
+    _, redirect, _ = clarity
+    context.grant_permissions(["clipboard-read", "clipboard-write"])
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.click(".turn.user [data-action=edit]")
+    assert page.input_value("#edit-text") == "Hi" and focused(page) == "edit-text"
+    shot(page, "D2-editing", "c2")
+    page.fill("#edit-text", "Hello")
+    page.click("[data-edit] button[type=submit]")
+    page.wait_for_selector(".msgbar .n")
+    assert page.text_content(".msgbar .n") == "2 / 2"
+    page.click(".reply.last [data-action=copy]")
+    page.wait_for_selector(".reply.last .copied:has-text('Copied')")
+    assert page.evaluate("navigator.clipboard.readText()") == page.text_content(".reply.last .msg")
+    shot(page, "D1-D3-counter-and-toolbar", "c2")
+    page.click("[aria-label='Previous version of your message']")
+    page.wait_for_selector(".msgbar .n:has-text('1 / 2')")
+    assert page.text_content(".turn.user .msg") == "Hi"
+
+
+def test_marks_and_a_note_on_a_reply(clarity, page):
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.click(".reply.last .bm")
+    assert page.is_visible(".reply.last .pop") and "Not marked" in page.text_content(".pop .ph")
+    page.click(".pop [data-action=mark]")
+    page.wait_for_selector(".pop .lab:has-text('interesting')")
+    page.click(".pop [data-action=note-edit]")
+    page.fill(".pop textarea", "Short and kind.")
+    page.click(".pop [data-note] button[type=submit]")
+    page.wait_for_selector(".pop .noted")
+    assert page.text_content(".pop .noted") == "Note: “Short and kind.”"
+    turn = page.evaluate("clarity.command('state')")["result"]["turns"][-1]
+    assert [m["label"] for m in turn["marks"]] == ["interesting"]
+    assert turn["notes"][-1]["text"] == "Short and kind."
+    shot(page, "D6-marks-and-note", "c2")
+    page.keyboard.press("Escape")
+    assert page.is_hidden(".pop") and page.evaluate(
+        "document.activeElement.classList.contains('bm')"
+    )
+    page.click(".reply.last .bm")
+    page.click("[aria-label='Remove the mark interesting']")
+    page.wait_for_selector(".pop .ph:has-text('Not marked')")
+
+
+def test_the_facts_line_shows_a_failed_check(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    backend.result_flags = ["check_failed:no_cache_reuse"]
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .facts")
+    assert (
+        page.text_content(".reply.last .facts .warn")
+        == "! 1 check failed: no_cache_reuse · Details"
+    )
+    shot(page, "D5-facts-line", "c2")
+
+
+def test_after_a_reload_mid_reply_the_page_learns_the_reply_ended(clarity, page):
+    _, redirect, backend = clarity
+    chat_on(page, redirect, "long")
+    reply = " Slowly," * 12 + " done."
+    backend.replies, backend.piece_delay = [reply], 0.3
+    page.evaluate("() => { clarity.command('say', 'Hi'); }")
+    page.wait_for_timeout(600)
+    page.reload()
+    page.wait_for_selector("#stop", state="visible")
+    page.wait_for_selector("#stop", state="hidden", timeout=20_000)
+    assert page.get_attribute("#picker-button", "aria-disabled") is None
+    assert page.text_content(".reply.last .msg") == reply
