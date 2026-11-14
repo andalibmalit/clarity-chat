@@ -249,47 +249,89 @@ LEAST_LIKELY = 10  # how many of a reply's least likely chosen tokens /probs lis
 
 
 def _probs(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    """The current reply's token probabilities: the full record, and its least likely
-    chosen tokens with their text and the alternatives the model ranked above them."""
+    """A reply's token probabilities: the full record; every token with its text, its place
+    in the reply and the alternatives; and its least likely chosen tokens. The current reply,
+    or the call named. Without probabilities, `reason` is a code and `unavailable` says why."""
+    named, rest = target(c, args)
+    if rest:
+        raise ConfigError("Usage: /probs [CALL_ID]")
     conversation = c.session.conversation
     assert conversation is not None
-    # The reply at head, which is on screen; last_call can be a failed call (for /prompt).
-    head = conversation.turns.get(conversation.head or "")
-    call = conversation.calls.get(head.call_id or "") if head else None
-    if call is None or call.get("turn_id") is None:
+    if named is not None:
+        call = named
+    else:  # the reply at head, which is on screen; last_call can be a failed call (/prompt)
+        head = conversation.turns.get(conversation.head or "")
+        call = conversation.calls.get(head.call_id or "") if head else None
+
+    def unavailable(reason: str, why: str) -> dict[str, Any]:
         return {
-            "call_id": None,
-            "logprobs": None,
+            "call_id": call["call_id"] if call else None,
+            "logprobs": call.get("logprobs") if call else None,
+            "tokens": [],
             "least_likely": [],
-            "unavailable": "no reply yet",
+            "reason": reason,
+            "unavailable": why,
         }
+
+    if call is None:
+        return unavailable("no_reply", "no reply yet")
+    if call.get("turn_id") is None:
+        return unavailable("failed", "the call failed, so there is no reply")
     logprobs = call.get("logprobs")
-    if logprobs is None or "unavailable" in logprobs:
-        reason = (
-            logprobs["unavailable"]
-            if logprobs
-            else "not recorded; on a Transformers profile, /set logprobs 5 records them"
+    if logprobs is None:
+        on_llama_cpp = (call.get("backend") or {}).get("backend", "llama.cpp") == "llama.cpp"
+        why = "not recorded; on a Transformers profile, /set logprobs 5 records them"
+        return unavailable("llama_cpp" if on_llama_cpp else "off", why)
+    if "unavailable" in logprobs:
+        why = logprobs["unavailable"]
+        return unavailable("cancelled" if why == "cancelled" else "other", why)
+    tokenizer = c.session.tokenizer
+    assert tokenizer is not None
+    reply = call["output_text"]
+    ids = [t["id"] for t in logprobs["tokens"]]
+    tokens, at = [], 0
+    for i, (t, text) in enumerate(
+        zip(logprobs["tokens"], token_texts(tokenizer, ids), strict=True)
+    ):
+        start = min(at, len(reply))
+        at += len(text)
+        tokens.append(
+            {
+                "index": i,
+                "id": t["id"],
+                "text": text,
+                "start": start,
+                "end": min(at, len(reply)),  # a stop string or end token lies past the reply
+                "logprob": t["logprob"],
+                "top": [
+                    {"id": o, "text": tokenizer.decode([o]), "logprob": lp} for o, lp in t["top"]
+                ],
+            }
         )
-        return {
-            "call_id": call["call_id"],
-            "logprobs": logprobs,
-            "least_likely": [],
-            "unavailable": reason,
-        }
-    decode = c.session.tokenizer.decode if c.session.tokenizer else str
-    tokens = logprobs["tokens"]
     ranked = sorted(range(len(tokens)), key=lambda i: tokens[i]["logprob"])[:LEAST_LIKELY]
-    least = [
-        {
-            "index": i,
-            "id": tokens[i]["id"],
-            "text": decode([tokens[i]["id"]]),
-            "logprob": tokens[i]["logprob"],
-            "top": [{"id": t, "text": decode([t]), "logprob": lp} for t, lp in tokens[i]["top"]],
-        }
-        for i in sorted(ranked)
-    ]
-    return {"call_id": call["call_id"], "logprobs": logprobs, "least_likely": least}
+    least = [tokens[i] for i in sorted(ranked)]
+    return {
+        "call_id": call["call_id"],
+        "logprobs": logprobs,
+        "tokens": tokens,
+        "least_likely": least,
+    }
+
+
+def token_texts(tokenizer: Any, ids: list[int]) -> list[str]:
+    """Each token's share of the decoded text. A character split across tokens (é in a
+    byte-level vocabulary) belongs to the token that completes it, so the texts join up."""
+    texts, shown = [], ""
+    for i in range(len(ids)):
+        text = tokenizer.decode(ids[: i + 1])
+        if i < len(ids) - 1:
+            text = text.rstrip("\ufffd")  # a character still incomplete
+        if not text.startswith(shown):  # a decoder that rewrites earlier text: keep the joins
+            texts.append("")
+            continue
+        texts.append(text[len(shown) :])
+        shown = text
+    return texts
 
 
 def _export(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -421,8 +463,8 @@ COMMANDS: dict[str, Command] = {
         _prompt,
     ),
     "probs": Command(
-        "/probs",
-        "the current reply's least likely tokens and the alternatives (needs logprobs on)",
+        "/probs [CALL_ID]",
+        "a reply's least likely tokens and the alternatives (needs logprobs on)",
         _probs,
     ),
     "settings": Command("/settings", "every setting, its value and where it came from", _settings),
