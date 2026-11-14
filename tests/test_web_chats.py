@@ -379,3 +379,14 @@ def test_a_command_other_than_a_reply_says_the_command(chat, view_name):
     assert "export" in seen
     assert "Waits until the command is done." in fragment
     assert "Waits until the reply is done." not in fragment
+
+
+def test_a_failed_regenerate_after_a_resume_keeps_what_differs(chat):
+    """Finding 8: only a message (back_to None) uses up the resumed chat's line; a failed
+    Regenerate or Edit doesn't, since the resumed message is still where it was."""
+    client, session = chat
+    first = two_chats(client, session)
+    result(client, "resume", first)
+    session.backend.fail_with = "A made-up failure."
+    command(client, "regen")
+    assert result(client, "state")["resume_differ"] is not None
