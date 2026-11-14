@@ -7,6 +7,7 @@ process; nothing listens on a port.
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
 from starlette.testclient import TestClient
@@ -341,3 +342,79 @@ def test_the_styles_load_nothing_from_the_network():
     for name in web.STATIC_FILES:
         text = (folder / name).read_text(encoding="utf-8")
         assert "@import" not in text and "http://" not in text and "https://" not in text, name
+
+
+# --- the tripwire review's findings (v0.3.0, 5759fcf..65bb7a3)
+
+
+def test_a_command_decided_at_once_never_takes_the_queues_lock(fetched_root, tiny_tokenizer):
+    """Finding 1: decided once. /settings, judged at once while a reply ran, mustn't take
+    the lock the queue's next command needs if the reply ends in between."""
+    from clarity_chat.commands import Commands
+
+    session = Session(
+        fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    c = Commands(session)
+    c.run("profile", "text", lambda e: None)
+    c.busy.acquire()  # as if a reply runs, or has just ended with the queue's next one taking it
+    try:
+        assert c.run("settings", "", lambda e: None, at_once=True)["settings"]
+    finally:
+        c.busy.release()
+
+
+def test_a_finished_reply_is_never_both_in_the_turns_and_still_being_written(
+    fetched_root, tiny_tokenizer
+):
+    """Finding 2: when the reply's turn is written, the reply so far is cleared with it."""
+    from clarity_chat.commands import Commands
+
+    session = Session(
+        fetched_root, backend=FakeBackend([" Hi."]), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    c = Commands(session)
+    c.run("profile", "text", lambda e: None)
+    seen: list[dict] = []
+
+    def on_event(event):
+        record = event.get("record") or {}
+        if record.get("type") == "turn" and record.get("role") == "assistant":
+            seen.append(c.run("state", "", lambda e: None))
+
+    c.run("say", "Hello", on_event)
+    (state,) = seen
+    assert state["reply_so_far"] == "" and state["reply_end"] == 0
+
+
+def test_a_server_error_carries_the_security_headers_and_says_why(server, monkeypatch):
+    """Finding 3: an error inside a route still gets every header."""
+    client, _, _ = server
+    command(client, "profile", "text")
+    monkeypatch.setattr(web.Worker, "submit", lambda self, name, args: {"result": float("nan")})
+    response = command(client, "state")
+    assert response.status_code == 500
+    assert response.headers["Cache-Control"] == "no-store"
+    assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+
+
+def test_a_listener_that_fails_is_dropped_and_the_worker_goes_on(fetched_root, tiny_tokenizer):
+    """Finding 4: a closed event loop must not end the session or kill the worker."""
+    session = Session(
+        fetched_root, backend=FakeBackend([" Hi."]), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    worker = web.Worker(session)
+
+    def broken(event):
+        raise RuntimeError("Event loop is closed")
+
+    worker.listen(broken)
+    answers: list[dict] = []
+    probe = threading.Thread(
+        target=lambda: answers.append(worker.submit("profile", "text")), daemon=True
+    )
+    probe.start()
+    probe.join(10)
+    assert answers and "result" in answers[0], "the worker died: a submit never came back"
+    assert worker.failed is None and broken not in worker.listeners
+    assert "result" in worker.submit("say", "Hello")
