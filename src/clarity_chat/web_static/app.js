@@ -454,7 +454,7 @@ function act(element) {
   const action = element.dataset.action;
   if (action === "new") {
     if (clarity.state.conversation_id) start("new", "");
-    else showMenu($("picker-button"));
+    else openPicker();
   } else if (action === "about") {
     about();
   } else if (action === "quit") {
@@ -488,6 +488,14 @@ function showMenu(button, which = "first") {
   if (target) target.focus();
 }
 
+async function openPicker(which = "first") {
+  // The picker's row is read again on each open, so a profile saved since the last redraw
+  // is listed. If the read fails, the list drawn last opens.
+  const row = await view("picker").catch(() => null);
+  if (row !== null) swap($("composer-row"), row);
+  if ($("picker-button").getAttribute("aria-disabled") !== "true") showMenu($("picker-button"), which);
+}
+
 function hideMenu(returnFocus) {
   if (!openMenu) return;
   const { button, menu } = openMenu;
@@ -502,6 +510,7 @@ document.addEventListener("click", (event) => {
   if (button) {
     if (button.getAttribute("aria-disabled") === "true") return;
     if (openMenu && openMenu.button === button) hideMenu(false);
+    else if (button.id === "picker-button") openPicker();
     else showMenu(button);
     return;
   }
@@ -579,7 +588,9 @@ document.addEventListener("keydown", (event) => {
   if (button && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
     if (button.getAttribute("aria-disabled") === "true") return;
     event.preventDefault();
-    showMenu(button, event.key === "ArrowUp" ? "last" : "first");
+    const which = event.key === "ArrowUp" ? "last" : "first";
+    if (button.id === "picker-button") openPicker(which);
+    else showMenu(button, which);
     return;
   }
   if (event.key === "Escape" && openPop && openPop.contains(event.target)) {
