@@ -144,6 +144,35 @@ ok    smollm2-135m-instruct: sha256 matches (0f049d7126689b64…)
 
 `/help` lists every command. [Chat commands](reference.md#chat-commands) in the reference describes each one.
 
+## Chat in the browser
+
+The web interface runs the same chats in a page on your computer. Everything it does goes through the same commands as the terminal, and the same log.
+
+1. Start it:
+
+   ```
+   uv run clarity ui
+   ```
+
+   ```
+   Clarity is at http://127.0.0.1:8765/#key=…
+   (the link works until Clarity stops). Enter opens it again; Ctrl-C stops Clarity.
+   ```
+
+   Clarity opens the page in your browser. The link holds a secret made for this start, so only a page opened from it can use Clarity. One tab at a time can use it.
+
+2. In **Choose a profile to start**, pick `smol-chat`. The page says "Starting smol-chat…" while the model starts, then shows the profile, the model and its backend.
+
+3. Type a message and press Enter. Shift+Enter starts a new line. The reply appears as it's written, and **Stop** keeps the part that arrived. Under the reply are **Copy**, **Regenerate**, **Replies** and **Details**. **Details** shows exactly what the model got, as text and as token IDs, how the reply stopped, the settings as logged, and **Replay**.
+
+4. **Settings**, under the message box, lists every setting with its value and where it came from. A change applies from the next reply and is logged with it.
+
+5. **Chats**, the tab on the left edge, lists your chats under Today and Earlier. Pick one to reopen it as it was logged; the page says what differs today.
+
+6. To quit, choose **Quit Clarity** from the **Clarity** menu, or press Ctrl-C in the terminal. Your chats stay in `logs/`.
+
+[The web interface](reference.md#the-web-interface) in the reference describes each part of the page.
+
 ## Look at the log
 
 Every call wrote a record to `logs/CONVERSATION_ID.jsonl`, with everything needed to reproduce it or explain a difference. [Log records](reference.md#log-records) lists what's in it.
