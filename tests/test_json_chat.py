@@ -157,6 +157,7 @@ EVERY_COMMAND = [
     ("resume", lambda s: s.conversation.conversation_id),
     ("new", lambda s: ""),
     ("profiles", lambda s: ""),
+    ("state", lambda s: ""),
     ("quit", lambda s: ""),
 ]
 
@@ -357,3 +358,24 @@ def test_lines_and_characters_split_across_reads_arrive_whole(make):
         ("say", "é", 1),
         ("help", "", 2),
     ]
+
+
+def test_state_and_cancel_run_as_soon_as_they_are_read(make):
+    """A page reloaded mid-reply asks /state; it mustn't wait behind the reply."""
+    import queue
+
+    session, _ = make()
+    lines = [
+        json.dumps({"command": "say", "args": "Hi"}),
+        json.dumps({"command": "state", "args": ""}),
+        json.dumps({"command": "cancel", "args": ""}),
+    ]
+    stdout = io.StringIO()
+    chat = JsonChat(session, io.BytesIO("\n".join(lines).encode() + b"\n"), stdout)
+    pending: queue.Queue = queue.Queue()
+    chat.read(pending)  # reading only: nothing from the queue has run
+    queued = [pending.get_nowait() for _ in range(pending.qsize())]
+    assert [c and c["command"] for c in queued] == ["say", None]
+    results = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    assert [r["event"] for r in results] == ["result", "result"]
+    assert results[0]["result"]["running"] is None  # state, before the say ran

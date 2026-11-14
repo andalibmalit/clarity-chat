@@ -13,7 +13,7 @@ back. Each output line is one JSON object with an `event`:
 
 A command's own records arrive as `record` events before its `result`, which may repeat
 some of them; rely on `record` events for the log and on `result` for the answer.
-Commands run one at a time, in order, except `cancel`, which runs as soon as it is read,
+Commands run one at a time, in order, except `cancel` and `state`, which run as soon as read,
 so it can stop a reply being written. End of input quits, like `quit`.
 """
 
@@ -27,7 +27,7 @@ from collections.abc import Iterator
 from typing import IO, Any
 
 from clarity_chat.backends import BackendError
-from clarity_chat.commands import Commands
+from clarity_chat.commands import COMMANDS, Commands
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import ContextError, Session
 
@@ -73,14 +73,15 @@ class JsonChat:
                 return
 
     def read(self, pending: queue.Queue[dict[str, Any] | None]) -> None:
-        """Read input lines. `cancel` runs here at once; everything else, including a line
-        that isn't a command, waits its turn."""
+        """Read input lines. `cancel` and `state` run here at once, so they work during a
+        call; everything else, including a line that isn't a command, waits its turn."""
         try:
             for line in self.lines():
                 if not line.strip():
                     continue
                 command = self.parse(line)
-                if command.get("command") == "cancel":
+                found = COMMANDS.get(str(command.get("command")))
+                if found is not None and found.during_call:
                     self.execute(command)
                 else:
                     pending.put(command)

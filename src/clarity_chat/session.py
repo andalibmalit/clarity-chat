@@ -135,6 +135,8 @@ class Conversation:
     warnings: list[str] = field(default_factory=list)  # shown when it starts, and logged
     chat_settings: dict[str, Any] = field(default_factory=dict)  # set with /set
     resumed: bool = False  # rebuilt from its log: /switch checks the prompt renders the same
+    resume_record: dict[str, Any] | None = None  # the `resume` record, if it was resumed
+    unanswered: dict[str, Any] | None = None  # your last message, if its call failed
     # The model's recommended values the settings came from, as logged; None for a new
     # conversation, whose calls log today's models.lock.
     logged_recommended: dict[str, Any] | None = None
@@ -1096,6 +1098,7 @@ class Session:
             conversation.move_head(back_to or user_turn.parent_id, "failed", **failed)
             if back_to is None:
                 conversation.last_call = record  # /prompt shows the failed message's call
+                conversation.unanswered = {"turn_id": user_turn.turn_id, "text": user_turn.text}
             raise
         fields, server_prompt = result_fields(result)
         record.update(fields)
@@ -1125,6 +1128,7 @@ class Session:
             regen_of=regen_of,
         )
         conversation.head = reply.turn_id
+        conversation.unanswered = None
         conversation.last_call = conversation.calls[call_id] = record
         return CallOutcome(record, result, reply, warnings)
 
@@ -1409,6 +1413,7 @@ class Session:
                 "render": render,
             }
         )
+        conversation.resume_record, conversation.unanswered = record, state.unanswered
         self._log_server_start()
         return record
 

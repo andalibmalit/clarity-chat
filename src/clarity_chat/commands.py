@@ -6,7 +6,7 @@
 ready) and `record` (every record appended to the log). Errors are raised
 (ConfigError, ContextError, BackendError); each front end shows them its own way.
 
-Commands run one at a time, except `cancel`, which runs during a call.
+Commands run one at a time, except `cancel` and `state`, which run during a call.
 """
 
 from __future__ import annotations
@@ -43,6 +43,8 @@ class Commands:
         self.busy = threading.Lock()  # held while a command runs: one at a time
         self.cancel_event: threading.Event | None = None  # the running command's
         self.running: str | None = None  # the running command's name
+        self.streamed: list[str] = []  # the reply being written, so far (for /state)
+        self.model_state = "none"  # none, starting or ready
         # Paths only from the command line (--profile, --resume), which you type. Commands
         # will also come from the browser (v0.3.0), so they take names and IDs.
         self.paths = False
@@ -63,12 +65,26 @@ class Commands:
         self.cancel_event = threading.Event()
         self.running = name
         self.paths = paths
-        self.session.on_record = lambda record: emit({"event": "record", "record": record})
+        self.streamed = []
+
+        def tracked(event: dict[str, Any]) -> None:
+            if event["event"] == "text":
+                self.streamed.append(event["text"])
+            elif event["event"] == "reply_start":
+                self.streamed = []
+            elif event["event"] == "status":
+                self.model_state = event["status"]
+            emit(event)
+
+        self.session.on_record = lambda record: tracked({"event": "record", "record": record})
         try:
-            return command.run(self, args, emit)
+            return command.run(self, args, tracked)
         finally:
+            if self.model_state == "starting":  # a start that failed: whatever runs now
+                self.model_state = "ready" if self.session.conversation else "none"
             self.session.on_record = None
             self.cancel_event = None
+            self.streamed = []
             self.running = None
             self.paths = False
             self.busy.release()
@@ -429,7 +445,7 @@ def named_profile(c: Commands, name: str) -> str:
 
 
 def _start(c: Commands, profile: str, emit: Emit) -> dict[str, Any]:
-    emit({"event": "status", "status": "starting", "profile": profile})
+    emit({"event": "status", "status": "starting", "profile": Path(profile).stem})
     new = c.session.new_conversation(profile)
     emit({"event": "status", "status": "ready", "conversation_id": new.conversation_id})
     return {
@@ -438,6 +454,47 @@ def _start(c: Commands, profile: str, emit: Emit) -> dict[str, Any]:
         "model": new.profile.model,
         "mode": new.profile.mode,
         "warnings": [*(new.started_server or {}).get("warnings", []), *new.warnings],
+    }
+
+
+def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    """Everything a page needs to draw itself, at any moment, mid-reply included: the
+    conversation, the command running and the reply so far, and what's loaded."""
+    from importlib.metadata import version
+
+    from clarity_chat.logs import chat_summary, client_git
+
+    session, conversation = c.session, c.session.conversation
+    out: dict[str, Any] = {
+        "running": c.running,
+        "reply_so_far": "".join(c.streamed),
+        "model": c.model_state,
+        "clarity": {"version": version("clarity-chat"), **client_git()},
+        "llama_cpp_commit": session.server_config.llama_cpp_commit,
+        "conversation_id": None,
+        "title": None,
+        "profile": None,
+        "head": None,
+        "turns": [],
+        "unanswered": None,
+        "warnings": [],
+        "resume": None,
+    }
+    if conversation is None:
+        return out
+    return {
+        **out,
+        "conversation_id": conversation.conversation_id,
+        "title": chat_summary(conversation.log.path)["title"],
+        "profile": conversation.profile.name,
+        "head": conversation.head,
+        "turns": session.history(),
+        "unanswered": conversation.unanswered,
+        "warnings": [
+            *(conversation.started_server or {}).get("warnings", []),
+            *conversation.warnings,
+        ],
+        "resume": conversation.resume_record,
     }
 
 
@@ -604,6 +661,13 @@ COMMANDS: dict[str, Command] = {
         "/cancel",
         "stop the reply being written (Ctrl-C does this in the terminal)",
         _cancel,
+        during_call=True,
+        needs_conversation=False,
+    ),
+    "state": Command(
+        "/state",
+        "where things are: the conversation, the command running and its reply so far",
+        _state,
         during_call=True,
         needs_conversation=False,
     ),
