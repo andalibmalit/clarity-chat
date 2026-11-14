@@ -1214,6 +1214,15 @@ def record_text(call: dict[str, Any]) -> str:
     )
 
 
+async def read_or_refusal(worker: Worker, name: str, args: str) -> dict[str, Any]:
+    """A read's answer, `result` or a refusal's `error`, for a view that draws without it.
+    The session stopping still answers 503."""
+    answer = await worker.ask(name, args)
+    if answer.get("stopped"):
+        raise Refused(503, answer["error"])
+    return answer
+
+
 async def _details(worker: Worker, params: dict[str, str | None]) -> str:
     """Details for one call: what the model got, the summary, Replay, the settings as logged
     and the whole record. /state comes first, so the queued reads after it (/compare,
@@ -1230,9 +1239,11 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
     running = changing(state)
     k = n = None
     if call.get("turn_id") and running is None:  # /compare waits its turn
-        replies = (await result_of(worker, "compare", params["call"]))["replies"]
-        k = next((r["k"] for r in replies if r["call_id"] == call["call_id"]), None)
-        n = len(replies)
+        compared = await read_or_refusal(worker, "compare", params["call"])
+        if "result" in compared:  # refused (a log another program wrote): no "reply k of n"
+            replies = compared["result"]["replies"]
+            k = next((r["k"] for r in replies if r["call_id"] == call["call_id"]), None)
+            n = len(replies)
     flags = call.get("flags") or []
     failed = [f.removeprefix(CHECK) for f in flags if f.startswith(CHECK)]
     failed += [
@@ -1250,7 +1261,11 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
     )
     probs = worker.probs.get(call["call_id"])
     if probs is None and not error and running is None:  # /probs waits its turn
-        probs = await result_of(worker, "probs", call["call_id"])
+        read_probs = await read_or_refusal(worker, "probs", call["call_id"])
+        probs = read_probs.get("result") or {
+            "reason": "unreadable",
+            "unavailable": read_probs["error"],
+        }
         worker.probs[call["call_id"]] = probs
         if len(worker.probs) > PROBS_KEPT:
             del worker.probs[next(iter(worker.probs))]
