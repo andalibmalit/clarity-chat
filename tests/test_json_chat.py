@@ -379,3 +379,17 @@ def test_state_and_cancel_run_as_soon_as_they_are_read(make):
     results = [json.loads(line) for line in stdout.getvalue().splitlines()]
     assert [r["event"] for r in results] == ["result", "result"]
     assert results[0]["result"]["running"] is None  # state, before the say ran
+
+
+def test_chats_and_profiles_run_as_soon_as_they_are_read(make):
+    import queue
+
+    session, _ = make()
+    lines = [json.dumps({"command": name, "args": ""}) for name in ("say", "chats", "profiles")]
+    stdout = io.StringIO()
+    chat = JsonChat(session, io.BytesIO("\n".join(lines).encode() + b"\n"), stdout)
+    pending: queue.Queue = queue.Queue()
+    chat.read(pending)
+    queued = [pending.get_nowait() for _ in range(pending.qsize())]
+    assert [q and q["command"] for q in queued] == ["say", None]
+    assert len(stdout.getvalue().splitlines()) == 2  # chats' and profiles' results
