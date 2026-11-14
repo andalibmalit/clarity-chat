@@ -155,3 +155,21 @@ def test_a_reply_reloaded_mid_way_joins_exactly_with_an_emoji(clarity, page):
     page.reload()  # mid-reply: the new page reads /state, then joins the stream
     page.wait_for_selector("body[data-last-call]", timeout=20_000)
     assert page.text_content("#writing") == reply
+
+
+def test_trusted_types_let_only_swap_put_html_in_the_page(clarity, page):
+    """The CSP's Trusted Types: swap() works through its policy; any other sink throws."""
+    _, redirect, _ = clarity
+    open_clarity(page, redirect)
+    swapped = page.evaluate(
+        """() => clarity.view("thread").then(html => {
+             clarity.swap(document.getElementById("writing"), html);
+             return document.querySelector("#writing ol.thread") !== null;
+           })"""
+    )
+    assert swapped is True
+    refused = page.evaluate(
+        """() => { try { document.body.innerHTML = "<b>x</b>"; return "allowed"; }
+                   catch (e) { return e.name; } }"""
+    )
+    assert refused == "TypeError"

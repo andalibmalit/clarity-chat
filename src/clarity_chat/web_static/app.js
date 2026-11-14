@@ -90,9 +90,14 @@ async function view(name, params = {}) {
   return response.text();
 }
 
+// The page's one Trusted Types policy: the CSP lets nothing else make HTML from a string.
+const POLICY = window.trustedTypes
+  ? window.trustedTypes.createPolicy("clarity", { createHTML: (html) => html })
+  : null;
+
 function swap(element, html) {
   // The one place server HTML enters the page: parsed, then its nodes moved in.
-  const parsed = new DOMParser().parseFromString(html, "text/html");
+  const parsed = new DOMParser().parseFromString(POLICY ? POLICY.createHTML(html) : html, "text/html");
   element.replaceChildren(...parsed.body.childNodes);
 }
 

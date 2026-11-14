@@ -723,3 +723,20 @@ def test_the_javascript_has_exactly_one_html_sink():
     # swap() takes a server fragment, never HTML built from text here.
     for call in re.findall(r"swap\(([^)]*)\)", code):
         assert "+" not in call and "`" not in call, call
+
+
+def test_an_event_holding_nan_reaches_the_page_as_an_error(server):
+    """Security review, finding 4: the stream's lines are always valid JSON."""
+    client, _, app = server
+    with client.stream("GET", "/events?tab=tab-1", headers={**AUTH, **SAME}) as stream:
+        lines = stream.iter_lines()
+        next(lines)  # hello
+        app.state.worker.emit({"event": "record", "record": {"x": float("nan")}})
+        event = json.loads(next(lines))
+    assert event["event"] == "error" and "NaN" in event["message"]
+
+
+def test_the_csp_requires_trusted_types(server):
+    client, _, _ = server
+    csp = client.get("/").headers["Content-Security-Policy"]
+    assert "require-trusted-types-for 'script'" in csp and "trusted-types clarity" in csp
