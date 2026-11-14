@@ -48,8 +48,9 @@ MODEL_PINS = ("name", "repo", "revision", "route", "gguf_sha256", "gguf_path")
 
 
 def export_log(session: Session, log_path: Path, out: Path | None = None) -> dict[str, Any]:
-    """Write `log_path`'s conversation to `out` (default `logs/exports/ID.jsonl`), replacing
-    any file there. Returns the path, whether a file was replaced, and the counts."""
+    """Write `log_path`'s conversation to `out` (default `logs/exports/ID.jsonl`, ID the log
+    file's name), replacing any file there. Returns the path, whether a file was replaced,
+    and the counts."""
     if not log_path.is_file():
         raise ConfigError(
             f"No conversation or log file {log_path}. `clarity chats` or /chats lists them."
@@ -98,7 +99,17 @@ def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any
         "note": RECOMPUTE_NOTE
         + (STEERED_NOTE if any(row["steering"] != "none" for row in rows) else ""),
     }
-    path = out or session.logs_dir / "exports" / f"{conversation_id}.jsonl"
+    if out is None:
+        # Named by the log's file, the ID `clarity chats` lists (a copied log keeps the
+        # conversation ID, so its export mustn't overwrite the original's). It names a file
+        # in logs/exports/, so it must be a name Clarity would write.
+        if not re.fullmatch(r"[A-Za-z0-9_-][A-Za-z0-9._-]*", log_path.stem):
+            raise ConfigError(
+                f"{log_path.name} isn't a log name Clarity writes, so it can't name the "
+                "export. Pass --out PATH."
+            )
+        out = session.logs_dir / "exports" / f"{log_path.stem}.jsonl"
+    path = out
     replaced = path.exists()
     lines = [json.dumps(row, ensure_ascii=False) for row in [header, *rows]]
     try:  # private, like the log it comes from

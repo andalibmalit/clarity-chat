@@ -15,7 +15,7 @@ Every command, key and record field a user sees. For task-based instructions, se
 | `clarity replay LOG CALL_ID [--logged-flags]` | Re-send a logged call and compare the output. `--logged-flags` starts llama-server with the call's logged flags instead of `server.toml`'s, after the same checks `server.toml`'s get, so a log can't add, drop or change a flag in a way `server.toml` couldn't. |
 | `clarity mark LOG CALL_ID [LABEL] [--remove]` | Label a logged call's reply while reviewing, in `logs/` or a run's `calls.jsonl` (default label `interesting`). Appends one record and starts no server. With `--remove`, appends an `unmark` for each mark it removes: those with that label, or the reply's only label. |
 | `clarity note LOG CALL_ID TEXT` | Add a note to a logged call's reply while reviewing, replacing its note. Quote TEXT if it has spaces. |
-| `clarity export ID [--out PATH]` | Write a conversation to `logs/exports/ID.jsonl`, or PATH, for a notebook. See [Export](#export). ID is a conversation ID from `clarity chats`, or a log file. A new export replaces the old file and says so. Starts no server. |
+| `clarity export ID [--out PATH]` | Write a conversation to `logs/exports/ID.jsonl`, or PATH, for a notebook. See [Export](#export). ID is a conversation ID from `clarity chats` (the log file's name), or a log file, whose name then names the export. A new export replaces the old file and says so. Starts no server. |
 | `clarity fetch NAME` | Download (and, for the `convert` route, convert) a model from `models.toml`, and record it in `models.lock`. A gated repo needs your own Hugging Face login first ([Fetch a gated model](guides.md#fetch-a-gated-model)); without access, the fetch stops and says what to do. |
 | `clarity verify [NAME …]` | Re-hash fetched models against `models.lock`; with no names, every fetched model. |
 
@@ -259,7 +259,7 @@ Unless `n-gpu-layers` is 0, Clarity stops if llama.cpp puts the model on the CPU
 | `runs/RUN_ID/calls.jsonl` | Every call of a batch run, after a first `run` record. |
 | `runs/RUN_ID/blind.md` | Openings and shuffled, labelled replies, for raters. Written only if the whole run succeeds. |
 | `runs/RUN_ID/key.json` | Which label is which profile, seed and call, and the shuffle seed. |
-| `logs/exports/CONVERSATION_ID.jsonl` | A conversation exported for a notebook (`clarity export`, `/export`). `clarity chats` doesn't list it. |
+| `logs/exports/ID.jsonl` | A conversation exported for a notebook (`clarity export`, `/export`), named by its log file, so a copied log's export doesn't replace the original's. `clarity chats` doesn't list it. |
 | `local/clarity.lock` | Locked while `chat`, `run` or `replay` runs, so only one of them runs in a project at a time. Empty. |
 | `local/clarity.json` | Who holds the lock: process ID, command and start time, and the running llama-server's port, process ID and key. Readable only by you on Linux and macOS (mode 0600); on Windows it gets your folder's permissions. Removed on a normal exit; one left behind means Clarity didn't exit normally, and the next start uses it to stop that server. |
 
@@ -309,7 +309,7 @@ A replay of a steered call applies the logged vector at the logged scale and blo
 
 ## Export
 
-`clarity export` and `/export` write a conversation as JSON Lines, so a notebook reads it with a loop or `pandas.read_json(path, lines=True)`. The file is readable only by you on Linux and macOS, like the log. Replay records aren't exported: they re-run calls already there. A batch run's `calls.jsonl` can't be exported.
+`clarity export` and `/export` write a conversation as JSON Lines, so a notebook reads it with a loop or `pandas.read_json(path, lines=True)`. The file is `logs/exports/ID.jsonl`, ID the log file's name, unless `clarity export --out` names another; a log whose file name has characters other than letters, digits, `.`, `_` and `-` needs `--out`. The file is readable only by you on Linux and macOS, like the log. Replay records aren't exported: they re-run calls already there. A batch run's `calls.jsonl` can't be exported.
 
 The first line is the header, `"type": "export"`:
 - `format_version` (1), `clarity` (`version`, `commit`, `dirty`) and `conversation_id`.
