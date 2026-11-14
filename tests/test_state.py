@@ -42,7 +42,9 @@ def test_state_answers_while_a_reply_streams_with_its_text_so_far(commands):
             seen.append(state(c))  # during the call, from inside it
 
     c.run("say", "Hi", on_event)
-    assert [s.get("running") for s in seen] == ["say", "say"]
+    assert [s["running"] for s in seen] == [
+        {"command": "say", "args": "Hi", "k": None, "n": None}
+    ] * 2
     assert seen[0]["reply_so_far"] == " Hi "  # the fake streams a word at a time
     assert seen[1]["reply_so_far"] == " Hi there, "
     after = state(c)
@@ -107,7 +109,7 @@ def test_state_restores_the_title_warnings_and_resume_differences(commands, fetc
     assert state(c).get("title") == "A made-up title"
     c.run("resume", conversation_id, lambda e: None)
     result = state(c)
-    assert result.get("resume", {}).get("type") == "resume"
+    assert result["resume_differ"] == {"count": 0, "items": []}
     assert result["warnings"] == [] and result["profile"] == "text"
 
 

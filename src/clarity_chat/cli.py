@@ -233,12 +233,15 @@ def format_compare(result: dict[str, Any]) -> str:
         + ("the same prompt." if result["same_prompt"] else "but not the same prompt.")
     )
     for pair in result["pairs"]:
-        where = (
-            "identical"
-            if pair["first_different_token"] is None
-            else f"part at token {pair['first_different_token']} "
-            f"(character {pair['first_different_char']})"
-        )
+        if pair["first_different_token"] is None:
+            where = "identical"
+        elif pair["prefix"]:
+            where = f"agree until one stops, at token {pair['first_different_token']}"
+        else:
+            where = (
+                f"part at token {pair['first_different_token']} "
+                f"(character {pair['first_different_char']})"
+            )
         lines.append(f"Seed {pair['seed']}: {pair['a']} and {pair['b']} {where}.")
     again = result["again"]
     if again:

@@ -62,7 +62,7 @@ from clarity_chat.replay import (
     not_recorded,
     unexplained,
 )
-from clarity_chat.resume import rebuild, settings_diff
+from clarity_chat.resume import rebuild, settings_diff, what_differs
 
 CONTEXT_WARN_FRACTION = 0.8
 
@@ -135,7 +135,8 @@ class Conversation:
     warnings: list[str] = field(default_factory=list)  # shown when it starts, and logged
     chat_settings: dict[str, Any] = field(default_factory=dict)  # set with /set
     resumed: bool = False  # rebuilt from its log: /switch checks the prompt renders the same
-    resume_record: dict[str, Any] | None = None  # the `resume` record, if it was resumed
+    # What differs today, from the resume record (what_differs), until the next call.
+    resume_differ: dict[str, Any] | None = None
     unanswered: dict[str, Any] | None = None  # your last message, if its call failed
     # The model's recommended values the settings came from, as logged; None for a new
     # conversation, whose calls log today's models.lock.
@@ -671,9 +672,10 @@ class Session:
         assert reply.parent_id is not None
         replies = conversation.replies_to(reply.parent_id)
         first = next((t for t in replies if t.regen_of is None), replies[0])
-        if first.seed is None or first.call_id is None:
-            raise ConfigError("The first reply to this message has no seed to start from.")
-        seed = max(t.seed for t in replies if t.seed is not None) + 1
+        seeds = [t.seed for t in replies if t.seed is not None]
+        if not seeds or first.call_id is None:
+            raise ConfigError("No reply to this message has a seed to start from.")
+        seed = max(seeds) + 1
         if seed > SEED_MAX:
             raise ConfigError(
                 f"The next regeneration seed, {seed}, is above {SEED_MAX}. Edit the message or "
@@ -696,7 +698,7 @@ class Session:
             call = conversation.calls.get(turn.call_id or "")
             if call is None or turn.seed is None:
                 continue
-            same = setting_values(call) == now
+            same = same_where_recorded(setting_values(call), now)
             seeds[turn.seed] = seeds.get(turn.seed, False) or same
         return [seed for seed, made in seeds.items() if not made]
 
@@ -713,14 +715,17 @@ class Session:
         calls = [conversation.calls[t.call_id or ""] for t in replies]
         values = [setting_values(call) for call in calls]
         names = sorted(set().union(*values))
-        differ = [n for n in names if any(v.get(n) != values[0].get(n) for v in values)]
+        # A setting a call didn't record (an older Clarity's) isn't a different value.
+        differ = [n for n in names if len({json.dumps(v[n]) for v in values if n in v}) > 1]
         groups: list[dict[str, Any]] = []
         group_of = []
         for v in values:
             key = {n: v.get(n) for n in differ}
-            if key not in groups:
+            match = next((i for i, g in enumerate(groups) if same_where_recorded(g, key)), None)
+            if match is None:
                 groups.append(key)
-            group_of.append(groups.index(key))
+                match = len(groups) - 1
+            group_of.append(match)
         notes = self.marks_and_notes()
         newest = conversation.newest_replies()
         on_head_path = {t.turn_id for t in conversation.path_to(conversation.head)}
@@ -758,12 +763,16 @@ class Session:
                     continue
                 same = a["output_ids"] == b["output_ids"]
                 token = None if same else first_difference(a["output_ids"], b["output_ids"])
+                texts = (a["output_text"], b["output_text"])
                 pairs.append(
                     {
                         "seed": replies[i].seed,
                         "a": a["call_id"],
                         "b": b["call_id"],
                         "first_different_token": token,
+                        # One stops where the other goes on: its text begins the other's.
+                        "prefix": token is not None
+                        and (texts[1].startswith(texts[0]) or texts[0].startswith(texts[1])),
                         "first_different_char": None
                         if token is None
                         else self._chars_before(b, token),
@@ -774,7 +783,9 @@ class Session:
         if head is not None and head.role == "assistant" and head.parent_id == message.turn_id:
             seeds = self.seeds_to_make(message.turn_id)
             now = self.current_values()
-            changed = {n: now[n] for n in sorted(now) if any(v.get(n) != now[n] for v in values)}
+            changed = {
+                n: now[n] for n in sorted(now) if any(n in v and v[n] != now[n] for v in values)
+            }
             again = {"seeds": seeds, "now": changed} if seeds else None
         return {
             "message": {"turn_id": message.turn_id, "text": message.text},
@@ -866,11 +877,12 @@ class Session:
             }
         )
 
-    def history(self) -> list[dict[str, Any]]:
+    def history(self, conversation: Conversation | None = None) -> list[dict[str, Any]]:
         """The conversation from its start to `head`: each turn with its current marks and
-        notes. What a front end needs to draw the chat, without reading the log."""
-        conversation = self._require_conversation()
-        notes = self.marks_and_notes()
+        notes. What a front end needs to draw the chat, without reading the log. /state
+        passes the conversation it holds: another thread can be switching it."""
+        conversation = conversation or self._require_conversation()
+        notes = marks_and_notes(read_records(conversation.log.path, annotation_line))
         return [
             {
                 "turn_id": t.turn_id,
@@ -1130,7 +1142,7 @@ class Session:
             regen_of=regen_of,
         )
         conversation.head = reply.turn_id
-        conversation.unanswered = None
+        conversation.unanswered = conversation.resume_differ = None
         conversation.last_call = conversation.calls[call_id] = record
         return CallOutcome(record, result, reply, warnings)
 
@@ -1415,7 +1427,9 @@ class Session:
                 "render": render,
             }
         )
-        conversation.resume_record, conversation.unanswered = record, state.unanswered
+        differ = what_differs(record)
+        conversation.resume_differ = {"count": sum(i["count"] for i in differ), "items": differ}
+        conversation.unanswered = state.unanswered
         self._log_server_start()
         return record
 
@@ -1578,6 +1592,12 @@ def prompt_turns(conversation: Conversation, user_turn: Turn) -> list[Turn]:
     """The turns a prompt for `user_turn` holds: its path, without the profile's priming
     (which the profile renders itself)."""
     return [t for t in conversation.path_to(user_turn.turn_id) if t.origin != "priming"]
+
+
+def same_where_recorded(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Two sets of setting values agree on every setting both recorded. Calls from an older
+    Clarity lack the settings added since (logprobs, steering_scale): unknown, not different."""
+    return all(a[name] == b[name] for name in a.keys() & b.keys())
 
 
 def setting_values(call: dict[str, Any]) -> dict[str, Any]:

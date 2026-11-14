@@ -21,7 +21,6 @@ from typing import Any
 from clarity_chat.backends import BackendError
 from clarity_chat.logs import list_chats
 from clarity_chat.profiles import ConfigError, profile_path
-from clarity_chat.resume import what_differs
 from clarity_chat.session import CallOutcome, CancelledBeforeReply, Session
 
 Emit = Callable[[dict[str, Any]], None]
@@ -33,7 +32,7 @@ class Command:
     usage: str  # "/mark LABEL"
     help: str
     run: Callable[[Commands, str, Emit], dict[str, Any]]
-    during_call: bool = False  # runs while a call is in progress (only cancel)
+    during_call: bool = False  # runs while another command does (cancel and state)
     needs_conversation: bool = True
     cancellable: bool = False  # /cancel can stop it (it sends a request to the model)
 
@@ -45,6 +44,8 @@ class Commands:
         self.cancel_event: threading.Event | None = None  # the running command's
         self.running: str | None = None  # the running command's name
         self.streamed: list[str] = []  # the reply being written, so far (for /state)
+        self.running_args = ""  # the running command's arguments (for /state)
+        self.reply_k_of_n: dict[str, int | None] = {"k": None, "n": None}  # of /regen N
         self.model_state = "none"  # none, starting, ready or stopped
         # Paths only from the command line (--profile, --resume), which you type. Commands
         # will also come from the browser (v0.3.0), so they take names and IDs.
@@ -64,7 +65,8 @@ class Commands:
             raise ConfigError("Another command is still running. Wait for it, or cancel it.")
         # Made before the command starts, so a cancel that arrives early isn't lost.
         self.cancel_event = threading.Event()
-        self.running = name
+        self.running, self.running_args = name, args
+        self.reply_k_of_n = {"k": None, "n": None}
         self.paths = paths
         self.streamed = []
 
@@ -73,6 +75,7 @@ class Commands:
                 self.streamed.append(event["text"])
             elif event["event"] == "reply_start":
                 self.streamed = []
+                self.reply_k_of_n = {"k": event["k"], "n": event["n"]}
             elif event["event"] == "status":
                 self.model_state = event["status"]
             emit(event)
@@ -273,10 +276,9 @@ def _resume(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     assert conversation is not None
     emit({"event": "status", "status": "ready", "conversation_id": conversation.conversation_id})
     head = conversation.turns.get(record["head"]) if record["head"] else None
-    differ = what_differs(record)
     return {
         "resume": record,
-        "differ": {"count": sum(item["count"] for item in differ), "items": differ},
+        "differ": conversation.resume_differ,
         "conversation_id": conversation.conversation_id,
         "profile": conversation.profile.name,
         "model": conversation.profile.model,
@@ -528,7 +530,9 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
     session, conversation = c.session, c.session.conversation
     out: dict[str, Any] = {
-        "running": c.running,
+        "running": None
+        if c.running is None
+        else {"command": c.running, "args": c.running_args, **c.reply_k_of_n},
         "reply_so_far": "".join(c.streamed),
         "model": c.model_state,
         "clarity": {"version": version("clarity-chat"), **client_git()},
@@ -541,7 +545,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "turns": [],
         "unanswered": None,
         "warnings": [],
-        "resume": None,
+        "resume_differ": None,
     }
     if conversation is None:
         return out
@@ -551,13 +555,13 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "title": chat_summary(conversation.log.path)["title"],
         "profile": conversation.profile.name,
         "head": conversation.head,
-        "turns": session.history(),
+        "turns": session.history(conversation),
         "unanswered": conversation.unanswered,
         "warnings": [
             *(conversation.started_server or {}).get("warnings", []),
             *conversation.warnings,
         ],
-        "resume": conversation.resume_record,
+        "resume_differ": conversation.resume_differ,
     }
 
 

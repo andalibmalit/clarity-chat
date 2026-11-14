@@ -14,7 +14,8 @@ back. Each output line is one JSON object with an `event`:
 A command's own records arrive as `record` events before its `result`, which may repeat
 some of them; rely on `record` events for the log and on `result` for the answer.
 Commands run one at a time, in order, except `cancel` and `state`, which run as soon as read,
-so it can stop a reply being written. End of input quits, like `quit`.
+so `cancel` can stop a reply being written and `state` can answer during one. End of input
+quits, like `quit`.
 """
 
 from __future__ import annotations
