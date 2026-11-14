@@ -61,6 +61,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 | `/profiles` | Every profile in `profiles/` and then `local/profiles/`: its model, backend and description, whether it's steered, and whether its model is fetched. A profile that doesn't load is listed with the reason. It reads each profile's file and model entry only; a refusal that needs the model's tokenizer or the server comes when a conversation starts. Runs before any conversation. |
 | `/new` | Start a new conversation (and log file) with the same profile, re-read from its file. |
 | `/profile NAME` | Start a new conversation with another profile, by its name in `profiles/` or `local/profiles/` (not a path; `--profile` takes a file). The server restarts only if the model file, the context size or the backend changes. |
+| `/state` | Where things are: the conversation, its title and profile, the turns on the current branch with their marks and notes, the command running and the reply it has written so far, your last message if its call failed, the start warnings, the resume record, whether a model is loaded, and Clarity's version and commit and llama.cpp's. Like `/cancel`, it runs during another command, so a page that reloads mid-reply can draw itself. |
 | `/cancel` | Stop the call in progress, like Ctrl-C: a reply (`/say`, `/regen`, `/edit`) or a `/replay`. It's the one command that runs during another, for scripts and the web interface. It says which command it stopped, or why it stopped nothing: nothing was running, or the running command (such as a model start) can't be stopped. |
 | `/quit` | Stop the server and exit. `/exit`, `/q` and Ctrl-D also work. |
 | `//text` | Send a message that starts with `/`. |
@@ -79,7 +80,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 |---|---|---|
 | `text` | reply text streams in | `text` |
 | `reply_start` | before each reply of `/regen N` | `k` (which reply, from 1), `n`, `seed` |
-| `status` | a model is starting or ready | `status`, and `profile`, `log` or `conversation_id` |
+| `status` | a model is starting or ready | `status`, and `profile` (its name), `log` (the conversation ID being resumed) or `conversation_id` |
 | `record` | a record is appended to the log | `record`: exactly what was written. Record events are the log, in order. |
 | `result` | a command finished | `command`, `id`, and `result`: what the command returns. It may repeat records already sent as `record` events. See [Command results](#command-results). |
 | `error` | a command failed, or a line wasn't a command | `command` and `id` (for a command), `type` (`ConfigError`, `ContextError`, `BackendError`, `CancelledBeforeReply` or `InputError`; any other type is an unexpected error, after which the session quits) and `message` |
@@ -107,10 +108,11 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `profile`, `new` | `conversation_id`, `profile`, `model`, `mode` and `warnings` |
 | `resume` | the same, plus `resume` (the record) and `head_text` |
 | `cancel` | `cancelled`, and `command` or `reason` |
+| `state` | `running` (the command's name, or null), `reply_so_far`, `model` (`none`, `starting` or `ready`), `clarity` (`version`, `commit`, `dirty`), `llama_cpp_commit`, and the conversation's `conversation_id`, `title`, `profile`, `head`, `turns` (as `history` gives them), `unanswered` (`turn_id` and `text` of your last message if its call failed, else null), `warnings` and `resume` (the `resume` record, or null). Before any conversation, those are null or empty. |
 | `help` | `commands`, each with `usage` and `help` |
 | `quit` | `quit`: true |
 
-Commands run one at a time, in order. `cancel` runs as soon as it's read, so it can stop a reply that's being written; its result names the command it stopped (`"cancelled": true, "command": "say"`) or gives a `reason` it stopped nothing. Send it after the command has started (after its first event): a `cancel` read while the command is still queued finds nothing running. End of input quits, like `quit`. Input is UTF-8, whatever the console's encoding; a line that isn't is an `InputError`. Output is ASCII: other characters are written as `\u` escapes.
+Commands run one at a time, in order. `cancel` and `state` run as soon as they're read, so `cancel` can stop a reply that's being written and `state` can answer during one. `cancel`'s result names the command it stopped (`"cancelled": true, "command": "say"`) or gives a `reason` it stopped nothing. Send it after the command has started (after its first event): a `cancel` read while the command is still queued finds nothing running. End of input quits, like `quit`. Input is UTF-8, whatever the console's encoding; a line that isn't is an `InputError`. Output is ASCII: other characters are written as `\u` escapes.
 
 ## Profile keys
 

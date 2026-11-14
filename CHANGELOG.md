@@ -15,9 +15,11 @@ Two headings are Clarity's own, used when they apply:
 - `/regen same` makes your last message's replies again with the same seeds, under the current settings: after `/set`, it shows what the change does with the randomness held fixed. A `/regen` after it uses the highest seed used so far plus 1, which is the same seed as before for every older log.
 - `/compare [CALL_ID]` shows the replies to a message side by side as data: grouped by their settings, what's the same in all, and where two replies with the same seed but different settings part.
 - `/branches all` lists every branch end in the conversation, newest first, with where it left the rest and whether it went on from there, and every marked reply with its note.
+- `/state` says where things are, at any moment: the conversation, its turns, the command running and the reply so far, your last message if its call failed, and what's loaded. Like `/cancel`, it runs during another command; with `--json`, both run as soon as they're read.
 - `/profiles` lists every profile you can start, with its model, backend and description, whether it's steered and whether its model is fetched. A profile that doesn't load is listed with the reason. It runs before any conversation, so a script or the web interface can offer a choice.
 
 ### Changed
+- The `status` event for a model starting names the profile, not its file's path.
 - Call records returned by commands are the records as logged, with their `time` and `schema_version`, so `/prompt` gives the same answer before and after a resume.
 
 ### Output may change

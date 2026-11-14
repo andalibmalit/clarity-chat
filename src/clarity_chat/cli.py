@@ -240,6 +240,22 @@ def format_compare(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_state(result: dict[str, Any]) -> str:
+    """Where things are, in a line or two."""
+    model = {"none": "no model loaded", "starting": "the model is starting"}.get(
+        result["model"], f"the model is {result['model']}"
+    )
+    if result["conversation_id"] is None:
+        return f"No conversation; {model}."
+    line = (
+        f"Conversation {result['conversation_id']} (profile {result['profile']}): "
+        f"{len(result['turns'])} turns on this branch; {model}."
+    )
+    if result["unanswered"]:
+        line += f" Your last message got no reply: {short(result['unanswered']['text'], 40)}"
+    return line
+
+
 def format_profiles(result: dict[str, Any]) -> str:
     """One line per profile: name, model and backend, what's notable, and its description."""
     lines = []
@@ -561,6 +577,8 @@ class ChatLoop:
             self.write(f"Titled {result['record']['title']!r}.\n")
         elif name == "compare":
             self.write(format_compare(result) + "\n")
+        elif name == "state":
+            self.write(format_state(result) + "\n")
         elif name == "profiles":
             self.write(format_profiles(result) + "\n")
         elif name == "chats":
