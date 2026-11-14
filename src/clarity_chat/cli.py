@@ -14,6 +14,7 @@ from clarity_chat.backends import BackendError
 from clarity_chat.commands import Commands
 from clarity_chat.logs import torn_message
 from clarity_chat.profiles import ConfigError, find_root, load_models, load_server_config
+from clarity_chat.resume import render_line, what_differs
 from clarity_chat.session import (
     CancelledBeforeReply,
     ContextError,
@@ -290,20 +291,6 @@ def format_chats(chats: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def render_line(render: dict[str, Any]) -> str:  # a check of a reply (not None)
-    """The re-render check of a resumed conversation's current reply, in one line."""
-    if render["identical"]:
-        return "The current reply's prompt renders to the same token IDs today."
-    if "error" in render:
-        return f"The current reply's prompt no longer renders: {render['error']}"
-    n = render["n_ids"]
-    return (
-        f"The current reply's prompt renders differently today ({n['logged']} token IDs "
-        f"logged, {n['now']} now; first difference at token {render['first_different_token']}). "
-        "Your next message is rendered today's way."
-    )
-
-
 def format_resume(result: dict[str, Any]) -> str:
     """What a resume restored and what differs today."""
     record = result["resume"]
@@ -324,49 +311,18 @@ def format_resume(result: dict[str, Any]) -> str:
             "! This log is from v0.1.0, which didn't record /undo or failed calls, so it "
             "continues after the last reply. /branches shows the others."
         )
-    if record["profile_file"] != "same":
-        state = {"changed": "has changed since", "missing": "is gone"}.get(
-            record["profile_file"], "is outside the project folder, so it wasn't read"
-        )
-        lines.append(f"! The profile's file {state}; this chat uses the profile as logged.")
-    if record["ctx_size"]["origin"] != "log":
-        lines.append(
-            f"! The log doesn't say its context size: using {record['ctx_size']['value']} "
-            f"({record['ctx_size']['origin']})."
-        )
-    if record["model_entry"]:
-        changed = ", ".join(d["path"] for d in record["model_entry"])
-        lines.append(f"! The model's models.toml entry has changed since: {changed}.")
-    for d in record["settings_differ_today"]:
-        if d["logged"] is None:
-            lines.append(
-                f"! The log has no {d['name']}: this chat uses {d['today']['value']!r} "
-                f"({d['today']['origin']})."
-            )
-            continue
-        today = d["today"] or {"value": "(none)", "origin": "-"}
-        lines.append(
-            f"! Today's files would set {d['name']} = {today['value']!r} ({today['origin']}); "
-            f"this chat keeps {d['logged']['value']!r} ({d['logged']['origin']})."
-        )
+    lines += [f"! {item['text']}" for item in what_differs(record)]
     if record["chat_settings"]:
         values = ", ".join(f"{k} = {v!r}" for k, v in record["chat_settings"].items())
         lines.append(f"Restored /set values: {values}.")
-    if record["differences"]:
-        lines.append(
-            f"Changed since its last call ({record['compared_with_call']}): "
-            + ", ".join(record["differences"])
-            + ". The resume record lists each difference."
-        )
     if record["not_recorded"]:
         lines.append(
             "Not compared, because the log doesn't record them: "
             + ", ".join(record["not_recorded"])
             + "."
         )
-    render = record["render"]
-    if render is not None:
-        lines.append(("" if render["identical"] else "! ") + render_line(render))
+    if record["render"] is not None and record["render"]["identical"]:
+        lines.append(render_line(record["render"]))
     return "\n".join(lines)
 
 

@@ -80,8 +80,12 @@ def test_settings_shows_where_the_transformers_end_tokens_came_from(loop):
 
 
 def test_settings_gives_the_reason_a_setting_was_not_applied(loop):
-    chat, output, backend = loop
-    backend.not_applied = [
+    """The print; where the list comes from is in test_screen_fields.py."""
+    from clarity_chat.cli import format_settings
+
+    chat, _, _ = loop
+    result = chat.commands.run("settings", "", lambda e: None)
+    result["not_applied"] = [
         {
             "name": "presence_penalty",
             "value": 0.5,
@@ -89,10 +93,7 @@ def test_settings_gives_the_reason_a_setting_was_not_applied(loop):
             "affects_output": True,
         }
     ]
-    chat.handle("Hi")
-    output.clear()
-    chat.handle("/settings")
-    assert "  presence_penalty: no equivalent" in "".join(output)
+    assert "  presence_penalty: no equivalent" in format_settings(result)
 
 
 def test_slash_slash_sends_a_literal_slash(loop):

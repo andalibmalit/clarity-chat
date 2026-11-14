@@ -21,6 +21,7 @@ from typing import Any
 from clarity_chat.backends import BackendError
 from clarity_chat.logs import list_chats
 from clarity_chat.profiles import ConfigError, profile_path
+from clarity_chat.resume import what_differs
 from clarity_chat.session import CallOutcome, CancelledBeforeReply, Session
 
 Emit = Callable[[dict[str, Any]], None]
@@ -267,8 +268,10 @@ def _resume(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     assert conversation is not None
     emit({"event": "status", "status": "ready", "conversation_id": conversation.conversation_id})
     head = conversation.turns.get(record["head"]) if record["head"] else None
+    differ = what_differs(record)
     return {
         "resume": record,
+        "differ": {"count": sum(item["count"] for item in differ), "items": differ},
         "conversation_id": conversation.conversation_id,
         "profile": conversation.profile.name,
         "model": conversation.profile.model,
@@ -298,8 +301,26 @@ def _prompt(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     call, rest = target(c, args)
     if rest not in ("", "repr"):
         raise ConfigError("Usage: /prompt [CALL_ID]")
-    assert c.session.conversation is not None
-    return {"call": call or c.session.conversation.last_call}
+    conversation = c.session.conversation
+    assert conversation is not None
+    call = call or conversation.last_call
+    return {"call": call, "replays": replays_of(conversation.log.path, call) if call else []}
+
+
+def replays_of(log: Path, call: dict[str, Any]) -> list[dict[str, Any]]:
+    """A call's `replay` records, oldest first, read from the log as /history reads marks."""
+    from clarity_chat.logs import read_records
+
+    wanted = f'"call_id": "{call["call_id"]}"'.encode()
+
+    def parse(raw: bytes) -> bool:
+        return b'"type": "replay"' in raw and wanted in raw
+
+    return [
+        r
+        for r in read_records(log, parse)
+        if r.get("type") == "replay" and r.get("call_id") == call["call_id"]
+    ]
 
 
 LEAST_LIKELY = 10  # how many of a reply's least likely chosen tokens /probs lists
@@ -471,6 +492,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "model": c.model_state,
         "clarity": {"version": version("clarity-chat"), **client_git()},
         "llama_cpp_commit": session.server_config.llama_cpp_commit,
+        "model_name": session.model.display_name if session.model else None,
         "conversation_id": None,
         "title": None,
         "profile": None,
@@ -506,6 +528,15 @@ def _quit(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return {"quit": True}
 
 
+def not_applied_now(backend: str, settings: dict[str, Any]) -> list[dict[str, Any]]:
+    """What the backend can't apply as the settings stand now, as the next call will report."""
+    if backend != "transformers":
+        return []
+    from clarity_chat.backends.transformers_hf import not_applied
+
+    return not_applied({name: s.value for name, s in settings.items()})
+
+
 def settings_view(session: Session) -> dict[str, Any]:
     """Everything /settings shows, as data: each value with its origin."""
     conversation = session.conversation
@@ -530,12 +561,20 @@ def settings_view(session: Session) -> dict[str, Any]:
     model_file = (session.backend.server_record or {}).get("model_file") or {}
     return {
         "profile": {"name": profile.name, "mode": profile.mode, "model": profile.model},
-        "settings": {name: s.to_json() for name, s in conversation.settings.items()},
+        "settings": {
+            name: {
+                **s.to_json(),
+                # A changed row's own value from the profile, to go back to.
+                **({"profile": profile.settings[name].to_json()} if s.origin == "chat" else {}),
+            }
+            for name, s in conversation.settings.items()
+        },
+        "model_name": session.model.display_name if session.model else None,
         "backend": session.backend.name,
         "backend_settings": backend_settings,
         "eog_tokens": model_file.get("eog_tokens"),
         "recommended": recommended and {**recommended, "used": profile.use_recommended},
-        "not_applied": last.get("not_applied") or [],
+        "not_applied": not_applied_now(profile.backend, conversation.settings),
         "ctx_size": conversation.ctx_size.to_json(),
         "stop": profile.stop,
         "steering": {

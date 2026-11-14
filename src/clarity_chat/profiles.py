@@ -606,6 +606,12 @@ class ModelEntry:
     def to_json(self) -> dict:
         return {k: v for k, v in self.__dict__.items() if v is not None}
 
+    @property
+    def display_name(self) -> str:
+        """The model's name for people: its tokenizer repo's last part. A GGUF route's
+        `repo` is often a repackager's, so it isn't used."""
+        return self.tokenizer_repo.rsplit("/", 1)[-1]
+
 
 def load_models(root: Path) -> dict[str, ModelEntry]:
     path = root / "models.toml"

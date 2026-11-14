@@ -19,6 +19,8 @@ Two headings are Clarity's own, used when they apply:
 - `/profiles` lists every profile you can start, with its model, backend and description, whether it's steered and whether its model is fetched. A profile that doesn't load is listed with the reason. It runs before any conversation, so a script or the web interface can offer a choice.
 
 ### Changed
+- `/settings` lists what the Transformers backend can't apply at the current values, so it's right before the first reply and straight after a `/set`; it showed the last call's list. A setting changed with `/set` also gives the profile's own value, and the result names the model (`model_name`).
+- `/prompt` returns the call's replays, read from the log, so a replay's result shows again after a resume. `/resume` returns `differ`: how many things differ today and the sentences that say what, the same ones the terminal prints.
 - The `status` event for a model starting names the profile, not its file's path.
 - Call records returned by commands are the records as logged, with their `time` and `schema_version`, so `/prompt` gives the same answer before and after a resume.
 

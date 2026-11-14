@@ -87,3 +87,73 @@ def settings_diff(logged: dict[str, Any], today: dict[str, Any]) -> list[dict[st
         for name in logged
         if today.get(name, {}).get("value") != logged[name]["value"]
     ]
+
+
+def render_line(render: dict[str, Any]) -> str:  # a check of a reply (not None)
+    """The re-render check of a resumed conversation's current reply, in one line."""
+    if render["identical"]:
+        return "The current reply's prompt renders to the same token IDs today."
+    if "error" in render:
+        return f"The current reply's prompt no longer renders: {render['error']}"
+    n = render["n_ids"]
+    return (
+        f"The current reply's prompt renders differently today ({n['logged']} token IDs "
+        f"logged, {n['now']} now; first difference at token {render['first_different_token']}). "
+        "Your next message is rendered today's way."
+    )
+
+
+def what_differs(record: dict[str, Any]) -> list[dict[str, Any]]:
+    """What differs today from when a resumed chat was written, from its `resume` record:
+    each sentence, and how many things it covers. The terminal prints these and the web UI
+    counts them, so both agree. Left out, because none says something changed: an
+    unanswered message, a guessed head, restored /set values and facts not recorded."""
+    items = []
+    if record["profile_file"] != "same":
+        state = {"changed": "has changed since", "missing": "is gone"}.get(
+            record["profile_file"], "is outside the project folder, so it wasn't read"
+        )
+        items.append((f"The profile's file {state}; this chat uses the profile as logged.", 1))
+    if record["ctx_size"]["origin"] != "log":
+        items.append(
+            (
+                f"The log doesn't say its context size: using {record['ctx_size']['value']} "
+                f"({record['ctx_size']['origin']}).",
+                1,
+            )
+        )
+    if record["model_entry"]:
+        changed = ", ".join(d["path"] for d in record["model_entry"])
+        items.append(
+            (
+                f"The model's models.toml entry has changed since: {changed}.",
+                len(record["model_entry"]),
+            )
+        )
+    for d in record["settings_differ_today"]:
+        if d["logged"] is None:
+            text = (
+                f"The log has no {d['name']}: this chat uses {d['today']['value']!r} "
+                f"({d['today']['origin']})."
+            )
+        else:
+            today = d["today"] or {"value": "(none)", "origin": "-"}
+            text = (
+                f"Today's files would set {d['name']} = {today['value']!r} "
+                f"({today['origin']}); this chat keeps {d['logged']['value']!r} "
+                f"({d['logged']['origin']})."
+            )
+        items.append((text, 1))
+    if record["differences"]:
+        items.append(
+            (
+                f"Changed since its last call ({record['compared_with_call']}): "
+                + ", ".join(record["differences"])
+                + ". The resume record lists each difference.",
+                len(record["differences"]),
+            )
+        )
+    render = record["render"]
+    if render is not None and not render["identical"]:
+        items.append((render_line(render), 1))
+    return [{"text": text, "count": count} for text, count in items]
