@@ -80,9 +80,17 @@ async function request(path, init = {}) {
   });
   if (response.status === 401) {
     noKey();
-    throw new Error("no key");
+    throw handled("no key");
   }
   return response;
+}
+
+function handled(message) {
+  // A refusal the page has already acted on (the no-key or not-live page): callers'
+  // unanswered() leaves it alone, so it isn't also shown as a dropped connection.
+  const error = new Error(message);
+  error.handled = true;
+  return error;
 }
 
 async function command(name, args = "") {
@@ -93,7 +101,7 @@ async function command(name, args = "") {
   });
   if (response.status === 409) {
     notLive();
-    throw new Error("not the live tab");
+    throw handled("not the live tab");
   }
   // A refusal before the command table (a body too big, a 500) is plain text, not JSON.
   const text = await response.text();
@@ -116,8 +124,11 @@ function sameStart(state) {
 }
 
 function unanswered(error) {
-  // A command whose request failed (a dropped connection): an answer the callers can show.
-  return { error: `Clarity didn't answer (${error.message}).`, type: "Refused" };
+  // A command whose request failed (a dropped connection): an answer the callers can show,
+  // marked `dropped`. One command() already acted on (handled) is only `handled`: the
+  // caller stops, showing nothing.
+  if (error.handled) return { handled: true };
+  return { error: `Clarity didn't answer (${error.message}).`, type: "Refused", dropped: true };
 }
 
 async function view(name, params = {}) {
@@ -221,8 +232,10 @@ async function load() {
   // The stream first, so nothing sent while the page reads is lost; then /state; then
   // the events buffered meanwhile, joined by their numbers; then the screens.
   clarity.buffer = [];
+  notice(null, null); // a sentence from before the reload, or before the connection dropped
   await new Promise((resolve) => connect(resolve));
   const answer = await command("state");
+  if (answer.stopped) return; // command() showed why, the error whole: not another start
   const state = answer.result;
   if (!sameStart(state)) {
     stopped();
@@ -432,11 +445,20 @@ async function start(name, args) {
   notice(null, null);
   clarity.sending = true;
   clarity.focusBox = true; // the box takes text while the model starts: focus goes there
-  const answer = await command(name, args).finally(() => (clarity.sending = false));
-  clarity.focusBox = false;
-  if (answer.error && !answer.stopped) notice(`! ${label} didn’t start.`, answer.error);
-  await refresh();
-  if (!answer.error) $("message").focus();
+  const answer = await command(name, args)
+    .catch(unanswered)
+    .finally(() => {
+      clarity.sending = false;
+      clarity.focusBox = false;
+    });
+  if (answer.handled) return;
+  await refresh(); // first: a redraw that fails says so, and the sentence below stays
+  if (!answer.error) {
+    $("message").focus();
+  } else if (!answer.stopped) {
+    notice(`! ${label} didn’t start.`, answer.error);
+    $("picker-button").focus(); // to choose again
+  }
 }
 
 async function about() {
@@ -695,6 +717,8 @@ async function write(name, args, keep = null, from = null) {
   const answer = await command(name, args)
     .catch(unanswered)
     .finally(() => (clarity.sending = false));
+  if (answer.handled) return;
+  if (answer.dropped) showWriting(null); // not answered: the page can't wait on it
   if (!answer.error) finished();
   await refresh();
   if (answer.stopped) return;
@@ -747,7 +771,15 @@ function send() {
     $("send-waits").classList.remove("vh");
     return;
   }
-  if (clarity.sending || $("send").hidden || $("send").disabled) return;
+  if (clarity.sending || $("send").hidden) {
+    // A reply being written, or a command this page sent (a Replay): said beside Send, and
+    // the text stays (fix review, batch 6). The redraw after it hides the line again.
+    const what = $("send").hidden ? "reply" : "command";
+    $("send-waits").textContent = `Waits until the ${what} is done.`;
+    $("send-waits").classList.remove("vh");
+    return;
+  }
+  if ($("send").disabled) return;
   $("message").value = "";
   write("say", text, text);
 }
@@ -860,16 +892,23 @@ function closeCompare() {
 let panelOf = null; // { name, params, opener }
 
 let panelAsked = 0;
+let panelOpening = 0; // the call asked by a control (an opener) still on its way, if any
 async function showPanel(name, params, opener) {
   // The newest call wins; a redraw (no opener) for a panel closed or changed meanwhile
-  // draws nothing, so a late view can't reopen it or take the focus.
+  // draws nothing, so a late view can't reopen it or take the focus. A redraw never
+  // outranks a panel you asked for that's still on its way (fix review, batch 6, item 7):
+  // it isn't asked at all, and the panel you asked for redraws itself when it lands.
+  if (!opener && panelOpening) return;
   const asked = ++panelAsked;
+  if (opener) panelOpening = asked;
   let html;
   try {
     html = await view(name, params);
   } catch (error) {
     if (asked === panelAsked) notice("!", error.message);
     return;
+  } finally {
+    if (panelOpening === asked) panelOpening = 0;
   }
   if (asked !== panelAsked || (!opener && (!panelOf || panelOf.name !== name))) return;
   // Read what's focused and open when the new panel lands, not when it was asked for.
@@ -911,6 +950,9 @@ function docsLinks(root) {
 
 function closePanel() {
   // Focus goes back to the control that opened the panel, or the one drawn in its place.
+  // A view still on its way is now older than this close, so it can't reopen the panel.
+  panelAsked += 1;
+  panelOpening = 0;
   const opener = panelOf && panelOf.opener;
   panelOf = null;
   $("panel").hidden = true;
@@ -1056,10 +1098,11 @@ async function replay(call, button) {
   const answer = await command("replay", call)
     .catch((error) => {
       const lost = unanswered(error);
-      notice("!", lost.error);
+      if (!lost.handled) notice("!", lost.error);
       return lost;
     })
     .finally(() => (clarity.sending = false));
+  if (answer.handled) return;
   if (panelOf && answer.error) panelOf.refusal = answer.error;
   await showPanel("details", { call });
   await refresh();
@@ -1154,10 +1197,13 @@ async function openChat(row) {
   row.classList.add("busy");
   notice(null, null);
   clarity.sending = true;
-  const answer = await command("resume", row.dataset.resume).finally(() => {
-    clarity.sending = false;
-    clarity.opening = null;
-  });
+  const answer = await command("resume", row.dataset.resume)
+    .catch(unanswered)
+    .finally(() => {
+      clarity.sending = false;
+      clarity.opening = null;
+    });
+  if (answer.handled) return;
   if (answer.error && answer.type === "ConfigError") {
     clarity.drawerRefusal = { id: row.dataset.resume, text: answer.error };
     await refresh();
@@ -1166,9 +1212,9 @@ async function openChat(row) {
     return;
   }
   closeDrawer(false);
+  await refresh(); // first: a redraw that fails says so, and the sentence below stays
   if (answer.error && !answer.stopped) notice("! Didn’t open.", answer.error);
-  await refresh();
-  if (!answer.error) $("message").focus();
+  else if (!answer.error) $("message").focus();
 }
 
 function showDiffer(on) {
@@ -1185,7 +1231,11 @@ async function restartModel() {
   // output after its first line in a box that scrolls (C23).
   notice(null, null);
   clarity.sending = true;
-  const answer = await command("resume", clarity.state.log_id).finally(() => (clarity.sending = false));
+  const answer = await command("resume", clarity.state.log_id)
+    .catch(unanswered)
+    .finally(() => (clarity.sending = false));
+  if (answer.handled) return;
+  await refresh(); // first: a redraw that fails says so, and the sentence below stays
   if (answer.error && !answer.stopped) {
     const [first, ...rest] = answer.error.split("\n");
     const box = notice("! The model didn’t start again.", first);
@@ -1198,7 +1248,6 @@ async function restartModel() {
       box.append(output);
     }
   }
-  await refresh();
 }
 
 function renaming(on, returnFocus = false) {
@@ -1225,10 +1274,11 @@ function renameWaits() {
 async function rename() {
   const text = $("rename-text").value.trim();
   if (!text) return;
-  const answer = await command("title", text);
+  const answer = await command("title", text).catch(unanswered);
+  if (answer.handled) return;
   renaming(false, true);
+  await refresh(); // first: a redraw that fails says so, and the sentence below stays
   if (answer.error) notice("!", answer.error);
-  await refresh();
 }
 
 async function exportChat() {
@@ -1237,7 +1287,8 @@ async function exportChat() {
   try {
     await command("export");
   } catch (error) {
-    notice("!", unanswered(error).error); // the sheet would show the last export's
+    const lost = unanswered(error);
+    if (!lost.handled) notice("!", lost.error); // the sheet would show the last export's
     return;
   }
   let html;
