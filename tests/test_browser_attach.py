@@ -441,3 +441,74 @@ def test_an_answer_for_a_range_typed_over_is_dropped(clarity, page):
     until(page, lambda: sum("last=5" in url for url in done) == len(held), what="1-5 answered")
     page.wait_for_timeout(500)  # nothing to wait for: a late answer is drawn now, if ever
     assert part_args(page).endswith(" 1-7") and page.input_value("#attach-to") == "7"
+
+
+# --- C2: your message's line, Edit's line, chips back after a failed send, Branches
+
+
+def test_the_sent_message_shows_its_attachment_line_live_and_after_a_reload(clarity, page):
+    redirect, _ = clarity
+    chat(page, redirect)
+    choose(page, "trail-notes.md", NOTES)
+    ready(page)
+    page.click("[data-action=attach-add]")
+    page.wait_for_selector("#chips .chip")
+    page.fill("#message", "What marks the ridge?")
+    page.click("#send")
+    page.wait_for_selector(".reply.last .tb")
+    turn = page.evaluate("clarity.command('history')")["result"]["turns"][-2]
+    tokens = turn["attachments"][0]["tokens"]
+    line = f"Attached: trail-notes.md · whole · {tokens:,} tokens when attached"
+    assert line in page.text_content(".turn.user .att")
+    page.reload()
+    page.wait_for_selector(".reply.last .tb")
+    assert line in page.text_content(".turn.user .att")
+
+
+def test_edit_shows_what_it_keeps(clarity, page):
+    redirect, _ = clarity
+    chat(page, redirect)
+    choose(page, "trail-notes.md", NOTES)
+    ready(page)
+    page.click("[data-action=attach-add]")
+    page.wait_for_selector("#chips .chip")
+    page.fill("#message", "What marks the ridge?")
+    page.click("#send")
+    page.wait_for_selector(".reply.last .tb")
+    page.click(".turn.user [data-action=edit]")
+    page.wait_for_selector(".editbox:not([hidden])")
+    assert page.text_content(".editbox .att").strip() == "Keeps: trail-notes.md"
+
+
+def test_a_failed_send_brings_the_chips_back_and_offers_removing_one(clarity, page):
+    redirect, backend = clarity
+    backend._n_ctx = 2000
+    chat(page, redirect)
+    choose(page, "long.md", LONG)
+    ready(page)
+    page.click("[data-action=attach-add]")
+    page.wait_for_selector("#chips .chip")
+    backend._n_ctx = 400  # the chat shrinks under the waiting chip: the send stops
+    page.fill("#message", "Line one?")
+    page.click("#send")
+    page.wait_for_selector("[role=alert]:has-text('Nothing was sent.')")
+    assert "Remove an attachment waiting for this message" in page.text_content("#thread")
+    page.wait_for_selector("#chips .chip")
+    assert "long.md" in page.text_content("#chips") and page.input_value("#message") == "Line one?"
+
+
+def test_the_branches_button_says_whether_its_panel_is_open(clarity, page):
+    redirect, backend = clarity
+    chat(page, redirect)
+    page.fill("#message", "Hi")
+    page.click("#send")
+    page.wait_for_selector(".reply.last .tb")
+    backend.replies = [" Second one."]
+    page.click(".reply.last [data-action=regen]")
+    page.wait_for_selector("#branches-button:not([hidden])")
+    assert page.get_attribute("#branches-button", "aria-expanded") == "false"
+    page.click("#branches-button")
+    page.wait_for_selector("#panel .bcard")
+    assert page.get_attribute("#branches-button", "aria-expanded") == "true"
+    page.click("#panel [data-action=panel-close]")
+    until(page, lambda: page.get_attribute("#branches-button", "aria-expanded") == "false")
