@@ -166,6 +166,9 @@ def test_guides_say_how_pages_are_counted_where_pages_a_b_is_introduced():
 
 def test_guides_don_t_say_an_excerpt_goes_in_complete():
     assert "go in complete" not in guides_paragraph("`/attach notes.md check`")
+    assert "an excerpt unless the profile sets no marker" in guides_paragraph(
+        "`/attach notes.md check`"
+    )  # the final fact-check's row 40
 
 
 # --- fix review 5: Settings waits, and says why, during a file read

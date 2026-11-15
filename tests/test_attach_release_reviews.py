@@ -36,10 +36,10 @@ NEW = {
     "at_most": "At most {units} 1 to {last} fit, leaving {left}.",
     "longer_chat": "For a longer chat, attach fewer {units}.",
     "pdf_pages": "Pages are counted from the file's first page, not the numbers printed on them.",
-    "excerpt": "Only the {units} you choose are sent, after a line that says they're an excerpt.",
+    "excerpt": "Only the {units} you choose are sent, after a line that says they're an excerpt "
+    "unless the profile sets no marker.",
     "framing_label": "Clarity introduces the document to the model with this line ({origin}):",
-    "marker_label": "The excerpt starts with this line, so the model knows it's partial "
-    "({origin}):",
+    "marker_label": "The excerpt starts with this line, which says it's partial ({origin}):",
     "control_tokens": "Holds text the tokenizer reads as control tokens ({tokens}); it's sent "
     "as it is, and the call is flagged. The model may read them as its own markers, such as "
     "the end of a message.",
@@ -48,8 +48,9 @@ NEW = {
     "stay_waiting": "{names} stay waiting for your next message.",
     "chip_tokens": "{tokens} tokens when attached",
     "attachments_caption": "Your message's line counts each attachment as it cost when it was "
-    "attached: its block, the blank lines Clarity puts around it (not highlighted here) and, "
-    "for a message's first, the framing line.",
+    "attached: its block and the blank line after it (not highlighted here). The first "
+    "attachment in a message also counts the framing line and its blank line, when the "
+    "profile has one.",
     "highlight_added": "Highlighted: the framing line and documents Clarity put in your messages.",
     "too_long": "It's {over} tokens too long.",
     "stop_advice": "Shorten your message, start a new chat, or lower max_tokens.",
@@ -194,7 +195,10 @@ def test_the_sheet_s_words_follow_the_walkthrough(make):
     assert f"It takes up {check['tokens_whole']:,} tokens in every later prompt of this chat." in (
         text
     )
-    assert "Only the lines you choose are sent, after a line that says they're an excerpt." in text
+    assert (
+        "Only the lines you choose are sent, after a line that says they're an excerpt unless "
+        "the profile sets no marker." in text
+    )
     assert "Clarity introduces the document to the model with this line (Clarity's default):" in (
         text
     )
@@ -209,10 +213,7 @@ def test_the_marker_s_label_says_what_it_does(make):
     client, _, _ = make()
     upload_id = upload(client, LONG, "long.md").json()["upload"]
     text = text_of(sheet(client, upload=upload_id, unit="lines", first="2", last="5"))
-    assert (
-        "The excerpt starts with this line, so the model knows it's partial (Clarity's default):"
-        in text
-    )
+    assert "The excerpt starts with this line, which says it's partial (Clarity's default):" in text
 
 
 def test_the_reading_state_s_slow_line_comes_from_the_table(make):
