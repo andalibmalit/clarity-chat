@@ -122,7 +122,7 @@ def test_an_excerpt_records_its_range_marker_and_the_whole_text_s_hash(chat):
 def test_a_range_of_every_line_is_recorded_as_whole(chat):
     """Tripwire should 8: the record's `how` follows piece's rule."""
     session, _ = chat
-    record = session.attach(doc(), "lines", 1, 2)
+    record, _ = session.attach(doc(), "lines", 1, 2)
     assert (record["how"], record["range"], record["marker"]) == ("whole", [1, 2], None)
 
 
@@ -302,7 +302,7 @@ def test_starting_another_chat_drops_waiting_attachments_and_says_so(chat, comma
     c = Commands(session)
     session.say("Hi")
     log = session.conversation.log.path.stem
-    record = session.attach(doc())
+    record, _ = session.attach(doc())
     name, _, args = command.partition(" ")
     result = c.run(name, log if name == "resume" else args, lambda e: None)
     summary = {k: v for k, v in record.items() if k != "text"}

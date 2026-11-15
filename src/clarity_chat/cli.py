@@ -149,6 +149,19 @@ def format_settings(view: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def format_pending(pending: list[dict[str, Any]]) -> str:
+    """The attachments waiting for your next message, one line."""
+    if not pending:
+        return "Nothing is waiting for your next message."
+    return "Waiting for your next message: " + "; ".join(map(attachment_line, pending)) + "."
+
+
+def attachment_line(a: dict[str, Any]) -> str:
+    """trail-notes.md, whole, 2,104 tokens; guide.pdf, pages 1-23, 9,800 tokens"""
+    how = "whole" if a["how"] == "whole" else f"{a['unit']}s {a['range'][0]}-{a['range'][1]}"
+    return f"{a['n']}. {a['name']}, {how}, {a['tokens']:,} tokens"
+
+
 def format_history(result: dict[str, Any]) -> str:
     """The conversation on the current branch, one block per turn, marks and notes under
     each reply."""
@@ -569,6 +582,11 @@ class ChatLoop:
             self.write(format_chats(result["chats"]) + "\n")
         elif name == "history":
             self.write(format_history(result) + "\n")
+        elif name == "attach" and set(result) == {"pending"}:  # B2 shows the rest
+            self.write(format_pending(result["pending"]) + "\n")
+        elif name == "detach":
+            names = ", ".join(a["name"] for a in result["detached"]) or "nothing"
+            self.write(f"Detached {names}. {format_pending(result['pending'])}\n")
         elif name == "branches":
             show = format_branch_ends if "ends" in result else format_branches
             self.write(show(result) + "\n")

@@ -23,6 +23,7 @@ from clarity_chat.backends import Backend, BackendError, Result
 from clarity_chat.documents import (
     Document,
     DocumentRefused,
+    Fit,
     Room,
     added_ranges,
     attached_in,
@@ -33,6 +34,8 @@ from clarity_chat.documents import (
     message_content,
     piece,
     scan,
+    start_that_fits,
+    summaries,
 )
 from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records, unreadable
 from clarity_chat.models import check_weights_quick, lock_entry, source_weights
@@ -85,6 +88,15 @@ CONTEXT_WARN_FRACTION = 0.8
 
 class ContextError(Exception):
     """The prompt plus max_tokens doesn't fit the context; nothing was sent."""
+
+
+class DoesntFit(DocumentRefused):
+    """An attachment that doesn't fit the free context. `start`: for a whole file, the
+    largest k whose units 1 to k fit, or None if not even the first does."""
+
+    def __init__(self, sentence: str, start: int | None = None) -> None:
+        super().__init__(sentence)
+        self.start = start
 
 
 class CancelledBeforeReply(BackendError):
@@ -712,13 +724,14 @@ class Session:
         conversation.head, conversation.pending = user.turn_id, []
         return self.call(user, seed=seed, on_text=on_text, cancel=cancel)
 
-    def room(self) -> Room:
+    def room(self, empty: bool = False) -> Room:
         """How to count for the next message: its prompt's tokens for a given content, after
-        the chat so far, and the free context a prompt of that many tokens leaves."""
+        the chat so far (`empty`: in a new chat on this profile), and the free context a
+        prompt of that many tokens leaves."""
         conversation = self._require_conversation()
         assert self.tokenizer is not None
         tokenizer, template, profile = self.tokenizer, self.template_tokenizer, conversation.profile
-        turns = conversation.path_to(conversation.head)
+        turns = [] if empty else conversation.path_to(conversation.head)
         path = [(t.role, t.content) for t in turns if t.origin != "priming"]
         max_tokens = conversation.settings["max_tokens"].value
 
@@ -729,26 +742,36 @@ class Session:
 
         return Room(tokens, lambda n: room_left(self.backend.n_ctx, n, max_tokens), max_tokens)
 
-    def attach(
-        self, doc: Document, unit: str | None = None, first: int = 0, last: int = 0
-    ) -> dict[str, Any]:
-        """Add `doc`, whole or units `first` to `last`, to the attachments waiting for your
-        next message, if it fits. Returns its record, as the turn will log it."""
+    def _attaching(self) -> tuple[Conversation, Profile, str]:
         conversation = self._require_conversation()
         profile = conversation.profile
-        assert self.tokenizer is not None
         if profile.mode != "chat":
             raise ConfigError(
                 f"Attaching needs a chat-mode profile; {profile.name} is in text mode."
             )
-        framing, _ = framing_of(profile)
+        return conversation, profile, framing_of(profile)[0]
+
+    def attach(
+        self, doc: Document, unit: str | None = None, first: int = 0, last: int = 0
+    ) -> tuple[dict[str, Any], Fit]:
+        """Add `doc`, whole or units `first` to `last`, to the attachments waiting for your
+        next message, if it fits. Returns its record, as the turn will log it, and its fit:
+        the free context before it and what it leaves."""
+        conversation, profile, framing = self._attaching()
+        assert self.tokenizer is not None
         new = piece(doc, profile, unit, first, last)
         pending = attached_in({"attachments": conversation.pending})
-        result = fit(self.room(), pending, new, framing)
+        room = self.room()
+        result = fit(room, pending, new, framing)
         if not result.fits:
-            raise DocumentRefused(
+            start = None
+            if covers_whole(doc, unit, first, last):
+                found = start_that_fits(room, pending, framing, doc, profile)
+                start = found[0] if found else None
+            raise DoesntFit(
                 f"{doc.name} doesn't fit: it needs {result.tokens:,} tokens and "
-                f"{result.free:,} are free in this chat."
+                f"{result.free:,} are free in this chat.",
+                start,
             )
         whole = covers_whole(doc, unit, first, last)
         record = {
@@ -769,7 +792,65 @@ class Session:
             "tokens": result.tokens,
         }
         conversation.pending.append(record)
-        return record
+        return record, result
+
+    def check(
+        self, doc: Document, unit: str | None = None, first: int = 0, last: int = 0
+    ) -> dict[str, Any]:
+        """What attaching `doc` would cost and leave, attaching nothing: the whole, the start
+        that fits, the preselected start (leaving max_tokens more), the range given, and
+        the whole in a new chat on this profile."""
+        conversation, profile, framing = self._attaching()
+        assert self.tokenizer is not None
+        pending = attached_in({"attachments": conversation.pending})
+        room, checked = self.room(), {}
+        whole = fit(room, pending, piece(doc, profile), framing)
+        units = doc.unit + "s"
+
+        def shown(k_fit: tuple[int, Fit] | None, first: int = 1) -> dict[str, Any] | None:
+            if k_fit is None:
+                return None
+            k, found = k_fit
+            return {
+                "unit": units,
+                "range": [first, k],
+                "tokens": found.tokens,
+                "left": found.left,
+                "marker": piece(doc, profile, units, first, k).marker,
+            }
+
+        chosen = None
+        if unit is not None:
+            excerpt = piece(doc, profile, unit, first, last)
+            chosen = shown((last, fit(room, pending, excerpt, framing)), first)
+        new_chat = fit(self.room(empty=True), [], piece(doc, profile), framing)
+        return {
+            "name": doc.name,
+            "kind": doc.kind,
+            "bytes": doc.bytes,
+            "unit": doc.unit,
+            "total": doc.total,
+            "empty_units": doc.empty_units,
+            "encrypted": bool(doc.extractor.get("encrypted")),
+            "tokens_whole": whole.tokens,
+            "free": whole.free,
+            "fits": whole.fits,
+            "left_whole": whole.left,
+            "start_that_fits": shown(
+                start_that_fits(room, pending, framing, doc, profile, checked=checked)
+            ),
+            "preselected": shown(
+                start_that_fits(room, pending, framing, doc, profile, room.max_tokens, checked)
+            ),
+            "chosen": chosen,
+            "free_new_chat": new_chat.free,
+            "fits_new_chat": new_chat.fits,
+            "already_in_chat": self.already_in_chat(doc.sha256),
+            **scan(doc.text, self.tokenizer.special_tokens_in),
+            "framing": framing,
+            "framing_origin": framing_of(profile)[1],
+            "text": doc.text,
+        }
 
     def already_in_chat(self, sha256: str) -> bool:
         """Whether a file with these bytes is waiting, or attached on this branch."""
@@ -1013,6 +1094,7 @@ class Session:
                 "call_id": t.call_id,
                 "regen_of": t.regen_of,
                 "edit_of": t.edit_of,
+                **({"attachments": summaries(t.attachments)} if t.attachments else {}),
                 "marks": [
                     {"mark_id": m.get("mark_id"), "label": m["label"]}
                     for m in notes.get(t.turn_id, {}).get("marks", [])
