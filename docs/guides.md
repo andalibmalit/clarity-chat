@@ -152,6 +152,14 @@ Before any model loads, Clarity checks every profile and renders every opening. 
 
 Each call is its own conversation. Profiles are read once, at the start, so editing one during a run changes nothing. `blind.md` strips the whitespace around each reply; `calls.jsonl` keeps replies exactly as generated.
 
+## Attach a document
+
+In a chat-mode profile, `/attach notes.md` puts the file's text at the start of your next message, after a framing line that says it's reference material. It stays in the chat like a long paste: later replies see it, and the log keeps its text. Clarity reads PDFs, HTML, and UTF-8 text such as Markdown or code ([what it reads](reference.md#what-clarity-reads-from-a-file)). A line before each prompt lists what's waiting; `/detach` removes one, and `clarity chat --attach FILE` attaches a file once the model is ready.
+
+`/attach notes.md check` counts the file without attaching it: what the whole takes, what it leaves for your message, and where it would fit. If the whole doesn't fit, the refusal names the largest start that still leaves `max_tokens` for your message, as a command to copy, such as `/attach notes.md pages 1-19`. Attach part of a file with `pages A-B` for a PDF or `lines A-B` for anything else: those go in complete, after a line saying they're an excerpt. A new chat (`/new`) has more room, and a lower `max_tokens` leaves more for the document. Clarity never trims a document to make it fit.
+
+The framing line comes from the profile. To change it, set `framing` in the profile's `[documents]` table; `framing = ""` sends none. `excerpt_marker` sets the excerpt's line the same way ([profile keys](reference.md#profile-keys)).
+
 ## Follow branches
 
 `/regen` and `/edit` add a branch next to the reply or message they replace, and `/undo` steps back so your next message starts one. Nothing is overwritten. `/branches` lists every place on the current path where the conversation branches, with each option's turn ID, and `/switch TURN_ID` goes to that branch's newest reply. Switching sends nothing; your next message continues from there.
