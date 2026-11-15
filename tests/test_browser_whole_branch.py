@@ -155,3 +155,35 @@ def test_a_choice_made_while_a_range_is_counted_stays(clarity, page):  # noqa: F
     page.click("[data-choice=whole][role=radio]")
     page.wait_for_timeout(1000)  # past the 400 ms read and its answer
     assert page.get_attribute("[data-choice=whole][role=radio]", "aria-checked") == "true"
+
+
+def test_the_box_being_typed_in_is_the_same_box_after_its_count(clarity, page):  # noqa: F811
+    """Page mutation 35 (the whole-branch review): an answer that lands while you type keeps
+    the box you're in, so its caret and any key in flight stay."""
+    redirect, backend = clarity
+    backend._n_ctx = 2000
+    chat(page, redirect)
+    choose(page, "long.md", LONG)
+    ready(page)
+    page.fill("#attach-to", "5")
+    page.evaluate("document.getElementById('attach-to').kept = true")
+    until(
+        page, lambda: (page.get_attribute("[data-choice=part]", "data-args") or "").endswith(" 1-5")
+    )
+    assert page.evaluate("document.activeElement.id") == "attach-to"
+    assert page.evaluate("document.getElementById('attach-to').kept") is True
+
+
+def test_the_chips_row_hides_when_no_chip_waits(clarity, page):  # noqa: F811
+    """Page mutation 37 (the whole-branch review): no empty row above the message box."""
+    redirect, _ = clarity
+    chat(page, redirect)
+    hidden = "document.getElementById('chips').hidden"  # an empty row has no box to see
+    assert page.evaluate(hidden) is True
+    choose(page, "a.md", b"Made-up a.\n")
+    ready(page)
+    page.click("[data-action=attach-add]")
+    page.wait_for_selector("#chips .chip")
+    assert page.evaluate(hidden) is False
+    page.click("[aria-label='Remove a.md']")
+    until(page, lambda: page.evaluate(hidden) is True, what="the row hidden again")
