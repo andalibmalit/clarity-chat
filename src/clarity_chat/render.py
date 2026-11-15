@@ -301,6 +301,7 @@ def message_spans(
     turn_ids: Sequence[str | None],
     prompt: Prompt,
     template: Tokenizer | None = None,
+    added: Sequence[list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]] | dict[str, str]:
     """Where each message, and the text around it, sits in `prompt`: a list of entries that
     covers every prompt token in order, each with half-open `chars` (in `prompt.text`) and
