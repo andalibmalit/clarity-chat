@@ -100,31 +100,47 @@ def piece(
 
 def content(message: str, attached: list[Attached], framing: str) -> str:
     """The message's content as the model gets it: the framing line (unless empty), each
-    attachment's block in order, then your message."""
+    attachment's block in order, then your message, a blank line apart."""
     if not attached:
         return message
-    parts = [framing] if framing else []
-    for a in attached:
+    return "\n\n".join([*(text for _, text in parts(attached, framing)), message])
+
+
+def parts(attached: list[Attached], framing: str) -> list[tuple[dict[str, Any], str]]:
+    """What goes before your message, each part with what it is, in order."""
+    found: list[tuple[dict[str, Any], str]] = [({"what": "framing"}, framing)] if framing else []
+    for i, a in enumerate(attached):
         marker = f"{a.marker}\n" if a.marker else ""
         closing = "" if a.text.endswith("\n") else "\n"
         name = escape(a.name, quote=True).replace("&#x27;", "'")
-        parts.append(f'<document name="{name}">\n{marker}{a.text}{closing}{CLOSING_TAG}')
-    return "\n\n".join([*parts, message])
+        block = f'<document name="{name}">\n{marker}{a.text}{closing}{CLOSING_TAG}'
+        found.append(({"what": "attachment", "index": i}, block))
+    return found
 
 
 def message_content(text: str, fields: Mapping[str, Any]) -> str:
     """A user message's content as the model gets it, from a turn's fields or its record:
     the text alone, or with its attachments' block. Every prompt, check and read builds it
     here. A record missing a field raises KeyError, which readers refuse as unreadable."""
-    attachments = fields.get("attachments") or []
-    if not attachments:
-        return text
-    attached = [Attached(a["name"], a["text"], a["marker"]) for a in attachments]
-    return content(text, attached, fields["framing"])
+    attached = attached_in(fields)
+    return content(text, attached, fields["framing"]) if attached else text
+
+
+def attached_in(fields: Mapping[str, Any]) -> list[Attached]:
+    return [Attached(a["name"], a["text"], a["marker"]) for a in fields.get("attachments") or []]
 
 
 def added_ranges(fields: Mapping[str, Any]) -> list[dict[str, Any]]:
-    return []
+    """Where the framing line and each block sit in the message's content: half-open
+    `chars`, for message_spans' `added`. Empty for a message without attachments."""
+    attached = attached_in(fields)
+    if not attached:
+        return []
+    ranges, at = [], 0
+    for what, text in parts(attached, fields["framing"]):
+        ranges.append({**what, "chars": [at, at + len(text)]})
+        at += len(text) + 2  # the blank line after it
+    return ranges
 
 
 def scan(text: str, special_tokens: Callable[[str], list[str]]) -> dict[str, Any]:

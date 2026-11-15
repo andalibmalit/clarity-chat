@@ -1442,6 +1442,7 @@ def export_sheet(answer: dict[str, Any]) -> dict[str, Any]:
         "error": None,
         "path": result["path"],
         "replaced": result["replaced"],
+        "attachments": result["attachments"],
         "left_out": f"{n} call that produced no reply"
         if n == 1
         else f"{n} calls that produced no reply"

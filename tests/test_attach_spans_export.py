@@ -155,3 +155,21 @@ def test_the_recompute_check_runs_over_the_whole_prompt_block_included(chat):
     assert measure(row, model, "transformers")["measured"]["largest_gap"] == 0.0
     assert model.seen[: len(row["prompt_ids"])] == row["prompt_ids"]
     assert "Line one." in row["prompt_text"]
+
+
+@pytest.mark.parametrize("attachments", [0, 1])
+def test_the_export_sheet_says_it_holds_the_attached_documents_text(attachments):
+    from clarity_chat import web
+
+    answer = {
+        "path": "/x/logs/exports/c.jsonl",
+        "replaced": False,
+        "calls": 1,
+        "failed_calls_left_out": 0,
+        "calls_without_a_turn_left_out": 0,
+        "steered": [],
+        "attachments": attachments,
+    }
+    sheet = web.templates.get_template("export.html").render(**web.export_sheet({"result": answer}))
+    said = "It holds the text of the documents attached in this chat." in sheet
+    assert said is bool(attachments)

@@ -306,12 +306,14 @@ def message_spans(
     """Where each message, and the text around it, sits in `prompt`: a list of entries that
     covers every prompt token in order, each with half-open `chars` (in `prompt.text`) and
     `tokens` (in `prompt.ids`) ranges. Or `{"unavailable": reason}`: never a guess, and never
-    an error, since a call must not fail over its spans."""
+    an error, since a call must not fail over its spans. `added`, for each turn: what sits
+    at the start of its content (documents.added_ranges); a message's entry lists them with
+    their own ranges."""
     try:
         if profile.mode == "text":
             parts: list[Part] | str = _text_parts(profile, turns, turn_ids)
         else:
-            parts = _chat_parts(template or tokenizer, profile, turns, turn_ids, prompt.text)
+            parts = _chat_parts(template or tokenizer, profile, turns, turn_ids, prompt.text, added)
         if isinstance(parts, str):
             return {"unavailable": parts}
         if "".join(text for _, text in parts) != prompt.text:
@@ -328,7 +330,10 @@ def message_spans(
 
 
 def _labels(
-    profile: Profile, turns: list[tuple[str, str]], turn_ids: Sequence[str | None]
+    profile: Profile,
+    turns: list[tuple[str, str]],
+    turn_ids: Sequence[str | None],
+    added: Sequence[list[dict[str, Any]]] | None = None,
 ) -> list[dict[str, Any]]:
     """Each chat message's entry fields, in chat_messages' order."""
     labels: list[dict[str, Any]] = []
@@ -336,8 +341,9 @@ def _labels(
         labels.append({"role": "system", "source": "system"})
     for i, m in enumerate(profile.priming_messages):
         labels.append({"role": m["role"], "source": f"priming {i + 1}"})
-    for (role, _), turn_id in zip(turns, turn_ids, strict=True):
-        labels.append({"role": role, "turn_id": turn_id})
+    for i, ((role, _), turn_id) in enumerate(zip(turns, turn_ids, strict=True)):
+        before = added[i] if added else []
+        labels.append({"role": role, "turn_id": turn_id, **({"added": before} if before else {})})
     return labels
 
 
@@ -364,6 +370,7 @@ def _chat_parts(
     turns: list[tuple[str, str]],
     turn_ids: Sequence[str | None],
     rendered: str,
+    added: Sequence[list[dict[str, Any]]] | None = None,
 ) -> list[Part] | str:
     """The chat template's own text and each message, found by rendering again with each
     message replaced by a unique placeholder. Proved by rebuilding `rendered` exactly: each
@@ -389,7 +396,7 @@ def _chat_parts(
     pieces.append(placeheld[end:])
     parts: list[Part] = []
     pos = 0
-    labels = _labels(profile, turns, turn_ids)
+    labels = _labels(profile, turns, turn_ids, added)
     for i, (message, label) in enumerate(zip(messages, labels, strict=True)):
         parts.append(({"kind": "template"}, pieces[i]))
         if not rendered.startswith(pieces[i], pos):
@@ -402,6 +409,12 @@ def _chat_parts(
         else:
             return f"the chat template changes message {i + 1} ({label['role']}) itself"
         entry = {"kind": "message", **label, **({"trimmed": True} if text != content else {})}
+        if text != content and "added" in label:  # stripped: the ranges move with the text
+            lead = len(content) - len(content.lstrip())
+            entry["added"] = [
+                {**r, "chars": [min(max(c - lead, 0), len(text)) for c in r["chars"]]}
+                for r in label["added"]
+            ]
         parts.append((entry, text))
         pos += len(text)
     if rendered[pos:] != pieces[-1]:
@@ -436,11 +449,29 @@ def _token_ranges(
         while k < len(bounds) - 1 and not bounds[k][0] <= start < bounds[k][1]:
             k += 1
         owner.append(k)
-    entries = [{"kind": "bos", "chars": [0, 0], "tokens": [0, 1]}] if bos else []
+    entries: list[dict[str, Any]] = (
+        [{"kind": "bos", "chars": [0, 0], "tokens": [0, 1]}] if bos else []
+    )
     for k, ((info, _), (first, last)) in enumerate(zip(parts, bounds, strict=True)):
         start, end = bisect.bisect_left(owner, k), bisect.bisect_right(owner, k)
-        entry = {**info, "chars": [first, last], "tokens": [start + bos, end + bos]}
+        entry: dict[str, Any] = {**info, "chars": [first, last], "tokens": [start + bos, end + bos]}
         if end > start and offsets[end - 1][1] > last:
             entry["edge_token"] = "end"
+        if "added" in info:  # by the same rule: a token is in the range its first character is
+            entry["added"] = [_within(r, first, offsets, bos) for r in info["added"]]
         entries.append(entry)
     return entries
+
+
+def _within(
+    added: dict[str, Any], at: int, offsets: list[tuple[int, int]], bos: int
+) -> dict[str, Any]:
+    """A range inside a message (chars from the message's start) in the prompt's chars and
+    tokens."""
+    first, last = (at + c for c in added["chars"])
+    starts = [start for start, _ in offsets]
+    start, end = bisect.bisect_left(starts, first), bisect.bisect_left(starts, last)
+    found = {**added, "chars": [first, last], "tokens": [start + bos, end + bos]}
+    if end > start and offsets[end - 1][1] > last:
+        found["edge_token"] = "end"
+    return found
