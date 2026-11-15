@@ -250,7 +250,7 @@ def test_the_turn_s_record_event_carries_its_attachments(chat, notes):
     assert turn["attachments"][0]["text"] == NOTES
 
 
-def test_attach_waits_for_a_running_command_and_cancel_stops_its_reading(chat, notes, monkeypatch):
+def test_attach_queues_behind_a_command_and_cancel_stops_its_reading(chat, notes, monkeypatch):
     session, _ = chat
     c = Commands(session)
     assert not c.at_once_now("attach")

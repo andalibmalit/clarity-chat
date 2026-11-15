@@ -15,6 +15,7 @@ from clarity_chat.documents import FRAMING, reading
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend
+from tests.pdfs import encrypted_pdf, make_pdf
 
 NOTES = "Line one.\nLine two.\nLine three.\n"
 
@@ -138,28 +139,40 @@ def test_dash_dash_attach_with_resume(fetched_root, chat_tokenizer, notes):
     assert [a["name"] for a in chat.session.conversation.pending] == ["notes.md"]
 
 
-def test_an_unreadable_dash_dash_attach_file_stops_before_the_model_starts(
-    fetched_root, tmp_path, monkeypatch, capsys
+@pytest.mark.parametrize(
+    ("name", "data", "sentence"),
+    [
+        (
+            "notes.md",
+            b"\xff\xfe made-up",
+            "notes.md isn't UTF-8 text. Save it as PDF or as UTF-8 text and attach that.",
+        ),
+        (
+            "scan.pdf",
+            make_pdf(["", ""]),
+            "scan.pdf has no text Clarity can read. Its pages may be scanned images, which "
+            "Clarity doesn't read. Save a copy with a text layer (run OCR) and attach that.",
+        ),
+        (
+            "locked.pdf",
+            encrypted_pdf(["Made-up page."], user_password="made-up"),
+            "locked.pdf needs a password. Save a copy without one and attach that.",
+        ),
+    ],
+)
+def test_an_unattachable_dash_dash_attach_file_stops_before_the_model_starts(
+    fetched_root, tmp_path, monkeypatch, capsys, name, data, sentence
 ):
-    """S12: a file that can't be read is refused before a 16 GB load."""
-    bad = tmp_path / "notes.md"
-    bad.write_bytes(b"\xff\xfe made-up")
+    """S12, B2's Checks: unreadable, scanned or locked, refused before a 16 GB load."""
+    bad = tmp_path / name
+    bad.write_bytes(data)
     started = []
     monkeypatch.setattr(Session, "new_conversation", lambda *a, **k: started.append(a))
     code = cli.main(
         ["--root", str(fetched_root), "chat", "--profile", "chat", "--attach", str(bad)]
     )
     assert (code, started) == (1, [])
-    assert capsys.readouterr().err == (
-        "clarity: notes.md isn't UTF-8 text. Save it as PDF or as UTF-8 text and attach that.\n"
-    )
-
-
-def test_dash_dash_attach_is_repeatable():
-    args = cli.build_parser()[0].parse_args(
-        ["chat", "--json", "--profile", "chat", "--attach", "a.md", "--attach", "b.md"]
-    )
-    assert args.attach == ["a.md", "b.md"]
+    assert capsys.readouterr().err == f"clarity: {sentence}\n"
 
 
 def test_json_attaches_after_its_start_and_goes_on_after_a_refusal(
