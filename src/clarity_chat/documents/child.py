@@ -79,9 +79,10 @@ def utf8(data: bytes, name: str) -> tuple[str, bool]:
 SAVE_AS = "Save it as PDF or as UTF-8 text and attach that."
 
 
-# HTML, version 1 of Clarity's rules (listed in reference.md).
+# HTML, version 1 of Clarity's rules (listed in the plan; reference.md lists them with B1).
 HTML_SPACE = " \t\n\r\f"  # HTML's whitespace: a no-break space is kept, as text
-HTML_SKIPPED = {"head", "script", "style", "template", "noscript"}
+# title, not head: a page may omit </head> (valid HTML5), and head holds no other text.
+HTML_SKIPPED = {"title", "script", "style", "template", "noscript"}
 HTML_BLOCKS = {
     "address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "figcaption",
     "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li",
@@ -109,7 +110,8 @@ class HtmlText(HTMLParser):
             if text:
                 self.lines.append(text)
             return
-        text = text.strip(HTML_SPACE)
+        # Collapsed as a whole line, so whitespace on both sides of an inline tag is one.
+        text = re.sub(f"[{HTML_SPACE}]+", " ", text).strip(HTML_SPACE)
         if text:
             self.lines.append(text)
 
@@ -132,7 +134,7 @@ class HtmlText(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self.skipping:
             return
-        self.line.append(data if self.pre else re.sub(f"[{HTML_SPACE}]+", " ", data))
+        self.line.append(data)
 
 
 def html_text(data: bytes, name: str) -> str:
