@@ -50,6 +50,7 @@ SENTENCES = {
     "not_kept": "Not kept: {names}, waiting for your next message. An attachment is logged "
     "only with the message it's sent with.",
     "more_lines": "… and {count} more lines, ending with:",
+    "more_characters": "… {count} more characters on this line",
     "choose": "Choose how to attach it.",
     "no_room": "This chat has no room left for a file: its messages and max_tokens already fill "
     "the context. Lower max_tokens or start a new chat.",

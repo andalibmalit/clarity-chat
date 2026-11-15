@@ -279,7 +279,7 @@ def test_the_paperclip_waits_during_a_replay(clarity, page):
     page.click("#panel [data-action=replay]")
     page.wait_for_selector("#panel [role=status]:has-text('Replaying…')")
     choosers = []
-    page.on("filechooser", choosers.append)
+    page.on("filechooser", lambda chooser: choosers.append(chooser))
     page.click("#clip", force=True)
     page.wait_for_selector("#clip-waits:has-text('Waits until the command is done.')")
     assert choosers == [] and page.is_hidden("#attach-sheet")
@@ -291,7 +291,7 @@ def test_cancel_during_the_upload_stops_it_and_says_so(clarity, page):
     redirect, _ = clarity
     chat(page, redirect)
     held = []
-    page.route("**/upload?*", held.append)  # the upload waits until the test lets it go
+    page.route("**/upload?*", lambda route: held.append(route))  # held until the test lets go
     choose(page, "slow.md", NOTES)
     until(page, lambda: held, what="the upload sent")
     page.click("#attach-sheet [data-action=attach-cancel]")
@@ -340,7 +340,7 @@ def test_the_paperclip_refuses_in_text_mode_before_the_picker(clarity, page):
     page.click("[data-profile=text]")
     page.wait_for_selector("#thread .intro")
     choosers = []
-    page.on("filechooser", choosers.append)
+    page.on("filechooser", lambda chooser: choosers.append(chooser))
     page.click("#clip")
     sentence = "Attaching needs a chat-mode profile; text is in text mode."
     page.wait_for_selector(f"#clip-waits:has-text('{sentence}')")

@@ -130,7 +130,10 @@ def test_a_closed_output_stops_writing_and_the_log_stays_whole(make):
     assert session.conversation.head == turns[-1]["turn_id"]
 
 
-# Every command in the table, in an order that gives each one something to act on.
+# Every command in the table, in an order that gives each one something to act on. Those in
+# REFUSED answer the text profile with their refusal: /attach alone asks whether the chat
+# can attach before the page's file picker opens (Checkpoint 3, should 5).
+REFUSED = {"attach": "Attaching needs a chat-mode profile; text is in text mode."}
 EVERY_COMMAND = [
     ("help", lambda s: ""),
     ("chats", lambda s: ""),
@@ -142,7 +145,7 @@ EVERY_COMMAND = [
     ("set", lambda s: "temperature 0.9"),
     ("regen", lambda s: ""),
     ("edit", lambda s: "Hi again"),
-    ("attach", lambda s: ""),  # alone: what's waiting, in any mode
+    ("attach", lambda s: ""),  # alone: what's waiting; in text mode, refused (REFUSED)
     ("detach", lambda s: ""),
     ("history", lambda s: ""),
     ("compare", lambda s: ""),
@@ -175,14 +178,17 @@ def test_every_command_works_as_a_slash_command_and_as_json(make):
         assert keep_going == (name != "quit"), name
         if name != "quit":
             text = "".join(output)
-            assert text.strip() and not text.startswith("!"), (name, text)
+            if name in REFUSED:
+                assert text.strip() == f"! {REFUSED[name]}", (name, text)
+            else:
+                assert text.strip() and not text.startswith("!"), (name, text)
     session, _ = make()
     chat = JsonChat(session, io.BytesIO(), io.StringIO())
     for name, args in EVERY_COMMAND:
         chat.stdout = io.StringIO()
         chat.execute({"command": name, "args": args(session)})
         last = json.loads(chat.stdout.getvalue().splitlines()[-1])
-        assert last["event"] == "result", (name, last)
+        assert last["event"] == ("error" if name in REFUSED else "result"), (name, last)
 
 
 def test_clarity_chat_json_reads_utf8_and_survives_a_bad_byte(fetched_root, monkeypatch, capsys):

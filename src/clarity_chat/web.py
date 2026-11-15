@@ -1526,16 +1526,16 @@ async def _attach(worker: Worker, params: dict[str, str | None]) -> str:
     pre = check["preselected"]
     if not chosen and not check["fits"] and pre:
         units = pre["unit"]
+        # The cache makes this second read count only the range (Checkpoint 3, could 16).
         found = await read_or_refusal(
             worker, "attach", f"{upload} {units} 1-{pre['range'][1]} check"
         )
-        check = found["result"]["check"] if "result" in found else check
-    conversation = worker.commands.session.conversation
+        if "error" in found:  # a cancel or a refusal here is shown, not dropped (should 7)
+            return templates.get_template("attach.html").render(error=found["error"])
+        check = found["result"]["check"]
     state = await result_of(worker, "state")
-    max_tokens = check["max_tokens"]  # what its numbers were counted with (could 15)
-    own_marker = conversation is not None and conversation.profile.excerpt_marker is not None
     typed = (params["first"], params["last"]) if part_error else None
-    sheet = attach_sheet(check, upload, max_tokens, own_marker, state["pending"], part_error, typed)
+    sheet = attach_sheet(check, upload, state["pending"], part_error, typed)
     return templates.get_template("attach.html").render(error=None, s=sheet)
 
 
@@ -1551,29 +1551,44 @@ def size_words(n: int) -> str:
     return f"{n / 1024 / 1024:.1f} MB"
 
 
+PREVIEW_LINE = 2000  # characters of each line the preview shows
+
+
 def preview(text: str) -> dict[str, Any]:
     """The extracted text the sheet shows: its first six lines, then, past eight, how many
-    are left out and the last two (the board's ruling 8)."""
+    are left out and the last two (the board's ruling 8). Each line is cut at PREVIEW_LINE
+    characters, saying how many more it has, so the whole is at most eight cut lines
+    (Checkpoint 3, should 6)."""
     lines = text.split("\n")
     if lines and lines[-1] == "":
         lines.pop()
-    lines = [line + "\n" for line in lines]
+
+    def shown(part: list[str]) -> list[dict[str, str | None]]:
+        return [
+            {"text": line[:PREVIEW_LINE], "cut": None}
+            if len(line) <= PREVIEW_LINE
+            else {
+                "text": line[:PREVIEW_LINE],
+                "cut": SENTENCES["more_characters"].format(count=f"{len(line) - PREVIEW_LINE:,}"),
+            }
+            for line in part
+        ]
+
     if len(lines) <= 8:
-        return {"start": "".join(lines), "more": None, "end": ""}
+        return {"start": shown(lines), "more": None, "end": []}
     more = SENTENCES["more_lines"].format(count=f"{len(lines) - 8:,}")
-    return {"start": "".join(lines[:6]), "more": more, "end": "".join(lines[-2:])}
+    return {"start": shown(lines[:6]), "more": more, "end": shown(lines[-2:])}
 
 
 def attach_sheet(
     check: dict[str, Any],
     upload: str,
-    max_tokens: int,
-    own_marker: bool,
     pending: list[dict[str, Any]],
     part_error: str | None,
     typed: tuple[str | None, str | None] | None,
 ) -> dict[str, Any]:
     """Everything the sheet draws, in the table's words (decision 20)."""
+    max_tokens = check["max_tokens"]  # what its numbers were counted with (could 15)
     unit, units = check["unit"], f"{check['unit']}s"
     free = f"{check['free']:,}"
     facts = KINDS[check["kind"]] + " · " + counted(check["total"], unit)
@@ -1593,7 +1608,11 @@ def attach_sheet(
             tokens=more_than(check["tokens_whole"], check["tokens_whole_at_least"]), free=free
         )
     start, pre, chosen = check["start_that_fits"], check["preselected"], check["chosen"]
-    part: dict[str, Any] = {"first": 1, "last": check["total"], "ok": False, "notes": []}
+    # With nothing counted, the boxes open on 1 to the preselected end, else 1 to 1, as the
+    # board does; choosing the part counts them (Checkpoint 3, should 4).
+    opening = pre["range"][1] if pre else 1
+    part: dict[str, Any] = {"first": 1, "last": opening, "ok": False, "notes": []}
+    part["counted"] = bool(typed or chosen)
     if typed:
         part.update(first=typed[0], last=typed[1], notes=[part_error])
     elif chosen:
@@ -1628,7 +1647,8 @@ def attach_sheet(
     origin = SENTENCES[
         "origin_profile" if check["framing_origin"] == "profile" else "origin_default"
     ]
-    marker_origin = SENTENCES["origin_profile" if own_marker else "origin_default"]
+    own_marker = check["excerpt_marker_origin"]
+    marker_origin = SENTENCES["origin_default" if own_marker == "default" else "origin_profile"]
     return {
         "name": check["name"],
         "upload": upload,
@@ -1641,10 +1661,11 @@ def attach_sheet(
         "units": units.capitalize(),
         "unit_plural": units,
         "total": f"{check['total']:,}",
-        "excerpt": SENTENCES["excerpt"] if marker or not chosen else SENTENCES["no_marker"],
+        "excerpt": SENTENCES["no_marker" if own_marker == "none" else "excerpt"],
         "new": {
             "does": SENTENCES["new_chat_does"],
-            "note": SENTENCES["new_chat"].format(free=f"{check['free_new_chat']:,}"),
+            "whole": SENTENCES["whole"].format(tokens=f"{check['tokens_new_chat']:,}"),
+            "left": SENTENCES["left"].format(left=f"{check['left_new_chat']:,}"),
             "drops": SENTENCES["not_kept"].format(names=names) if names else None,
         }
         if new
@@ -1664,6 +1685,9 @@ def attach_sheet(
         "marker": marker,
         "preview": preview(chosen["text"] if chosen else check["text"]),
         "choose": SENTENCES["choose"],
+        "described_by": {"whole": "attach-whole-note", "part": "attach-part-note"}.get(
+            choice or "", "attach-why"
+        ),
     }
 
 

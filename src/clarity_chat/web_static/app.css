@@ -498,6 +498,7 @@ dialog.sheet.attach { width: min(620px, calc(100vw - 32px)); max-height: calc(10
 .attach .preview { margin-top: 10px; max-height: 240px; overflow: auto; border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 8px 10px; }
 .attach .preview pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; }
 .attach .preview .more { margin: 6px 0; font-size: 12.5px; color: var(--muted); }
+.attach .preview .cut { color: var(--muted); font-style: italic; }
 .attach .actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
 .attach .actions .sp { flex: 1; }
 .attach .why { font-size: var(--small); color: var(--muted); }

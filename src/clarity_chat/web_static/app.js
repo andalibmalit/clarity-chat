@@ -350,7 +350,7 @@ async function draw(number) {
     $("message").focus(); // a start from the picker (QA 4)
   }
   $("send").disabled = !chat && !starting;
-  $("clip").disabled = !chat;
+  $("clip").disabled = !chat && !starting; // starting, it waits and says why (showWriting)
   // While a model starts, Send waits and says why (a stopped server isn't a wait: Send then
   // fails with the backend's sentence, and the failed line offers to start it again).
   $("send-waits").textContent = starting ? "Waits until the model has started." : "";
@@ -478,7 +478,7 @@ async function quit() {
 
 function act(element) {
   if (element.getAttribute("aria-disabled") === "true") {
-    if (element.id === "clip") $("clip-waits").textContent = "Waits until the reply is done.";
+    if (element.id === "clip") $("clip-waits").textContent = element.dataset.why || "";
     return;
   }
   if (element.dataset.profile !== undefined) {
@@ -684,10 +684,13 @@ function showWriting(running) {
   $("writing-box").hidden = !on;
   $("send").hidden = on;
   $("stop").hidden = !on;
-  // The paperclip waits while a reply is written, and says why when pressed (C1).
-  if (on) $("clip").setAttribute("aria-disabled", "true");
+  // The paperclip waits while anything that changes the chat runs, and says why when
+  // pressed (clipWhy).
+  const why = clipWhy(running);
+  $("clip").dataset.why = why;
+  if (why) $("clip").setAttribute("aria-disabled", "true");
   else $("clip").removeAttribute("aria-disabled");
-  if (!on) $("clip-waits").textContent = "";
+  if (!why) $("clip-waits").textContent = "";
   if (!on) {
     $("writing-status").textContent = ""; // the region stays in the page, empty
     $("writing-dots").replaceChildren();
@@ -773,11 +776,7 @@ function refused(name, type, sentence) {
 function send() {
   const text = $("message").value;
   // While a reply is written, Send is hidden (Stop is in its place) and Enter waits too.
-  if (!text) {
-    // Chips and no text: the command table says why (S6), and nothing is sent.
-    if (!$("chips").hidden) command("say", "").then((answer) => answer.error && notice("!", answer.error));
-    return;
-  }
+  if (!text && $("chips").hidden) return;
   if ($("send").getAttribute("aria-disabled") === "true") {
     // It waits (a model starting, from the picker too, which is still sending its start):
     // the reason shows beside Send, not only to a screen reader, and the text stays for
@@ -794,6 +793,13 @@ function send() {
     return;
   }
   if ($("send").disabled) return;
+  if (!text) {
+    // Chips and no text: the command table says why (S6), and nothing is sent.
+    command("say", "")
+      .catch(unanswered)
+      .then((answer) => answer.error && notice("!", answer.error));
+    return;
+  }
   $("message").value = "";
   write("say", text, text);
 }
@@ -1150,19 +1156,57 @@ document.addEventListener("change", (event) => {
 // The file goes to /upload as it is; the sheet is the `attach` view, drawn from `/attach ID
 // [range] check`, so every number and sentence is the server's. A changed range asks for
 // the sheet again (the extraction is cached: no second reading). Add sends the checked
-// choice's command.
+// choice's command, and only once its count is the boxes' range (Checkpoint 3, must 1).
 
-const attaching = { upload: null, name: "", reading: false, timer: null };
+// phase: uploading, reading, sheet or stopped; attempt numbers each file, asked each read.
+const attaching = { upload: null, name: "", phase: null, attempt: 0, asked: 0, abort: null, timer: null };
 
-function sheetHead(name) {
+function clipWhy(running) {
+  // The paperclip waits while a model starts or anything that changes the chat runs (a
+  // reply, a Replay), and says why when pressed (Checkpoint 3, must 2 and could 13).
+  if (clarity.state && clarity.state.model === "starting") return "Waits until the model has started.";
+  if (running && WRITES.has(running.command)) return "Waits until the reply is done.";
+  if (changing(running) || clarity.sending) return "Waits until the command is done.";
+  return "";
+}
+
+async function pickFile() {
+  // The session says first whether this chat can attach (text mode can't), so nothing is
+  // uploaded only to be refused (should 5); then the system's file picker opens.
+  const why = clipWhy(clarity.state.running); // a Replay this page sent, not yet drawn
+  if (why) {
+    $("clip-waits").textContent = why;
+    return;
+  }
+  const answer = await command("attach").catch(unanswered);
+  if (answer.handled) return;
+  $("clip-waits").textContent = answer.error || "";
+  if (!answer.error) $("attach-file").click();
+}
+
+function sheetHead(title, close) {
+  // The sheet's head, as the template draws it: a document icon, the title and, once
+  // nothing is being read, ×.
   const head = document.createElement("div");
   head.className = "shhd";
-  const title = document.createElement("h2");
-  title.id = "attach-title";
-  title.tabIndex = -1;
-  title.textContent = name;
-  head.append(title);
+  const h2 = document.createElement("h2");
+  h2.id = "attach-title";
+  h2.tabIndex = -1;
+  h2.append(icon("doc"), title);
+  head.append(h2);
+  if (close) {
+    const x = sheetButton("", "attach-close", "iconbtn");
+    x.setAttribute("aria-label", "Close");
+    x.append(icon("close"));
+    head.append(x);
+  }
   return head;
+}
+
+function icon(name) {
+  const svg = $("clip").querySelector("svg").cloneNode(true); // the page's own icon markup
+  svg.querySelector("use").setAttribute("href", `#i-${name}`);
+  return svg;
 }
 
 function sheetButton(label, action, cls) {
@@ -1187,31 +1231,37 @@ function sheetReading(name) {
   actions.className = "actions";
   const cancel = sheetButton("Cancel", "attach-cancel", "btn ghost");
   actions.append(cancel);
-  $("attach-body").replaceChildren(sheetHead(name), status, actions);
+  $("attach-body").replaceChildren(sheetHead(name, false), status, actions);
   if (!$("attach-sheet").open) $("attach-sheet").showModal();
   cancel.focus();
 }
 
-function sheetRefused(name, sentence) {
+function sheetEnded(sentence, refused = true) {
+  // Not attached: a refusal (an alert), or a read you stopped (a status), with Close. The
+  // title is the read refusals' one, which the template draws (could 16).
   const line = document.createElement("p");
-  line.setAttribute("role", "alert");
-  const bold = document.createElement("strong");
-  bold.textContent = "!";
-  line.append(bold, " ", sentence);
+  line.setAttribute("role", refused ? "alert" : "status");
+  if (refused) {
+    const bold = document.createElement("strong");
+    bold.textContent = "!";
+    line.append(bold, " ");
+  }
+  line.append(sentence);
   const box = document.createElement("div");
-  box.className = "problem";
+  box.className = refused ? "problem" : "status";
   box.append(line);
   const actions = document.createElement("div");
   actions.className = "actions";
   actions.append(sheetButton("Close", "attach-close", "btn"));
-  $("attach-body").replaceChildren(sheetHead(name), box, actions);
+  $("attach-body").replaceChildren(sheetHead("Not attached", true), box, actions);
   if (!$("attach-sheet").open) $("attach-sheet").showModal();
   actions.querySelector("button").focus();
 }
 
 async function attachFile(file) {
-  attaching.reading = true;
-  attaching.name = file.name;
+  attaching.attempt += 1;
+  const attempt = attaching.attempt;
+  Object.assign(attaching, { upload: null, name: file.name, phase: "uploading", abort: new AbortController() });
   sheetReading(file.name);
   try {
     const query = new URLSearchParams({ tab: TAB, name: file.name });
@@ -1220,39 +1270,85 @@ async function attachFile(file) {
       method: "POST",
       headers: { "Content-Type": "application/octet-stream" },
       body: file,
+      signal: attaching.abort.signal,
     });
+    if (attempt !== attaching.attempt || attaching.phase !== "uploading") return; // stopped
     if (!response.ok) {
       const text = await response.text();
       if (text === "Clarity is open in another tab.") notLive();
-      else sheetRefused(file.name, text);
+      else sheetEnded(text);
       return;
     }
     attaching.upload = (await response.json()).upload;
+    attaching.phase = "reading";
     await loadSheet({}, true);
   } catch (error) {
+    if (attempt !== attaching.attempt || attaching.phase !== "uploading") return; // Cancel aborted it
     const lost = unanswered(error);
-    if (!lost.handled) sheetRefused(file.name, lost.error);
-  } finally {
-    attaching.reading = false;
+    if (!lost.handled) sheetEnded(lost.error);
   }
 }
 
+async function cancelRead(draw = true) {
+  // Cancel stops only this file's read (must 2): an upload still sending is aborted, and a
+  // read is cancelled only while /state says this upload is the command running. Either
+  // way the sheet says it stopped, and a late answer is dropped.
+  const { phase, upload, name } = attaching;
+  if (phase !== "uploading" && phase !== "reading") return;
+  attaching.phase = "stopped";
+  if (draw) sheetEnded(`Stopped reading ${name}.`, false);
+  if (phase === "uploading") {
+    attaching.abort.abort();
+    return;
+  }
+  const answer = await command("state").catch(() => null);
+  const running = answer && answer.result && answer.result.running;
+  if (running && running.command === "attach" && (running.args || "").startsWith(`${upload} `)) {
+    await command("cancel").catch(() => null);
+  }
+}
+
+function boxesHold(range) {
+  // Whether the range boxes still say `range` (a read with no range: always).
+  if (range.first === undefined) return true;
+  const from = $("attach-from");
+  const to = $("attach-to");
+  return Boolean(from && to) && from.value === range.first && to.value === range.last;
+}
+
 async function loadSheet(range, first = false) {
+  attaching.asked += 1;
+  const asked = attaching.asked;
+  const attempt = attaching.attempt;
+  const current = () => asked === attaching.asked && attempt === attaching.attempt && attaching.phase !== "stopped";
   let html;
   try {
     html = await view("attach", { upload: attaching.upload, ...range });
   } catch (error) {
-    sheetRefused(attaching.name, error.message);
+    if (!current()) return;
+    const lost = unanswered(error); // handled: the page already shows the no-key page
+    if (!lost.handled) sheetEnded(lost.error);
     return;
   }
-  if (!$("attach-sheet").open) return; // closed meanwhile
+  // Only the newest answer, for the range the boxes still hold, is drawn: an older one, or
+  // one for keys typed over since, would show a count for another range (must 1).
+  if (!current() || !$("attach-sheet").open || !boxesHold(range)) return;
+  attaching.phase = "sheet";
   const opened = $("attach-preview") && !$("attach-preview").hidden;
-  const focus = document.activeElement && document.activeElement.id;
+  const focus = document.activeElement;
+  const typing = focus && ["attach-from", "attach-to"].includes(focus.id) ? focus : null;
   swap($("attach-body"), html);
+  if (typing) {
+    // The box being typed in stays, caret and all: it holds what was counted.
+    const fresh = $(typing.id);
+    typing.max = fresh.max;
+    fresh.replaceWith(typing);
+  }
   docsLinks($("attach-body"));
+  rove($("attach-body"));
   showPreview(opened);
   updateAdd();
-  const back = focus && $(focus);
+  const back = focus && focus.id && $(focus.id);
   if (first || !back) $("attach-title").focus();
   else back.focus();
 }
@@ -1262,6 +1358,8 @@ function checkedChoice() {
 }
 
 function updateAdd() {
+  // Add sends only a choice that fits and was counted for what the sheet shows; otherwise
+  // it waits, and the line beside it, or the choice's own note, says why.
   const add = $("attach-body").querySelector("[data-action=attach-add]");
   if (!add) return;
   const choice = checkedChoice();
@@ -1269,7 +1367,14 @@ function updateAdd() {
   if (ok) add.removeAttribute("aria-disabled");
   else add.setAttribute("aria-disabled", "true");
   add.textContent = choice && choice.dataset.choice === "new" ? "Start new chat" : "Add";
-  $("attach-why").hidden = ok || Boolean(choice); // "Choose how…" only when none is chosen
+  const why = $("attach-why");
+  why.dataset.choose = why.dataset.choose || why.textContent; // the server's sentence
+  let text = "";
+  if (!choice) text = why.dataset.choose;
+  else if (choice.dataset.counted === "false") text = rangeTyped() ? "Counting…" : "Waits for a number in both boxes.";
+  why.textContent = text;
+  why.hidden = !text;
+  add.setAttribute("aria-describedby", text ? "attach-why" : choice.dataset.note);
 }
 
 function showPreview(on) {
@@ -1281,17 +1386,31 @@ function showPreview(on) {
   button.textContent = on ? "Hide extracted text" : "Show extracted text";
 }
 
+function rangeTyped() {
+  return /^[0-9]{1,9}$/.test($("attach-from").value) && /^[0-9]{1,9}$/.test($("attach-to").value);
+}
+
 function rangeChanged() {
   clearTimeout(attaching.timer);
-  const from = $("attach-from").value;
-  const to = $("attach-to").value;
-  if (!/^[0-9]{1,9}$/.test(from) || !/^[0-9]{1,9}$/.test(to)) return;
+  if (!rangeTyped()) return; // Add waits, saying why (updateAdd)
   const unit = $("attach-body").querySelector(".range").dataset.unit;
-  loadSheet({ unit, first: from, last: to });
+  loadSheet({ unit, first: $("attach-from").value, last: $("attach-to").value });
+}
+
+function counting() {
+  // A range typed chooses the part, and its count is now another range's: Add waits.
+  const part = $("attach-body").querySelector("[data-choice=part]");
+  for (const radio of $("attach-body").querySelectorAll("[role=radio]")) {
+    radio.setAttribute("aria-checked", String(radio === part));
+  }
+  part.dataset.ok = "false";
+  part.dataset.counted = "false";
+  updateAdd();
 }
 
 document.addEventListener("input", (event) => {
   if (!["attach-from", "attach-to"].includes(event.target.id)) return;
+  counting();
   clearTimeout(attaching.timer);
   attaching.timer = setTimeout(rangeChanged, 400); // typing: one read once it settles
 });
@@ -1588,14 +1707,16 @@ function toggleMotion() {
 
 // Toolbars and the replies' rows are one Tab stop each; the arrow keys move inside, and Tab
 // comes back to the control last used there.
-const ROVING = '.tb[role="toolbar"], .listpop .rows';
+const RADIOS = '.opts[role="radiogroup"]'; // the attach sheet's choices: arrows choose too
+const ROVING = `.tb[role="toolbar"], .listpop .rows, ${RADIOS}`;
 
 function rove(root) {
   for (const group of root.querySelectorAll(ROVING)) {
     const items = itemsIn(group);
     const kept = items.find((item) => item.dataset.action === group.dataset.last || item.dataset.switch === group.dataset.last);
+    const checked = group.matches(RADIOS) && items.find((item) => item.getAttribute("aria-checked") === "true");
     items.forEach((item) => (item.tabIndex = -1));
-    if (items.length) (kept || items[0]).tabIndex = 0;
+    if (items.length) (checked || kept || items[0]).tabIndex = 0;
   }
 }
 
@@ -1621,14 +1742,17 @@ $("message").addEventListener("keydown", (event) => {
 document.addEventListener("keydown", (event) => {
   const group = event.target.closest && event.target.closest(ROVING);
   if (!group) return;
+  const radios = group.matches(RADIOS);
+  const key = (radios && { ArrowLeft: "ArrowUp", ArrowRight: "ArrowDown" }[event.key]) || event.key;
   const keys = group.matches(".tb") ? ["ArrowLeft", "ArrowRight"] : ["ArrowUp", "ArrowDown"];
-  if (![...keys, "Home", "End"].includes(event.key)) return;
+  if (![...keys, "Home", "End"].includes(key)) return;
   const items = itemsIn(group);
   const at = items.indexOf(event.target);
   if (at < 0) return;
   event.preventDefault();
-  const to = { [keys[0]]: Math.max(at - 1, 0), [keys[1]]: Math.min(at + 1, items.length - 1), Home: 0, End: items.length - 1 }[event.key];
+  const to = { [keys[0]]: Math.max(at - 1, 0), [keys[1]]: Math.min(at + 1, items.length - 1), Home: 0, End: items.length - 1 }[key];
   items[to].focus();
+  if (radios) act(items[to]); // the radio pattern: the arrows choose as they move
 });
 
 const THREAD = {
@@ -1683,19 +1807,21 @@ const THREAD = {
   "rename-cancel": () => renaming(false, true),
   export: () => exportChat(),
   "export-close": () => $("export-sheet").close(),
-  "attach-pick": () => $("attach-file").click(), // the system's file picker
+  "attach-pick": () => pickFile(),
   "attach-choose": (element) => {
     for (const radio of $("attach-body").querySelectorAll("[role=radio]")) {
       radio.setAttribute("aria-checked", String(radio === element));
     }
     updateAdd();
+    if (element.dataset.counted === "false") rangeChanged(); // the part: count its boxes (should 4)
   },
   "attach-preview": () => showPreview($("attach-preview").hidden),
   "attach-add": () => addAttachment(),
-  "attach-cancel": () => command("cancel"), // the reading stops: the sheet says so (ruling 8)
+  "attach-cancel": () => cancelRead(), // only this read stops, and the sheet says so (ruling 8)
   "attach-close": () => $("attach-sheet").close(),
   detach: async (element) => {
-    const answer = await command("detach", element.dataset.n);
+    const answer = await command("detach", element.dataset.n).catch(unanswered);
+    if (answer.handled) return;
     if (answer.error) notice("!", answer.error);
     await refresh();
     $("message").focus();
@@ -1767,8 +1893,15 @@ document.addEventListener("DOMContentLoaded", () => {
     $("attach-file").value = ""; // the same file can be chosen again
     if (file) attachFile(file);
   });
+  $("attach-sheet").addEventListener("cancel", (event) => {
+    // Escape while reading stops the read, and the sheet says so (must 2); then it closes.
+    if (attaching.phase !== "uploading" && attaching.phase !== "reading") return;
+    event.preventDefault();
+    cancelRead();
+  });
   $("attach-sheet").addEventListener("close", () => {
-    attaching.upload = null;
+    cancelRead(false); // closed while reading, however: the read stops too
+    Object.assign(attaching, { phase: null, upload: null });
     $("clip").focus();
   });
   load().catch(() => {});
