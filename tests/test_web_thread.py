@@ -17,7 +17,7 @@ from starlette.testclient import TestClient
 from clarity_chat import web
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend
-from tests.test_web import AUTH, ORIGIN, PORT, SAME, SECRET, command
+from tests.test_web import AUTH, ORIGIN, PORT, SAME, SECRET, command, wait_until, writing
 from tests.test_web_shell import get_view, start_held
 
 # The counter's name is visually hidden text, not an aria-label on a span (Checkpoint 3).
@@ -243,10 +243,10 @@ def test_a_message_that_doesnt_fit_shows_the_sentence_whole(fetched_root, tiny_t
 def test_while_a_reply_is_written_the_thread_has_no_controls(chat):
     client, session = chat
     result(client, "say", "Hi")
-    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 0.3
+    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 1.0
     worker = threading.Thread(target=lambda: command(client, "say", "Again"))
     worker.start()
-    threading.Event().wait(0.4)
+    wait_until(lambda: writing(client))  # the reply is being written
     try:
         assert result(client, "state")["running"]["command"] == "say"
         fragment = thread(client)
@@ -375,14 +375,15 @@ def held_read(client, name: str, args: str):
 
     seen: list = []
     real_state, real = commands.COMMANDS["state"], commands.COMMANDS[name]
-    gate = threading.Event()
+    gate, entered = threading.Event(), threading.Event()
 
     def state(c, a, emit):
         seen.append(c.running)
         return real_state.run(c, a, emit)
 
     def held(c, a, emit):
-        gate.wait(5)
+        entered.set()
+        gate.wait(10)
         return real.run(c, a, emit)
 
     def restore():
@@ -392,7 +393,7 @@ def held_read(client, name: str, args: str):
     commands.COMMANDS[name] = dataclasses.replace(real, run=held)
     holder = threading.Thread(target=lambda: command(client, name, args), daemon=True)
     holder.start()
-    threading.Event().wait(0.2)
+    assert entered.wait(10)  # it runs, held: not a fixed pause (CI run 43658818773)
     return gate, holder, seen, restore
 
 
@@ -427,7 +428,9 @@ def test_a_read_waiting_its_turn_doesnt_make_the_views_wait(chat, name, held):
             daemon=True,
         )
         reader.start()
-        threading.Event().wait(0.3)  # the view read /state while the held read ran
+        # The view read /state while the held read ran: waited for, not a fixed 0.3 s
+        # (CI run 43658818773, a slow runner, read it after).
+        wait_until(lambda: held[0] in seen or not reader.is_alive())
         assert held[0] in seen
     finally:
         gate.set()

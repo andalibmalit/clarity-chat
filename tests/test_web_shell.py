@@ -19,7 +19,18 @@ from clarity_chat import web
 from clarity_chat.session import CONTEXT_WARN_FRACTION, Session
 from tests.conftest import TEXT_PROFILE
 from tests.fakes import FakeBackend
-from tests.test_web import AUTH, ORIGIN, PORT, SAME, SECRET, command, free_port, run_ui
+from tests.test_web import (
+    AUTH,
+    ORIGIN,
+    PORT,
+    SAME,
+    SECRET,
+    command,
+    free_port,
+    run_ui,
+    wait_until,
+    writing,
+)
 
 OTHER_MODEL = """
 [other]
@@ -248,10 +259,10 @@ def test_the_context_figure_stays_while_a_reply_is_written(server):
     command(client, "profile", "text")
     command(client, "say", "Hi")
     call = command(client, "prompt").json()["result"]["call"]
-    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 0.3
+    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 1.0
     thread = threading.Thread(target=lambda: command(client, "say", "Again"))
     thread.start()
-    threading.Event().wait(0.4)
+    wait_until(lambda: writing(client))  # the reply is being written
     try:
         fragment = get_view(client, "picker")
         still = thread.is_alive()
@@ -265,29 +276,34 @@ def test_the_picker_doesnt_wait_for_a_command_that_isnt_a_reply(server):
     """Only a reply or a model start makes the picker wait; a quick command doesn't."""
     client, session, _ = server
     command(client, "profile", "text")
-    gate, real = threading.Event(), session.history
-    session.history = lambda *a, **k: (gate.wait(5), real(*a, **k))[1]
-    holder = threading.Thread(target=lambda: command(client, "history"), daemon=True)
-    holder.start()
-    threading.Event().wait(0.2)
+    from tests.test_web_thread import held_read
+
+    gate, holder, seen, restore = held_read(client, "history", "")
     got: list[str] = []
-    reader = threading.Thread(target=lambda: got.append(get_view(client, "picker")), daemon=True)
-    reader.start()
-    threading.Event().wait(0.3)  # the view read /state while history ran
-    gate.set()
-    holder.join(5)
-    reader.join(5)
+    try:
+        reader = threading.Thread(
+            target=lambda: got.append(get_view(client, "picker")), daemon=True
+        )
+        reader.start()
+        # The view read /state while history ran: waited for, not a fixed pause.
+        wait_until(lambda: "history" in seen or not reader.is_alive())
+        assert "history" in seen
+    finally:
+        gate.set()
+        holder.join(5)
+        reader.join(5)
+        restore()
     assert got and "aria-disabled" not in got[0]
 
 
 def test_while_a_reply_is_written_the_picker_waits_and_says_why(server):
     client, session, _ = server
     command(client, "profile", "text")
-    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 0.3
+    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 1.0
     said: list = []
     thread = threading.Thread(target=lambda: said.append(command(client, "say", "Hi")))
     thread.start()
-    threading.Event().wait(0.4)
+    wait_until(lambda: writing(client))  # the reply is being written
     try:
         assert command(client, "state").json()["result"]["running"]["command"] == "say"
         fragment = get_view(client, "picker")  # answered while the reply is written

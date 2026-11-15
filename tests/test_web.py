@@ -60,6 +60,26 @@ def command(client, name, args="", tab="tab-1"):
     return client.post("/command", headers=POST, content=json.dumps(body))
 
 
+def wait_until(ready, seconds: float = 10.0) -> None:
+    """Poll `ready` until it's true, up to `seconds`. An ordering a test depends on is
+    waited for, never a fixed pause: a slow runner (CI run 43658818773) needs longer."""
+    deadline = threading.Event()
+    timer = threading.Timer(seconds, deadline.set)
+    timer.start()
+    try:
+        while not ready():
+            assert not deadline.is_set(), f"not ready after {seconds} s"
+            deadline.wait(0.02)
+    finally:
+        timer.cancel()
+
+
+def writing(client) -> bool:
+    """A reply is being written: /state names it, and its first piece has arrived."""
+    state = command(client, "state").json()["result"]
+    return bool(state["running"]) and bool(state["reply_so_far"])
+
+
 def test_the_routes_are_exactly_the_plans_table(server):
     _, _, app = server
     found = {(m, r.path) for r in app.routes for m in getattr(r, "methods", []) if m != "HEAD"}
@@ -642,11 +662,11 @@ def test_the_headers_are_on_a_stream_and_a_refusal(server):
 def test_state_cancel_and_settings_answer_at_once_while_a_reply_streams(server):
     client, session, _ = server
     command(client, "profile", "text")
-    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 0.3
+    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 1.0
     said: list = []
     worker = threading.Thread(target=lambda: said.append(command(client, "say", "Hi")))
     worker.start()
-    threading.Event().wait(0.4)
+    wait_until(lambda: writing(client))  # the reply is being written
     state = command(client, "state").json()["result"]
     assert state["running"]["command"] == "say"  # answered while the reply was written
     assert "settings" in command(client, "settings").json()["result"]
@@ -837,11 +857,11 @@ def test_a_wait_cancelled_in_the_queue_doesnt_stop_the_worker(fetched_root, tiny
     )
     worker = web.Worker(session)
     submit(worker, "profile", "text")
-    gate, real = threading.Event(), session.history
-    session.history = lambda *a, **k: (gate.wait(5), real(*a, **k))[1]
+    gate, entered, real = threading.Event(), threading.Event(), session.history
+    session.history = lambda *a, **k: (entered.set(), gate.wait(5), real(*a, **k))[2]
     blocker = threading.Thread(target=lambda: submit(worker, "history", ""), daemon=True)
     blocker.start()
-    threading.Event().wait(0.2)  # the worker holds "history" at the gate
+    assert entered.wait(10)  # the worker holds "history" at the gate
 
     async def cancel_a_queued_wait():
         task = asyncio.ensure_future(worker.ask("history", ""))
@@ -1204,7 +1224,14 @@ def test_ctrl_c_mid_reply_logs_the_call_as_stopped_and_returns_soon(fetched_root
         with client.stream("GET", f"{origin}/events?tab=t", headers=headers) as stream:
             lines = stream.iter_lines()
             next(lines)  # hello
-            threading.Thread(target=lambda: post(client, "say", "Hi"), daemon=True).start()
+
+            def say() -> None:
+                try:
+                    post(client, "say", "Hi")
+                except httpx.HTTPError:  # the server stops mid-reply: no answer may come
+                    pass
+
+            threading.Thread(target=say, daemon=True).start()
             for line in lines:  # until the reply is being written (heartbeats every 15 s)
                 assert '"event": "heartbeat"' not in line
                 if '"event": "text"' in line:
