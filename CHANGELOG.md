@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Fixed
+- `clarity fetch` records the converter's package versions as the converter imports them. A package installed both in llama.cpp's pinned overlay and in the environment under it was recorded at the lower one's version, so `models.lock` said transformers 5.22.2 and numpy 2.5.4 where the converter ran transformers 4.57.6 and numpy 2.2.6. The conversion itself was right. A model already in `models.lock` keeps its old record until it's fetched again.
+
 ## [0.3.0] - 2026-11-15
 
 Live tests on an M2 Max (macOS), 2026-11-15, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 19 passed, `-m hf` 18 passed, `-m olmo` 12 passed, `-m llama` 3 passed, and `-m browser` 86 passed (the web interface in Chrome).
