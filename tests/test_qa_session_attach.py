@@ -32,21 +32,6 @@ def root(tmp_path: Path) -> Path:
     return root
 
 
-@pytest.fixture
-def attach_option(monkeypatch):
-    """Clarity's own parser with `chat --attach FILE`, as v0.3.1's B1 adds it."""
-    from clarity_chat import cli
-
-    real = cli.build_parser
-
-    def with_attach():
-        parser, chat = real()
-        chat.add_argument("--attach", action="append")
-        return parser, chat
-
-    monkeypatch.setattr(cli, "build_parser", with_attach)
-
-
 OUTSIDE = [
     "../secret.txt",  # up out of the root
     "docs/away.md",  # a link inside the root to a file outside
@@ -59,13 +44,13 @@ OUTSIDE = [
 
 
 @pytest.mark.parametrize("path", OUTSIDE)
-def test_an_attach_option_outside_the_root_is_refused(root, attach_option, path):
+def test_an_attach_option_outside_the_root_is_refused(root, path):
     with pytest.raises(qa.Refused):
         qa.check_clarity_args(root, ["chat", "--profile", "smol-chat", "--attach", path])
 
 
 @pytest.mark.parametrize("path", ["docs/notes.md", "ROOT/docs/notes.md"])
-def test_an_attach_option_inside_the_root_is_allowed(root, attach_option, path):
+def test_an_attach_option_inside_the_root_is_allowed(root, path):
     path = path.replace("ROOT", str(root))
     qa.check_clarity_args(root, ["chat", "--profile", "smol-chat", "--attach", path])
 

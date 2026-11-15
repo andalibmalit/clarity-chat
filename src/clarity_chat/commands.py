@@ -281,6 +281,8 @@ ATTACH_ARGS = re.compile(
     re.S,
 )
 UPLOAD_ID = re.compile(r"upload-[0-9a-f]{12}")
+# The sheet's sentences, for the terminal: only these modules import the documents package.
+SENTENCES = documents.SENTENCES
 
 
 def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -294,7 +296,7 @@ def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     assert found is not None  # anything matches: the source takes what the rest doesn't
     source, unit = found["source"], found["unit"]
     first, last = int(found["first"] or 0), int(found["last"] or 0)
-    doc = read_document(c, source)
+    doc = read_document(c, source, emit)
     if found["check"]:
         return {"check": c.session.check(doc, unit, first, last)}
     try:
@@ -313,9 +315,11 @@ def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return {"attached": pending[-1], "pending": pending, "free": fit.free, "left": fit.left}
 
 
-def read_document(c: Commands, source: str) -> documents.Document:
-    """The file `source` names, read and extracted. Any error is a refusal with a sentence,
-    never a stopped session (M5)."""
+def read_document(c: Commands, source: str, emit: Emit) -> documents.Document:
+    """The file `source` names, read and extracted (or read already, by --attach). Any error
+    is a refusal with a sentence, never a stopped session (M5)."""
+    if c.uploads is None and source in c.preread:
+        return c.preread.pop(source)
     if c.uploads is not None:
         if not UPLOAD_ID.fullmatch(source):
             raise ConfigError("From the page, attach a file by choosing it.")
@@ -326,19 +330,27 @@ def read_document(c: Commands, source: str) -> documents.Document:
         data, name = documents.read_path(source)
     with c.progress:
         c.reading = name
+    emit({"event": "reading", "name": name})
     try:
-        return documents.extract(data, name, c.cancel_event)
-    except ConfigError:
-        raise
-    except Exception as e:  # noqa: BLE001 - a bug or a file nobody foresaw: say which
-        raise DocumentRefused(f"Clarity couldn't read {name} ({type(e).__name__}: {e}).") from e
+        return extracted(data, name, c.cancel_event)
     finally:
         with c.progress:
             c.reading = None
 
 
+def extracted(data: bytes, name: str, cancel: threading.Event | None = None) -> documents.Document:
+    try:
+        return documents.extract(data, name, cancel)
+    except ConfigError:
+        raise
+    except Exception as e:  # noqa: BLE001 - a bug or a file nobody foresaw: say which
+        raise DocumentRefused(f"Clarity couldn't read {name} ({type(e).__name__}: {e}).") from e
+
+
 def read_files(paths: list[str]) -> dict[str, documents.Document]:
-    return {}
+    """--attach's files, read and extracted before any model starts (S12), so a file that
+    can't be attached is refused before a long load. Only their count waits."""
+    return {path: extracted(*documents.read_path(path)) for path in paths}
 
 
 def _detach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -781,7 +793,8 @@ def _help(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _quit(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    return {"quit": True}
+    pending = c.session.conversation.pending if c.session.conversation else []
+    return {"quit": True, **({"dropped": summaries(pending)} if pending else {})}
 
 
 def not_applied_now(backend: str, settings: dict[str, Any]) -> list[dict[str, Any]]:

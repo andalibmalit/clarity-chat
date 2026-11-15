@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends import BackendError
-from clarity_chat.commands import Commands
+from clarity_chat.commands import SENTENCES, Commands, read_files, summaries
 from clarity_chat.logs import torn_message
 from clarity_chat.profiles import ConfigError, find_root, load_models, load_server_config
 from clarity_chat.replay import replay_notes
@@ -157,9 +157,92 @@ def format_pending(pending: list[dict[str, Any]]) -> str:
 
 
 def attachment_line(a: dict[str, Any]) -> str:
-    """trail-notes.md, whole, 2,104 tokens; guide.pdf, pages 1-23, 9,800 tokens"""
-    how = "whole" if a["how"] == "whole" else f"{a['unit']}s {a['range'][0]}-{a['range'][1]}"
-    return f"{a['n']}. {a['name']}, {how}, {a['tokens']:,} tokens"
+    """1. trail-notes.md, whole, 2,104 tokens (the number is /detach's)"""
+    return f"{a['n']}. {a['name']}, {how_attached(a)}, {a['tokens']:,} tokens"
+
+
+def how_attached(a: dict[str, Any]) -> str:
+    return "whole" if a["how"] == "whole" else f"{a['unit']}s {a['range'][0]}-{a['range'][1]}"
+
+
+def format_attached(result: dict[str, Any]) -> str:
+    a = result["attached"]
+    return f"Attached {a['name']}, {how_attached(a)}, {a['tokens']:,} tokens. " + SENTENCES[
+        "left"
+    ].format(left=f"{result['left']:,}")
+
+
+def format_check(check: dict[str, Any], max_tokens: int) -> str:
+    """/attach PATH check: the sheet's numbers and sentences, a line each."""
+    unit = check["unit"]
+    facts = [f"{check['kind']}, {check['total']:,} {unit}s"]
+    if check["empty_units"]:
+        facts.append(f"{check['empty_units']:,} with no text")
+    if check["encrypted"]:
+        facts.append("encrypted (it opens without a password)")
+    lines = [f"{check['name']}: {', '.join(facts)}."]
+    if check["fits"]:
+        lines.append(
+            SENTENCES["whole"].format(tokens=f"{check['tokens_whole']:,}")
+            + " "
+            + SENTENCES["left"].format(left=f"{check['left_whole']:,}")
+        )
+    else:
+        lines.append(
+            SENTENCES["doesnt_fit"].format(
+                tokens=f"{check['tokens_whole']:,}", free=f"{check['free']:,}"
+            )
+        )
+    start, preselected = check["start_that_fits"], check["preselected"]
+    if start is None:
+        lines.append(f"Not even its first {unit} fits.")
+    else:
+        lines.append(
+            f"The start that fits: {unit}s 1-{start['range'][1]} ({start['tokens']:,} tokens)."
+        )
+    if preselected is None:
+        lines.append(SENTENCES["no_start"].format(unit=unit, max_tokens=max_tokens))
+    else:
+        reason = SENTENCES["preselected"].format(max_tokens=max_tokens).removesuffix(".")
+        lines.append(f"{reason}: {unit}s 1-{preselected['range'][1]}.")
+    if chosen := check["chosen"]:
+        first, last = chosen["range"]
+        left = chosen["left"]
+        lines.append(
+            f"{unit.capitalize()}s {first}-{last}: {chosen['tokens']:,} tokens. "
+            + (
+                SENTENCES["left"].format(left=f"{left:,}")
+                if left >= 0
+                else SENTENCES["doesnt_fit"].format(
+                    tokens=f"{chosen['tokens']:,}", free=f"{chosen['tokens'] + left:,}"
+                )
+            )
+        )
+    if not check["fits"] and check["fits_new_chat"]:
+        lines.append(
+            f"The whole fits a new chat with this profile ({check['free_new_chat']:,} free): "
+            "/new, then attach it."
+        )
+    if check["already_in_chat"]:
+        lines.append(SENTENCES["already"])
+    if check["control_tokens"]:
+        lines.append(SENTENCES["control_tokens"].format(tokens=", ".join(check["control_tokens"])))
+    if check["has_closing_tag"]:
+        lines.append(SENTENCES["closing_tag"])
+    origin = "Clarity's default" if check["framing_origin"] == "default" else "this profile"
+    framing = check["framing"]
+    lines.append(
+        f"Framing line ({origin}): {framing}" if framing else f"No framing line ({origin})."
+    )
+    return "\n".join(lines)
+
+
+def not_kept(pending: list[dict[str, Any]]) -> str:
+    names = ", ".join(a["name"] for a in pending)
+    return (
+        f"Not kept: {names}, waiting for your next message. An attachment is logged only "
+        "with the message it's sent with."
+    )
 
 
 def format_history(result: dict[str, Any]) -> str:
@@ -453,31 +536,40 @@ class ChatLoop:
         self.write = write
         self.draft = ""  # prefilled in the next input
         self.commands = Commands(session)
+        self.attach = attach or {}  # --attach's files, read before the start
 
     def start(self) -> None:
         if self.resume is not None:
             self.write(f"Resuming {self.resume} …\n")
             result = self.commands.run("resume", self.resume, self.on_event, paths=True)
             self.write(format_resume(result) + "\n")
-            return
-        self.write(f"Starting profile {self.profile_name} …\n")
-        result = self.commands.run("profile", self.profile_name, self.on_event, paths=True)
-        for warning in result["warnings"]:
-            self.write(f"! {warning}\n")
-        self.write(
-            f"Ready: {result['model']} ({result['mode']} mode), "
-            f"conversation {result['conversation_id']}. /help for commands.\n"
-        )
+        else:
+            self.write(f"Starting profile {self.profile_name} …\n")
+            result = self.commands.run("profile", self.profile_name, self.on_event, paths=True)
+            for warning in result["warnings"]:
+                self.write(f"! {warning}\n")
+            self.write(
+                f"Ready: {result['model']} ({result['mode']} mode), "
+                f"conversation {result['conversation_id']}. /help for commands.\n"
+            )
+        self.commands.preread = dict(self.attach)  # each is used once
+        for path in self.attach:  # only the count waited for the model; a refusal goes on
+            self.command("attach", path)
 
     def run(self) -> None:
         self.start()
         while True:
             draft, self.draft = self.draft, ""
+            conversation = self.session.conversation
+            if conversation is not None and conversation.pending:
+                self.write(format_pending(summaries(conversation.pending)) + "\n")
             try:
                 line = self.read(draft)
             except KeyboardInterrupt:
                 continue
             except EOFError:
+                if conversation is not None and conversation.pending:
+                    self.write(not_kept(conversation.pending) + "\n")
                 return
             if not self.handle(line):
                 return
@@ -543,6 +635,8 @@ class ChatLoop:
             if len(replies) > 1:
                 self.write("/branches lists them.\n")
         elif name == "quit":
+            if result.get("dropped"):
+                self.write(not_kept(result["dropped"]) + "\n")
             return False
         elif name == "help":
             self.write(format_help(result) + "\n")
@@ -583,7 +677,14 @@ class ChatLoop:
             self.write(format_chats(result["chats"]) + "\n")
         elif name == "history":
             self.write(format_history(result) + "\n")
-        elif name == "attach" and set(result) == {"pending"}:  # B2 shows the rest
+        elif name == "attach" and "check" in result:
+            conversation = self.session.conversation
+            assert conversation is not None
+            max_tokens = conversation.settings["max_tokens"].value
+            self.write(format_check(result["check"], max_tokens) + "\n")
+        elif name == "attach" and "attached" in result:
+            self.write(format_attached(result) + "\n")
+        elif name == "attach":
             self.write(format_pending(result["pending"]) + "\n")
         elif name == "detach":
             names = ", ".join(a["name"] for a in result["detached"]) or "nothing"
@@ -641,6 +742,8 @@ class ChatLoop:
         elif event["event"] == "reply_start" and event["n"] > 1:
             gap = "\n\n" if event["k"] > 1 else ""
             self.write(f"{gap}— reply {event['k']} of {event['n']}, seed {event['seed']} —\n")
+        elif event["event"] == "reading":
+            self.write(f"Reading {event['name']}…\n")
         elif event["event"] == "record" and event["record"]["type"] == "torn_line":
             self.write(f"\n! {torn_message(event['record'], "this conversation's log")}\n")
 
@@ -687,17 +790,25 @@ def write_stdout(text: str) -> None:
     sys.stdout.flush()
 
 
-def cmd_chat(root: Path, profile: str, on_server: OnServer, resume: str | None) -> int:
+def cmd_chat(
+    root: Path, profile: str, on_server: OnServer, resume: str | None, attach: dict[str, Any]
+) -> int:
     session = Session(root, on_server=on_server)
     atexit.register(session.close)  # also covers exits the finally below doesn't see
     try:
-        ChatLoop(session, profile, prompt_reader(), write_stdout, resume).run()
+        ChatLoop(session, profile, prompt_reader(), write_stdout, resume, attach).run()
     finally:
         session.close()
     return 0
 
 
-def cmd_chat_json(root: Path, profile: str | None, resume: str | None, on_server: OnServer) -> int:
+def cmd_chat_json(
+    root: Path,
+    profile: str | None,
+    resume: str | None,
+    on_server: OnServer,
+    attach: dict[str, Any],
+) -> int:
     from clarity_chat.json_chat import JsonChat
 
     session = Session(root, on_server=on_server)
@@ -709,8 +820,9 @@ def cmd_chat_json(root: Path, profile: str | None, resume: str | None, on_server
     # Python's shutdown abort ("Fatal Python error", status -6).
     stdin = getattr(sys.stdin.buffer, "raw", sys.stdin.buffer)
     chat = JsonChat(session, stdin, sys.stdout)
+    chat.commands.preread = dict(attach)  # each is used once
     try:
-        chat.run(first)  # bytes: UTF-8 always
+        chat.run(first, [{"command": "attach", "args": path} for path in attach])
     finally:
         session.close()
     return 1 if chat.failed else 0
@@ -848,6 +960,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.command == "chat" and not (args.json or args.profile or args.resume):
         chat.error("one of --profile or --resume is required (or --json, to start by command)")
+    if args.command == "chat" and args.attach and not (args.profile or args.resume):
+        chat.error("--attach needs --profile or --resume")
     return run_command(args)
 
 
@@ -866,7 +980,12 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     start.add_argument(
         "--resume", help="a conversation to continue: its ID (from `clarity chats`) or log file"
     )
-    chat.add_argument("--attach", action="append", metavar="FILE", help="attach a file")
+    chat.add_argument(
+        "--attach",
+        action="append",
+        metavar="FILE",
+        help="attach a file to your first message, once the model is ready (repeatable)",
+    )
     chat.add_argument(
         "--json",
         action="store_true",
@@ -931,6 +1050,8 @@ def run_command(args: argparse.Namespace) -> int:
         if args.command == "note":
             return cmd_annotate(args.log, "note", args.call_id, args.text)
         root = args.root.resolve() if args.root else find_root()
+        # Read before any model starts (S12): a file that can't be attached stops here.
+        attach = read_files(args.attach or []) if args.command == "chat" else {}
         if args.command in ("chat", "ui", "run", "replay"):
             from clarity_chat import instance
 
@@ -945,9 +1066,11 @@ def run_command(args: argparse.Namespace) -> int:
                         root, session_factory=lambda: Session(root, on_server=on_server)
                     )
                 if args.command == "chat" and args.json:
-                    return cmd_chat_json(root, args.profile, args.resume, held.record_server)
+                    return cmd_chat_json(
+                        root, args.profile, args.resume, held.record_server, attach
+                    )
                 if args.command == "chat":
-                    return cmd_chat(root, args.profile, held.record_server, args.resume)
+                    return cmd_chat(root, args.profile, held.record_server, args.resume, attach)
                 if args.command == "run":
                     return cmd_run(
                         root, args.openings, args.profiles, args.seeds, held.record_server
