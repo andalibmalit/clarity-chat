@@ -180,7 +180,11 @@ def fetched_root(root: Path) -> Path:
 
 
 # The only skips CI allows: behaviour Windows doesn't have, tested on the other two.
-CI_SKIPS = ("no SIGTERM handler semantics on Windows", "Windows only emulates O_APPEND")
+CI_SKIPS = (
+    "no SIGTERM handler semantics on Windows",
+    "Windows only emulates O_APPEND",
+    "no memory guard on Windows",
+)
 
 
 @pytest.hookimpl(hookwrapper=True)

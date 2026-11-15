@@ -373,7 +373,7 @@ def test_the_real_child_gets_the_memory_cap_and_a_deadline_past_the_time_limit(m
     assert reading.TIME_LIMIT < answer["seconds"] <= reading.TIME_LIMIT + 10
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="v0.7.0: no memory guard on Windows yet")
+@pytest.mark.skipif(sys.platform == "win32", reason="no memory guard on Windows (v0.7.0)")
 def test_the_real_child_stops_at_its_memory_cap(monkeypatch):
     """Must 2: the real child, at a 1 MB cap, which the interpreter alone passes."""
     monkeypatch.setattr(reading, "MEMORY_CAP", 1024 * 1024)
