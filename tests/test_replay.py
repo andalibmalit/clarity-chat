@@ -9,6 +9,7 @@ from clarity_chat.cli import ChatLoop, format_replay
 from clarity_chat.logs import read_records
 from clarity_chat.profiles import ConfigError
 from clarity_chat.replay import (
+    REPLAY_NEEDS,
     compare_output,
     deep_diff,
     environment_diff,
@@ -479,3 +480,27 @@ def test_a_machine_value_unknown_on_one_side_is_not_recorded_not_a_difference():
         assert any(name.startswith("machine.") for name in missing), missing
     other = {**machine, "macos": {**machine["macos"], "chip": "Apple M3"}}
     assert "machine" in environment_diff({"machine": machine}, {"machine": other})
+
+
+@pytest.mark.parametrize("field", REPLAY_NEEDS)
+def test_a_call_missing_any_field_replay_reads_is_refused_naming_it(make_session, field):
+    """Fix review, batch 6, item 5: each of the ten fields a replay reads from the call
+    record, gone from a log (as another program might write it), is refused before
+    anything starts, naming it; the tests named four. Through session.replay, as
+    `clarity replay` runs it."""
+    import json
+
+    first, _ = make_session([" Hello!"])
+    conversation = first.new_conversation("text")
+    call_id = first.say("Hi").record["call_id"]
+    path = conversation.log.path
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        if row["type"] == "call":
+            row.pop(field)
+    path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    second, backend = make_session([" Hello!"])
+    with pytest.raises(ConfigError) as refused:
+        second.replay(path, call_id)
+    assert str(refused.value) == f"Call {call_id} can't be replayed: its record has no {field}."
+    assert backend.started == []  # nothing started
