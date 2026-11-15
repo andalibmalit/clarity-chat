@@ -177,7 +177,7 @@ Left out from the start: tools or agents; metrics or LLM judges; multi-user feat
 Also left out:
 - Running two models side by side. Two 7B models in bf16 need about 29 GB, more than a 32 GB laptop can spare.
 - Speculative decoding, LoRA and llama.cpp's control vectors, which `server.toml` refuses. Steering runs on the Transformers backend.
-- Live tests on Windows and Linux. Offline CI covers them; the live tests have run on macOS (Metal) only.
+- Live tests on Windows, and on Linux beyond one CI job. Offline CI covers all three systems, and CI runs the SmolLM2 live tier on a Linux CPU build; every other live test has run on macOS (Metal) only.
 
 ## Changed decisions
 
