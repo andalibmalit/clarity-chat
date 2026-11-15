@@ -141,3 +141,58 @@ def test_the_v0_3_0_golden_log_holds_a_rename_a_stop_and_a_resume_with_a_change(
     assert item["call"] == stopped["call_id"]
     assert item["changes"] == {"client": [{"path": "commit", "logged": "0" * 40, "now": "1" * 40}]}
     assert calls[-1]["client"]["commit"] == "1" * 40  # a reply after the resume
+
+
+def test_every_golden_log_answers_the_six_reads(golden, steerable, tiny_tokenizer):
+    """Fix review, batch 6, item 4 (from the reviewer's scratch test): a resumed golden log
+    through every read the web interface asks, for each of its calls. None says it can't
+    read the chat's records; another refusal (a failed call has no reply to compare) is a
+    sentence, not a crash."""
+    from clarity_chat.commands import Commands
+    from clarity_chat.profiles import ConfigError
+
+    backend = FakeBackend([" More."], tokenizer=tiny_tokenizer)
+    session = Session(steerable, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    c = Commands(session)
+    c.run("resume", str(golden), lambda e: None, paths=True)
+    calls = [r["call_id"] for r in read_records(golden) if r["type"] == "call"]
+    asked = [(name, "") for name in ("history", "branches", "settings")]
+    asked += [(name, call) for call in calls for name in ("compare", "prompt", "probs")]
+    unreadable = []
+    for name, args in asked:
+        try:
+            c.run(name, args, lambda e: None)
+        except ConfigError as e:
+            if "Can't read" in str(e):
+                unreadable.append((name, args, str(e)))
+    assert unreadable == []
+
+
+def test_every_golden_log_draws_in_every_view(golden, steerable, tiny_tokenizer):
+    """Fix review, batch 6, item 4: a golden log opened by the web interface, then each view
+    of the chat and of each of its calls, answers 200 and says nothing about records it
+    can't read."""
+    from starlette.testclient import TestClient
+
+    from clarity_chat import web
+    from tests.test_web import AUTH, ORIGIN, PORT, SAME, SECRET, command
+
+    logs = steerable / "logs"
+    logs.mkdir(exist_ok=True)
+    shutil.copy(golden, logs / golden.name)
+    backend = FakeBackend([" More."], tokenizer=tiny_tokenizer)
+    session = Session(steerable, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    calls = [r for r in read_records(golden) if r["type"] == "call"]
+    views = [f"/view/{name}" for name in ("thread", "branches", "settings", "chats", "picker")]
+    views += [f"/view/details?call={c['call_id']}" for c in calls]
+    # Compare is for a reply; a failed call's has its own sentence, and no control asks it.
+    views += [f"/view/compare?call={c['call_id']}" for c in calls if c.get("turn_id")]
+    bad = []
+    with TestClient(web.make_app(session, SECRET.encode(), port=PORT), base_url=ORIGIN) as client:
+        answer = command(client, "resume", golden.stem).json()
+        assert "result" in answer, answer
+        for path in views:
+            response = client.get(path, headers={**AUTH, **SAME})
+            if response.status_code != 200 or "Can't read" in response.text:
+                bad.append((path, response.status_code, response.text[:200]))
+    assert bad == []
