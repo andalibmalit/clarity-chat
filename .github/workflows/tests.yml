@@ -98,12 +98,6 @@ jobs:
   live-cpu:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      # GGML_NATIVE=OFF: one binary for every runner (SSE 4.2 to AVX2, no AVX-512), since
-      # the cache may hand it to a runner with another CPU. LLAMA_USE_PREBUILT_UI=OFF: no
-      # web UI downloaded from the network at build time (Clarity runs --no-webui). The
-      # binary cache's key includes these flags.
-      LLAMA_CMAKE_FLAGS: -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DLLAMA_USE_PREBUILT_UI=OFF
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
@@ -111,13 +105,21 @@ jobs:
           enable-cache: true
       # No hf extra: no live test imports torch. The converter gets its own environment.
       - run: uv sync --locked
+      # The build flags are set here, in this step only, and passed on as outputs: a job-level
+      # variable would reach llama-server, and Clarity warns about any LLAMA_* or GGML_* it
+      # inherits. GGML_NATIVE=OFF: one binary for every runner (SSE 4.2 to AVX2, no AVX-512),
+      # since the cache may hand it to a runner with another CPU. LLAMA_USE_PREBUILT_UI=OFF: no
+      # web UI downloaded at build time (Clarity runs --no-webui). The cache key holds their hash.
       - name: The pinned llama.cpp commit (checked by Clarity's own loader), image and flags
         id: pin
+        env:
+          CMAKE_FLAGS: -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF -DGGML_NATIVE=OFF -DLLAMA_USE_PREBUILT_UI=OFF
         run: |
           commit=$(uv run python -c 'from pathlib import Path; from clarity_chat.profiles import load_server_config; print(load_server_config(Path.cwd()).llama_cpp_commit)')
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
-          echo "flags=$(printf '%s' "$LLAMA_CMAKE_FLAGS" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+          echo "cmake-flags=$CMAKE_FLAGS" >> "$GITHUB_OUTPUT"
+          echo "flags-hash=$(printf '%s' "$CMAKE_FLAGS" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
       # Every run, cache hit or not: each server start and each fetch read the commit from
       # this checkout, and the converter comes from it. Only the built binaries are cached.
       - name: Check out llama.cpp at that commit
@@ -133,11 +135,13 @@ jobs:
           path: vendor/llama.cpp/build/bin
           # Exact, with no restore-keys: Clarity refuses a binary from another commit, and the
           # flags' hash changes the key when they change.
-          key: llama-bin-${{ runner.arch }}-${{ steps.pin.outputs.image }}-${{ steps.pin.outputs.flags }}-${{ steps.pin.outputs.commit }}
+          key: llama-bin-${{ runner.arch }}-${{ steps.pin.outputs.image }}-${{ steps.pin.outputs.flags-hash }}-${{ steps.pin.outputs.commit }}
       - name: Build llama-server and llama-quantize for the CPU
         if: steps.llama-bin.outputs.cache-hit != 'true'
+        env:
+          CMAKE_FLAGS: ${{ steps.pin.outputs.cmake-flags }}
         run: |
-          cmake -S vendor/llama.cpp -B vendor/llama.cpp/build $LLAMA_CMAKE_FLAGS
+          cmake -S vendor/llama.cpp -B vendor/llama.cpp/build $CMAKE_FLAGS
           cmake --build vendor/llama.cpp/build --config Release -j "$(nproc)" \
             --target llama-server llama-quantize
       - run: vendor/llama.cpp/build/bin/llama-server --version  # a broken cached binary fails here
