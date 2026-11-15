@@ -27,6 +27,8 @@
 <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5v14l11-7z"></path></symbol>
 <symbol id="i-cols" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="16" rx="1.5"></rect><rect x="14" y="4" width="7" height="16" rx="1.5"></rect></symbol>
 <symbol id="i-branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"></circle><circle cx="6" cy="19" r="2"></circle><circle cx="18" cy="9" r="2"></circle><path d="M6 7v10M6 13c0-3 3-4 6-4h4"></path></symbol>
+<symbol id="i-clip" viewBox="0 0 24 24"><path d="M20 11.5l-8.1 8.1a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"></path></symbol>
+<symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></symbol>
 <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"></path><circle cx="16" cy="6" r="2"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="18" cy="18" r="2"></circle></symbol>
 </defs></svg>
 
@@ -72,13 +74,14 @@
 </div></div>
 <section class="compare" id="compare" aria-label="Compare these replies" hidden></section>
 <div class="cpwrap" id="cpwrap">
-<form class="cp" id="composer"><label class="vh" for="message">Message</label><textarea id="message" rows="2" placeholder="Message" disabled></textarea><div class="row"><span class="spacer"></span><span class="vh" id="send-waits"></span><button type="submit" class="send" id="send" aria-label="Send" aria-describedby="send-waits" disabled><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button><button type="button" class="stop" id="stop" hidden><span class="sq" aria-hidden="true"></span><span id="stop-label">Stop</span></button></div></form>
+<form class="cp" id="composer"><div class="chips" id="chips" aria-label="Attachments waiting for your next message" hidden></div><label class="vh" for="message">Message</label><textarea id="message" rows="2" placeholder="Message" disabled></textarea><div class="row"><button type="button" class="clip" id="clip" aria-label="Attach a file" aria-haspopup="dialog" aria-describedby="clip-waits" data-action="attach-pick" disabled><svg class="icon" aria-hidden="true"><use href="#i-clip"></use></svg></button><span class="waits" id="clip-waits"></span><input type="file" id="attach-file" hidden><span class="spacer"></span><span class="vh" id="send-waits"></span><button type="submit" class="send" id="send" aria-label="Send" aria-describedby="send-waits" disabled><svg class="icon" aria-hidden="true"><use href="#i-send"></use></svg></button><button type="button" class="stop" id="stop" hidden><span class="sq" aria-hidden="true"></span><span id="stop-label">Stop</span></button></div></form>
 <div class="under" id="composer-row"></div>
 </div>
 </main>
 <aside class="pn" id="panel" aria-labelledby="panel-title" hidden></aside>
 <div class="scrim" id="scrim" data-action="chats-close" hidden></div>
 <aside class="drawer" id="drawer" aria-label="Chats" hidden></aside>
+<dialog class="sheet attach" id="attach-sheet" aria-labelledby="attach-title"><div id="attach-body"></div></dialog>
 <dialog class="sheet" id="export-sheet" aria-labelledby="export-title"><div id="export-body"></div></dialog>
 <dialog class="sheet appearance" id="appearance" aria-labelledby="appearance-title">
 <div class="hd"><h2 id="appearance-title">Appearance</h2><button type="button" class="iconbtn" aria-label="Close Appearance" data-action="appearance-close"><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button></div>

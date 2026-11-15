@@ -1492,6 +1492,7 @@ const THREAD = {
   "rename-cancel": () => renaming(false, true),
   export: () => exportChat(),
   "export-close": () => $("export-sheet").close(),
+  "attach-pick": () => {}, // C1 (v0.3.1): the paperclip, the sheet and the chips
   download: async () => {
     // A refusal shows in the sheet.
     const why = await download();
