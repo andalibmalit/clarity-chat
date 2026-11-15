@@ -33,6 +33,7 @@ Two headings are Clarity's own, used when they apply:
 - New dependencies for the web interface: `starlette` and `uvicorn`. Tests of the web interface in a browser use `pytest-playwright`, in its own dependency group (`uv sync --group browser`); a normal install doesn't get it.
 
 ### Fixed
+- `clarity ui` prints its link at once when its output goes to a pipe or a file (`clarity ui | tee`, a script), not only when Clarity exits.
 - A model file that's gone when its llama-server starts now says which file and how to get it back ("The model file PATH is missing. In a new terminal window, in Clarity's folder, run: uv run clarity fetch NAME. Then try again."), instead of an unexpected FileNotFoundError.
 - `clarity fetch` of a gated repo you have no access to stops with what to do (accept the licence on the model's page, then `uv run hf auth login`), not a traceback.
 - After a stopped server, the terminal's "/resume ID starts it again" names the log file, which `/resume` takes, not the conversation ID; they differ for a copied or renamed log.

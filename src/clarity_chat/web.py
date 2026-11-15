@@ -429,7 +429,7 @@ def serve(
     session_factory: Callable[[], Session] | None = None,
     opener: Callable[[Path], Any] | None = None,
     on_ready: Callable[[Any], None] | None = None,
-    write: Callable[[str], Any] = print,
+    write: Callable[[str], Any] = lambda text: print(text, flush=True),  # a pipe sees it now
     read_lines: bool = True,
 ) -> int:
     """`clarity ui`: serve the page until Ctrl-C, Quit or a closed terminal. The link, with
