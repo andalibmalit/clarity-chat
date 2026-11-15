@@ -433,3 +433,15 @@ def test_aes_is_refused_from_the_dictionary_with_or_without_a_provider(
 
 def test_a_pdf_with_no_pages_says_so():
     assert refused(make_pdf([]), "blank.pdf") == "blank.pdf has no pages."
+
+
+def test_html_without_its_closing_head_tag_reads_its_body():
+    """Should 7: omitting </head> is valid HTML5, and skipping all of head left nothing.
+    Version 1 skips title instead: head holds no other text."""
+    page = b"<html><head><title>Not shown</title><body><p>Body text.</p>"
+    assert extract(page, "b.html").text == "Body text.\n"
+
+
+def test_html_whitespace_collapses_across_inline_tags():
+    """Should 8: the line is collapsed when it ends, not piece by piece."""
+    assert extract(b"<p>Three <b> cairns</b> here</p>", "c.html").text == "Three cairns here\n"
