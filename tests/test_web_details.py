@@ -609,13 +609,20 @@ def test_a_call_record_missing_a_field_gets_an_answer_not_a_stopped_session(
     chat, field, name, takes_call
 ):
     """A log another program wrote can leave out any field. Its calls here lack `field`
-    (two replies with the same seed and other settings, so Compare pairs them). The log
-    reopens, or is refused with a sentence; each read answers with a result or a refusal;
-    none ends the session with an unexpected error."""
+    (two replies with the same seed and other settings, so Compare pairs them); each read
+    answers with a result or a refusal; none ends the session with an unexpected error.
+    Taken out of the records in memory, as a resumed log's would read: /resume refuses a log
+    without prompt_ids or settings, so through the file 14 of the 21 cases stopped there
+    (fix review, batch 6, item 6). Export reads the file; test_export covers that."""
     client, session = chat
-    call = reopened_without(client, session, field)
-    if call is None:
-        return
+    session.backend.replies = [" Hello!", " Hello!"]
+    result(client, "set", "seed 7")
+    call = result(client, "say", "Hi")["call"]["call_id"]
+    result(client, "set", "temperature 0.3")
+    result(client, "regen", "same")
+    assert session.conversation is not None
+    for record in session.conversation.calls.values():
+        record.pop(field)
     answer = command(client, name, call if takes_call else "").json()
     assert not answer.get("stopped"), answer
     assert "result" in answer or answer["type"] == "ConfigError", answer
