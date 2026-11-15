@@ -11,6 +11,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
+from clarity_chat.documents import message_content
 from clarity_chat.files import write_text_atomic
 from clarity_chat.logs import LOG_NAME, client_git, read_records, unreadable
 from clarity_chat.profiles import ConfigError, load_profile
@@ -64,6 +65,8 @@ def export_log(session: Session, log_path: Path, out: Path | None = None) -> dic
 def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any]:
     records = list(read_records(log_path))
     state = rebuild(records, str(log_path))  # refuses a batch run's calls.jsonl
+    for turn in state.turns:  # an attachment missing a field: KeyError, refused
+        message_content(turn["text"], turn)
     turns = {t["turn_id"]: t for t in state.turns}
     current = marks_and_notes(records)
     calls = [r for r in records if r.get("type") == "call"]
@@ -240,7 +243,7 @@ def derive_spans(
         return message_spans(
             tokenizer,
             profile,
-            [(t["role"], t["text"]) for t in turns],
+            [(t["role"], message_content(t["text"], t)) for t in turns],
             [t["turn_id"] for t in turns],
             prompt,
             template,

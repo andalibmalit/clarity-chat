@@ -395,7 +395,7 @@ def test_both_backends_get_the_same_prompt_ids(fetched_root, chat_tokenizer):
 
 def test_a_long_chat_with_an_attachment_builds_its_prompt_quickly(chat):
     """A2's size check, which needs the session: 400 exchanges after an attachment in the
-    first message. A loose bound: it takes about 0.1 s here."""
+    first message. A loose bound: the whole test takes 0.02 s on the M2 Max."""
     session, _ = chat
     session.attach(doc("Made-up line.\n" * 200))
     session.say("first")

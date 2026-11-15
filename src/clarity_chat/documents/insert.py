@@ -5,7 +5,7 @@ attachments and the profile: it reads no file and keeps no state. Counting is pa
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from html import escape
 from typing import Any
@@ -110,6 +110,17 @@ def content(message: str, attached: list[Attached], framing: str) -> str:
         name = escape(a.name, quote=True).replace("&#x27;", "'")
         parts.append(f'<document name="{name}">\n{marker}{a.text}{closing}{CLOSING_TAG}')
     return "\n\n".join([*parts, message])
+
+
+def message_content(text: str, fields: Mapping[str, Any]) -> str:
+    """A user message's content as the model gets it, from a turn's fields or its record:
+    the text alone, or with its attachments' block. Every prompt, check and read builds it
+    here. A record missing a field raises KeyError, which readers refuse as unreadable."""
+    attachments = fields.get("attachments") or []
+    if not attachments:
+        return text
+    attached = [Attached(a["name"], a["text"], a["marker"]) for a in attachments]
+    return content(text, attached, fields["framing"])
 
 
 def scan(text: str, special_tokens: Callable[[str], list[str]]) -> dict[str, Any]:
