@@ -22,11 +22,11 @@ __all__ = ["make"]  # the fixture, used by name
 
 # The table's new sentences, as the fact-check's rows 50-52, 53b and 56 word them.
 ATTACHED = "Attached: {name} · {how} · {tokens} tokens when attached"
-KEEPS = "Keeps: {names}"
-HIGHLIGHT = "Highlighted: the framing line and documents Clarity put in your message."
+KEEPS = "Keeps: {names}. An edit can't add or remove attachments."
+HIGHLIGHT = "Highlighted: the framing line and documents Clarity put in your messages."
 REMOVE = (
-    "Remove an attachment waiting for this message, attach less, start a new chat, or lower "
-    "max_tokens."
+    "Shorten your message, remove an attachment and attach a shorter part, start a new chat, "
+    "or lower max_tokens."
 )
 
 
@@ -183,7 +183,7 @@ def test_the_stop_without_this_message_s_chips_doesn_t_offer_removing_one(big):
     backend._n_ctx = 1200
     with pytest.raises(ContextError) as e:
         session.say("b")
-    assert str(e.value).endswith("Nothing was sent. Start a new chat, or lower max_tokens.")
+    assert str(e.value).endswith("Shorten your message, start a new chat, or lower max_tokens.")
     assert "Remove an attachment" not in str(e.value)
 
 

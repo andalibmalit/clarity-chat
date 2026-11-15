@@ -27,6 +27,9 @@ FIXTURES = Path(__file__).parent / "fixtures" / "documents"
 SAVE_AS = "Save it as PDF or as UTF-8 text and attach that."
 
 
+SPLIT = " Attach a smaller file, or split it and attach the part you need."  # F11
+
+
 @pytest.fixture(autouse=True)
 def fresh_cache(monkeypatch):
     """Each test reads its files anew: the last document read is kept between calls."""
@@ -123,7 +126,8 @@ def test_a_pdf_s_pages_and_an_image_only_page():
 def test_a_pdf_with_no_text_at_all_is_refused():
     assert refused(make_pdf(["", ""]), "scan.pdf") == (  # fact-check row 36
         "scan.pdf has no text Clarity can read. Its pages may be scanned images, which "
-        "Clarity doesn't read. Save a copy with a text layer (run OCR) and attach that."
+        "Clarity doesn't read. Use a PDF app's text recognition (OCR) to add the text, then "
+        "attach that copy."
     )
 
 
@@ -192,7 +196,9 @@ def test_the_time_limit_stops_the_child_and_leaves_none(monkeypatch, tmp_path):
          "time.sleep(60)")  # fmt: skip
     monkeypatch.setattr(reading, "TIME_LIMIT", 1.0)
     started = time.monotonic()
-    assert refused(b"Made-up.", "slow.md") == "slow.md took longer than 1 seconds to read."
+    assert refused(b"Made-up.", "slow.md") == (
+        "slow.md took longer than 1 seconds to read." + SPLIT
+    )
     assert time.monotonic() - started < 10 and gone(int(pidfile.read_text()))
 
 
@@ -218,7 +224,9 @@ def test_the_memory_watchdog_ends_the_child(monkeypatch):
         'for _ in range(60): held.append(b"x" * (10 * 1024 * 1024))',  # written: resident
     )
     # The board's ruling 5: "1 GB", not "1024 MB".
-    assert refused(b"Made-up.", "huge.pdf") == "huge.pdf took more than 1 GB of memory to read."
+    assert refused(b"Made-up.", "huge.pdf") == (
+        "huge.pdf took more than 1 GB of memory to read." + SPLIT
+    )
 
 
 def test_the_child_s_own_deadline_ends_it_with_no_parent_watching():
@@ -387,7 +395,9 @@ def test_the_real_child_gets_the_memory_cap_and_a_deadline_past_the_time_limit(m
 def test_the_real_child_stops_at_its_memory_cap(monkeypatch):
     """Must 2: the real child, at a 1 MB cap, which the interpreter alone passes."""
     monkeypatch.setattr(reading, "MEMORY_CAP", 1024 * 1024)
-    assert refused(b"Made-up.", "notes.md") == "notes.md took more than 1 MB of memory to read."
+    assert refused(b"Made-up.", "notes.md") == (
+        "notes.md took more than 1 MB of memory to read." + SPLIT
+    )
 
 
 def test_memory_clarity_holds_doesn_t_count_against_the_child(monkeypatch):
@@ -438,7 +448,10 @@ def test_aes_is_refused_from_the_dictionary_with_or_without_a_provider(
         monkeypatch.setattr(pypdf.PdfReader, "_handle_encryption", lambda self, password: None)
     with pytest.raises(child.Refused) as e:
         child.extract("pdf", aes_pdf(["Protected."], version=version), "aes.pdf")
-    assert str(e.value) == "aes.pdf is protected. Save an unprotected copy and attach that."
+    assert str(e.value) == (
+        "aes.pdf is protected, even if it opens without a password. Export or print it to a "
+        "new PDF and attach that."
+    )
 
 
 def test_a_pdf_with_no_pages_says_so():
