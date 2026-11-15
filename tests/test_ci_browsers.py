@@ -47,7 +47,10 @@ def test_the_job_runs_webkit_and_firefox_allowed_to_fail_with_its_summary():
     workflow = (REPO / ".github/workflows/tests.yml").read_text(encoding="utf-8")
     assert "\n  browser-others:\n" in workflow
     job = workflow.split("\n  browser-others:\n", 1)[1].split("\n  live-cpu:", 1)[0]
-    assert "continue-on-error: true" in job and "engine: [webkit, firefox]" in job
+    assert "continue-on-error: true" in job and "runs-on: ${{ matrix.os }}" in job
+    # WebKit on macOS (it closed at the first test on ubuntu-latest), Firefox on Linux.
+    assert "- engine: webkit\n            os: macos-latest\n" in job
+    assert "- engine: firefox\n            os: ubuntu-latest\n" in job
     assert "uv run pytest -m browser --browser ${{ matrix.engine }}" in job
     assert "scripts/junit_summary.py" in job and '>> "$GITHUB_STEP_SUMMARY"' in job
 
