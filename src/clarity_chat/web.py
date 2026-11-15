@@ -1372,15 +1372,18 @@ NOT_EXPORTED = "Export this chat first; the file is made when you export it."
 
 
 def chat_date(chat_id: str, today: date) -> tuple[str, str | None]:
-    """A chat's group, "today" or "earlier", and the date an earlier one shows ("30 Oct",
-    with the year when it isn't this one), read from the start of its ID, which is the
-    local time the chat started. An ID that doesn't start with a time is earlier, undated."""
+    """A chat's group, "today" or "earlier", and when it started as its row shows it: the
+    time for today's ("14:25", so a day of same-titled chats can be told apart), the date for
+    an earlier one ("30 Oct", with the year when it isn't this one). Read from the start of
+    its ID, the local time the chat started; an ID that doesn't start with one is earlier,
+    undated."""
     try:
-        started = datetime.strptime(chat_id[:15], "%Y%m%d-%H%M%S").date()
+        moment = datetime.strptime(chat_id[:15], "%Y%m%d-%H%M%S")
     except ValueError:
         return "earlier", None
+    started = moment.date()
     if started == today:
-        return "today", None
+        return "today", moment.strftime("%H:%M")
     words = f"{started.day} {started.strftime('%b')}"
     return "earlier", words if started.year == today.year else f"{words} {started.year}"
 
