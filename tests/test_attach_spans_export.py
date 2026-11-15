@@ -113,12 +113,13 @@ def test_an_export_says_it_holds_the_attached_documents_text(chat):
     session, _ = chat
     session.say("a")
     result, _ = exported(session)
-    assert result["attachments"] == 0
+    assert result["attachments"] is False
     assert "attached" not in format_export(result)
     session.attach(doc())
     session.say("b")
+    session.edit("b2")  # the edit carries the same document: still a yes, not a count
     result, _ = exported(session)
-    assert result["attachments"] == 1
+    assert result["attachments"] is True
     assert format_export(result).endswith(
         " It holds the text of the documents attached in this chat."
     )
@@ -157,7 +158,7 @@ def test_the_recompute_check_runs_over_the_whole_prompt_block_included(chat):
     assert "Line one." in row["prompt_text"]
 
 
-@pytest.mark.parametrize("attachments", [0, 1])
+@pytest.mark.parametrize("attachments", [False, True])
 def test_the_export_sheet_says_it_holds_the_attached_documents_text(attachments):
     from clarity_chat import web
 
@@ -172,4 +173,35 @@ def test_the_export_sheet_says_it_holds_the_attached_documents_text(attachments)
     }
     sheet = web.templates.get_template("export.html").render(**web.export_sheet({"result": answer}))
     said = "It holds the text of the documents attached in this chat." in sheet
-    assert said is bool(attachments)
+    assert said is attachments
+
+
+@pytest.mark.parametrize("framing", [" Note", "Note"])
+def test_a_template_that_trims_the_message_moves_the_ranges_with_it(root, tmp_path, framing):
+    """Tripwire should 7: a template that strips the message (as Llama 3.1's `| trim`)
+    moves each range by what it dropped at the start."""
+    from tests.test_spans import LOOP, toy
+
+    tokenizer = toy(tmp_path, LOOP.replace("BODY", "m.content | trim"))
+    profile = load_profile(root, "chat", load_defaults(root))
+    fields = {**FIELDS, "framing": framing}
+    turns = [("user", message_content("What's in it?\n", fields))]
+    prompt = build_prompt(tokenizer, profile, turns)
+    spans = message_spans(
+        tokenizer, profile, turns, ["turn-1"], prompt, added=[added_ranges(fields)]
+    )
+    assert isinstance(spans, list)
+    entry = next(e for e in spans if e.get("turn_id") == "turn-1")
+    assert entry["trimmed"] is True
+    texts = [prompt.text[slice(*a["chars"])] for a in entry["added"]]
+    assert texts == ["Note", *BLOCKS]
+
+
+@pytest.mark.parametrize("framing", ["Read this:\n", "Read this: "])
+def test_a_framing_line_ending_in_whitespace_flags_its_edge_token(olmo_tokenizer, root, framing):
+    """Tripwire should 7: its last token runs into the blank line after it, as C2's
+    highlight will meet with a profile's own framing."""
+    prompt, entry = spans_of(olmo_tokenizer, root, {**FIELDS, "framing": framing})
+    first = entry["added"][0]
+    assert prompt.text[slice(*first["chars"])] == framing
+    assert first["edge_token"] == "end"

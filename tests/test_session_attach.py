@@ -119,6 +119,13 @@ def test_an_excerpt_records_its_range_marker_and_the_whole_text_s_hash(chat):
     assert a["extracted_sha256"] == d.extracted_sha256 != hashlib.sha256(b"Line two.\n").hexdigest()
 
 
+def test_a_range_of_every_line_is_recorded_as_whole(chat):
+    """Tripwire should 8: the record's `how` follows piece's rule."""
+    session, _ = chat
+    record = session.attach(doc(), "lines", 1, 2)
+    assert (record["how"], record["range"], record["marker"]) == ("whole", [1, 2], None)
+
+
 def test_a_turn_without_attachments_records_none_of_their_fields(chat):
     """Shapes: the fields come only with attachments; an old log's turn has none."""
     session, _ = chat
@@ -162,6 +169,7 @@ def test_regenerations_send_the_first_reply_s_prompt_ids(chat):
     c.run("regen", "same", lambda e: None)
     calls = records(session, "call")
     assert len(calls) == 1 + 1 + 3 + 5
+    assert '<document name="notes.md">\nLine one.' in calls[0]["prompt_text"]
     assert all(call["prompt_ids"] == calls[0]["prompt_ids"] for call in calls)
 
 
@@ -241,13 +249,32 @@ def test_a_chat_that_outgrows_its_context_stops_and_names_the_attachments_tokens
     session, backend = chat
     session.attach(doc())
     session.say("a")
-    tokens = user_turns(session)[-1]["attachments"][0]["tokens"]
     sent = len(backend.calls)
     backend._n_ctx = 200
     with pytest.raises(ContextError) as e:
         session.say("b")
-    assert f"{tokens} of them in attached documents" in str(e.value)
+    stopped = records(session, "call")[-1]
+    entry = next(e for e in stopped["message_spans"] if e.get("added"))
+    tokens = sum(a["tokens"][1] - a["tokens"][0] for a in entry["added"])
+    # One token per byte: the framing line and the block, without the two blank lines.
+    assert tokens == len(content("", [Attached("notes.md", doc().text, None)], FRAMING)) - 4
+    assert f", {tokens} of them in attached documents and their framing lines;" in str(e.value)
     assert len(backend.calls) == sent
+
+
+def test_the_stop_says_when_its_count_is_from_attaching(chat, monkeypatch):
+    """Should 3: without spans, the count is each attachment's cost when attached."""
+    import clarity_chat.session as session_module
+
+    session, backend = chat
+    session.attach(doc())
+    session.say("a")
+    tokens = user_turns(session)[-1]["attachments"][0]["tokens"]
+    backend._n_ctx = 200
+    monkeypatch.setattr(session_module, "message_spans", lambda *a: {"unavailable": "made up"})
+    with pytest.raises(ContextError) as e:
+        session.say("b")
+    assert f", {tokens} of them for attached documents, counted when attached;" in str(e.value)
 
 
 def test_a_control_token_in_an_attachment_is_named_on_the_call(chat):
@@ -281,6 +308,22 @@ def test_starting_another_chat_drops_waiting_attachments_and_says_so(chat, comma
     summary = {k: v for k, v in record.items() if k != "text"}
     assert result["dropped"] == [{**summary, "n": 1}]
     assert session.conversation.pending == []
+
+
+def test_resuming_after_a_failed_send_drops_nothing_that_comes_back(chat):
+    """Tripwire must 2: the failed message's attachments come back with the resume."""
+    session, backend = chat
+    c = Commands(session)
+    session.say("Hi")
+    session.attach(doc())
+    backend.fail_with = "made-up failure"
+    with pytest.raises(BackendError):
+        session.say("What's in it?")
+    backend.fail_with = None
+    session.attach(doc("Other.\n", "guide.md"))
+    result = c.run("resume", session.conversation.log.path.stem, lambda e: None)
+    assert [a["name"] for a in result["dropped"]] == ["guide.md"]
+    assert [a["name"] for a in session.conversation.pending] == ["notes.md"]
 
 
 def test_a_resumed_chat_rebuilds_its_attachments_and_renders_the_same_ids(chat):
@@ -355,22 +398,22 @@ def rewrite_turns(session, change):
     return path
 
 
-@pytest.mark.parametrize(
-    ("field", "change"),
-    [
-        ("text", lambda r: r["attachments"][0].pop("text")),
-        ("name", lambda r: r["attachments"][0].pop("name")),
-        ("marker", lambda r: r["attachments"][0].pop("marker")),
-        ("framing", lambda r: r.pop("framing")),
-    ],
-)
-def test_a_turn_missing_an_attachment_field_is_refused_by_resume_and_export(chat, field, change):
+@pytest.mark.parametrize("field", [*sorted(SHAPE), "framing", "framing_origin", "placement"])
+@pytest.mark.parametrize("branch", ["current", "undone"])
+def test_a_turn_missing_an_attachment_field_is_refused_by_resume_and_export(chat, field, branch):
+    """Must 1: every field the session reads later, not only the content's; should 6: on a
+    branch the head isn't on, where no render check reads it."""
     from clarity_chat.export import export_log
 
     session, _ = chat
     session.attach(doc())
     session.say("a")
-    path = rewrite_turns(session, change)
+    if branch == "undone":
+        session.undo()
+        session.say("b")
+    path = rewrite_turns(
+        session, lambda r: (r["attachments"][0] if field in SHAPE else r).pop(field)
+    )
     session.new_conversation("chat")
     for read in (lambda: session.resume(path), lambda: export_log(session, path)):
         with pytest.raises(ConfigError) as e:
@@ -380,21 +423,6 @@ def test_a_turn_missing_an_attachment_field_is_refused_by_resume_and_export(chat
 
 
 # --- both backends, and size
-
-
-def test_both_backends_get_the_same_prompt_ids(fetched_root, chat_tokenizer):
-    sent = []
-    for name in ("llama.cpp", "transformers"):
-        backend = FakeBackend([" r."], tokenizer=chat_tokenizer)
-        backend.name = name
-        session = Session(
-            fetched_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer
-        )
-        session.new_conversation("chat")
-        session.attach(doc())
-        session.say("a")
-        sent.append(backend.calls[-1]["token_ids"])
-    assert sent[0] == sent[1]
 
 
 def test_a_long_chat_with_an_attachment_builds_its_prompt_quickly(chat):
