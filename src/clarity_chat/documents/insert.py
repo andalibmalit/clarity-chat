@@ -135,7 +135,13 @@ def fit(
 
 
 def start_that_fits(
-    room: Room, pending: list[Attached], framing: str, doc: Document, profile: Any, keep: int = 0
+    room: Room,
+    pending: list[Attached],
+    framing: str,
+    doc: Document,
+    profile: Any,
+    keep: int = 0,
+    checked: dict[int, Fit] | None = None,
 ) -> tuple[int, Fit] | None:
     """The largest k whose excerpt 1 to k leaves at least `keep` tokens (0: the start that
     fits; max_tokens: the preselected range), found by a binary search over exact renders.
