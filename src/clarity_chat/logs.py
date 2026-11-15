@@ -139,6 +139,16 @@ def torn_message(record: dict[str, Any], where: str) -> str:
 _PASSED = object()  # a line read_records was told not to parse
 
 
+def unreadable(error: Exception, whose: str = "this chat's records") -> str:
+    """Why records couldn't be read, honestly: the exception, then what can cause it. A log
+    another program wrote or edited is the likely cause, but the same exceptions come from
+    a bug in Clarity, so the sentence doesn't blame the log alone."""
+    return (
+        f"Can't read {whose} ({type(error).__name__}: {error}). A log another program wrote "
+        "or edited can cause this; if not, it's a bug in Clarity."
+    )
+
+
 def read_records(
     path: Path, parse: Callable[[bytes], bool] | None = None
 ) -> Iterator[dict[str, Any]]:

@@ -123,6 +123,14 @@ def lock_entry(root: Path, model: ModelEntry) -> dict[str, Any]:
                 f"models.lock has {model.name!r} with {key} = {entry.get(key)!r}, but models.toml "
                 f"says {getattr(model, key)!r}. {fetch_hint(model.name)}"
             )
+    recommended = entry.get("recommended")
+    if recommended is not None and not (
+        isinstance(recommended, dict) and isinstance(recommended.get("values"), dict)
+    ):  # a hand-edited lock: refused here, not met later by a read that blames the log
+        raise ConfigError(
+            f"models.lock's recommended settings for {model.name!r} aren't a table of values. "
+            f"{fetch_hint(model.name)}"
+        )
     if model.route == "gguf" and entry.get("gguf", {}).get("sha256") != model.sha256:
         raise ConfigError(
             f"models.lock has {model.name!r} with a different sha256 than models.toml. "

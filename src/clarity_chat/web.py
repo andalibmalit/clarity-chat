@@ -539,8 +539,8 @@ REDIRECT = """<!doctype html>
 
 def page_words(sentence: str) -> str:
     """A read's refusal as the page says it: without the terminal command's name it starts
-    with ("/probs can't read this conversation: …"), which the page has no use for."""
-    return re.sub(r"^/[a-z]+ can't read", "Can't read", sentence)
+    with ("/probs: Can't read this chat's records …"), which the page has no use for."""
+    return re.sub(r"^/[a-z]+: (?=Can't read this chat's records)", "", sentence)
 
 
 async def result_of(worker: Worker, name: str, args: str = "") -> dict[str, Any]:
