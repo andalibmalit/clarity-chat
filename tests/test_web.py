@@ -93,8 +93,9 @@ def test_every_data_route_needs_the_secret(server, method, path, auth):
     headers = {**POST, **auth} if method == "POST" else {**SAME, **auth}
     if not auth:
         headers.pop("Authorization", None)
-    response = client.request(method, path, headers=headers, content=b"{}")
-    assert response.status_code == 401
+    # Streamed and closed once the status is in: /events let through would never end.
+    with client.stream(method, path, headers=headers, content=b"{}") as response:
+        assert response.status_code == 401
 
 
 @pytest.mark.parametrize("host", [f"localhost:{PORT}", "127.0.0.1:1", "evil.example", "127.0.0.1"])
@@ -108,7 +109,10 @@ def test_a_wrong_host_or_port_is_refused_everywhere(server, host):
 @pytest.mark.parametrize("path", ["/events", "/view/thread", "/export"])
 def test_a_cross_site_read_is_refused(server, path, site):
     client, _, _ = server
-    assert client.get(path, headers={**AUTH, "Sec-Fetch-Site": site}).status_code == 403
+    # Streamed, and closed once the status is in: /events let through would never end, so a
+    # refusal that stopped working must fail here, not hang the suite.
+    with client.stream("GET", path, headers={**AUTH, "Sec-Fetch-Site": site}) as response:
+        assert response.status_code == 403
 
 
 @pytest.mark.parametrize(
@@ -615,8 +619,9 @@ def test_every_data_route_in_the_table_refuses_without_the_secret(server):
     for (method, path), needs in ROUTES.items():
         url = path.replace("{file}", "app.js").replace("{name}", "thread")
         headers = {**SAME, "Origin": ORIGIN, "Content-Type": "application/json"}
-        response = client.request(method, url, headers=headers, content=b"{}")
-        assert (response.status_code == 401) == needs, (method, path, response.status_code)
+        with client.stream(method, url, headers=headers, content=b"{}") as response:
+            status = response.status_code  # /events let through would never end: not read
+        assert (status == 401) == needs, (method, path, status)
 
 
 def test_a_secret_with_extra_text_is_refused(server):
