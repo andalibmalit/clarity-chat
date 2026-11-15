@@ -20,6 +20,7 @@ from typing import Any
 
 from clarity_chat import steering
 from clarity_chat.backends import Backend, BackendError, Result
+from clarity_chat.documents import Document
 from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records, unreadable
 from clarity_chat.models import check_weights_quick, lock_entry, source_weights
 from clarity_chat.profiles import (
@@ -98,6 +99,14 @@ class Turn:
     seed: int | None = None
     regen_of: str | None = None  # a regenerated reply: the call ID of the first reply
     edit_of: str | None = None  # an edited message: the user turn it replaces
+    attachments: list[dict[str, Any]] = field(default_factory=list)  # a user turn's (v0.3.1)
+    framing: str | None = None
+    framing_origin: str | None = None
+    placement: str | None = None
+
+    @property
+    def content(self) -> str:
+        return self.text
 
 
 @dataclass
@@ -143,6 +152,7 @@ class Conversation:
     # The model's recommended values the settings came from, as logged; None for a new
     # conversation, whose calls log today's models.lock.
     logged_recommended: dict[str, Any] | None = None
+    pending: list[dict[str, Any]] = field(default_factory=list)  # attachments waiting
 
     @property
     def settings(self) -> dict[str, Setting]:
@@ -668,6 +678,16 @@ class Session:
         user = conversation.add_turn("user", "user", text, conversation.head)
         conversation.head = user.turn_id
         return self.call(user, seed=seed, on_text=on_text, cancel=cancel)
+
+    def attach(
+        self, doc: Document, unit: str | None = None, first: int = 0, last: int = 0
+    ) -> dict[str, Any]:
+        record = {"name": doc.name, "text": doc.text, "marker": None}
+        self._require_conversation().pending.append(record)
+        return record
+
+    def already_in_chat(self, sha256: str) -> bool:
+        return False
 
     def regen_seed(self) -> int:
         """The next regeneration's seed: the highest seed used for the current message, plus
