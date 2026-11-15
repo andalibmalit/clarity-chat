@@ -89,13 +89,19 @@ def piece(
             f"{doc.name} has {doc.total:,} {doc.unit}s: give a range from 1 to {doc.total:,}, "
             "the first no larger than the last."
         )
-    if (first, last) == (1, doc.total):
+    if covers_whole(doc, unit, first, last):
         return Attached(doc.name, doc.text, None)
     template = MARKER if profile.excerpt_marker is None else profile.excerpt_marker
     marker = template.format(
         units=unit, first=f"{first:,}", last=f"{last:,}", total=f"{doc.total:,}"
     )
     return Attached(doc.name, doc.text_of(first, last), marker or None)
+
+
+def covers_whole(doc: Document, unit: str | None, first: int, last: int) -> bool:
+    """Whether a range is the whole document: no range, or one from the first unit to the
+    last. piece's text and marker and the record's `how` follow this one rule."""
+    return unit is None or (first, last) == (1, doc.total)
 
 
 def content(message: str, attached: list[Attached], framing: str) -> str:
@@ -127,7 +133,32 @@ def message_content(text: str, fields: Mapping[str, Any]) -> str:
 
 
 def attached_in(fields: Mapping[str, Any]) -> list[Attached]:
+    """What each attachment puts in the block, from a turn's fields or records."""
     return [Attached(a["name"], a["text"], a["marker"]) for a in fields.get("attachments") or []]
+
+
+# A turn record's attachment fields, and each attachment's (the plan's Shapes).
+TURN_FIELDS = ("attachments", "framing", "framing_origin", "placement")
+ATTACHMENT_FIELDS = frozenset(
+    {
+        "name", "kind", "bytes", "sha256", "extractor", "unit", "total", "how", "range",
+        "marker", "text", "extracted_sha256", "empty_units", "control_tokens",
+        "has_closing_tag", "tokens",
+    }
+)  # fmt: skip
+
+
+def checked_attachments(record: Mapping[str, Any]) -> dict[str, Any]:
+    """A turn record's attachment fields, checked whole: {} for a message without any. A
+    missing field raises KeyError, which every reader of a log refuses as unreadable, so
+    nothing read later (a regeneration's warnings, the stop's count) meets one."""
+    if not record.get("attachments"):
+        return {}
+    fields = {key: record[key] for key in TURN_FIELDS}
+    for attachment in fields["attachments"]:
+        if missing := ATTACHMENT_FIELDS - set(attachment):
+            raise KeyError(", ".join(sorted(missing)))
+    return fields
 
 
 def added_ranges(fields: Mapping[str, Any]) -> list[dict[str, Any]]:

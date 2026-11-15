@@ -11,7 +11,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
-from clarity_chat.documents import added_ranges, message_content
+from clarity_chat.documents import added_ranges, checked_attachments, message_content
 from clarity_chat.files import write_text_atomic
 from clarity_chat.logs import LOG_NAME, client_git, read_records, unreadable
 from clarity_chat.profiles import ConfigError, load_profile
@@ -66,7 +66,7 @@ def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any
     records = list(read_records(log_path))
     state = rebuild(records, str(log_path))  # refuses a batch run's calls.jsonl
     for turn in state.turns:  # an attachment missing a field: KeyError, refused
-        message_content(turn["text"], turn)
+        checked_attachments(turn)
     turns = {t["turn_id"]: t for t in state.turns}
     current = marks_and_notes(records)
     calls = [r for r in records if r.get("type") == "call"]
@@ -126,8 +126,7 @@ def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any
         "failed_calls_left_out": header["failed_calls_left_out"],
         "calls_without_a_turn_left_out": header["calls_without_a_turn_left_out"],
         "steered": steered_by_vector(rows),
-        # How many documents the file holds the text of (each attached message counts once).
-        "attachments": len({(a["turn_id"], a["name"]) for r in rows for a in r["attachments"]}),
+        "attachments": any(row["attachments"] for row in rows),  # it holds documents' text
     }
 
 

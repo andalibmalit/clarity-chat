@@ -412,8 +412,7 @@ def _chat_parts(
         if text != content and "added" in label:  # stripped: the ranges move with the text
             lead = len(content) - len(content.lstrip())
             entry["added"] = [
-                {**r, "chars": [min(max(c - lead, 0), len(text)) for c in r["chars"]]}
-                for r in label["added"]
+                {**r, "chars": [max(c - lead, 0) for c in r["chars"]]} for r in label["added"]
             ]
         parts.append((entry, text))
         pos += len(text)
@@ -458,18 +457,18 @@ def _token_ranges(
         if end > start and offsets[end - 1][1] > last:
             entry["edge_token"] = "end"
         if "added" in info:  # by the same rule: a token is in the range its first character is
-            entry["added"] = [_within(r, first, offsets, bos) for r in info["added"]]
+            starts = [start for start, _ in offsets]
+            entry["added"] = [_within(r, first, starts, offsets, bos) for r in info["added"]]
         entries.append(entry)
     return entries
 
 
 def _within(
-    added: dict[str, Any], at: int, offsets: list[tuple[int, int]], bos: int
+    added: dict[str, Any], at: int, starts: list[int], offsets: list[tuple[int, int]], bos: int
 ) -> dict[str, Any]:
     """A range inside a message (chars from the message's start) in the prompt's chars and
     tokens."""
     first, last = (at + c for c in added["chars"])
-    starts = [start for start, _ in offsets]
     start, end = bisect.bisect_left(starts, first), bisect.bisect_left(starts, last)
     found = {**added, "chars": [first, last], "tokens": [start + bos, end + bos]}
     if end > start and offsets[end - 1][1] > last:

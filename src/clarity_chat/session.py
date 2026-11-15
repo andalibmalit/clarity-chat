@@ -21,11 +21,13 @@ from typing import Any
 from clarity_chat import steering
 from clarity_chat.backends import Backend, BackendError, Result
 from clarity_chat.documents import (
-    Attached,
     Document,
     DocumentRefused,
     Room,
     added_ranges,
+    attached_in,
+    checked_attachments,
+    covers_whole,
     fit,
     framing_of,
     message_content,
@@ -741,14 +743,14 @@ class Session:
             )
         framing, _ = framing_of(profile)
         new = piece(doc, profile, unit, first, last)
-        pending = [Attached(a["name"], a["text"], a["marker"]) for a in conversation.pending]
+        pending = attached_in({"attachments": conversation.pending})
         result = fit(self.room(), pending, new, framing)
         if not result.fits:
             raise DocumentRefused(
                 f"{doc.name} doesn't fit: it needs {result.tokens:,} tokens and "
                 f"{result.free:,} are free in this chat."
             )
-        whole = unit is None or (first, last) == (1, doc.total)  # as piece decides
+        whole = covers_whole(doc, unit, first, last)
         record = {
             "name": doc.name,
             "kind": doc.kind,
@@ -1206,9 +1208,7 @@ class Session:
                     )
             n_ctx, max_tokens = self.backend.n_ctx, values["max_tokens"]
             if room_left(n_ctx, len(prompt.ids), max_tokens) < 0:
-                path = prompt_turns(conversation, user_turn)
-                attached = sum(a["tokens"] for t in path for a in t.attachments)
-                of_them = f", {attached} of them in attached documents" if attached else ""
+                of_them = attached_tokens(record["message_spans"], conversation, user_turn)
                 raise ContextError(
                     f"The prompt is {len(prompt.ids)} tokens{of_them}; with max_tokens "
                     f"{max_tokens} it "
@@ -1537,11 +1537,7 @@ class Session:
         for t in state.turns:
             call = state.calls.get(t.get("call_id") or "")
             seed = call["settings"]["seed"]["value"] if call else None
-            attached = {} if not t.get("attachments") else {
-                "attachments": t["attachments"], "framing": t["framing"],
-                "framing_origin": t["framing_origin"], "placement": t["placement"],
-            }  # fmt: skip
-            message_content(t["text"], t)  # an attachment missing a field: KeyError, refused
+            attached = checked_attachments(t)  # a missing field: KeyError, refused
             conversation.turns[t["turn_id"]] = Turn(
                 t["turn_id"], t["parent_id"], t["role"], t["origin"], t["text"],
                 t.get("call_id"), seed, t.get("regen_of"), t.get("edit_of"), **attached,
@@ -1750,6 +1746,18 @@ def annotate_log(
     log = LogFile(path)
     log.on_append = on_record
     return annotate_call(log, about, kind, text, "review")
+
+
+def attached_tokens(spans: Any, conversation: Conversation, user_turn: Turn) -> str:
+    """For the stop's sentence: how many of the prompt's tokens attachments take. Exact from
+    the call's spans (each document's block and the framing line); without them, each
+    attachment's cost when it was attached, said as such."""
+    if isinstance(spans, list):
+        n = sum(a["tokens"][1] - a["tokens"][0] for e in spans for a in e.get("added", []))
+        return f", {n} of them in attached documents and their framing lines" if n else ""
+    path = prompt_turns(conversation, user_turn)
+    n = sum(a["tokens"] for t in path for a in t.attachments)
+    return f", {n} of them for attached documents, counted when attached" if n else ""
 
 
 def prompt_turns(conversation: Conversation, user_turn: Turn) -> list[Turn]:
