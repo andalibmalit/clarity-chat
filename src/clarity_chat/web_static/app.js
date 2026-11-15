@@ -1271,7 +1271,11 @@ function pickFile() {
   }
   $("clip-waits").textContent = "";
   if (clarity.state.mode === "chat") {
-    $("attach-file").click();
+    // A fresh input for each press, with the same id (the QA driver's upload step): Firefox
+    // sometimes never opened a second picker on one input (CI, run 43766644268).
+    const fresh = $("attach-file").cloneNode();
+    $("attach-file").replaceWith(fresh);
+    fresh.click();
     return;
   }
   command("attach")
@@ -2052,9 +2056,11 @@ document.addEventListener("DOMContentLoaded", () => {
   $("about").addEventListener("close", () => $("clarity-button").focus());
   $("appearance").addEventListener("close", () => $("clarity-button").focus());
   $("stop").addEventListener("click", () => command("cancel"));
-  $("attach-file").addEventListener("change", () => {
-    const file = $("attach-file").files[0];
-    $("attach-file").value = ""; // the same file can be chosen again
+  document.addEventListener("change", (event) => {
+    // #attach-file is replaced on each press (pickFile), so its change is heard here.
+    if (event.target.id !== "attach-file") return;
+    const file = event.target.files[0];
+    event.target.value = ""; // the same file can be chosen again
     if (file) attachFile(file);
   });
   $("attach-sheet").addEventListener("cancel", (event) => {
