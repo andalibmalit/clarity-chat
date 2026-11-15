@@ -25,6 +25,7 @@ const clarity = {
   buffer: null, // events held while the page loads; null once it has
   sending: false, // this page waits for a command that writes or starts
   failedCall: null, // the last failed call's ID, from its record on the stream
+  waitSaid: null, // the wait Send said on screen during a start, until the start ends
   alerted: new Set(), // sentences already announced, so a redraw doesn't repeat them
 };
 window.clarity = clarity;
@@ -335,6 +336,11 @@ async function draw(number) {
   $("send-waits").textContent = starting ? "Waits until the model has started." : "";
   if (starting) $("send").setAttribute("aria-disabled", "true");
   else $("send").removeAttribute("aria-disabled");
+  if (!starting && clarity.waitSaid) {
+    // The wait it said is over; a sentence shown since (a failed start) stays.
+    if ($("notice").textContent === clarity.waitSaid) notice(null, null);
+    clarity.waitSaid = null;
+  }
   const waits = $("picker-button").getAttribute("aria-disabled") === "true";
   $("new-chat").setAttribute("aria-disabled", String(waits));
   showWriting(state.running);
@@ -731,8 +737,16 @@ function refused(name, type, sentence) {
 function send() {
   const text = $("message").value;
   // While a reply is written, Send is hidden (Stop is in its place) and Enter waits too.
-  if (!text || clarity.sending || $("send").hidden || $("send").disabled) return;
-  if ($("send").getAttribute("aria-disabled") === "true") return;
+  if (!text) return;
+  if ($("send").getAttribute("aria-disabled") === "true") {
+    // It waits (a model starting, from the picker too, which is still sending its start):
+    // said on screen, not only to a screen reader, and the text stays for Enter once it's
+    // ready (board B2; QA 1).
+    clarity.waitSaid = $("send-waits").textContent;
+    notice(null, clarity.waitSaid);
+    return;
+  }
+  if (clarity.sending || $("send").hidden || $("send").disabled) return;
   $("message").value = "";
   write("say", text, text);
 }
