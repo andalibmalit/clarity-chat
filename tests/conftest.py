@@ -185,6 +185,7 @@ CI_SKIPS = (
     "Windows only emulates O_APPEND",
     "no memory guard on Windows",
     "no process groups on Windows",
+    "a backslash can't be in a Windows file name",
 )
 
 
