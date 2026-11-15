@@ -482,3 +482,17 @@ def test_what_changed_since_the_last_call_says_each_change_old_to_new(chat):
     assert result(client, "resume", first)["differ"]["count"] >= 1
     listed = re.search(r'<ul id="differ"[^>]*>(.*?)</ul>', view(client, "thread"), re.S)
     assert listed and f"client · commit {'a' * 40} → {now}" in listed.group(1)
+
+
+def test_a_log_whose_name_resume_wont_take_is_listed_and_cant_be_picked(chat):
+    """Fix review, batch 6, item 11: a log named so /resume won't take it (".copy", say) is
+    a row by its file name saying why, which can't be picked. The review's mutation (the
+    row offered) survived: no view test drew it."""
+    client, session = chat
+    result(client, "say", "Hi")
+    logs = session.logs_dir
+    shutil.copy(logs / f"{result(client, 'state')['log_id']}.jsonl", logs / ".copy.jsonl")
+    row = next(r for r in rows(view(client, "chats")) if 'data-resume=".copy"' in r)
+    assert 'aria-disabled="true"' in row and "aria-describedby" not in row
+    assert '<span class="t idm">.copy</span>' in row
+    assert "! its file name can’t be opened from here" in row
