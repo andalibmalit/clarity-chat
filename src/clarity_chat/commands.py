@@ -215,7 +215,7 @@ def _say(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         listed = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
         raise ConfigError(f"Type a message to send with {listed}.")
     if not args:  # one sentence for the terminal and the page (the whole-branch review, 17)
-        raise ConfigError("Type a message to send.")
+        raise ConfigError(SENTENCES["empty_message"])
     return c.call(emit, lambda **kw: c.session.say(args, **kw))
 
 

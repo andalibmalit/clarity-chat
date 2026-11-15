@@ -262,6 +262,7 @@ The page, the terminal and this list share these sentences and phrases, from one
 - `stop_advice`: Shorten your message, start a new chat, or lower max_tokens.
 - `remove_waiting`: Shorten your message, remove an attachment and attach a shorter part, start a new chat, or lower max_tokens.
 - `slow_read`: A long file can take a minute to read. Clarity stops at {seconds} seconds.
+- `empty_message`: Type a message to send.
 - `too_slow`: {name} took longer than {seconds} seconds to read. Attach a smaller file, or split it and attach the part you need.
 - `too_much_memory`: {name} took more than {memory} of memory to read. Attach a smaller file, or split it and attach the part you need.
 - `protected`: {name} is protected, even if it opens without a password. Export or print it to a new PDF and attach that.
