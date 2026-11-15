@@ -1675,25 +1675,40 @@ def test_a_closed_panel_stays_closed_when_a_redraw_lands_late(clarity, page):
 
 def test_a_replay_or_export_whose_request_drops_says_so(clarity, page):
     """Finding 4: a rejected command() left Replay at "Replaying…" with Stop, and the
-    export sheet never opened."""
+    export sheet never opened. Only the replay's or the export's own request drops, so the
+    redraw after it succeeds and can't supply the sentence: the notice is the command's own
+    (the page mutations at 6bf90aa: without replay()'s notice, refresh()'s failure filled
+    it, and the test passed)."""
+
+    def drop(command: str):
+        def handle(route):
+            if f'"command":"{command}"' in (route.request.post_data or ""):
+                route.abort()
+            else:
+                route.continue_()
+
+        return handle
+
     _, redirect, _ = clarity
     chat_on(page, redirect)
     say(page, "Hi")
     page.wait_for_selector(".reply.last .tb")
     page.click(".reply.last [data-action=details]")
     page.wait_for_selector("#panel [data-action=replay]")
-    page.route("**/command", lambda route: route.abort())
+    page.route("**/command", drop("replay"))
     page.click("#panel [data-action=replay]")
-    page.wait_for_selector("#notice .problem", timeout=10_000)
+    until(page, lambda: page.is_visible("#notice .problem"), what="the replay's own notice")
+    page.wait_for_selector("#panel [data-action=replay]")  # redrawn: no Stop left
     assert page.query_selector("#panel [data-action=replay-stop]") is None
+    assert page.text_content("#notice .problem").startswith("! Clarity didn't answer (")
     page.unroute("**/command")
-    page.wait_for_selector("#panel [data-action=replay]")
     page.click("#panel [data-action=panel-close]")
     page.evaluate("() => notice(null, null)")
-    page.route("**/command", lambda route: route.abort())
+    page.route("**/command", drop("export"))
     page.click("#title")
     page.click("#title-menu [data-action=export]")
-    page.wait_for_selector("#notice .problem", timeout=10_000)
+    until(page, lambda: page.is_visible("#notice .problem"), what="the export's own notice")
+    assert page.text_content("#notice .problem").startswith("! Clarity didn't answer (")
     page.unroute("**/command")
 
 
@@ -1778,7 +1793,7 @@ def test_enter_during_a_start_says_it_waits_and_enter_after_it_sends(clarity, pa
     """QA 1 (runs 04, 05, 36, 37): Enter pressed while the model was still starting did
     nothing and said nothing (Send's reason is for screen readers only), so it read as
     "Enter doesn't send". QA's steps: pick a profile, click the box, type, press Enter.
-    Board B2 stays (the owner's call): Send waits during a start, now saying so on screen;
+    Board B2 stays (the lead's decision): Send waits during a start, now saying so on screen;
     the text stays, and Enter once the model is ready sends it."""
     _, redirect, backend = clarity
     open_clarity(page, redirect)
