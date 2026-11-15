@@ -95,3 +95,34 @@ def test_the_guide_says_where_the_whole_extracted_text_is_and_the_readme_attachi
     assert "the whole is in **Details** after you send" in guides
     readme = (REPO / "README.md").read_text(encoding="utf-8")
     assert "Attach a document to a message" in readme
+
+
+# --- WebKit's driver stopped at the first test on ubuntu-latest (CI 43754075636)
+
+DRIVER_STOPPED = """<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="pytest">
+<testcase classname="tests.test_browser" name="test_first[webkit]" time="1">
+<failure message="playwright._impl._errors.TargetClosedError: Page.wait_for_selector: Target
+page, context or browser has been closed">made up</failure>
+<error message="playwright._impl._errors.TargetClosedError: Playwright connection closed">x
+</error></testcase>
+<testcase classname="tests.test_browser" name="test_second[webkit]" time="0">
+<error message="playwright._impl._errors.TargetClosedError: Playwright connection closed">x
+</error></testcase>
+<testcase classname="tests.test_browser_attach" name="test_third[webkit]" time="0">
+<error message="playwright._impl._errors.TargetClosedError: Playwright connection closed">x
+</error></testcase>
+</testsuite></testsuites>"""
+
+
+def test_a_driver_that_stopped_is_one_finding_not_one_per_test(tmp_path):
+    """When Playwright's driver dies, every later test errors with "Playwright connection
+    closed": the summary names the test it died in and counts the rest as its consequence."""
+    xml = tmp_path / "browser.xml"
+    xml.write_text(DRIVER_STOPPED, encoding="utf-8")
+    text = summary_module().summary(xml, "WebKit")
+    assert text.splitlines()[0] == "### The browser tier in WebKit: 0 passed, 3 failed, 0 skipped"
+    assert (
+        "Playwright's driver stopped during tests.test_browser::test_first[webkit]; the 2 "
+        "tests after it errored because of that, not because of the page." in text
+    )
+    assert "test_second" not in text and "test_third" not in text
