@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import os
 import subprocess
 import sys
@@ -19,11 +18,10 @@ from clarity_chat.documents import (
     child,
     extract,
     read_path,
+    reading,
 )
 from tests.pdfs import aes_pdf, encrypted_pdf, make_pdf
 
-extract_module = importlib.import_module("clarity_chat.documents.extract")  # the function
-# `extract` shadows its module's name in the package
 FIXTURES = Path(__file__).parent / "fixtures" / "documents"
 SAVE_AS = "Save it as PDF or as UTF-8 text and attach that."
 
@@ -31,7 +29,7 @@ SAVE_AS = "Save it as PDF or as UTF-8 text and attach that."
 @pytest.fixture(autouse=True)
 def fresh_cache(monkeypatch):
     """Each test reads its files anew: the last document read is kept between calls."""
-    monkeypatch.setattr(extract_module, "_last", None)
+    monkeypatch.setattr(reading, "_last", None)
 
 
 def refused(data: bytes, name: str) -> str:
@@ -185,7 +183,7 @@ def test_text_that_can_t_travel_is_refused_not_replaced(text, monkeypatch):
 
 def stub(monkeypatch, code: str) -> None:
     """The child replaced by `code`, run as the real child is (`python -I`)."""
-    monkeypatch.setattr(extract_module, "CHILD", [sys.executable, "-I", "-c", code])
+    monkeypatch.setattr(reading, "CHILD", [sys.executable, "-I", "-c", code])
 
 
 def gone(pid: int) -> bool:
@@ -200,7 +198,7 @@ def test_the_time_limit_stops_the_child_and_leaves_none(monkeypatch, tmp_path):
     pidfile = tmp_path / "pid"
     stub(monkeypatch, f"import os,time; open({str(pidfile)!r},'w').write(str(os.getpid())); "
          "time.sleep(60)")  # fmt: skip
-    monkeypatch.setattr(extract_module, "TIME_LIMIT", 1.0)
+    monkeypatch.setattr(reading, "TIME_LIMIT", 1.0)
     started = time.monotonic()
     assert refused(b"Made-up.", "slow.md") == "slow.md took longer than 1 seconds to read."
     assert time.monotonic() - started < 10 and gone(int(pidfile.read_text()))
@@ -240,7 +238,7 @@ def test_the_child_s_own_deadline_ends_it_with_no_parent_watching():
 
 def test_output_past_the_cap_is_refused(monkeypatch):
     stub(monkeypatch, "import sys; sys.stdout.write('x' * 5_000_000)")
-    monkeypatch.setattr(extract_module, "OUTPUT_CAP", 1_000_000)
+    monkeypatch.setattr(reading, "OUTPUT_CAP", 1_000_000)
     assert refused(b"Made-up.", "long.md") == "long.md's text is too long: more than 0 MB."
 
 
@@ -251,12 +249,12 @@ def test_the_child_runs_isolated_with_no_secrets_in_its_environment(monkeypatch)
         "import json, os, sys; print(json.dumps({'isolated': sys.flags.isolated,"
         " 'env': dict(os.environ)}))",
     )
-    answer = extract_module.run_child({"name": "x.md", "kind": "text"}, b"", None)
+    answer = reading.run_child({"name": "x.md", "kind": "text"}, b"", None)
     assert answer["isolated"] == 1 and "HF_TOKEN" not in answer["env"]
 
 
 def test_the_exit_codes_match_the_child_s():
-    assert (extract_module.MEMORY_EXIT, extract_module.DEADLINE_EXIT) == (
+    assert (reading.MEMORY_EXIT, reading.DEADLINE_EXIT) == (
         child.MEMORY_EXIT,
         child.DEADLINE_EXIT,
     )
@@ -306,7 +304,7 @@ def test_the_same_bytes_give_the_same_text_twice_and_the_second_reads_nothing(mo
     again = extract(data, "copy.pdf")
     assert (again.text, again.extracted_sha256) == (first.text, first.extracted_sha256)
     assert again.name == "copy.pdf"
-    monkeypatch.setattr(extract_module, "_last", None)
+    monkeypatch.setattr(reading, "_last", None)
     monkeypatch.undo()
     third = extract(data, "guide.pdf")
     assert (third.text, third.extracted_sha256) == (first.text, first.extracted_sha256)
@@ -321,7 +319,7 @@ def test_every_failure_is_a_refusal_never_another_exception():
             extract(data, "hostile.pdf")
         except DocumentRefused:
             pass
-        extract_module._last = None
+        reading._last = None
 
 
 def test_a_thousand_page_pdf_reads_within_a_loose_bound():

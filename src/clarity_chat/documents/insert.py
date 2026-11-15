@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from html import escape
 from typing import Any
 
-from clarity_chat.documents.extract import Document, DocumentRefused
+from clarity_chat.documents.reading import Document, DocumentRefused
 
 FRAMING = (
     "Reference material: use it to understand the conversation; don't copy its wording or tone."
