@@ -184,6 +184,7 @@ CI_SKIPS = (
     "no SIGTERM handler semantics on Windows",
     "Windows only emulates O_APPEND",
     "no memory guard on Windows",
+    "no process groups on Windows",
 )
 
 
