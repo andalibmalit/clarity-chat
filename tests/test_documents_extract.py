@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import subprocess
 import sys
 import threading
@@ -96,7 +97,11 @@ def test_html_by_each_rule_of_version_1():
         "The ridge path\nThree cairns & a\xa0saddle.\nwater\nmap\ntext after\na break\n"
         "  kept   as\n    written\nnested\n"
     )
-    assert doc.extractor == {"name": "clarity-html", "version": 1}
+    assert doc.extractor == {
+        "name": "clarity-html",
+        "version": 1,
+        "python": platform.python_version(),
+    }
 
 
 # --- PDF

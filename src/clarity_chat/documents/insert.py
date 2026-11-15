@@ -19,21 +19,41 @@ FRAMING = (
 MARKER = "Excerpt: {units} {first} to {last} of {total}"
 CLOSING_TAG = "</document>"
 
-# The sheet's sentences, in one place: the page, the terminal and reference.md use these.
+# The sheet's words, in one place: the page, the terminal, the refusals that explain a fit,
+# and reference.md use these (decision 20). Each was fact-checked (Lane 3).
 SENTENCES = {
     "whole": "It takes up {tokens} tokens of the context for the rest of the chat.",
-    "excerpt": "An excerpt goes in whole, marked as an excerpt.",
+    "excerpt": "The pages or lines you choose go in complete, after a line saying they're an "
+    "excerpt.",
+    "no_marker": "No excerpt marker (this profile).",
+    "free": "{free} tokens free in this chat, after setting aside max_tokens for the reply.",
     "left": "That leaves {left} tokens for your message and the rest of the chat.",
     "doesnt_fit": "Doesn't fit: needs {tokens} tokens, {free} free.",
-    "preselected": "The start that still leaves {max_tokens} tokens (your max_tokens) for your "
-    "message and the rest of the chat.",
-    "no_start": "Not even its first {unit} leaves {max_tokens} tokens (your max_tokens) for your "
-    "message and the rest of the chat.",
+    "start_that_fits": "The start that fits: {units} 1 to {last} ({tokens} tokens).",
+    "fits_up_to": "{Units} 1 to {last} fit.",
+    "none_fits": "Not even its first {unit} fits.",
+    "preselected": "The largest start found that still leaves at least {max_tokens} tokens "
+    "(your max_tokens) for your message and the rest of the chat.",
+    "no_start": "Not even its first {unit} leaves at least {max_tokens} tokens (your "
+    "max_tokens) for your message and the rest of the chat.",
+    "chosen": "{Units} {first} to {last}:",
+    "new_chat": "The whole fits a new chat on this profile, with {free} tokens free there.",
     "already": "This file is already in this chat.",
     "control_tokens": "Holds text the tokenizer reads as control tokens ({tokens}); it's sent as "
     "it is, and the call is flagged.",
     "closing_tag": "Holds </document>, which ends Clarity's wrapper early; it's sent as it is.",
+    "framing": "Framing line ({origin}): {framing}",
+    "no_framing": "No framing line ({origin}).",
+    "origin_default": "Clarity's default",
+    "origin_profile": "this profile",
+    "encrypted": "encrypted (it opens without a password)",
+    "empty_units": "{count} with no text",
 }
+
+
+def counted(n: int, unit: str) -> str:
+    """1 line, 3 lines, 1,200 pages."""
+    return f"{n:,} {unit}" + ("" if n == 1 else "s")
 
 
 @dataclass(frozen=True)
@@ -92,7 +112,7 @@ def piece(
         )
     if not 1 <= first <= last <= doc.total:
         raise DocumentRefused(
-            f"{doc.name} has {doc.total:,} {doc.unit}s: give a range from 1 to {doc.total:,}, "
+            f"{doc.name} has {counted(doc.total, doc.unit)}: give a range from 1 to {doc.total:,}, "
             "the first no larger than the last."
         )
     if covers_whole(doc, unit, first, last):

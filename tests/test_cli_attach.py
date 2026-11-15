@@ -71,12 +71,8 @@ def test_check_prints_the_sheet_s_numbers_and_sentences(loop, notes):
         f"It takes up {check['tokens_whole']:,} tokens of the context for the rest of the chat. "
         f"That leaves {check['left_whole']:,} tokens for your message and the rest of the chat."
     ) in text
-    start = check["start_that_fits"]
-    assert f"The start that fits: lines 1-3 ({start['tokens']:,} tokens)." in text
-    assert (
-        "The start that still leaves 16 tokens (your max_tokens) for your message and the rest "
-        "of the chat: lines 1-3." in text
-    )
+    assert f"{check['free']:,} tokens free in this chat, after setting aside max_tokens" in text
+    assert "The start that fits" not in text  # the whole fits (part 1's review, could 14)
     assert f"Framing line (Clarity's default): {FRAMING}" in text
     assert chat.session.conversation.pending == []
 
@@ -89,7 +85,7 @@ def test_a_refusal_prints_the_numbers_and_the_command_that_fits(loop, tmp_path):
     chat.handle(f"/attach {path}")
     text = "".join(output)
     assert "! long.md doesn't fit: it needs " in text
-    assert f"tokens for your message: /attach {path} lines 1-" in text
+    assert f"for your message and the rest of the chat: /attach {path} lines 1-" in text
 
 
 def test_a_line_before_the_prompt_lists_what_s_waiting(fetched_root, chat_tokenizer, notes):
@@ -199,7 +195,7 @@ def test_check_says_more_than_when_only_the_bound_was_taken(loop, tmp_path):
     chat.handle(f"/attach {path} lines 1-19000 check")
     text = "".join(output)
     assert "Doesn't fit: needs more than " in text
-    assert "Lines 1-19000: Doesn't fit: needs more than " in text
+    assert "Lines 1 to 19000: Doesn't fit: needs more than " in text
 
 
 def test_the_terminal_shows_a_name_s_control_characters_visibly():
@@ -222,5 +218,5 @@ def test_check_s_lines_come_from_the_one_table(loop, notes):
     text = "".join(output)
     assert "notes.md: text, 3 lines." in text
     assert SENTENCES["framing"].format(origin="Clarity's default", framing="") in text
-    assert "Lines 2 to 3: " in text
+    assert "Lines 2 to 3: " in text and SENTENCES["excerpt"] in text
     assert "The start that fits" not in text  # the whole fits: no start lines (could 14)

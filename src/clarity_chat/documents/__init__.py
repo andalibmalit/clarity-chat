@@ -13,6 +13,7 @@ from clarity_chat.documents.insert import (
     attached_in,
     checked_attachments,
     content,
+    counted,
     covers_whole,
     fit,
     framing_of,
@@ -25,6 +26,7 @@ from clarity_chat.documents.insert import (
 )
 from clarity_chat.documents.reading import (
     MAX_BYTES,
+    SIZE_LIMIT,
     Document,
     DocumentRefused,
     checked_name,
@@ -35,6 +37,7 @@ from clarity_chat.documents.reading import (
 __all__ = [
     "FRAMING",
     "MAX_BYTES",
+    "SIZE_LIMIT",
     "SENTENCES",
     "Attached",
     "Document",
@@ -46,6 +49,7 @@ __all__ = [
     "checked_attachments",
     "checked_name",
     "content",
+    "counted",
     "covers_whole",
     "extract",
     "fit",

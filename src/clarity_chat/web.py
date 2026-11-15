@@ -49,8 +49,15 @@ from starlette.types import Message, Receive, Scope, Send
 
 from clarity_chat.backends import CHECK_HELP, BackendError
 from clarity_chat.backends.transformers_hf import FIXED_ORDER
-from clarity_chat.commands import CALL_ID, READS, REPLY_COMMANDS, UPLOAD_ID, Commands
-from clarity_chat.documents import MAX_BYTES, SENTENCES, DocumentRefused, checked_name
+from clarity_chat.commands import (
+    CALL_ID,
+    READS,
+    REPLY_COMMANDS,
+    UPLOAD_ID,
+    Commands,
+    check_lines,
+)
+from clarity_chat.documents import MAX_BYTES, SIZE_LIMIT, DocumentRefused, checked_name
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.profiles import NEUTRAL, SETTING_HELP, SETTING_RANGES, ConfigError
 from clarity_chat.replay import CANNOT_CHANGE_OUTPUT, cancelled_refusal, replay_notes
@@ -73,7 +80,7 @@ MAX_BODY = 64 * 1024  # any route's body
 # /command's: any message a profile's context can take (the terminal and --json have no
 # cap, so the page mustn't be the odd one out for a realistic message).
 MAX_COMMAND = 8 * 1024 * 1024
-TOO_BIG_FILE = f"Too big: Clarity attaches files of at most {MAX_BYTES // 1024 // 1024} MB."
+TOO_BIG_FILE = f"Too big: Clarity attaches files up to {SIZE_LIMIT}."
 HEARTBEAT = 15.0  # seconds between keep-alive lines on the event stream
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; "
@@ -1502,8 +1509,12 @@ async def _attach(worker: Worker, params: dict[str, str | None]) -> str:
     args = " ".join(a for a in (params["upload"], params["range"], "check") if a)
     answer = await read_or_refusal(worker, "attach", args)
     check = (answer.get("result") or {}).get("check")
+    conversation = worker.commands.session.conversation
+    lines = []
+    if check is not None and conversation is not None:
+        lines = check_lines(check, conversation.settings["max_tokens"].value)
     return templates.get_template("attach.html").render(
-        error=answer.get("error"), check=check, sentences=SENTENCES
+        error=answer.get("error"), check=check, lines=lines[1:]
     )
 
 

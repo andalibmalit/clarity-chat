@@ -142,8 +142,9 @@ def test_the_terminal_refusal_names_the_start_that_leaves_room(chat, tmp_path):
     with pytest.raises(DocumentRefused) as e:
         c.run("attach", str(path), lambda e: None)
     assert str(e.value).endswith(
-        f" The start that still leaves 16 tokens for your message: /attach {path} lines "
-        f"1-{roomy}. Lines 1 to {start} fit."
+        " The largest start found that still leaves at least 16 tokens (your max_tokens) for "
+        f"your message and the rest of the chat: /attach {path} lines 1-{roomy}. Lines 1 to "
+        f"{start} fit."
     )
 
 
@@ -157,8 +158,8 @@ def test_the_page_s_refusal_names_no_terminal_command(chat):
         c.run("attach", "upload-0123456789ab", lambda e: None)
     assert "/attach" not in str(e.value)
     assert str(e.value).endswith(
-        f" The start that still leaves 16 tokens for your message: lines 1 to {roomy}. "
-        f"Lines 1 to {start} fit."
+        " The largest start found that still leaves at least 16 tokens (your max_tokens) for "
+        f"your message and the rest of the chat: lines 1 to {roomy}. Lines 1 to {start} fit."
     )
 
 

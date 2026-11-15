@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends import BackendError
-from clarity_chat.commands import SENTENCES, Commands, read_files, summaries
+from clarity_chat.commands import SENTENCES, Commands, check_lines, read_files, summaries
 from clarity_chat.logs import torn_message
 from clarity_chat.profiles import ConfigError, find_root, load_models, load_server_config
 from clarity_chat.replay import replay_notes
@@ -181,73 +181,12 @@ def format_attached(result: dict[str, Any]) -> str:
 
 
 def format_check(check: dict[str, Any], max_tokens: int) -> str:
-    """/attach PATH check: the sheet's numbers and sentences, a line each."""
-    unit = check["unit"]
-    facts = [f"{check['kind']}, {check['total']:,} {unit}s"]
-    if check["empty_units"]:
-        facts.append(f"{check['empty_units']:,} with no text")
-    if check["encrypted"]:
-        facts.append("encrypted (it opens without a password)")
-    lines = [f"{shown(check['name'])}: {', '.join(facts)}."]
-    if check["fits"]:
-        lines.append(
-            SENTENCES["whole"].format(tokens=f"{check['tokens_whole']:,}")
-            + " "
-            + SENTENCES["left"].format(left=f"{check['left_whole']:,}")
-        )
-    else:
-        lines.append(
-            SENTENCES["doesnt_fit"].format(
-                tokens=needs(check["tokens_whole"], check["tokens_whole_at_least"]),
-                free=f"{check['free']:,}",
-            )
-        )
-    start, preselected = check["start_that_fits"], check["preselected"]
-    if start is None:
-        lines.append(f"Not even its first {unit} fits.")
-    else:
-        lines.append(
-            f"The start that fits: {unit}s 1-{start['range'][1]} ({start['tokens']:,} tokens)."
-        )
-    if preselected is None:
-        lines.append(SENTENCES["no_start"].format(unit=unit, max_tokens=max_tokens))
-    else:
-        reason = SENTENCES["preselected"].format(max_tokens=max_tokens).removesuffix(".")
-        lines.append(f"{reason}: {unit}s 1-{preselected['range'][1]}.")
-    if chosen := check["chosen"]:
-        first, last = chosen["range"]
-        named = f"{unit.capitalize()}s {first}-{last}: "
-        if chosen["left"] is not None and chosen["left"] >= 0:
-            lines.append(
-                f"{named}{chosen['tokens']:,} tokens. "
-                + SENTENCES["left"].format(left=f"{chosen['left']:,}")
-            )
-        else:
-            needed = needs(chosen["tokens"], chosen["tokens_at_least"])
-            free = f"{check['free']:,}"
-            lines.append(named + SENTENCES["doesnt_fit"].format(tokens=needed, free=free))
+    """/attach PATH check: the sheet's numbers and sentences, a line each, names shown
+    safely, and the command a new chat takes."""
+    lines = check_lines({**check, "name": shown(check["name"])}, max_tokens)
     if not check["fits"] and check["fits_new_chat"]:
-        lines.append(
-            f"The whole fits a new chat with this profile ({check['free_new_chat']:,} free): "
-            "/new, then attach it."
-        )
-    if check["already_in_chat"]:
-        lines.append(SENTENCES["already"])
-    if check["control_tokens"]:
-        lines.append(SENTENCES["control_tokens"].format(tokens=", ".join(check["control_tokens"])))
-    if check["has_closing_tag"]:
-        lines.append(SENTENCES["closing_tag"])
-    origin = "Clarity's default" if check["framing_origin"] == "default" else "this profile"
-    framing = check["framing"]
-    lines.append(
-        f"Framing line ({origin}): {framing}" if framing else f"No framing line ({origin})."
-    )
+        lines.append("/new, then attach it there.")
     return "\n".join(lines)
-
-
-def needs(tokens: int | None, at_least: int | None) -> str:
-    """A count, or "more than N" when only its bound was taken (it surely doesn't fit)."""
-    return f"{tokens:,}" if tokens is not None else f"more than {(at_least or 1) - 1:,}"
 
 
 def not_kept(pending: list[dict[str, Any]]) -> str:

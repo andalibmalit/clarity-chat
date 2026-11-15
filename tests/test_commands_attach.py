@@ -123,8 +123,9 @@ def test_a_whole_file_that_doesn_t_fit_is_refused_with_the_numbers_and_the_start
         run(c, "attach", str(path))
     assert str(e.value) == (
         f"long.md doesn't fit: it needs {check['tokens_whole']:,} tokens and "
-        f"{check['free']:,} are free in this chat. The start that still leaves 16 tokens for "
-        f"your message: /attach {path} lines 1-{roomy}. Lines 1 to {k} fit."
+        f"{check['free']:,} are free in this chat. The largest start found that still leaves "
+        "at least 16 tokens (your max_tokens) for your message and the rest of the chat: "
+        f"/attach {path} lines 1-{roomy}. Lines 1 to {k} fit."
     )
     assert session.conversation.pending == []
 

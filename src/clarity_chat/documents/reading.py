@@ -20,6 +20,7 @@ from typing import Any
 from clarity_chat.profiles import ConfigError
 
 MAX_BYTES = 64 * 1024 * 1024  # a larger file is refused before it's read
+SIZE_LIMIT = f"{MAX_BYTES // 1024 // 1024} MB ({MAX_BYTES:,} bytes)"  # 64 MiB, so the bytes too
 MAX_NAME = 255
 TIME_LIMIT = 120.0  # seconds; the child's own deadline is a little later
 MEMORY_CAP = 1024 * 1024 * 1024  # the child's peak memory, in bytes
@@ -125,7 +126,7 @@ def read_path(path: str) -> tuple[bytes, str]:
 
 
 def too_big(name: str) -> str:
-    return f"{name} is too big: Clarity reads files of at most {MAX_BYTES // 1024 // 1024} MB."
+    return f"{name} is too big: Clarity reads files up to {SIZE_LIMIT}."
 
 
 _last: Document | None = None  # the last document read, kept so a range change re-reads nothing
@@ -155,7 +156,10 @@ def extract(
     if "refused" in answer:
         raise DocumentRefused(answer["refused"])
     if "failed" in answer:
-        raise DocumentRefused(f"Clarity couldn't read {name} ({answer['failed']}).")
+        raise DocumentRefused(
+            f"Clarity couldn't read {name} ({answer['failed']}). The file may be damaged: save "
+            "a fresh copy and attach that."
+        )
     _last = Document(
         name=name,
         kind=kind,

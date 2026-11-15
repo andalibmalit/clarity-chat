@@ -211,17 +211,30 @@ File paths are relative to the profile file. Files are read byte for byte, so li
 
 ## The attach sheet's sentences
 
-The page, the terminal and this list share these sentences, from one table in the code. `{tokens}`, `{free}`, `{left}`, `{max_tokens}` and `{unit}` are filled in with the numbers.
+The page, the terminal and this list share these sentences and phrases, from one table in the code. The braces are filled in: `{tokens}`, `{free}`, `{left}`, `{max_tokens}`, `{first}` and `{last}` with numbers, `{unit}` with `page` or `line`, `{units}` and `{Units}` with its plural, `{count}` with how many units, `{origin}` with the origin phrases below, and `{framing}` with the framing line.
 
 - `whole`: It takes up {tokens} tokens of the context for the rest of the chat.
-- `excerpt`: An excerpt goes in whole, marked as an excerpt.
+- `excerpt`: The pages or lines you choose go in complete, after a line saying they're an excerpt.
+- `no_marker`: No excerpt marker (this profile).
+- `free`: {free} tokens free in this chat, after setting aside max_tokens for the reply.
 - `left`: That leaves {left} tokens for your message and the rest of the chat.
 - `doesnt_fit`: Doesn't fit: needs {tokens} tokens, {free} free.
-- `preselected`: The start that still leaves {max_tokens} tokens (your max_tokens) for your message and the rest of the chat.
-- `no_start`: Not even its first {unit} leaves {max_tokens} tokens (your max_tokens) for your message and the rest of the chat.
+- `start_that_fits`: The start that fits: {units} 1 to {last} ({tokens} tokens).
+- `fits_up_to`: {Units} 1 to {last} fit.
+- `none_fits`: Not even its first {unit} fits.
+- `preselected`: The largest start found that still leaves at least {max_tokens} tokens (your max_tokens) for your message and the rest of the chat.
+- `no_start`: Not even its first {unit} leaves at least {max_tokens} tokens (your max_tokens) for your message and the rest of the chat.
+- `chosen`: {Units} {first} to {last}:
+- `new_chat`: The whole fits a new chat on this profile, with {free} tokens free there.
 - `already`: This file is already in this chat.
 - `control_tokens`: Holds text the tokenizer reads as control tokens ({tokens}); it's sent as it is, and the call is flagged.
 - `closing_tag`: Holds </document>, which ends Clarity's wrapper early; it's sent as it is.
+- `framing`: Framing line ({origin}): {framing}
+- `no_framing`: No framing line ({origin}).
+- `origin_default`: Clarity's default
+- `origin_profile`: this profile
+- `encrypted`: encrypted (it opens without a password)
+- `empty_units`: {count} with no text
 
 ## Settings
 
@@ -304,7 +317,7 @@ Each line is one JSON record with `schema_version` (currently 1), `type` and `ti
 |---|---|---|
 | `conversation` | at the start of each conversation | `profile` (name, path, full TOML text and every file it read), `settings`, `model`, `client` (commit and dirty flag), `machine`, `warnings`, `ctx_size` (value and origin: `profile` or `server.toml`) |
 | `server_start` | once per server per log file, before its first call | `server_id`, `argv`, `flags`, `api_key` (always "random per start; value not logged"), `env_removed`, `env_llama_ggml_kept`, `llama_cpp` (commit, dirty), `build_info`, `placement`, `model_file` (`eog_tokens`: the tokens that end a reply, read from llama-server's startup log; null if the log has no such line), `memory` (per GPU: `limit_mib`, which is Metal's recommended working-set limit on a Mac and, on other GPUs, the memory llama.cpp reported free when the model loaded; and the model, context cache and compute buffers on it), `graph_splits` (how many pieces llama.cpp cut the compute graph into, for the prompt and the reply), `props`, `startup_output`, `warnings`, `machine`. Transformers: `device`, `dtype`, `attn_implementation`, `torch`, `transformers`, `eos_token_id`, `eos_token_id_from` (`generation_config.json`, or `tokenizer (generation_config.json has none)`) and similar. |
-| `turn` | for each message and reply | `turn_id`, `parent_id`, `role`, `origin` (`user`, `model` or `edit`), `text` (as you wrote it), `call_id`, and `regen_of` or `edit_of` for branches. A message with attachments also has `attachments`, `framing` (the framing line as sent, `""` for none), `framing_origin` (`default` or `profile`) and `placement` (`start`). Each attachment has `name` (never a path), `kind` (`text`, `html` or `pdf`), `bytes`, `sha256` (the file's bytes), `extractor`, `unit` (`page` or `line`), `total`, `how` (`whole` or `excerpt`), `range`, `marker` (the marker line as sent, or null), `text` (exactly the text inserted), `extracted_sha256` (the whole extracted text, so it differs from `text`'s for an excerpt), `empty_units`, `control_tokens`, `has_closing_tag` and `tokens` (its cost when attached). |
+| `turn` | for each message and reply | `turn_id`, `parent_id`, `role`, `origin` (`user`, `model` or `edit`), `text` (as you wrote it), `call_id`, and `regen_of` or `edit_of` for branches. A message with attachments also has `attachments`, `framing` (the framing line as sent, `""` for none), `framing_origin` (`default` or `profile`) and `placement` (`start`). Each attachment has `name` (never a path), `kind` (`text`, `html` or `pdf`), `bytes`, `sha256` (the file's bytes), `extractor` (its `name` and `version`; for a PDF, pypdf's `mode` and whether it was `encrypted`; for HTML, `python`, the Python version whose `html.parser` read it), `unit` (`page` or `line`), `total`, `how` (`whole` or `excerpt`), `range`, `marker` (the marker line as sent, or null), `text` (exactly the text inserted), `extracted_sha256` (the whole extracted text, so it differs from `text`'s for an excerpt), `empty_units`, `control_tokens`, `has_closing_tag` and `tokens` (its cost when attached). |
 | `settings` | for each `/set` | `name`, `value` (null: back to the profile's) and `chat_settings`: every value set in this chat so far. |
 | `resume` | for each `/resume` or `--resume` | `head` (where it continues), `head_guessed` (a v0.1.0 log that no later Clarity has moved the head in since resuming), `warnings` (as in the `conversation` record), `unanswered` (your last message, if its call failed or was cut off), `ctx_size`, `profile_file` (`same`, `changed` or `missing` today, or `outside the project folder`, which isn't read), `model_entry` (how the model's `models.toml` entry differs from the logged one), `settings_differ_today` (each with its `logged` and `today` value; `logged` is null for a setting the log doesn't have, which then comes from the logged profile resolved today), `chat_settings` (restored `/set` values), `compared_with_call`, `differences` and `not_recorded` (as in `replay`), and `render`: the current reply's call ID and whether its prompt renders to the same token IDs today (`n_ids` and `first_different_token` if not), or null if there's no reply yet. |
 | `title` | for each `/title` | `title`. The latest one is the conversation's title. |

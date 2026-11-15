@@ -11,6 +11,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import platform
 import re
 import sys
 import threading
@@ -203,11 +204,16 @@ def extract(kind: str, data: bytes, name: str) -> dict:
             raise Refused(f"{name} has no pages.")
         empty = sum(1 for page in pages if not page.strip())
         if empty == len(pages):
-            raise Refused(f"{name} has no text to read: its pages are images.")
+            raise Refused(
+                f"{name} has no text Clarity can read. Its pages may be scanned images, which "
+                "Clarity doesn't read. Save a copy with a text layer (run OCR) and attach that."
+            )
         units, unit = pages, "page"
     else:
         if kind == "html":
-            text, extractor = html_text(data, name), {"name": "clarity-html", "version": 1}
+            # html.parser is Python's own, and has changed between releases: say which ran.
+            extractor = {"name": "clarity-html", "version": 1, "python": platform.python_version()}
+            text = html_text(data, name)
         else:
             text, bom = utf8(data, name)
             extractor = {"name": "clarity-text", "version": 1, "bom_removed": bom}
