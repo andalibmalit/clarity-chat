@@ -243,3 +243,87 @@ def test_the_sheet_and_the_chips_show_hostile_text_as_text(chat):
         parser.feed(response.text)
         # The name keeps what follows its last "/" (in "</script>"): the <img …> part.
         assert parser.found == [] and "&lt;img src=x onerror=alert(2)&gt;" in response.text
+
+
+def test_a_whole_hostile_name_reaches_the_sheet_and_the_chips_as_text(chat):
+    """The security review's could 5: the name above loses `<script>` to its last "/", so
+    this one has none, and the sheet's heading and the chips get all of it, before C1 adds
+    markup around them."""
+    from tests.test_web import HOSTILE, Unsafe
+
+    client, _, _ = chat
+    name = HOSTILE.replace("/", "")
+    upload_id = upload(client, b"Made-up.\n", name).json()["upload"]
+    sheet = view(client, "attach", upload=upload_id)
+    command(client, "attach", upload_id)
+    for response in (sheet, view(client, "pending")):
+        parser = Unsafe()
+        parser.feed(response.text)
+        assert parser.found == [] and "&lt;script&gt;" in response.text
+
+
+def test_a_second_upload_while_one_is_read_is_refused(chat):
+    """The security review's could 4: each upload holds up to 128 MB until it replaces the
+    last, so only one is read at a time."""
+    _, _, app = chat
+    release = asyncio.Event()
+
+    async def both():
+        sent: list = []
+
+        async def slow():
+            await release.wait()
+            return {"type": "http.request", "body": NOTES, "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        first = asyncio.create_task(app(scope(), slow, send))
+        await asyncio.sleep(0.05)
+        second: list = []
+
+        async def quick():
+            return {"type": "http.request", "body": NOTES, "more_body": False}
+
+        async def send_second(message):
+            second.append(message)
+
+        await app(scope(), quick, send_second)
+        release.set()
+        await first
+        return [m["status"] for m in sent + second if m["type"] == "http.response.start"]
+
+    assert asyncio.run(both()) == [200, 409]
+
+
+def scope() -> dict:
+    headers = {**GOOD, "Host": f"127.0.0.1:{PORT}"}
+    return {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/upload",
+        "raw_path": b"/upload",
+        "query_string": b"tab=tab-1&name=notes.md",
+        "root_path": "",
+        "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+        "client": ("127.0.0.1", 50000),
+        "server": ("127.0.0.1", PORT),
+    }
+
+
+def test_an_upload_gone_between_its_check_and_its_read_is_refused(chat):
+    """The security review's could 3: a second upload landing between `in` and `[]` raised
+    KeyError, which stops the session."""
+    client, session, _ = chat
+    from clarity_chat.commands import Commands
+
+    class Racing(dict):
+        def __contains__(self, key):
+            return True
+
+    c = Commands(session, uploads=Racing())
+    with pytest.raises(Exception) as e:
+        c.run("attach", "upload-0123456789ab", lambda e: None)
+    assert str(e.value) == "That file isn't uploaded any more. Choose it again."

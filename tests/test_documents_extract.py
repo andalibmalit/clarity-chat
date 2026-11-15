@@ -525,3 +525,22 @@ def test_a_name_with_a_text_direction_control_is_refused(mark):
 def test_joiners_stay_allowed(name):
     """U+200C is common in Persian names; U+200D joins emoji."""
     assert checked_name(name) == name
+
+
+def test_a_path_s_bytes_are_read_exactly(tmp_path):
+    """The security review's could 6: on Windows, os.open without O_BINARY reads in text
+    mode, turning CRLF into LF and stopping at 0x1A."""
+    path = tmp_path / "notes.md"
+    path.write_bytes(b"a\r\nb\x1ac")
+    assert read_path(str(path)) == (b"a\r\nb\x1ac", "notes.md")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no process groups on Windows")
+def test_the_reader_runs_in_its_own_process_group(monkeypatch):
+    """The security review's could 1: in Clarity's group, a terminal's Ctrl-C reached the
+    child too, and the cancel read as "its reader stopped (exit -2)"."""
+    stub(
+        monkeypatch, "import os, json, sys; sys.stdout.write(json.dumps({'group': os.getpgid(0)}))"
+    )
+    answer = reading.run_child({"name": "x.md", "kind": "text"}, b"", None)
+    assert answer["group"] != os.getpgrp()

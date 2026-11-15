@@ -287,3 +287,11 @@ def test_a_text_mode_chat_refuses_attach(chat, notes):
     with pytest.raises(ConfigError) as e:
         run(Commands(session), "attach", str(notes))
     assert str(e.value) == "Attaching needs a chat-mode profile; text is in text mode."
+
+
+def test_attach_reads_a_tilde_as_the_home_folder(chat, tmp_path, monkeypatch):
+    """The security review's could 8: `/attach ~/notes.md` said "Can't open notes.md"."""
+    session, _ = chat
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / "notes.md").write_text(NOTES, encoding="utf-8")
+    assert run(Commands(session), "attach", "~/notes.md")["attached"]["name"] == "notes.md"
