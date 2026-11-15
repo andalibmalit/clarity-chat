@@ -20,7 +20,11 @@ through models.lock), plus `smol-steer-hf`, steered by the repeng test vector th
 `--init` copies into the root's local/vectors/. It checks that server.toml differs from the
 checkout's in its flags only, that the weights match models.lock's sha256, and that
 nothing in the root is a link (Clarity and the driver follow links, so one could reach a
-private folder).
+private folder). An attachment (`--attach PATH`, a `/attach PATH` step, or `attach` in
+`--json`) must name a file in the root: the path as written, without a trailing `check`,
+`pages A-B` or `lines A-B`, and with `~` expanded, each resolved from the root with links
+followed, and not a file with a second name. Otherwise Clarity, outside the sandbox, could
+read a file the sandbox denies into the transcript.
 `--init` also resets server.toml. Arguments are parsed with Clarity's own parser and
 steps with its own command splitter, so they are checked as Clarity will read them.
 """
@@ -190,12 +194,39 @@ def check_clarity_args(root: Path, argv: list[str]) -> argparse.Namespace:
     log = getattr(args, "log", None)  # replay's LOG is always a path to Clarity
     if log is not None and not inside(root, str(log)):
         raise Refused(f"{log} must be a path inside {root}")
+    attach = getattr(args, "attach", None)  # `chat --attach FILE` (v0.3.1), once or more
+    for value in [attach] if isinstance(attach, (str, Path)) else attach or []:
+        if (problem := attach_problem(root, str(value))) is not None:
+            raise Refused(f"--attach {problem}")
     return args
 
 
+RANGE = re.compile(r"\s+(check|pages\s+\S+|lines\s+\S+)\s*$")  # after /attach's path
+
+
 def attach_problem(root: Path, value: str) -> str | None:
-    """Why an attachment's path may not be read; None when it may. (Stub: allows any.)"""
+    """Why Clarity may not read the attachment path `value`; None when it may. Every reading
+    of it is judged, since the driver can't know which Clarity takes: as written and without
+    a trailing range or `check`, each as is and with `~` expanded, resolved from the root
+    with links followed. A file with a second name (a hard link) may be one outside."""
+    base = root.resolve()
+    for reading in {value.strip(), RANGE.sub("", value.strip())}:
+        try:
+            paths = {Path(reading), Path(reading).expanduser()}
+        except RuntimeError:  # ~name of no such user
+            return f"{value!r}: a ~ path that can't be judged; use a path in the scratch root"
+        for path in paths:
+            resolved = (path if path.is_absolute() else root / path).resolve()
+            if not resolved.is_relative_to(base):
+                return f"{value!r} is outside the scratch root {root}"
+            if resolved.is_file() and resolved.stat().st_nlink > 1:
+                return f"{value!r} has a second name (a hard link); attach a plain file"
     return None
+
+
+def attaches(name: str) -> bool:
+    """Whether a command named `name` (perhaps a prefix of it) is attach."""
+    return bool(name) and "attach".startswith(name)
 
 
 def inside(root: Path, value: str) -> bool:
@@ -224,16 +255,25 @@ def parse_steps(path: Path, json_mode: bool, root: Path | None = None) -> list[s
             if not re.fullmatch(r"<(wait|ctrl-c after) [0-9]+(\.[0-9]+)?>", line):
                 raise Refused(f"{where}: unknown step {line!r}")
         elif json_mode:
-            check_json_step(where, line)
+            check_json_step(where, line, root)
         elif line.startswith("/"):
             name, arg = split_command(line)
             if name in NAMED and arg.strip() and not ID.fullmatch(arg.strip()):
                 raise Refused(f"{where}: /{name} takes a name or ID here, not {arg!r}")
+            if attaches(name):
+                check_attach_step(where, arg, root)
         steps.append(line)
     return steps
 
 
-def check_json_step(where: str, line: str) -> None:
+def check_attach_step(where: str, arg: str, root: Path | None) -> None:
+    if root is None:
+        raise Refused(f"{where}: an attach step needs the scratch root to judge its path")
+    if (problem := attach_problem(root, arg)) is not None:
+        raise Refused(f"{where}: {problem}")
+
+
+def check_json_step(where: str, line: str, root: Path | None = None) -> None:
     try:
         step = json.loads(line)
     except ValueError:
@@ -242,6 +282,12 @@ def check_json_step(where: str, line: str) -> None:
         return
     if not isinstance(step.get("command"), str):
         raise Refused(f"{where}: a command that isn't a string")
+    if attaches(step["command"]):
+        arg = step.get("args", "")
+        if not isinstance(arg, str):
+            raise Refused(f"{where}: attach takes a path, not {arg!r}")
+        check_attach_step(where, arg, root)
+        return
     if step["command"] not in NAMED:
         return
     arg = step.get("args", "")
@@ -289,7 +335,7 @@ def main() -> int:
     try:
         clarity = check_clarity_args(args.root, clarity_args)
         json_mode = bool(getattr(clarity, "json", False))  # parsed: --js counts too
-        steps = parse_steps(args.steps, json_mode) if args.steps else []
+        steps = parse_steps(args.steps, json_mode, args.root) if args.steps else []
         prepare_root(args.root, init=args.init)
     except Refused as e:
         parser.error(str(e))
