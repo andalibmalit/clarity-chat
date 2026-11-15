@@ -152,22 +152,6 @@ def test_a_pdf_that_needs_a_password_is_refused():
     )
 
 
-@pytest.mark.parametrize("cryptography", ["absent", "present"])
-def test_an_aes_pdf_is_refused_whether_or_not_cryptography_is_installed(cryptography, monkeypatch):
-    """Clarity reads the encryption dictionary and refuses AES itself: another package
-    having installed `cryptography` (which would let pypdf open it) changes nothing."""
-    import types
-
-    if cryptography == "present":
-        monkeypatch.setitem(sys.modules, "cryptography", types.ModuleType("cryptography"))
-    else:
-        monkeypatch.setitem(sys.modules, "cryptography", None)  # import fails
-    with pytest.raises(child.Refused) as e:
-        child.extract("pdf", aes_pdf(["Protected."]), "aes.pdf")
-    assert str(e.value) == "aes.pdf is protected. Save an unprotected copy and attach that."
-    assert refused(aes_pdf(["Protected."]), "aes.pdf") == str(e.value)  # through the child
-
-
 @pytest.mark.parametrize("text", ["a\x00b", "a\ud800b"])
 def test_text_that_can_t_travel_is_refused_not_replaced(text, monkeypatch):
     monkeypatch.setattr(child, "pdf_pages", lambda data, name: ([text], {"name": "pypdf"}))
@@ -182,8 +166,9 @@ def test_text_that_can_t_travel_is_refused_not_replaced(text, monkeypatch):
 
 
 def stub(monkeypatch, code: str) -> None:
-    """The child replaced by `code`, run as the real child is (`python -I`)."""
-    monkeypatch.setattr(reading, "CHILD", [sys.executable, "-I", "-c", code])
+    """The child replaced by `code`, run with the real child's own interpreter and flags
+    (the real command's prefix), so a test of `-I` tests the command that ships."""
+    monkeypatch.setattr(reading, "CHILD", [*reading.CHILD[:-2], "-c", code])
 
 
 def gone(pid: int) -> bool:
@@ -238,8 +223,10 @@ def test_the_child_s_own_deadline_ends_it_with_no_parent_watching():
 
 def test_output_past_the_cap_is_refused(monkeypatch):
     stub(monkeypatch, "import sys; sys.stdout.write('x' * 5_000_000)")
-    monkeypatch.setattr(reading, "OUTPUT_CAP", 1_000_000)
-    assert refused(b"Made-up.", "long.md") == "long.md's text is too long: more than 0 MB."
+    monkeypatch.setattr(reading, "OUTPUT_CAP", 2 * 1024 * 1024)
+    assert refused(b"Made-up.", "long.md") == (
+        "long.md is too long to read: what its reader sent back passed 2 MB."
+    )
 
 
 def test_the_child_runs_isolated_with_no_secrets_in_its_environment(monkeypatch):
@@ -263,19 +250,27 @@ def test_the_exit_codes_match_the_child_s():
 # --- paths and names
 
 
-def test_a_file_over_64_mb_is_refused_before_it_s_read(tmp_path):
+def test_a_file_over_64_mb_is_refused_before_it_s_read(tmp_path, monkeypatch):
     big = tmp_path / "big.bin"
     with big.open("wb") as f:
         f.truncate(64 * 1024 * 1024 + 1)  # sparse: nothing written
+
+    def no_reading(*args, **kwargs):  # refused from its size alone, before any read
+        raise AssertionError("read")
+
+    monkeypatch.setattr(os, "fdopen", no_reading)
     with pytest.raises(DocumentRefused) as e:
         read_path(str(big))
     assert str(e.value) == "big.bin is too big: Clarity reads files of at most 64 MB."
 
 
 def test_a_directory_or_a_fifo_is_refused_without_blocking(tmp_path):
-    fifo = tmp_path / "pipe.md"
-    os.mkfifo(fifo)
-    for path in (tmp_path, fifo):
+    paths = [tmp_path]
+    if hasattr(os, "mkfifo"):  # not on Windows, which has no FIFOs in the file system
+        fifo = tmp_path / "pipe.md"
+        os.mkfifo(fifo)
+        paths.append(fifo)
+    for path in paths:
         started = time.monotonic()
         with pytest.raises(DocumentRefused) as e:
             read_path(str(path))
@@ -288,7 +283,18 @@ def test_a_path_s_name_is_kept_never_the_path(tmp_path):
     assert read_path(str(tmp_path / "notes.md")) == (b"Made-up.", "notes.md")
 
 
-@pytest.mark.parametrize("name", ["two\nlines.md", "tab\there.md", "bell\x07.md", "x" * 256])
+@pytest.mark.parametrize(
+    "name",
+    [
+        "two\nlines.md",
+        "tab\there.md",
+        "bell\x07.md",
+        "x" * 256,
+        "notes\udcff.md",  # a lone surrogate: a Linux file name that isn't UTF-8, or --json
+        "a\u2028b.md",  # line and paragraph separators act as newlines
+        "a\u2029b.md",
+    ],
+)
 def test_a_name_with_a_control_character_or_too_long_is_refused(name):
     with pytest.raises(DocumentRefused):
         checked_name(name)
@@ -343,3 +349,87 @@ def test_a_document_s_units_join_into_its_text():
         empty_units=0,
     )
     assert doc.text == "a\nb\nc" and doc.text_of(1, 2) + doc.text_of(3, 3) == doc.text
+
+
+# --- Checkpoint 1's findings
+
+
+@pytest.mark.parametrize("order", [("page.html", "page.txt"), ("page.txt", "page.html")])
+def test_the_same_bytes_under_another_kind_are_read_by_that_kind_s_rules(order):
+    """Must 1: the cache matched the bytes alone, so a .txt read after the same bytes as
+    .html came back with its tags stripped: what was sent depended on earlier attachments."""
+    data = b"<p>Raw <b>source</b></p>\n"
+    expected = {"page.html": ("html", "Raw source\n"), "page.txt": ("text", data.decode())}
+    for name in order:
+        doc = extract(data, name)
+        assert (doc.kind, doc.text) == expected[name], name
+
+
+def test_the_real_child_gets_the_memory_cap_and_a_deadline_past_the_time_limit(monkeypatch):
+    """Must 2: the limits the real command sends, echoed back by a stub."""
+    stub(monkeypatch, "import sys; sys.stdout.write(sys.stdin.buffer.readline().decode())")
+    answer = reading.run_child({"name": "x.md", "kind": "text"}, b"", None)
+    assert answer["memory_cap"] == reading.MEMORY_CAP
+    assert reading.TIME_LIMIT < answer["seconds"] <= reading.TIME_LIMIT + 10
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="v0.7.0: no memory guard on Windows yet")
+def test_the_real_child_stops_at_its_memory_cap(monkeypatch):
+    """Must 2: the real child, at a 1 MB cap, which the interpreter alone passes."""
+    monkeypatch.setattr(reading, "MEMORY_CAP", 1024 * 1024)
+    assert refused(b"Made-up.", "notes.md") == "notes.md took more than 1 MB of memory to read."
+
+
+def test_memory_clarity_holds_doesn_t_count_against_the_child(monkeypatch):
+    """Should 5: on Linux a new process's peak starts at its parent's, so once Clarity had
+    held over the cap (a Transformers model), every file was refused. Here the parent holds
+    300 MB, written, against a 200 MB cap, and a small file reads. Decided on Linux CI."""
+    held = b"x" * (300 * 1024 * 1024)
+    monkeypatch.setattr(reading, "MEMORY_CAP", 200 * 1024 * 1024)
+    assert extract(b"Made-up.", "notes.md").text == "Made-up." and len(held)
+
+
+def test_an_interrupted_wait_leaves_no_child(monkeypatch, tmp_path):
+    """Should 3: Ctrl-C in the terminal during "Reading NAME…" left the child running."""
+    pidfile = tmp_path / "pid"
+    stub(monkeypatch, f"import os,time; open({str(pidfile)!r},'w').write(str(os.getpid())); "
+         "time.sleep(60)")  # fmt: skip
+
+    def interrupted(seconds):
+        while not pidfile.exists() or not pidfile.read_text():
+            threading.Event().wait(0.01)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(reading.time, "sleep", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        extract(b"Made-up.", "slow.md")
+    monkeypatch.undo()
+    assert gone(int(pidfile.read_text()))
+
+
+def test_a_reader_that_can_t_start_is_a_refusal(monkeypatch, tmp_path):
+    """Should 3: an OSError from starting the child came out as itself, which stops the
+    session on the page."""
+    monkeypatch.setattr(reading, "CHILD", [str(tmp_path / "no-such-python")])
+    assert refused(b"Made-up.", "notes.md").startswith("Clarity couldn't start its reader: ")
+
+
+@pytest.mark.parametrize("version", [5, 4])
+@pytest.mark.parametrize("cryptography", ["absent", "present"])
+def test_aes_is_refused_from_the_dictionary_with_or_without_a_provider(
+    version, cryptography, monkeypatch
+):
+    """Should 4: AES (V5, and V4 with /AESV2) is refused by Clarity's own check of the
+    encryption dictionary. "present" stands for a crypto provider that would open it:
+    pypdf's own encryption step made a no-op, so only Clarity's check can refuse."""
+    import pypdf
+
+    if cryptography == "present":
+        monkeypatch.setattr(pypdf.PdfReader, "_handle_encryption", lambda self, password: None)
+    with pytest.raises(child.Refused) as e:
+        child.extract("pdf", aes_pdf(["Protected."], version=version), "aes.pdf")
+    assert str(e.value) == "aes.pdf is protected. Save an unprotected copy and attach that."
+
+
+def test_a_pdf_with_no_pages_says_so():
+    assert refused(make_pdf([]), "blank.pdf") == "blank.pdf has no pages."
