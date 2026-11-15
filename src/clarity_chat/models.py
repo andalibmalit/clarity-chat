@@ -335,6 +335,28 @@ def fetch_gguf(root: Path, model: ModelEntry) -> dict[str, Any]:
     return entry
 
 
+def converter_python(server: ServerConfig) -> list[str]:
+    """The command that runs Python in llama.cpp's converter environment: its pinned
+    requirements in an environment of their own. --isolated gives that environment a fresh
+    base: from Clarity's folder, uv would otherwise build it on Clarity's .venv (the 3.13 it
+    finds there), putting Clarity's packages and src on the converter's sys.path. -I keeps
+    the working folder and PYTHON* variables out. So nothing from Clarity's folder or
+    environment leaks into the converter."""
+    requirements = server.llama_cpp_dir / "requirements" / "requirements-convert_hf_to_gguf.txt"
+    return [
+        "uv",
+        "run",
+        "--no-project",
+        "--isolated",
+        "--python",
+        CONVERTER_PYTHON,
+        "--with-requirements",
+        str(requirements),
+        "python",
+        "-I",
+    ]
+
+
 def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[str, Any]:
     checkout = git_state(server.llama_cpp_dir)
     if checkout.get("commit") != server.llama_cpp_commit:
@@ -355,18 +377,9 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
     partial = out_dir / f"{out.name}.partial"
     versions = out_dir / "converter-versions.json"
     converter = server.llama_cpp_dir / "convert_hf_to_gguf.py"
-    requirements = server.llama_cpp_dir / "requirements" / "requirements-convert_hf_to_gguf.txt"
     shim = Path(__file__).with_name("convert_shim.py")
     command = [
-        "uv",
-        "run",
-        "--no-project",
-        "--python",
-        CONVERTER_PYTHON,
-        "--with-requirements",
-        str(requirements),
-        "python",
-        "-I",  # nothing from Clarity's folder or environment leaks into the converter
+        *converter_python(server),
         str(shim),
         str(versions),
         str(converter),

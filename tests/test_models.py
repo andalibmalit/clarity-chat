@@ -233,3 +233,36 @@ def test_the_converter_runs_isolated_from_clarity_s_environment(tmp_path, monkey
     run = command[: command.index("python")]  # uv's own options, before the interpreter
     assert run[:2] == ["uv", "run"] and {"--no-project", "--isolated"} <= set(run), run
     assert command[command.index("python") + 1] == "-I"
+
+
+@pytest.mark.live
+def test_the_converter_environment_sees_only_its_pinned_packages():
+    """The probe behind the isolation fix, through the command fetch_convert runs, from
+    Clarity's folder (where uv would find Clarity's .venv): no .venv or src on sys.path, none
+    of Clarity's dev tools installed, and llama.cpp's pinned transformers imported. Live:
+    it needs the llama.cpp checkout and the pinned packages (uv's cache, or the network)."""
+    import subprocess
+
+    repo = Path(__file__).resolve().parents[1]
+    server = load_server_config(repo)
+    probe = (
+        "import json, sys, transformers\n"
+        "from importlib.metadata import distributions\n"
+        "names = sorted({d.metadata['Name'].lower() for d in distributions()})\n"
+        "print(json.dumps({'path': sys.path, 'names': names,"
+        " 'transformers': transformers.__version__}))\n"
+    )
+    done = subprocess.run(
+        [*models.converter_python(server), "-c", probe],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    seen = json.loads(done.stdout.strip().splitlines()[-1])
+    venv, src = str(repo / ".venv"), str(repo / "src")
+    assert [p for p in seen["path"] if p.startswith((venv, src))] == []
+    assert {"pytest", "ruff", "ty", "clarity-chat"} & set(seen["names"]) == set()
+    pinned = server.llama_cpp_dir / "requirements" / "requirements-convert_legacy_llama.txt"
+    assert f"transformers=={seen['transformers']}" in pinned.read_text("utf-8"), seen
