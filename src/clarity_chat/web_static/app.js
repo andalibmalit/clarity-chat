@@ -1425,6 +1425,10 @@ async function loadSheet(range, first = false) {
     const lost = unanswered(error); // handled: the page already shows the no-key page
     if (!lost.handled) sheetEnded(lost.error);
     return;
+  } finally {
+    // A redraw while the read ran drew "attach" running. It has ended: draw what runs now,
+    // before the sheet, so the picker opens when pressed (Firefox CI, run 43755817667).
+    if (changing(clarity.state.running)) await refresh();
   }
   // Only the newest answer, for the range the boxes still hold, is drawn: an older one, or
   // one for keys typed over since, would show a count for another range (must 1).
