@@ -166,3 +166,17 @@ def test_each_press_opens_the_picker_on_a_fresh_input(clarity, page):  # noqa: F
     assert second.value.element.evaluate("input => input.id") == "attach-file"
     second.value.set_files({"name": "notes.md", "mimeType": "text/markdown", "buffer": NOTES})
     ready(page)
+
+
+def test_the_paperclip_says_why_it_waits_during_a_reply(clarity, page):  # noqa: F811
+    """QA 2 (task 17): greyed while a reply streams, with nothing saying why."""
+    redirect, backend = clarity
+    chat(page, redirect)
+    backend.replies, backend.piece_delay = [" Slowly" * 200], 0.2
+    page.fill("#message", "Hi")
+    page.click("#send")
+    page.wait_for_selector("#writing-box:not([hidden])")
+    assert page.get_attribute("#clip", "aria-disabled") == "true"
+    assert page.is_visible("#clip-waits")
+    assert page.text_content("#clip-waits") == "Waits until the reply is done."
+    page.click("#stop")
