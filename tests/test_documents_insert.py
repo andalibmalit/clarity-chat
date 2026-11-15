@@ -139,6 +139,13 @@ def test_pages_only_for_a_pdf_and_lines_otherwise(root):
     assert str(e.value) == "guide.pdf is in pages: attach pages of it, such as pages 1-2."
 
 
+def test_a_one_line_file_says_1_line(root):
+    """Fact-check row 17: never "1 lines"."""
+    with pytest.raises(DocumentRefused) as e:
+        piece(doc(["a\n"]), profile(root), "lines", 1, 2)
+    assert str(e.value).startswith("notes.md has 1 line: give a range from 1 to 1,")
+
+
 @pytest.mark.parametrize(("first", "last"), [(0, 1), (2, 1), (1, 4), (3, 3)])
 def test_a_range_outside_one_to_total_is_refused(root, first, last):
     with pytest.raises(DocumentRefused) as e:
@@ -341,13 +348,14 @@ def test_the_cost_is_counted_with_the_model_s_own_render(root, which, olmo_token
 def test_what_the_leftover_is_for_and_who_reads_control_tokens():
     """Should 9: room_left already keeps max_tokens for the reply, so the preselection's
     extra max_tokens is room for your message (Q11). Could 15: the tokenizer reads them."""
+    # Fact-check rows 14 and 16: at least, and the largest found (no global maximum).
     assert SENTENCES["preselected"] == (
-        "The start that still leaves {max_tokens} tokens (your max_tokens) for your message "
-        "and the rest of the chat."
+        "The largest start found that still leaves at least {max_tokens} tokens (your "
+        "max_tokens) for your message and the rest of the chat."
     )
     assert SENTENCES["no_start"] == (
-        "Not even its first {unit} leaves {max_tokens} tokens (your max_tokens) for your "
-        "message and the rest of the chat."
+        "Not even its first {unit} leaves at least {max_tokens} tokens (your max_tokens) for "
+        "your message and the rest of the chat."
     )
     assert SENTENCES["control_tokens"].startswith("Holds text the tokenizer reads as control")
 
@@ -418,3 +426,20 @@ def test_a_start_that_leaves_exactly_keep_tokens_counts(root):
     assert counted_left(fit(room, [], piece(d, p, "lines", 1, 21), FRAMING)) < keep
     found = start_that_fits(room, [], FRAMING, d, p, keep=keep)
     assert found is not None and found[0] == 20
+
+
+def test_the_sheet_s_words_are_all_in_the_one_table():
+    """Part 1's whole-branch review, should 5, and the fact-check's rows 4, 12 and 15: the
+    terminal and the sheet take every sentence from SENTENCES."""
+    assert SENTENCES["free"] == (
+        "{free} tokens free in this chat, after setting aside max_tokens for the reply."
+    )
+    assert SENTENCES["excerpt"] == (
+        "The pages or lines you choose go in complete, after a line saying they're an excerpt."
+    )
+    assert SENTENCES["no_marker"] == "No excerpt marker (this profile)."
+    assert SENTENCES["fits_up_to"] == "{Units} 1 to {last} fit."
+    assert SENTENCES["none_fits"] == "Not even its first {unit} fits."
+    for key in ("start_that_fits", "chosen", "new_chat", "framing", "no_framing",
+                "origin_default", "origin_profile", "encrypted", "empty_units"):  # fmt: skip
+        assert key in SENTENCES

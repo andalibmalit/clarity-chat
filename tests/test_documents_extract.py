@@ -116,8 +116,9 @@ def test_a_pdf_s_pages_and_an_image_only_page():
 
 
 def test_a_pdf_with_no_text_at_all_is_refused():
-    assert refused(make_pdf(["", ""]), "scan.pdf") == (
-        "scan.pdf has no text to read: its pages are images."
+    assert refused(make_pdf(["", ""]), "scan.pdf") == (  # fact-check row 36
+        "scan.pdf has no text Clarity can read. Its pages may be scanned images, which "
+        "Clarity doesn't read. Save a copy with a text layer (run OCR) and attach that."
     )
 
 
@@ -126,8 +127,9 @@ def test_a_pdf_with_no_text_at_all_is_refused():
     [b"%PDF-1.4\nnot a pdf at all", make_pdf(["Made-up page."])[:120], b"%PDF-" + bytes(500)],
 )
 def test_a_broken_pdf_is_refused_with_the_error_s_type(data):
-    sentence = refused(data, "broken.pdf")
-    assert sentence.startswith("Clarity couldn't read broken.pdf (") and sentence.endswith(").")
+    sentence = refused(data, "broken.pdf")  # fact-check row 42: what to do
+    assert sentence.startswith("Clarity couldn't read broken.pdf (")
+    assert sentence.endswith("). The file may be damaged: save a fresh copy and attach that.")
 
 
 def test_a_real_pdf_reads_to_its_known_text():
@@ -261,7 +263,9 @@ def test_a_file_over_64_mb_is_refused_before_it_s_read(tmp_path, monkeypatch):
     monkeypatch.setattr(os, "fdopen", no_reading)
     with pytest.raises(DocumentRefused) as e:
         read_path(str(big))
-    assert str(e.value) == "big.bin is too big: Clarity reads files of at most 64 MB."
+    assert str(e.value) == (  # fact-check row 39: 64 MiB, so the bytes too
+        "big.bin is too big: Clarity reads files up to 64 MB (67,108,864 bytes)."
+    )
 
 
 def test_a_directory_or_a_fifo_is_refused_without_blocking(tmp_path):
@@ -544,3 +548,16 @@ def test_the_reader_runs_in_its_own_process_group(monkeypatch):
     )
     answer = reading.run_child({"name": "x.md", "kind": "text"}, b"", None)
     assert answer["group"] != os.getpgrp()
+
+
+def test_html_s_record_names_the_python_that_read_it():
+    """Fact-check, design.md's row: HTML is read with Python's own html.parser, which has
+    changed between Python releases, so the record says which one ran."""
+    import platform
+
+    doc = extract(b"<p>Made-up.</p>", "notes.html")
+    assert doc.extractor == {
+        "name": "clarity-html",
+        "version": 1,
+        "python": platform.python_version(),
+    }
