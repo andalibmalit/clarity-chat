@@ -68,6 +68,7 @@ from clarity_chat.render import (
     chat_template_source,
     library_versions,
     message_spans,
+    prompt_text,
     unread_kwargs,
 )
 from clarity_chat.replay import (
@@ -724,10 +725,13 @@ class Session:
         conversation.head, conversation.pending = user.turn_id, []
         return self.call(user, seed=seed, on_text=on_text, cancel=cancel)
 
-    def room(self, empty: bool = False) -> Room:
+    def room(
+        self, empty: bool = False, cancel: threading.Event | None = None, name: str = ""
+    ) -> Room:
         """How to count for the next message: its prompt's tokens for a given content, after
         the chat so far (`empty`: in a new chat on this profile), and the free context a
-        prompt of that many tokens leaves."""
+        prompt of that many tokens leaves. With `cancel`, each count first checks it, and a
+        set one stops counting `name`."""
         conversation = self._require_conversation()
         assert self.tokenizer is not None
         tokenizer, template, profile = self.tokenizer, self.template_tokenizer, conversation.profile
@@ -736,11 +740,20 @@ class Session:
         max_tokens = conversation.settings["max_tokens"].value
 
         def tokens(next_content: str) -> int:
+            if cancel is not None and cancel.is_set():
+                raise DocumentRefused(f"Stopped counting {name}.")
             return len(
                 build_prompt(tokenizer, profile, [*path, ("user", next_content)], template).ids
             )
 
-        return Room(tokens, lambda n: room_left(self.backend.n_ctx, n, max_tokens), max_tokens)
+        frame = prompt_text(profile, [*path, ("user", "")], template or tokenizer)
+        return Room(
+            tokens,
+            lambda n: room_left(self.backend.n_ctx, n, max_tokens),
+            max_tokens,
+            frame_bytes=len(frame.encode("utf-8")),
+            token_bytes=tokenizer.max_token_bytes,
+        )
 
     def _attaching(self) -> tuple[Conversation, Profile, str]:
         conversation = self._require_conversation()
@@ -766,7 +779,7 @@ class Session:
         assert self.tokenizer is not None
         new = piece(doc, profile, unit, first, last)
         pending = attached_in({"attachments": conversation.pending})
-        room = self.room()
+        room = self.room(cancel=cancel, name=doc.name)
         result = fit(room, pending, new, framing)
         if not result.fits:
             start = None
@@ -774,10 +787,11 @@ class Session:
                 found = start_that_fits(room, pending, framing, doc, profile)
                 start = found[0] if found else None
             raise DoesntFit(
-                f"{doc.name} doesn't fit: it needs {result.tokens:,} tokens and "
+                f"{doc.name} doesn't fit: it needs {needs(result)} tokens and "
                 f"{result.free:,} are free in this chat.",
                 start,
             )
+        assert result.tokens is not None  # it fits: counted
         whole = covers_whole(doc, unit, first, last)
         record = {
             "name": doc.name,
@@ -813,7 +827,7 @@ class Session:
         conversation, profile, framing = self._attaching()
         assert self.tokenizer is not None
         pending = attached_in({"attachments": conversation.pending})
-        room, checked = self.room(), {}
+        room, checked = self.room(cancel=cancel, name=doc.name), {}
         whole = fit(room, pending, piece(doc, profile), framing)
         units = doc.unit + "s"
 
@@ -825,6 +839,7 @@ class Session:
                 "unit": units,
                 "range": [first, k],
                 "tokens": found.tokens,
+                "tokens_at_least": found.at_least,
                 "left": found.left,
                 "marker": piece(doc, profile, units, first, k).marker,
             }
@@ -833,7 +848,7 @@ class Session:
         if unit is not None:
             excerpt = piece(doc, profile, unit, first, last)
             chosen = shown((last, fit(room, pending, excerpt, framing)), first)
-        new_chat = fit(self.room(empty=True), [], piece(doc, profile), framing)
+        new_chat = fit(self.room(True, cancel, doc.name), [], piece(doc, profile), framing)
         return {
             "name": doc.name,
             "kind": doc.kind,
@@ -842,7 +857,8 @@ class Session:
             "total": doc.total,
             "empty_units": doc.empty_units,
             "encrypted": bool(doc.extractor.get("encrypted")),
-            "tokens_whole": whole.tokens,
+            "tokens_whole": whole.tokens,  # null when not counted: then at least this many
+            "tokens_whole_at_least": whole.at_least,
             "free": whole.free,
             "fits": whole.fits,
             "left_whole": whole.left,
@@ -1838,6 +1854,14 @@ def annotate_log(
     log = LogFile(path)
     log.on_append = on_record
     return annotate_call(log, about, kind, text, "review")
+
+
+def needs(found: Fit) -> str:
+    """A cost as a refusal says it: exact, or "more than N" when only the bound was taken."""
+    if found.tokens is None:
+        assert found.at_least is not None
+        return f"more than {found.at_least - 1:,}"
+    return f"{found.tokens:,}"
 
 
 def attached_tokens(spans: Any, conversation: Conversation, user_turn: Turn) -> str:

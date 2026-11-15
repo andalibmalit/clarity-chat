@@ -190,7 +190,8 @@ def format_check(check: dict[str, Any], max_tokens: int) -> str:
     else:
         lines.append(
             SENTENCES["doesnt_fit"].format(
-                tokens=f"{check['tokens_whole']:,}", free=f"{check['free']:,}"
+                tokens=needs(check["tokens_whole"], check["tokens_whole_at_least"]),
+                free=f"{check['free']:,}",
             )
         )
     start, preselected = check["start_that_fits"], check["preselected"]
@@ -207,17 +208,16 @@ def format_check(check: dict[str, Any], max_tokens: int) -> str:
         lines.append(f"{reason}: {unit}s 1-{preselected['range'][1]}.")
     if chosen := check["chosen"]:
         first, last = chosen["range"]
-        left = chosen["left"]
-        lines.append(
-            f"{unit.capitalize()}s {first}-{last}: {chosen['tokens']:,} tokens. "
-            + (
-                SENTENCES["left"].format(left=f"{left:,}")
-                if left >= 0
-                else SENTENCES["doesnt_fit"].format(
-                    tokens=f"{chosen['tokens']:,}", free=f"{chosen['tokens'] + left:,}"
-                )
+        named = f"{unit.capitalize()}s {first}-{last}: "
+        if chosen["left"] is not None and chosen["left"] >= 0:
+            lines.append(
+                f"{named}{chosen['tokens']:,} tokens. "
+                + SENTENCES["left"].format(left=f"{chosen['left']:,}")
             )
-        )
+        else:
+            needed = needs(chosen["tokens"], chosen["tokens_at_least"])
+            free = f"{check['free']:,}"
+            lines.append(named + SENTENCES["doesnt_fit"].format(tokens=needed, free=free))
     if not check["fits"] and check["fits_new_chat"]:
         lines.append(
             f"The whole fits a new chat with this profile ({check['free_new_chat']:,} free): "
@@ -235,6 +235,11 @@ def format_check(check: dict[str, Any], max_tokens: int) -> str:
         f"Framing line ({origin}): {framing}" if framing else f"No framing line ({origin})."
     )
     return "\n".join(lines)
+
+
+def needs(tokens: int | None, at_least: int | None) -> str:
+    """A count, or "more than N" when only its bound was taken (it surely doesn't fit)."""
+    return f"{tokens:,}" if tokens is not None else f"more than {(at_least or 1) - 1:,}"
 
 
 def not_kept(pending: list[dict[str, Any]]) -> str:

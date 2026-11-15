@@ -15,11 +15,11 @@ from clarity_chat.profiles import ConfigError
 from tests.test_documents_extract import stub
 from tests.test_session_attach import chat_session
 
-RANGE = {"unit", "range", "tokens", "left", "marker"}
+RANGE = {"unit", "range", "tokens", "tokens_at_least", "left", "marker"}
 CHECK = {
     "name", "kind", "bytes", "unit", "total", "empty_units", "encrypted", "tokens_whole",
-    "free", "fits", "left_whole", "start_that_fits", "preselected", "chosen",
-    "free_new_chat", "fits_new_chat", "already_in_chat", "control_tokens",
+    "tokens_whole_at_least", "free", "fits", "left_whole", "start_that_fits", "preselected",
+    "chosen", "free_new_chat", "fits_new_chat", "already_in_chat", "control_tokens",
     "has_closing_tag", "framing", "framing_origin", "text",
 }  # fmt: skip
 NOTES = "Line one.\nLine two.\nLine three.\n"
@@ -114,9 +114,10 @@ def test_a_whole_file_that_doesn_t_fit_is_refused_with_the_numbers_and_the_start
     session, backend = chat
     path = tmp_path / "long.md"
     path.write_text("".join(f"Made-up line {n}.\n" for n in range(200)), encoding="utf-8")
-    backend._n_ctx = 600
+    backend._n_ctx = 2000  # counted exactly: the bound alone (a quarter) would fit
     c = Commands(session)
     check = run(c, "attach", f"{path} check")["check"]
+    assert check["tokens_whole"] is not None
     k = check["start_that_fits"]["range"][1]
     with pytest.raises(DocumentRefused) as e:
         run(c, "attach", str(path))

@@ -96,9 +96,19 @@ class Tokenizer:
         """The text these IDs stand for, special tokens included and spaces untouched."""
         return self.tok.decode(ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)
 
-    @property
+    @cached_property
     def max_token_bytes(self) -> int:
-        return 1
+        """The longest token's text, in UTF-8 bytes: no token covers more of a text, so a
+        text of B bytes takes at least B / this many tokens. Decoded one token at a time, a
+        piece of a character comes out as U+FFFD (3 bytes), never shorter than the bytes it
+        covers. It holds for tokenizers whose tokens decode back to the text, as byte-level
+        BPE's do (Clarity's are)."""
+        texts = self.tok.batch_decode(
+            [[i] for i in range(len(self.tok))],
+            skip_special_tokens=False,
+            clean_up_tokenization_spaces=False,
+        )
+        return max((len(text.encode("utf-8")) for text in texts), default=1)
 
     @property
     def bos(self) -> tuple[str | None, int | None]:
@@ -270,6 +280,13 @@ def special_in_content(
         if tokens:
             found.append({"in": where, "tokens": tokens})
     return found
+
+
+def prompt_text(profile: Profile, turns: list[tuple[str, str]], template: Tokenizer) -> str:
+    """The prompt's text, as build_prompt renders it, without tokenizing it."""
+    if profile.mode == "text":
+        return render_text(profile, turns)
+    return render_chat(template, profile, turns)
 
 
 def build_prompt(

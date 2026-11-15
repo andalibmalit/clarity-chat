@@ -50,19 +50,25 @@ class Attached:
 class Room:
     """How to count, from the session: the prompt's tokens when the next message's content
     is the text given, the free context left after a prompt of that many tokens
-    (session.room_left), and max_tokens."""
+    (session.room_left), and max_tokens. For the bound: the prompt's text in UTF-8 bytes
+    with an empty next message (`frame_bytes`), and the tokenizer's longest token in bytes
+    (`token_bytes`)."""
 
     tokens: Callable[[str], int]
     room_left: Callable[[int], int]
     max_tokens: int
+    frame_bytes: int
+    token_bytes: int
 
 
 @dataclass(frozen=True)
 class Fit:
-    tokens: int  # what attaching it costs: the prompt's tokens with it, minus without
+    tokens: int | None  # what attaching it costs: the prompt's tokens with it, minus without
     free: int  # the free context now, with what's already waiting
-    left: int  # free minus tokens: what your message and the rest of the chat can use
+    left: int | None  # free minus tokens: what your message and the rest of the chat can use
     fits: bool
+    # Not counted, because it surely doesn't fit: the least it can cost (tokens is None).
+    at_least: int | None = None
 
 
 def framing_of(profile: Profile) -> tuple[str, str]:
@@ -198,12 +204,21 @@ def fit(
     room: Room, pending: list[Attached], new: Attached, framing: str, before: int | None = None
 ) -> Fit:
     """What attaching `new` costs, after what's waiting, and what it leaves. `before`: the
-    prompt's tokens without it, if already counted."""
+    prompt's tokens without it, if already counted.
+
+    Bounded first (the security review's must 1): the prompt with it holds at least the
+    frame's bytes plus the content's (trimmed, as a template may), and no token covers more
+    than `token_bytes` of them. When that least cost is more than is free, it doesn't fit,
+    and nothing renders the whole: a 64 MB text would take gigabytes and minutes to."""
     if before is None:
         before = room.tokens(content("", pending, framing))
-    after = room.tokens(content("", [*pending, new], framing))
     available = room.room_left(before)
-    cost = after - before
+    text = content("", [*pending, new], framing)
+    written = room.frame_bytes + len(text.strip().encode("utf-8"))
+    at_least = -(-written // room.token_bytes) - before
+    if at_least > available:
+        return Fit(tokens=None, free=available, left=None, fits=False, at_least=at_least)
+    cost = room.tokens(text) - before
     return Fit(tokens=cost, free=available, left=available - cost, fits=cost <= available)
 
 
@@ -230,7 +245,8 @@ def start_that_fits(
     def holds(k: int) -> bool:
         if k not in checked:
             checked[k] = fit(room, pending, piece(doc, profile, unit, 1, k), framing, before)
-        return checked[k].fits and checked[k].left >= keep
+        found = checked[k]
+        return found.fits and found.left is not None and found.left >= keep
 
     lo, hi = 0, 1  # holds(lo) (or lo is 0); holds(hi) is still to check
     while hi <= doc.total and holds(hi):

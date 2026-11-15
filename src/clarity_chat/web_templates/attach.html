@@ -2,8 +2,8 @@
 {% else %}{% set c = check %}<h2 id="attach-title" tabindex="-1">{{ c.name }}</h2>
 <p>{{ c.kind }}, {{ "{:,}".format(c.total) }} {{ c.unit }}s{% if c.empty_units %}, {{ "{:,}".format(c.empty_units) }} with no text{% endif %}{% if c.encrypted %}, encrypted (it opens without a password){% endif %}.</p>
 {% if c.fits %}<p>{{ sentences.whole.format(tokens="{:,}".format(c.tokens_whole)) }} {{ sentences.left.format(left="{:,}".format(c.left_whole)) }}</p>
-{% else %}<p>{{ sentences.doesnt_fit.format(tokens="{:,}".format(c.tokens_whole), free="{:,}".format(c.free)) }}</p>
-{% endif %}{% for label, r in (("The start that fits", c.start_that_fits), ("Preselected", c.preselected), ("Chosen", c.chosen)) %}{% if r %}<p>{{ label }}: {{ r.unit }} {{ r.range[0] }}-{{ r.range[1] }}, {{ "{:,}".format(r.tokens) }} tokens, {{ "{:,}".format(r.left) }} left.</p>
+{% else %}<p>{{ sentences.doesnt_fit.format(tokens=("{:,}".format(c.tokens_whole) if c.tokens_whole is not none else "more than {:,}".format(c.tokens_whole_at_least - 1)), free="{:,}".format(c.free)) }}</p>
+{% endif %}{% for label, r in (("The start that fits", c.start_that_fits), ("Preselected", c.preselected), ("Chosen", c.chosen)) %}{% if r %}<p>{{ label }}: {{ r.unit }} {{ r.range[0] }}-{{ r.range[1] }}, {% if r.tokens is not none %}{{ "{:,}".format(r.tokens) }} tokens, {{ "{:,}".format(r.left) }} left{% else %}more than {{ "{:,}".format(r.tokens_at_least - 1) }} tokens{% endif %}.</p>
 {% endif %}{% endfor %}{% if c.already_in_chat %}<p>{{ sentences.already }}</p>
 {% endif %}{% if c.control_tokens %}<p>{{ sentences.control_tokens.format(tokens=c.control_tokens | join(", ")) }}</p>
 {% endif %}{% if c.has_closing_tag %}<p>{{ sentences.closing_tag }}</p>
