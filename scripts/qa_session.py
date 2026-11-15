@@ -22,11 +22,12 @@ checkout's in its flags only, that the weights match models.lock's sha256, and t
 nothing in the root is a link (Clarity and the driver follow links, so one could reach a
 private folder). An attachment (`--attach PATH`, a `/attach PATH` step, `attach` in
 `--json`, or a message such as `//attach PATH` that a cancel would put back as that
-command) must name a file in the root: the path as given and as Clarity's own attach_args
-reads it, with `~` expanded, resolved from the root with links followed, with no `..` and
-not a file with a second name. Otherwise Clarity, outside the sandbox, could read a file
-the sandbox denies into the transcript. Each step is checked again, and the root scanned
-for links again, just before it's typed; a step over 1,000 bytes is refused.
+command; each step is judged alone, see check_command) must name a file in the root: the
+path as given and as Clarity's own attach_args reads it, with `~` expanded, resolved from
+the root with links followed, with no `..` and not a file with a second name. Otherwise
+Clarity, outside the sandbox, could read a file the sandbox denies into the transcript.
+Each step is checked again, and the root scanned for links again, just before it's typed;
+a step over 1,000 bytes is refused.
 `--init` also resets server.toml. Arguments are parsed with Clarity's own parser and
 steps with its own command splitter, so they are checked as Clarity will read them.
 """
@@ -133,7 +134,10 @@ def no_links(root: Path) -> None:
     link to a file outside the root)."""
     for folder, folders, files in os.walk(root, followlinks=False):
         for name in [*folders, *files]:
-            info = (Path(folder) / name).lstat()
+            try:
+                info = (Path(folder) / name).lstat()
+            except FileNotFoundError:  # removed since the listing (Clarity runs meanwhile)
+                continue
             if stat.S_ISLNK(info.st_mode) or (stat.S_ISREG(info.st_mode) and info.st_nlink > 1):
                 raise Refused(f"{Path(folder) / name} is a link; the root holds plain files only.")
 
@@ -286,23 +290,28 @@ def check_step(where: str, line: str, json_mode: bool, root: Path | None) -> Non
 
 
 def check_command(where: str, line: str, root: Path | None) -> None:
-    """A typed line that starts with "/", and what a message would become as a command. A
-    message cancelled before its reply goes back in the input with one slash fewer, so
-    `//attach PATH`, `/say /attach PATH` and `/edit /attach PATH` are judged as `/attach
-    PATH`, whatever Clarity's input does."""
+    """A typed line that starts with "/", and what it would become as a command. A message
+    cancelled before its reply goes back in the input with one slash fewer, so `//attach
+    PATH`, `/say /attach PATH` and `/edit /attach PATH` are also judged as `/attach PATH`.
+    This judges each step alone: text typed after such a draft joins it into a line no step
+    holds (`//attach`, a cancel, then ` PATH`). Clarity keeping the draft's slash closes that
+    route; the driver doesn't model Clarity's input."""
     from clarity_chat.cli import split_command
 
-    name, arg = split_command(line)
-    if any(unicodedata.category(c) == "Cf" for c in name):  # a zero-width space hides a name
-        raise Refused(f"{where}: a format character in the command's name")
-    if name in NAMED and arg.strip() and not ID.fullmatch(arg.strip()):
-        raise Refused(f"{where}: /{name} takes a name or ID here, not {arg!r}")
-    if attaches(name):
-        check_attach_step(where, arg, root)
-    if line.startswith("//"):
-        check_command(where, line[1:], root)
-    elif name in ("say", "edit") and arg.startswith("/"):
-        check_command(where, arg, root)
+    while True:  # each round is shorter, so it ends
+        name, arg = split_command(line)
+        if any(unicodedata.category(c) == "Cf" for c in name):  # a zero-width space hides it
+            raise Refused(f"{where}: a format character in the command's name")
+        if name in NAMED and arg.strip() and not ID.fullmatch(arg.strip()):
+            raise Refused(f"{where}: /{name} takes a name or ID here, not {arg!r}")
+        if attaches(name):
+            check_attach_step(where, arg, root)
+        if line.startswith("//"):
+            line = line[1:]
+        elif name in ("say", "edit") and arg.startswith("/"):
+            line = arg
+        else:
+            return
 
 
 def check_attach_step(where: str, arg: str, root: Path | None) -> None:
