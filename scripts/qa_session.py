@@ -220,6 +220,10 @@ def attach_problem(root: Path, value: str) -> str | None:
     from clarity_chat.commands import attach_args
     from clarity_chat.profiles import ConfigError
 
+    try:  # a lone surrogate: POSIX can't encode it, Windows' UTF-16 names take it
+        value.encode("utf-8", "surrogateescape")
+    except UnicodeEncodeError:
+        return f"{value!r} can't be judged (a lone surrogate); use a plain path in the root"
     readings = {value, value.strip(), RANGE.sub("", value.strip())}
     try:
         readings |= {attach_args(value)[0], attach_args(value.strip())[0]}

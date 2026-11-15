@@ -62,7 +62,7 @@ def test_detach_with_a_huge_number_is_refused(chat):
 def test_attach_with_a_huge_range_is_refused(chat, tmp_path):
     session, _ = chat
     path = tmp_path / "notes.md"
-    path.write_text("Made-up.\n", encoding="utf-8")
+    path.write_bytes(b"Made-up.\n")
     with pytest.raises(ConfigError) as e:
         Commands(session).run("attach", f"{path} lines 1-{HUGE}", lambda e: None)
     assert str(e.value) == "A range's numbers have at most 9 digits."
@@ -117,8 +117,8 @@ def test_forty_thousand_spaces_parse_at_once():
 @pytest.mark.parametrize("name", ["notes check", "notes pages 1-2", "notes lines 1-1 check"])
 def test_dash_dash_attach_takes_the_named_file_whole(fetched_root, chat_tokenizer, tmp_path, name):
     named = tmp_path / name
-    named.write_text("The file named.\n", encoding="utf-8")
-    (tmp_path / "notes").write_text("A different made-up file.\n", encoding="utf-8")
+    named.write_bytes(b"The file named.\n")
+    (tmp_path / "notes").write_bytes(b"A different made-up file.\n")
     loop, _, _ = chat_loop(fetched_root, chat_tokenizer, attach=read_files([str(named)]))
     loop.start()
     (record,) = loop.session.conversation.pending

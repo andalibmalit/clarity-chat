@@ -35,7 +35,7 @@ def chat(fetched_root, chat_tokenizer):
 @pytest.fixture
 def notes(tmp_path):
     path = tmp_path / "notes.md"
-    path.write_text(NOTES, encoding="utf-8")
+    path.write_bytes(NOTES.encode())
     return path
 
 
@@ -75,7 +75,7 @@ def test_attach_a_range_adds_an_excerpt(chat, notes):
 def test_a_path_with_spaces_is_everything_before_the_range(chat, tmp_path):
     session, _ = chat
     path = tmp_path / "trail notes check.md"
-    path.write_text(NOTES, encoding="utf-8")
+    path.write_bytes(NOTES.encode())
     result = run(Commands(session), "attach", f"{path} lines 1-1")
     assert result["attached"]["name"] == "trail notes check.md"
 
@@ -114,7 +114,7 @@ def test_a_whole_file_that_doesn_t_fit_is_refused_with_the_numbers_and_the_start
 ):
     session, backend = chat
     path = tmp_path / "long.md"
-    path.write_text("".join(f"Made-up line {n}.\n" for n in range(200)), encoding="utf-8")
+    path.write_bytes(("".join(f"Made-up line {n}.\n" for n in range(200))).encode())
     backend._n_ctx = 2000  # counted exactly: the bound alone (a quarter) would fit
     c = Commands(session)
     check = run(c, "attach", f"{path} check")["check"]
@@ -143,7 +143,7 @@ def test_attach_alone_lists_and_detach_removes(chat, notes, tmp_path):
     session, _ = chat
     c = Commands(session)
     other = tmp_path / "other.md"
-    other.write_text("Other.\n", encoding="utf-8")
+    other.write_bytes(b"Other.\n")
     run(c, "attach", str(notes))
     run(c, "attach", str(other))
     first, second = session.conversation.pending
@@ -195,7 +195,7 @@ def test_the_terminal_reads_paths_whatever_its_name(chat, tmp_path):
     """A file named like an upload ID is a path in the terminal."""
     session, _ = chat
     path = tmp_path / "upload-0123456789ab"
-    path.write_text(NOTES, encoding="utf-8")
+    path.write_bytes(NOTES.encode())
     result = run(Commands(session), "attach", str(path))
     assert result["attached"]["name"] == "upload-0123456789ab"
 
