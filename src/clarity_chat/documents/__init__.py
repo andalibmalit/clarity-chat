@@ -33,6 +33,7 @@ from clarity_chat.documents.reading import (
     checked_name,
     extract,
     read_path,
+    too_big,
 )
 
 __all__ = [
@@ -62,5 +63,6 @@ __all__ = [
     "read_path",
     "scan",
     "start_that_fits",
+    "too_big",
     "summaries",
 ]

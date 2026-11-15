@@ -857,6 +857,8 @@ class Session:
         if unit is not None:
             excerpt = piece(doc, profile, unit, first, last)
             chosen = shown((last, fit(room, pending, excerpt, framing)), first)
+            assert chosen is not None
+            chosen["text"] = excerpt.text  # for the sheet's extracted text (C1)
         new_chat = fit(self.room(True, cancel, doc.name), [], piece(doc, profile), framing)
         return {
             "name": doc.name,

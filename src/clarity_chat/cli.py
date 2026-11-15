@@ -190,11 +190,7 @@ def format_check(check: dict[str, Any], max_tokens: int) -> str:
 
 
 def not_kept(pending: list[dict[str, Any]]) -> str:
-    names = ", ".join(shown(a["name"]) for a in pending)
-    return (
-        f"Not kept: {names}, waiting for your next message. An attachment is logged only "
-        "with the message it's sent with."
-    )
+    return SENTENCES["not_kept"].format(names=", ".join(shown(a["name"]) for a in pending))
 
 
 def format_history(result: dict[str, Any]) -> str:

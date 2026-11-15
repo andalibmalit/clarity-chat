@@ -199,7 +199,8 @@ def test_the_chips_name_each_attachment_with_a_way_to_remove_it(make):
     command(client, "attach", upload_id)
     tokens = session.conversation.pending[0]["tokens"]
     chips = client.get("/view/pending", headers=GET).text
-    assert f"notes.md · whole · {tokens:,} tokens" in html.unescape(chips)
+    shown = html.unescape(re.sub(r"<[^>]+>", "", chips))
+    assert f"notes.md · whole · {tokens:,} tokens" in shown
     assert 'data-action="detach" data-n="1" aria-label="Remove notes.md"' in chips
 
 

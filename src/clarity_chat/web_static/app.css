@@ -457,3 +457,47 @@ html.scenic .pn { z-index: 1; }
 .appearance .tick { position: absolute; top: 10px; right: 10px; }
 .appearance .cn { white-space: nowrap; }
 .crow[aria-current="true"] { box-shadow: inset 3px 0 0 var(--accent); font-weight: 500; }
+
+/* Attach (v0.3.1 C1): the paperclip, the chips and the sheet, as the board V31Attach draws them */
+.clip { width: 32px; height: 32px; border-radius: var(--r-sm); color: var(--muted); display: grid; place-items: center; background: none; border: 0; cursor: pointer; }
+.clip:hover { background: var(--hover); color: var(--ink); }
+.clip[disabled] { opacity: 0.4; cursor: not-allowed; }
+.clip[aria-disabled="true"] { opacity: 0.45; cursor: default; }
+.clip[aria-disabled="true"]:hover { background: none; color: var(--muted); }
+.clipwhy { font-size: var(--small); color: var(--muted); }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 4px 3px 9px; border-radius: 999px; background: var(--hover); font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.chip .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip .m { color: var(--muted); white-space: nowrap; }
+.chip .x { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); background: none; border: 0; cursor: pointer; flex: none; }
+.chip .x:hover { background: var(--rule); color: var(--ink); }
+dialog.sheet.attach { width: min(620px, calc(100vw - 32px)); max-height: calc(100vh - 64px); overflow-y: auto; }
+.attach .shhd { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.attach .shhd h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 4px; overflow-wrap: anywhere; }
+.attach .facts { margin: 0; font-size: var(--small); color: var(--muted); font-variant-numeric: tabular-nums; }
+.attach .reading { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.attach .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--rule); border-top-color: var(--accent); animation: attach-spin 0.9s linear infinite; }
+@keyframes attach-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .attach .spin { animation: none; } }
+.attach .info, .attach .sheet-error { margin: 0 0 10px; font-size: 13px; }
+.attach .sheet-error { color: var(--warn); }
+.attach .opts { display: flex; flex-direction: column; gap: 8px; }
+.attach .opt { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 8px 10px; }
+.attach .optbtn { display: flex; align-items: center; gap: 8px; font: inherit; font-weight: 500; color: var(--ink); background: none; border: 0; padding: 0; cursor: pointer; }
+.attach .optbtn[aria-disabled="true"] { color: var(--muted); cursor: default; }
+.attach .rd { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; }
+.attach .optbtn[aria-checked="true"] .rd { border-color: var(--accent); box-shadow: inset 0 0 0 3px var(--raised); background: var(--accent); }
+.attach .od { margin: 4px 0 0 22px; font-size: 13px; color: var(--muted); }
+.attach .od.w { color: var(--warn); }
+.attach .range { display: flex; align-items: center; gap: 6px; margin: 6px 0 0 22px; font-size: 13px; font-variant-numeric: tabular-nums; flex-wrap: wrap; }
+.attach .range input { width: 6em; font: inherit; padding: 3px 6px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--raised); color: var(--ink); }
+.attach .warnl { margin: 10px 0 0; font-size: 13px; color: var(--warn); }
+.attach .frame { margin-top: 12px; border-top: 1px solid var(--rule); padding-top: 8px; font-size: 13px; }
+.attach .fl { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); }
+.attach .ft { margin: 2px 0 8px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.attach .preview { margin-top: 10px; max-height: 240px; overflow: auto; border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 8px 10px; }
+.attach .preview pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; }
+.attach .preview .more { margin: 6px 0; font-size: 12.5px; color: var(--muted); }
+.attach .actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+.attach .actions .sp { flex: 1; }
+.attach .why { font-size: var(--small); color: var(--muted); }

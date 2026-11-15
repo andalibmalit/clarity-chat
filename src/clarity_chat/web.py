@@ -55,9 +55,16 @@ from clarity_chat.commands import (
     REPLY_COMMANDS,
     UPLOAD_ID,
     Commands,
-    check_lines,
+    more_than,
 )
-from clarity_chat.documents import MAX_BYTES, SIZE_LIMIT, DocumentRefused, checked_name
+from clarity_chat.documents import (
+    MAX_BYTES,
+    SENTENCES,
+    DocumentRefused,
+    checked_name,
+    counted,
+    too_big,
+)
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.profiles import NEUTRAL, SETTING_HELP, SETTING_RANGES, ConfigError
 from clarity_chat.replay import CANNOT_CHANGE_OUTPUT, cancelled_refusal, replay_notes
@@ -80,7 +87,6 @@ MAX_BODY = 64 * 1024  # any route's body
 # /command's: any message a profile's context can take (the terminal and --json have no
 # cap, so the page mustn't be the odd one out for a realistic message).
 MAX_COMMAND = 8 * 1024 * 1024
-TOO_BIG_FILE = f"Too big: Clarity attaches files up to {SIZE_LIMIT}."
 HEARTBEAT = 15.0  # seconds between keep-alive lines on the event stream
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; "
@@ -330,14 +336,13 @@ def make_app(
 
     async def upload(request: Request) -> Response:
         """A file's bytes, kept in memory for /attach. Every check runs before any of the
-        body is read (S4): the secret, the Origin, the type, the length, the tab, the name."""
+        body is read (S4): the secret, the Origin, the type, the length's form, the tab, the
+        name, then the length itself, so its refusal names the file (the board's ruling 4)."""
         try:
             check(request, post=True, kind="application/octet-stream")
             length = request.headers.get("content-length", "")
             if not re.fullmatch(r"[0-9]+", length):
                 raise Refused(411, "Send the file's length (Content-Length).")
-            if len(length) > 18 or int(length) > MAX_BYTES:  # int() refuses over 4,300 digits
-                raise Refused(413, TOO_BIG_FILE)
             tab = request.query_params.get("tab", "")
             if not tab:
                 raise Refused(400, "An upload names its tab.")
@@ -346,6 +351,8 @@ def make_app(
                 name = checked_name(re.split(r"[/\\]", request.query_params.get("name", ""))[-1])
             except DocumentRefused as e:
                 raise Refused(400, str(e)) from e
+            if len(length) > 18 or int(length) > MAX_BYTES:  # int() refuses over 4,300 digits
+                raise Refused(413, too_big(name))
             if reading[0]:  # each holds up to 128 MB until it replaces the last: one at a time
                 raise Refused(409, "Another file is being uploaded. Wait for it, then try again.")
             reading[0] = True
@@ -354,7 +361,7 @@ def make_app(
                 async for chunk in request.stream():  # counted again: the length can lie
                     size += len(chunk)
                     if size > MAX_BYTES:
-                        raise Refused(413, TOO_BIG_FILE)
+                        raise Refused(413, too_big(name))
                     chunks.append(chunk)
             finally:
                 reading[0] = False
@@ -1496,26 +1503,174 @@ def attach_params(query: Any) -> dict[str, str | None]:
         raise Refused(400, "That isn't an upload ID.")
     unit, first, last = (query.get(k) for k in ("unit", "first", "last"))
     if (unit, first, last) == (None, None, None):
-        return {"upload": upload, "range": None}
+        return {"upload": upload, "range": None, "first": None, "last": None}
     if unit not in ("pages", "lines") or not all(
         n is not None and re.fullmatch(r"[0-9]{1,9}", n) for n in (first, last)
     ):
         raise Refused(400, "A range is pages or lines, then two whole numbers.")
-    return {"upload": upload, "range": f"{unit} {first}-{last}"}
+    return {"upload": upload, "range": f"{unit} {first}-{last}", "first": first, "last": last}
 
 
 async def _attach(worker: Worker, params: dict[str, str | None]) -> str:
-    """The attach sheet for an upload: the check's numbers, or its refusal."""
-    args = " ".join(a for a in (params["upload"], params["range"], "check") if a)
-    answer = await read_or_refusal(worker, "attach", args)
-    check = (answer.get("result") or {}).get("check")
-    conversation = worker.commands.session.conversation
-    lines = []
-    if check is not None and conversation is not None:
-        lines = check_lines(check, conversation.settings["max_tokens"].value)
-    return templates.get_template("attach.html").render(
-        error=answer.get("error"), check=check, lines=lines[1:]
+    """The attach sheet for an upload (C1), from `/attach ID [range] check`: the choices and
+    their numbers in the table's words, or the refusal. With no range, a file that doesn't
+    fit opens on the part the sheet preselects (Q11); a range the file doesn't have shows
+    its sentence in the part, with the rest drawn."""
+    upload, chosen = params["upload"], params["range"]
+    assert upload is not None  # attach_params checked it
+    answer = await read_or_refusal(
+        worker, "attach", " ".join(filter(None, (upload, chosen))) + " check"
     )
+    part_error = None
+    if "error" in answer and chosen:  # the range, not the file: draw the rest
+        whole = await read_or_refusal(worker, "attach", f"{upload} check")
+        if "result" in whole:
+            part_error, answer = answer["error"], whole
+    if "error" in answer:
+        return templates.get_template("attach.html").render(error=answer["error"])
+    check = answer["result"]["check"]
+    pre = check["preselected"]
+    if not chosen and not check["fits"] and pre:
+        units = pre["unit"]
+        found = await read_or_refusal(
+            worker, "attach", f"{upload} {units} 1-{pre['range'][1]} check"
+        )
+        check = found["result"]["check"] if "result" in found else check
+    conversation = worker.commands.session.conversation
+    state = await result_of(worker, "state")
+    max_tokens = conversation.settings["max_tokens"].value if conversation else 0
+    own_marker = conversation is not None and conversation.profile.excerpt_marker is not None
+    typed = (params["first"], params["last"]) if part_error else None
+    sheet = attach_sheet(check, upload, max_tokens, own_marker, state["pending"], part_error, typed)
+    return templates.get_template("attach.html").render(error=None, s=sheet)
+
+
+KINDS = {"text": "Text", "html": "HTML", "pdf": "PDF"}
+
+
+def size_words(n: int) -> str:
+    """A file's size, as the sheet shows it."""
+    if n < 1024:
+        return counted(n, "byte")
+    if n < 1024 * 1024:
+        return f"{n / 1024:.0f} KB"
+    return f"{n / 1024 / 1024:.1f} MB"
+
+
+def preview(text: str) -> dict[str, Any]:
+    """The extracted text the sheet shows: its first six lines, then, past eight, how many
+    are left out and the last two (the board's ruling 8)."""
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    lines = [line + "\n" for line in lines]
+    if len(lines) <= 8:
+        return {"start": "".join(lines), "more": None, "end": ""}
+    more = SENTENCES["more_lines"].format(count=f"{len(lines) - 8:,}")
+    return {"start": "".join(lines[:6]), "more": more, "end": "".join(lines[-2:])}
+
+
+def attach_sheet(
+    check: dict[str, Any],
+    upload: str,
+    max_tokens: int,
+    own_marker: bool,
+    pending: list[dict[str, Any]],
+    part_error: str | None,
+    typed: tuple[str | None, str | None] | None,
+) -> dict[str, Any]:
+    """Everything the sheet draws, in the table's words (decision 20)."""
+    unit, units = check["unit"], f"{check['unit']}s"
+    free = f"{check['free']:,}"
+    facts = KINDS[check["kind"]] + " · " + counted(check["total"], unit)
+    if check["empty_units"]:
+        facts += ", " + SENTENCES["empty_units"].format(count=f"{check['empty_units']:,}")
+    if check["encrypted"]:
+        facts += ", " + SENTENCES["encrypted"]
+    facts += " · " + size_words(check["bytes"])
+    if check["fits"]:
+        whole_note = (
+            SENTENCES["whole"].format(tokens=f"{check['tokens_whole']:,}")
+            + " "
+            + SENTENCES["left"].format(left=f"{check['left_whole']:,}")
+        )
+    else:
+        whole_note = SENTENCES["doesnt_fit"].format(
+            tokens=more_than(check["tokens_whole"], check["tokens_whole_at_least"]), free=free
+        )
+    start, pre, chosen = check["start_that_fits"], check["preselected"], check["chosen"]
+    part: dict[str, Any] = {"first": 1, "last": check["total"], "ok": False, "notes": []}
+    if typed:
+        part.update(first=typed[0], last=typed[1], notes=[part_error])
+    elif chosen:
+        first, last = chosen["range"]
+        part.update(first=first, last=last, ok=chosen["left"] is not None and chosen["left"] >= 0)
+        if part["ok"]:
+            part["count"] = f"{chosen['tokens']:,} tokens"
+            part["notes"].append(SENTENCES["left"].format(left=f"{chosen['left']:,}"))
+        else:
+            needed = more_than(chosen["tokens"], chosen["tokens_at_least"])
+            part["notes"].append(SENTENCES["doesnt_fit"].format(tokens=needed, free=free))
+        if pre and chosen["range"] == pre["range"]:
+            part["notes"].append(SENTENCES["preselected"].format(max_tokens=f"{max_tokens:,}"))
+    if start:
+        part["max"] = start["range"][1]
+        if not check["fits"]:
+            Units = units.capitalize()
+            part["notes"].append(
+                SENTENCES["fits_up_to"].format(Units=Units, last=start["range"][1])
+            )
+    else:
+        part["max"] = check["total"]
+    if not check["fits"] and not pre:
+        none = SENTENCES["none_fits"].format(unit=unit)
+        no_start = SENTENCES["no_start"].format(unit=unit, max_tokens=f"{max_tokens:,}")
+        part["notes"].append(none if start is None else no_start)
+    part["args"] = f"{upload} {units} {part['first']}-{part['last']}"
+    marker = chosen["marker"] if chosen else None
+    choice = "part" if chosen or typed else "whole" if check["fits"] else None
+    new = not check["fits"] and check["fits_new_chat"]
+    names = ", ".join(a["name"] for a in pending)
+    origin = SENTENCES[
+        "origin_profile" if check["framing_origin"] == "profile" else "origin_default"
+    ]
+    marker_origin = SENTENCES["origin_profile" if own_marker else "origin_default"]
+    return {
+        "name": check["name"],
+        "upload": upload,
+        "facts": facts,
+        "free": SENTENCES["free"].format(free=free),
+        "already": SENTENCES["already"] if check["already_in_chat"] else None,
+        "choice": choice,
+        "whole": {"fits": check["fits"], "note": whole_note},
+        "part": part,
+        "units": units.capitalize(),
+        "unit_plural": units,
+        "total": f"{check['total']:,}",
+        "excerpt": SENTENCES["excerpt"] if marker or not chosen else SENTENCES["no_marker"],
+        "new": {
+            "does": SENTENCES["new_chat_does"],
+            "note": SENTENCES["new_chat"].format(free=f"{check['free_new_chat']:,}"),
+            "drops": SENTENCES["not_kept"].format(names=names) if names else None,
+        }
+        if new
+        else None,
+        "warnings": [
+            *(
+                [SENTENCES["control_tokens"].format(tokens=", ".join(check["control_tokens"]))]
+                if check["control_tokens"]
+                else []
+            ),
+            *([SENTENCES["closing_tag"]] if check["has_closing_tag"] else []),
+        ],
+        "framing_label": SENTENCES["framing_label"].format(origin=origin),
+        "framing": check["framing"],
+        "no_framing": SENTENCES["no_framing"].format(origin=origin),
+        "marker_label": SENTENCES["marker_label"].format(origin=marker_origin),
+        "marker": marker,
+        "preview": preview(chosen["text"] if chosen else check["text"]),
+        "choose": SENTENCES["choose"],
+    }
 
 
 async def _pending(worker: Worker, params: dict[str, str | None]) -> str:

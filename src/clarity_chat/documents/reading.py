@@ -125,6 +125,12 @@ def read_path(path: str) -> tuple[bytes, str]:
     return data, name
 
 
+def size_words(n: int) -> str:
+    """A memory cap in words: 1 GB, 200 MB (the board's ruling 5: never "1024 MB")."""
+    gb = 1024 * 1024 * 1024
+    return f"{n // gb} GB" if n % gb == 0 else f"{n // 1024 // 1024} MB"
+
+
 def too_big(name: str) -> str:
     return f"{name} is too big: Clarity reads files up to {SIZE_LIMIT}."
 
@@ -239,7 +245,7 @@ def run_child(request: dict[str, Any], data: bytes, cancel: threading.Event | No
     if why is None and size[0] > OUTPUT_CAP:
         why = too_long
     if why is None and proc.returncode == MEMORY_EXIT:
-        why = f"{name} took more than {MEMORY_CAP // 1024 // 1024} MB of memory to read."
+        why = f"{name} took more than {size_words(MEMORY_CAP)} of memory to read."
     if why is None and proc.returncode == DEADLINE_EXIT:
         why = f"{name} took longer than {TIME_LIMIT:.0f} seconds to read."
     if why:

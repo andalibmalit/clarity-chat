@@ -43,6 +43,14 @@ SENTENCES = {
     "it is, and the call is flagged.",
     "closing_tag": "Holds </document>, which ends Clarity's wrapper early; it's sent as it is.",
     "framing": "Framing line ({origin}): {framing}",
+    "framing_label": "Framing line ({origin})",
+    "marker_label": "Excerpt marker ({origin})",
+    "new_chat_does": "Starts a new chat on this profile with the whole file attached, waiting "
+    "for your first message. This chat stays in Chats.",
+    "not_kept": "Not kept: {names}, waiting for your next message. An attachment is logged "
+    "only with the message it's sent with.",
+    "more_lines": "… and {count} more lines, ending with:",
+    "choose": "Choose how to attach it.",
     "no_framing": "No framing line ({origin}).",
     "origin_default": "Clarity's default",
     "origin_profile": "this profile",
