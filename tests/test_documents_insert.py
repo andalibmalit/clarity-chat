@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from clarity_chat.documents import (
@@ -97,12 +97,11 @@ def test_no_attachments_is_the_message_alone():
     name=st.text(min_size=1, alphabet=st.characters(blacklist_categories=("Cs", "Cc"))),
     message=st.text(alphabet=st.characters(blacklist_categories=("Cs",))),
 )
-def test_the_content_is_rebuilt_exactly_from_the_record(text, name, message):
-    """The record keeps the name, the marker and the text; the content follows from them."""
+@example(text="x", name="it's.md", message="Q")  # an apostrophe stays as it is
+def test_the_block_for_any_text_and_name(text, name, message):
+    """The block from a name and a text, for any of them (A3 adds the record it's rebuilt
+    from)."""
     attached = [Attached(name, text, None)]
-    assert content(message, attached, FRAMING) == content(
-        message, [Attached(name, text, None)], FRAMING
-    )
     escaped = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     escaped = escaped.replace('"', "&quot;")
     closing = "" if text.endswith("\n") else "\n"
@@ -315,3 +314,75 @@ def test_the_cost_is_counted_with_the_model_s_own_render(root, which, olmo_token
     with_block = build_prompt(tokenizer, p, [*turns, ("user", content("", [new], FRAMING))])
     assert result.tokens == len(with_block.ids) - tokens("")
     assert re.search(r'<document name="notes.md">\nMade-up notes.\n</document>', with_block.text)
+
+
+# --- Checkpoint 1's findings
+
+
+def test_what_the_leftover_is_for_and_who_reads_control_tokens():
+    """Should 9: room_left already keeps max_tokens for the reply, so the preselection's
+    extra max_tokens is room for your message (Q11). Could 15: the tokenizer reads them."""
+    assert SENTENCES["preselected"] == (
+        "The start that still leaves {max_tokens} tokens (your max_tokens) for your message "
+        "and the rest of the chat."
+    )
+    assert SENTENCES["no_start"] == (
+        "Not even its first {unit} leaves {max_tokens} tokens (your max_tokens) for your "
+        "message and the rest of the chat."
+    )
+    assert SENTENCES["control_tokens"].startswith("Holds text the tokenizer reads as control")
+
+
+def rendered_ks(renders: list[str]) -> list[int]:
+    """The k of each excerpt rendered, from a document whose line k reads f"{k - 1:03}"."""
+    found = [re.findall(r"(\d{3})\n</document>", r) for r in renders]
+    return [int(f[-1]) + 1 for f in found if f]
+
+
+def test_the_search_climbs_from_the_start_and_two_searches_share_their_renders(root):
+    """Should 10: plain bisection rendered half the document first; 64 MB of text would
+    block the worker for about a minute. Climbing 1, 2, 4, … then bisecting keeps every
+    render within twice the answer, and the second search reuses the first's."""
+    d = doc([f"{n:03}\n" for n in range(1000)])
+    room, renders = counting_room(n_ctx=600, max_tokens=100)
+    p = profile(root)
+    checked: dict = {}
+    found = start_that_fits(room, [], FRAMING, d, p, checked=checked)
+    assert found is not None
+    k, first = found[0], rendered_ks(renders)
+    assert max(first) <= 2 * k
+    renders.clear()
+    preselected = start_that_fits(room, [], FRAMING, d, p, keep=100, checked=checked)
+    assert preselected is not None and preselected[0] < k
+    assert not set(rendered_ks(renders)) & set(first)  # nothing rendered twice
+
+
+def test_cost_equal_to_free_fits(root):
+    """Could 13: the boundary, both ways."""
+    room, _ = counting_room(n_ctx=1000, max_tokens=50)
+    new = Attached("b.md", "B", None)
+    cost = fit(room, [], new, FRAMING).tokens
+    exact, _ = counting_room(n_ctx=100 + cost + 50 + 1, max_tokens=50)
+    assert fit(exact, [], new, FRAMING).fits is True
+    short, _ = counting_room(n_ctx=100 + cost + 50, max_tokens=50)
+    assert fit(short, [], new, FRAMING).fits is False
+
+
+def test_a_document_that_fits_whole_is_found_whole(root):
+    """Could 13: the search reaches the whole document."""
+    d = doc(["a\n", "b\n", "c\n"])
+    room, _ = counting_room(n_ctx=5000, max_tokens=50)
+    found = start_that_fits(room, [], FRAMING, d, profile(root))
+    assert found is not None and found[0] == 3
+
+
+def test_the_marker_s_first_and_last_have_thousands_separators(root):
+    d = doc([f"{n}\n" for n in range(3200)])
+    excerpt = piece(d, profile(root), "lines", 1200, 2400)
+    assert excerpt.marker == "Excerpt: lines 1,200 to 2,400 of 3,200"
+
+
+def test_a_framing_that_isn_t_a_string_is_refused_at_load(root):
+    with pytest.raises(ConfigError) as e:
+        profile(root, "\n[documents]\nframing = 3\n")
+    assert "[documents] framing must be a string" in str(e.value)
