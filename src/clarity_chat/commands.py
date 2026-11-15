@@ -336,17 +336,86 @@ def suggestion(c: Commands, e: DoesntFit, doc: documents.Document, source: str) 
     conversation = c.session.conversation
     assert conversation is not None
     if e.start is None:
-        return f"Not even its first {doc.unit} fits."
+        return SENTENCES["none_fits"].format(unit=doc.unit)
     max_tokens = conversation.settings["max_tokens"].value
-    fits = f"{doc.unit.capitalize()}s 1 to {e.start} fit."
+    fits = SENTENCES["fits_up_to"].format(Units=f"{doc.unit}s".capitalize(), last=e.start)
     if e.roomy is None:
-        return f"Not even its first {doc.unit} leaves {max_tokens} tokens for your message. {fits}"
+        return f"{SENTENCES['no_start'].format(unit=doc.unit, max_tokens=max_tokens)} {fits}"
     taken = (
         f"{doc.unit}s 1 to {e.roomy}"
         if c.uploads is not None
         else f"/attach {source} {doc.unit}s 1-{e.roomy}"
     )
-    return f"The start that still leaves {max_tokens} tokens for your message: {taken}. {fits}"
+    roomy = SENTENCES["preselected"].format(max_tokens=max_tokens).removesuffix(".")
+    return f"{roomy}: {taken}. {fits}"
+
+
+def check_lines(check: dict[str, Any], max_tokens: int) -> list[str]:
+    """`check`'s numbers in the sheet's words, a line each, every sentence from SENTENCES
+    (decision 20): the terminal prints them, and the page's sheet shows them."""
+    unit, units = check["unit"], f"{check['unit']}s"
+    facts = [check["kind"], documents.counted(check["total"], unit)]
+    if check["empty_units"]:
+        facts.append(SENTENCES["empty_units"].format(count=f"{check['empty_units']:,}"))
+    if check["encrypted"]:
+        facts.append(SENTENCES["encrypted"])
+    lines = [f"{check['name']}: {', '.join(facts)}."]
+    lines.append(SENTENCES["free"].format(free=f"{check['free']:,}"))
+    if check["fits"]:
+        lines.append(
+            SENTENCES["whole"].format(tokens=f"{check['tokens_whole']:,}")
+            + " "
+            + SENTENCES["left"].format(left=f"{check['left_whole']:,}")
+        )
+    else:
+        needed = more_than(check["tokens_whole"], check["tokens_whole_at_least"])
+        lines.append(SENTENCES["doesnt_fit"].format(tokens=needed, free=f"{check['free']:,}"))
+        start, preselected = check["start_that_fits"], check["preselected"]
+        if start is None:
+            lines.append(SENTENCES["none_fits"].format(unit=unit))
+        else:
+            lines.append(
+                SENTENCES["start_that_fits"].format(
+                    units=units, last=start["range"][1], tokens=f"{start['tokens']:,}"
+                )
+            )
+            if preselected is None:
+                lines.append(SENTENCES["no_start"].format(unit=unit, max_tokens=max_tokens))
+            else:
+                reason = SENTENCES["preselected"].format(max_tokens=max_tokens).removesuffix(".")
+                lines.append(f"{reason}: {units} 1 to {preselected['range'][1]}.")
+        if check["fits_new_chat"]:
+            lines.append(SENTENCES["new_chat"].format(free=f"{check['free_new_chat']:,}"))
+    if chosen := check["chosen"]:
+        first, last = chosen["range"]
+        named = SENTENCES["chosen"].format(Units=units.capitalize(), first=first, last=last)
+        if chosen["left"] is not None and chosen["left"] >= 0:
+            told = SENTENCES["left"].format(left=f"{chosen['left']:,}")
+            lines.append(f"{named} {chosen['tokens']:,} tokens. {told}")
+        else:
+            needed = more_than(chosen["tokens"], chosen["tokens_at_least"])
+            free = f"{check['free']:,}"
+            lines.append(f"{named} {SENTENCES['doesnt_fit'].format(tokens=needed, free=free)}")
+        lines.append(SENTENCES["excerpt"] if chosen["marker"] else SENTENCES["no_marker"])
+    if check["already_in_chat"]:
+        lines.append(SENTENCES["already"])
+    if check["control_tokens"]:
+        lines.append(SENTENCES["control_tokens"].format(tokens=", ".join(check["control_tokens"])))
+    if check["has_closing_tag"]:
+        lines.append(SENTENCES["closing_tag"])
+    origin = SENTENCES[
+        "origin_default" if check["framing_origin"] == "default" else "origin_profile"
+    ]
+    if check["framing"]:
+        lines.append(SENTENCES["framing"].format(origin=origin, framing=check["framing"]))
+    else:
+        lines.append(SENTENCES["no_framing"].format(origin=origin))
+    return lines
+
+
+def more_than(tokens: int | None, at_least: int | None) -> str:
+    """A count, or "more than N" when only its bound was taken (it surely doesn't fit)."""
+    return f"{tokens:,}" if tokens is not None else f"more than {(at_least or 1) - 1:,}"
 
 
 def read_document(c: Commands, source: str, emit: Emit) -> documents.Document:
