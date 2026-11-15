@@ -56,7 +56,7 @@ def test_detach_with_a_huge_number_is_refused(chat):
     session, _ = chat
     with pytest.raises(ConfigError) as e:
         Commands(session).run("detach", HUGE, lambda e: None)
-    assert str(e.value) == "No attachment 1111111111…. /attach lists them."
+    assert str(e.value) == "No attachment 1111111111… is waiting."
 
 
 def test_attach_with_a_huge_range_is_refused(chat, tmp_path):

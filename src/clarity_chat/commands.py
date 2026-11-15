@@ -213,7 +213,7 @@ def _say(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     if not args and pending:  # S6
         names = [a["name"] for a in pending]
         listed = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
-        raise ConfigError(f"Type a message to send with {listed}.")
+        raise ConfigError(SENTENCES["empty_with_attachments"].format(names=listed))
     if not args:  # one sentence for the terminal and the page (the whole-branch review, 17)
         raise ConfigError(SENTENCES["empty_message"])
     return c.call(emit, lambda **kw: c.session.say(args, **kw))
@@ -302,8 +302,9 @@ def attach_args(args: str) -> tuple[str, str | None, int, int, bool]:
     return source, None, 0, 0, check
 
 
-# The sheet's sentences, for the terminal: only these modules import the documents package.
-SENTENCES = documents.SENTENCES
+# The sheet's sentences and range words, for the terminal: only these modules import the
+# documents package.
+SENTENCES, how_words = documents.SENTENCES, documents.how_words
 
 
 def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -325,7 +326,11 @@ def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         raise documents.DocumentRefused(SENTENCES["stopped"].format(name=name))
     doc = read_document(c, source, emit)
     if check:
-        return {"check": c.session.check(doc, unit, first, last, c.cancel_event)}
+        try:
+            new = new_profile(c)
+        except ConfigError:  # no profile file to start: the check offers no new chat
+            new = ""
+        return {"check": c.session.check(doc, unit, first, last, c.cancel_event, new)}
     try:
         _, fit = c.session.attach(doc, unit, first, last, c.cancel_event)
     except DoesntFit as e:
@@ -358,7 +363,8 @@ def suggestion(c: Commands, e: DoesntFit, doc: documents.Document, source: str) 
         else f"/attach {source} {doc.unit}s 1-{e.roomy}"
     )
     roomy = SENTENCES["preselected"].format(max_tokens=max_tokens).removesuffix(".")
-    return f"{roomy}: {taken}. {fits}"
+    pages = f" {SENTENCES['pdf_pages']}" if doc.kind == "pdf" else ""  # the walkthrough's F2
+    return f"{roomy}: {taken}. {fits}{pages}"
 
 
 def check_lines(check: dict[str, Any]) -> list[str]:
@@ -372,6 +378,8 @@ def check_lines(check: dict[str, Any]) -> list[str]:
     if check["encrypted"]:
         facts.append(SENTENCES["encrypted"])
     lines = [f"{check['name']}: {', '.join(facts)}."]
+    if check["kind"] == "pdf":  # before any range is typed (the walkthrough's F2)
+        lines.append(SENTENCES["pdf_pages"])
     lines.append(SENTENCES["free"].format(free=f"{check['free']:,}", max_tokens=max_tokens))
     if check["fits"]:
         lines.append(
@@ -482,8 +490,8 @@ def read_files(
         if paths.count(path) > 1:
             raise ConfigError(f"--attach names {path} twice. Name each file once.")
     found = {}
-    for path in paths:
-        data, name = documents.read_path(path)
+    for path in paths:  # ~ is the home folder, as /attach reads it; the key stays as given
+        data, name = documents.read_path(os.path.expanduser(path))
         told = (lambda name=name: on_read(name)) if on_read is not None else None
         found[path] = extracted(data, name, None, told)
     return found
@@ -499,7 +507,7 @@ def _detach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         return {"detached": listed, "pending": []}
     if not NUMBER.fullmatch(args) or not 1 <= int(args) <= len(listed):
         shown = args if len(args) <= 10 else args[:10] + "…"
-        raise ConfigError(f"No attachment {shown}. /attach lists them.")
+        raise ConfigError(f"No attachment {shown} is waiting.")
     del conversation.pending[int(args) - 1]
     return {"detached": [listed[int(args) - 1]], "pending": summaries(conversation.pending)}
 
@@ -508,15 +516,18 @@ def _cancel(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     """Stop the running command if it can be stopped; say what was stopped, or why not.
     The page names an upload: its read stops if it runs, and is refused if it hasn't
     started yet (the whole-branch review's should 4)."""
-    event, running = c.cancel_event, c.running
     if args:
         if c.uploads is None or not UPLOAD_ID.fullmatch(args):
             raise ConfigError("Usage: /cancel")
+        # The mark first: a read that starts after it sees it, and one that started before
+        # is running below (the final fix review's could 9).
         c.cancelled_upload = args
-        reads_it = running == "attach" and c.running_args.split(" ")[0] == args
-        if event is not None and reads_it:
+        with c.progress:
+            event, running, running_args = c.cancel_event, c.running, c.running_args
+        if event is not None and running == "attach" and running_args.split(" ")[0] == args:
             event.set()
         return {"cancelled": True, "upload": args}
+    event, running = c.cancel_event, c.running
     if event is None or running is None:
         return {"cancelled": False, "reason": "Nothing is running."}
     if not COMMANDS[running].cancellable:
@@ -821,17 +832,23 @@ def _replay(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _new(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    return _start(c, new_profile(c), emit)
+
+
+def new_profile(c: Commands) -> str:
+    """The profile /new starts: this chat's profile file as it is today. The check's
+    new-chat numbers count with it too (the siblings finder, S3)."""
     conversation = c.session.conversation
     assert conversation is not None
     profile = conversation.profile
     if not conversation.resumed and profile.path.is_file():  # a file you named: a path works
-        return _start(c, str(profile.path), emit)
+        return str(profile.path)
     # A resumed conversation's profile path comes from its log, which is untrusted: reuse it
     # only inside the project, else start the logged name from profiles/ or local/profiles/.
     root = c.session.root.resolve()
     if profile.path.is_file() and profile.path.resolve().is_relative_to(root):
-        return _start(c, str(profile.path), emit)
-    return _start(c, named_profile(c, profile.name), emit)
+        return str(profile.path)
+    return named_profile(c, profile.name)
 
 
 def _profile(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -917,6 +934,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "llama_cpp_commit": session.server_config.llama_cpp_commit,
         "model_name": session.model.display_name if session.model else None,
         "conversation_id": None,
+        "mode": None,
         "log_id": None,
         "title": None,
         "profile": None,

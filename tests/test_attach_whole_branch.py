@@ -134,7 +134,7 @@ def test_range_ends_get_separators_in_the_sheet_the_thread_and_the_chips(make):
     assert f"At most lines 1 to {start:,} fit" in page
     attach(client, LINES, "long.md", "lines 1-1500")
     chips = text_of(client.get("/view/pending", headers=GET).text)
-    assert "long.md · lines 1–1,500 ·" in chips
+    assert "long.md · lines 1–1,500 of 2,000 ·" in chips
     command(client, "say", "And these?")
     assert "lines 1–1,500 of 2,000" in text_of(client.get("/view/thread", headers=GET).text)
 

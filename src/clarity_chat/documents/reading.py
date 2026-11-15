@@ -31,7 +31,7 @@ STOPPED = "Stopped reading {name}."
 SMALLER = "Attach a smaller file, or split it and attach the part you need."  # F11
 TOO_SLOW = "{name} took longer than {seconds} seconds to read. " + SMALLER
 TOO_MUCH_MEMORY = "{name} took more than {memory} of memory to read. " + SMALLER
-SLOW_READ = "A long file can take a minute to read. Clarity stops at {seconds} seconds."
+SLOW_READ = "A long file can take a minute to read. Clarity stops reading at {seconds} seconds."
 MEMORY_EXIT, DEADLINE_EXIT = 70, 71  # as in child.py, which this module doesn't import
 
 

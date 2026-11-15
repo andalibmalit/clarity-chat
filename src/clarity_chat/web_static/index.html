@@ -70,7 +70,7 @@
 <div id="thread"></div>
 <div class="writing" id="writing-box" hidden><div class="msg" id="writing"></div></div>
 <p class="status"><span id="writing-status" role="status"></span><span class="vh" id="finished" role="status"></span><span class="dots" id="writing-dots" aria-hidden="true"></span></p>
-<div id="notice"></div>
+<div id="notice" data-not-kept=""></div>
 </div></div>
 <section class="compare" id="compare" aria-label="Compare these replies" hidden></section>
 <div class="cpwrap" id="cpwrap"><p class="status reading-line" id="reading-line" role="status" hidden></p>
@@ -124,6 +124,7 @@
 <h1 id="stopped-crash" hidden>Clarity stopped after an unexpected error.</h1>
 <p class="errbox" id="stopped-error" role="alert" hidden></p>
 <p>Every reply that finished is saved. To use Clarity again, start it the way you did before and open the new link it gives you.</p>
+<p id="stopped-kept" role="status" hidden></p>
 <p id="stopped-why">If you didn’t stop it, the window where you started it says why.</p>
 </div>
 </body>

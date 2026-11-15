@@ -185,7 +185,7 @@ TRANSFORMERS = {
 def test_a_steered_transformers_profile():
     fragment = html.unescape(
         web.templates.get_template("settings.html").render(
-            **web.settings_panel(TRANSFORMERS, waits=False)
+            **web.settings_panel(TRANSFORMERS, waits=None)
         )
     )
     assert "calm.gguf" in fragment and "a3f09c21be47<" in fragment and "10 to 14" in fragment
@@ -230,7 +230,7 @@ def test_transformers_lists_every_setting_it_cant_apply():
         ],
     }
     fragment = html.unescape(
-        web.templates.get_template("settings.html").render(**web.settings_panel(settings, False))
+        web.templates.get_template("settings.html").render(**web.settings_panel(settings, None))
     )
     assert (
         "Not used on Transformers: presence_penalty, frequency_penalty, repeat_last_n, samplers"

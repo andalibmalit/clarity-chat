@@ -41,6 +41,7 @@ from clarity_chat.documents import (
     scan,
     start_that_fits,
     summaries,
+    with_text,
 )
 from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records, unreadable
 from clarity_chat.models import check_weights_quick, lock_entry, source_weights
@@ -151,12 +152,24 @@ class Turn:
 
 
 @dataclass(frozen=True)
+class NewChat:
+    """What /new would start on, for the check's new-chat numbers (the siblings finder, S3):
+    today's profile file, its tokenizers, and the context the new chat gets."""
+
+    profile: Profile
+    tokenizer: Tokenizer
+    template: Tokenizer
+    n_ctx: int
+    key: str  # what the counts depend on, for the check's cache
+
+
+@dataclass(frozen=True)
 class Counts:
     """A check's counts that don't depend on the range asked for, kept for the next check."""
 
     before: int  # the prompt's tokens with what's waiting
     whole: Fit
-    new_chat: Fit
+    new_chat: Fit | None  # None: the profile /new would start can't be read
     start: tuple[int, Fit] | None  # the start that fits
     roomy: tuple[int, Fit] | None  # the start that still leaves max_tokens
 
@@ -489,10 +502,11 @@ class Session:
             return tokenizer, self.load_tokenizer(profile.template_repo, profile.template_revision)
         return tokenizer, tokenizer
 
-    def prepare(self, profile_name: str, logged: dict[str, Any] | None = None) -> Prepared:
-        """Load a profile and everything it needs short of starting the model: its model
-        entry and lock, the weights (size and time only), tokenizers and chat template.
-        `logged`: a log's `profile` field, to use the profile as it was logged."""
+    def profile_for(
+        self, profile_name: str, logged: dict[str, Any] | None = None
+    ) -> tuple[Profile, ModelEntry, dict[str, Any]]:
+        """A profile with its settings resolved, its model entry and lock entry: what a new
+        chat's numbers need, short of the weights."""
         profile = load_profile(self.root, profile_name, self.defaults, logged)
         if profile.model not in self.models:
             raise ConfigError(
@@ -510,6 +524,13 @@ class Session:
             profile.settings = resolve_settings(
                 profile.raw_settings, self.defaults, str(profile.path), recommended["values"]
             )
+        return profile, model, entry
+
+    def prepare(self, profile_name: str, logged: dict[str, Any] | None = None) -> Prepared:
+        """Load a profile and everything it needs short of starting the model: its model
+        entry and lock, the weights (size and time only), tokenizers and chat template.
+        `logged`: a log's `profile` field, to use the profile as it was logged."""
+        profile, model, entry = self.profile_for(profile_name, logged)
         weights = self.weights_for(profile.backend, entry)
         if profile.steering is not None:
             profile.vector, profile.layers = self.load_vector(
@@ -743,24 +764,27 @@ class Session:
         return self.call(user, seed=seed, on_text=on_text, cancel=cancel)
 
     def room(
-        self, empty: bool = False, cancel: threading.Event | None = None, name: str = ""
+        self, new: NewChat | None = None, cancel: threading.Event | None = None, name: str = ""
     ) -> Room:
         """How to count for the next message: its prompt's tokens for a given content, after
-        the chat so far (`empty`: in a new chat on this profile), and the free context a
-        prompt of that many tokens leaves. With `cancel`, each count first checks it, and a
+        the chat so far (or, with `new`, in the chat /new would start), and the free context
+        a prompt of that many tokens leaves. With `cancel`, each count first checks it, and a
         set one stops counting `name`."""
         conversation = self._require_conversation()
         assert self.tokenizer is not None
-        tokenizer, template, profile = self.tokenizer, self.template_tokenizer, conversation.profile
-        turns = [] if empty else conversation.path_to(conversation.head)
+        if new is None:
+            tokenizer, template = self.tokenizer, self.template_tokenizer
+            profile, turns = conversation.profile, conversation.path_to(conversation.head)
+            settings, n_ctx = conversation.settings, self.backend.n_ctx
+        else:  # a new chat starts from its profile's settings, not this chat's /set values
+            tokenizer, template, profile, turns = new.tokenizer, new.template, new.profile, []
+            settings, n_ctx = new.profile.settings, new.n_ctx
         path = [(t.role, t.content) for t in turns if t.origin != "priming"]
-        # A new chat starts from the profile's settings, not this chat's /set values.
-        settings = conversation.profile.settings if empty else conversation.settings
         max_tokens = settings["max_tokens"].value
 
         def tokens(next_content: str) -> int:
             if cancel is not None and cancel.is_set():
-                raise DocumentRefused(f"Stopped counting {name}.")
+                raise DocumentRefused(SENTENCES["stopped_counting"].format(name=name))
             return len(
                 build_prompt(tokenizer, profile, [*path, ("user", next_content)], template).ids
             )
@@ -768,11 +792,31 @@ class Session:
         frame = prompt_text(profile, [*path, ("user", "")], template or tokenizer)
         return Room(
             tokens,
-            lambda n: room_left(self.backend.n_ctx, n, max_tokens),
+            lambda n: room_left(n_ctx, n, max_tokens),
             max_tokens,
             frame_bytes=len(frame.encode("utf-8")),
             token_bytes=tokenizer.max_token_bytes,
         )
+
+    def new_chat(self, profile_name: str) -> NewChat | None:
+        """What /new on `profile_name` would start on, read from today's files; None when
+        they can't start a chat (/new would refuse, and says why when pressed). "" names none."""
+        conversation = self._require_conversation()
+        if not profile_name:
+            return None
+        try:
+            profile, model, _ = self.profile_for(profile_name)
+            tokenizer, template = self.tokenizers_for(profile, model)
+        except ConfigError:
+            return None
+        if profile.mode != "chat":  # a text-mode chat can't take the file
+            return None
+        ctx = self.ctx_size_for(profile).value
+        same = model == self.model and ctx == conversation.ctx_size.value  # the server stays
+        n_ctx = self.backend.n_ctx if same else ctx
+        settings = {k: v.to_json() for k, v in profile.settings.items()}
+        key = json.dumps([profile.to_json(), settings, n_ctx], sort_keys=True, default=str)
+        return NewChat(profile, tokenizer, template, n_ctx, key)
 
     def attaching(self) -> tuple[Conversation, Profile, str]:
         """The conversation, its profile and framing line, refusing a text-mode profile."""
@@ -797,7 +841,7 @@ class Session:
         the free context before it and what it leaves."""
         conversation, profile, framing = self.attaching()
         assert self.tokenizer is not None
-        new = piece(doc, profile, unit, first, last)
+        new = with_text(piece(doc, profile, unit, first, last), unit, first, last)
         pending = attached_in({"attachments": conversation.pending})
         room = self.room(cancel=cancel, name=doc.name)
         before = self._room_for_a_file(room, pending, framing)
@@ -848,21 +892,26 @@ class Session:
         first: int = 0,
         last: int = 0,
         cancel: threading.Event | None = None,
+        new_profile: str | None = None,
     ) -> dict[str, Any]:
         """What attaching `doc` would cost and leave, attaching nothing: the whole, the start
         that fits, the preselected start (leaving max_tokens more), the range given, and
-        the whole in a new chat on this profile."""
+        the whole in the chat /new would start (`new_profile`, the profile it starts, "" for
+        none; by default this chat's profile file)."""
         conversation, profile, framing = self.attaching()
         assert self.tokenizer is not None
         pending = attached_in({"attachments": conversation.pending})
         room = self.room(cancel=cancel, name=doc.name)
+        new = self.new_chat(str(conversation.profile.path) if new_profile is None else new_profile)
         # The whole, the new chat and the two starts are kept for the last document and chat
         # state, so a range change in the sheet renders only the range (part 1's fix review,
-        # should 5: at a 128K context one whole render takes seconds and gigabytes).
+        # should 5: at a 128K context one whole render takes seconds and gigabytes). A name
+        # is inside its block, so it changes every count (the records finder, 1).
         key = (
-            doc.sha256, doc.kind, profile.name, conversation.conversation_id, conversation.head,
-            tuple((a["sha256"], tuple(a["range"])) for a in conversation.pending),
-            room.max_tokens, self.backend.n_ctx,
+            doc.sha256, doc.kind, doc.name, profile.name, conversation.conversation_id,
+            conversation.head,
+            tuple((a["sha256"], a["name"], tuple(a["range"])) for a in conversation.pending),
+            room.max_tokens, self.backend.n_ctx, new.key if new else None,
         )  # fmt: skip
         if self._checked is None or self._checked[0] != key:
             before = self._room_for_a_file(room, pending, framing)
@@ -872,7 +921,14 @@ class Session:
                 Counts(
                     before,
                     fit(room, pending, piece(doc, profile), framing, before),
-                    fit(self.room(True, cancel, doc.name), [], piece(doc, profile), framing),
+                    None
+                    if new is None
+                    else fit(
+                        self.room(new, cancel, doc.name),
+                        [],
+                        piece(doc, new.profile),
+                        framing_of(new.profile)[0],
+                    ),
                     start_that_fits(room, pending, framing, doc, profile, checked=checked),
                     start_that_fits(room, pending, framing, doc, profile, room.max_tokens, checked),
                 ),
@@ -896,7 +952,7 @@ class Session:
 
         chosen = None
         if unit is not None:
-            excerpt = piece(doc, profile, unit, first, last)
+            excerpt = with_text(piece(doc, profile, unit, first, last), unit, first, last)
             chosen = shown((last, fit(room, pending, excerpt, framing, counts.before)), first)
             assert chosen is not None
             chosen["text"] = excerpt.text  # for the sheet's extracted text (C1)
@@ -917,10 +973,11 @@ class Session:
             "preselected": shown(counts.roomy),
             "max_tokens": room.max_tokens,  # what the numbers were counted with
             "chosen": chosen,
-            "free_new_chat": new_chat.free,
-            "fits_new_chat": new_chat.fits,
-            "tokens_new_chat": new_chat.tokens,
-            "left_new_chat": new_chat.left,
+            # null and false when today's profile file can't start a chat: /new would refuse
+            "free_new_chat": new_chat and new_chat.free,
+            "fits_new_chat": bool(new_chat and new_chat.fits),
+            "tokens_new_chat": new_chat and new_chat.tokens,
+            "left_new_chat": new_chat and new_chat.left,
             "already_in_chat": self.already_in_chat(doc.sha256),
             **scan(doc.text, self.tokenizer.special_tokens_in),
             "framing": framing,

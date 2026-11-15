@@ -638,7 +638,9 @@ def test_html_s_record_names_the_python_that_read_it():
     ],
 )
 def test_a_memory_error_in_the_child_is_the_memory_refusal(monkeypatch, where):
-    stub(monkeypatch, f"from clarity_chat.documents import child\n{where}\nchild.main()")
+    """Under the address-space limit (Linux), simulated wherever the test runs."""
+    limited = "child.limit_address_space = lambda cap: True"
+    stub(monkeypatch, f"from clarity_chat.documents import child\n{limited}\n{where}\nchild.main()")
     assert refused(b"Made-up.", "notes.md").startswith(
         "notes.md took more than 1 GB of memory to read."
     )

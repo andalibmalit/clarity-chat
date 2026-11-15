@@ -461,6 +461,7 @@ async function start(name, args) {
   if (answer.handled) return;
   await refresh(); // first: a redraw that fails says so, and the sentence below stays
   if (!answer.error) {
+    notKept(answer.result);
     $("message").focus();
   } else if (!answer.stopped) {
     notice(`! ${label} didn’t start.`, answer.error);
@@ -477,7 +478,22 @@ async function quit() {
   // A reply being written stops first, and its part is kept, as Stop does.
   await command("cancel");
   const answer = await command("quit");
-  if (answer.result) stopped();
+  if (!answer.result) return;
+  stopped();
+  const dropped = answer.result.dropped || [];
+  $("stopped-kept").textContent = dropped.length ? notKeptSentence(dropped) : "";
+  $("stopped-kept").hidden = !dropped.length;
+}
+
+function notKeptSentence(dropped) {
+  // "Not kept: NAMES, …", SENTENCES' words as the terminal prints them (the close's must A).
+  const names = dropped.map((a) => a.name).join(", ");
+  return $("notice").dataset.notKept.replace("{names}", () => names);
+}
+
+function notKept(result) {
+  // New chat, a profile, a chat or Start the model again dropped what was waiting: say so.
+  if (result && result.dropped && result.dropped.length) notice(null, notKeptSentence(result.dropped));
 }
 
 function act(element) {
@@ -1389,7 +1405,7 @@ async function cancelRead(draw = true) {
   if (phase === "uploading") {
     attaching.phase = "stopped";
     attaching.abort.abort();
-    if (draw) sheetEnded($("attach-sheet").dataset.stopped.replace("{name}", name), false); // SENTENCES
+    if (draw) sheetEnded($("attach-sheet").dataset.stopped.replace("{name}", () => name), false); // SENTENCES
     return;
   }
   attaching.phase = "cancelling";
@@ -1433,6 +1449,13 @@ async function loadSheet(range, first = false) {
   // Only the newest answer, for the range the boxes still hold, is drawn: an older one, or
   // one for keys typed over since, would show a count for another range (must 1).
   if (!current() || !$("attach-sheet").open || !boxesHold(range)) return;
+  if (attaching.phase === "cancelling") {
+    // Cancel was pressed while this answer was on its way: the read stops here, as asked,
+    // whatever the answer (the final fix review's could 9; the surface finder's should 3).
+    attaching.phase = "stopped";
+    sheetEnded($("attach-sheet").dataset.stopped.replace("{name}", () => attaching.name), false); // SENTENCES
+    return;
+  }
   attaching.phase = "sheet";
   // The preview stays as you left it; a new sheet opens as the server drew it (F7).
   const opened = $("attach-preview") ? !$("attach-preview").hidden : null;
@@ -1447,7 +1470,8 @@ async function loadSheet(range, first = false) {
   }
   docsLinks($("attach-body"));
   rove($("attach-body"));
-  showPreview(opened === null ? !$("attach-preview").hidden : opened);
+  const preview = $("attach-preview"); // a refusal's sheet has none (the final fix review, 1)
+  if (preview) showPreview(opened === null ? !preview.hidden : opened);
   updateAdd();
   const back = focus && focus.id && $(focus.id);
   if (first || !back) $("attach-title").focus();
@@ -1535,13 +1559,15 @@ async function addAttachment() {
 
 async function adding(choice) {
   let answer;
+  let started = null; // Start new chat's /new: what it dropped is said once it's done
   if (choice.dataset.choice === "new") {
-    answer = await command("new").catch(unanswered);
+    answer = started = await command("new").catch(unanswered);
     if (!answer.error && !answer.handled) answer = await command("attach", choice.dataset.args).catch(unanswered);
   } else {
     answer = await command("attach", choice.dataset.args).catch(unanswered);
   }
   if (answer.handled) return;
+  if (started && !started.error) notKept(started.result); // the old chat's chips: not kept
   if (answer.error) {
     const line = $("attach-body").querySelector(".sheet-error");
     line.textContent = `! ${answer.error}`;
@@ -1637,7 +1663,10 @@ async function openChat(row) {
   closeDrawer(false);
   await refresh(); // first: a redraw that fails says so, and the sentence below stays
   if (answer.error && !answer.stopped) notice("! Didn’t open.", answer.error);
-  else if (!answer.error) $("message").focus();
+  else if (!answer.error) {
+    notKept(answer.result);
+    $("message").focus();
+  }
 }
 
 function showDiffer(on) {
@@ -1659,6 +1688,7 @@ async function restartModel() {
     .finally(() => (clarity.sending = false));
   if (answer.handled) return;
   await refresh(); // first: a redraw that fails says so, and the sentence below stays
+  if (!answer.error) notKept(answer.result);
   if (answer.error && !answer.stopped) {
     const [first, ...rest] = answer.error.split("\n");
     const box = notice("! The model didn’t start again.", first);
@@ -1951,15 +1981,12 @@ const THREAD = {
   }, // only this read stops, and the sheet says so (ruling 8)
   "attach-close": () => $("attach-sheet").close(),
   detach: async (element) => {
-    // By the chip's identity, its bytes and range, not the position it was drawn at; every
-    // × waits until this one's redraw lands (the whole-branch review's should 5).
+    // By the number it was drawn with: every × waits until this one's redraw lands, so a
+    // second press is on chips drawn afresh (the whole-branch review's should 5).
     for (const x of $("chips").querySelectorAll("[data-action=detach]")) x.setAttribute("aria-disabled", "true");
-    const at = clarity.state.pending.find((a) => `${a.sha256} ${a.range[0]}-${a.range[1]}` === element.dataset.key);
-    if (at) {
-      const answer = await command("detach", String(at.n)).catch(unanswered);
-      if (answer.handled) return;
-      if (answer.error) notice("!", answer.error);
-    }
+    const answer = await command("detach", element.dataset.n).catch(unanswered);
+    if (answer.handled) return;
+    if (answer.error) notice("!", answer.error);
     await refresh();
     $("message").focus();
   },

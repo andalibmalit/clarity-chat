@@ -154,7 +154,7 @@ def test_attach_alone_lists_and_detach_removes(chat, notes, tmp_path):
     }
     with pytest.raises(ConfigError) as e:
         run(c, "detach", "2")
-    assert str(e.value) == "No attachment 2. /attach lists them."
+    assert str(e.value) == "No attachment 2 is waiting."
     assert run(c, "detach") == {"detached": [summary(second, 1)], "pending": []}
 
 
@@ -165,7 +165,7 @@ def test_detach_takes_one_number_from_the_list(chat, notes, args):
     run(c, "attach", str(notes))
     with pytest.raises(ConfigError) as e:
         run(c, "detach", args)
-    assert str(e.value) == f"No attachment {args}. /attach lists them."
+    assert str(e.value) == f"No attachment {args} is waiting."
 
 
 # --- the page: upload IDs, never paths

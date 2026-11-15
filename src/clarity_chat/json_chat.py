@@ -15,8 +15,9 @@ A command's own records arrive as `record` events before its `result`, which may
 some of them; rely on `record` events for the log and on `result` for the answer.
 Commands run one at a time, in order, except `cancel`, `state`, `chats` and `profiles`, which
 run as soon as read (so `cancel` can stop a reply being written and the rest answer during
-one), and `settings` and `prompt`, which do while a reply is written. End of input quits, like
-`quit`.
+one), and `settings` and `prompt`, which do while a reply is written or a file is read. End
+of input quits, like `quit`; with attachments waiting, it sends `quit`'s result, which lists
+them as `dropped`.
 """
 
 from __future__ import annotations
@@ -68,7 +69,10 @@ class JsonChat:
         threading.Thread(target=self.read, args=(pending,), daemon=True).start()
         while not self.closed:
             command = pending.get()
-            if command is None:
+            if command is None:  # the end of input: say what isn't kept, as the terminal does
+                conversation = self.commands.session.conversation
+                if conversation is not None and conversation.pending:
+                    self.execute({"command": "quit"})
                 return
             if "error" in command:  # a line that wasn't a command, reported in its turn
                 self.emit({"event": "error", "type": "InputError", "message": command["error"]})
@@ -77,8 +81,8 @@ class JsonChat:
 
     def read(self, pending: queue.Queue[dict[str, Any] | None]) -> None:
         """Read input lines. The commands that run at once (`cancel`, `state`, `chats`,
-        `profiles`, and `settings` and `prompt` during a reply) run here; everything else,
-        including a line that isn't a command, waits its turn."""
+        `profiles`, and `settings` and `prompt` during a reply or a file's read) run here;
+        everything else, including a line that isn't a command, waits its turn."""
         try:
             for line in self.lines():
                 if not line.strip():
