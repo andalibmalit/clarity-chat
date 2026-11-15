@@ -557,7 +557,9 @@ class ChatLoop:
                     else "\n"
                 )
             )
-            self.draft = args if offered else ""
+            # A message that starts with "/" comes back escaped, so sending the draft sends
+            # the message again, never a command ("//quit", not "/quit").
+            self.draft = ("/" + args if args.startswith("/") else args) if offered else ""
             return True
         except BackendError as e:
             calling = name in ("say", "regen", "edit")
