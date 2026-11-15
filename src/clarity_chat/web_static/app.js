@@ -26,6 +26,7 @@ const clarity = {
   sending: false, // this page waits for a command that writes or starts
   failedCall: null, // the last failed call's ID, from its record on the stream
   waitSaid: null, // the wait Send said on screen during a start, until the start ends
+  focusBox: false, // a start from the picker or New chat is running: focus to the box
   alerted: new Set(), // sentences already announced, so a redraw doesn't repeat them
 };
 window.clarity = clarity;
@@ -330,6 +331,10 @@ async function draw(number) {
   $("title-text").textContent = state.title || "New chat";
   $("title").classList.toggle("fresh", !state.title);
   $("message").disabled = !chat && !starting; // you can type while a model starts
+  if (clarity.focusBox && starting) {
+    clarity.focusBox = false; // once: a later redraw mustn't take the focus back
+    $("message").focus(); // a start from the picker (QA 4)
+  }
   $("send").disabled = !chat && !starting;
   // While a model starts, Send waits and says why (a stopped server isn't a wait: Send then
   // fails with the backend's sentence, and the failed line offers to start it again).
@@ -431,7 +436,9 @@ async function start(name, args) {
   closeDrawer(false);
   notice(null, null);
   clarity.sending = true;
+  clarity.focusBox = true; // the box takes text while the model starts: focus goes there
   const answer = await command(name, args).finally(() => (clarity.sending = false));
+  clarity.focusBox = false;
   if (answer.error && !answer.stopped) notice(`! ${label} didn’t start.`, answer.error);
   await refresh();
   if (!answer.error) $("message").focus();
