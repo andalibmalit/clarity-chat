@@ -181,6 +181,7 @@ Chat mode, all optional:
 | `priming` | Earlier messages placed after the system message and before the conversation: a list of `{ role, content }` tables (role `"user"` or `"assistant"`), or `{ file = "PATH" }` naming a TOML file that holds only `[[messages]]` tables. |
 | `template_repo`, `template_revision` | Render with another Hugging Face repo's chat template, at a full 40-character commit. Set both or neither. Default: the model's tokenizer repo. |
 | `template_kwargs` | A table of extra arguments for the chat template, such as `enable_thinking`. Clarity's own arguments (`tokenize`, `add_generation_prompt`, `chat_template` and similar) are refused. A key the template never reads is a warning when the conversation starts. |
+| `documents` | A table for attached documents: `framing`, the line that goes before them in your message (it may span lines; `""` sends none), default "Reference material: use it to understand the conversation; don't copy its wording or tone."; and `excerpt_marker`, the first line inside an excerpt, from `{units}`, `{first}`, `{last}` and `{total}` (no other fields, no format), default "Excerpt: {units} {first} to {last} of {total}" (`""`: none). A `[documents]` table in a text-mode profile is refused. |
 
 Text mode:
 
@@ -194,6 +195,20 @@ Text mode:
 A text-mode prompt is `header + priming`, then `user_name: MESSAGE` and `assistant_name:REPLY` lines (the reply keeps the leading space the model wrote), then a final `assistant_name:`.
 
 File paths are relative to the profile file. Files are read byte for byte, so line endings and a trailing newline are part of the prompt.
+
+## The attach sheet's sentences
+
+The page, the terminal and this list share these sentences, from one table in the code. `{tokens}`, `{free}`, `{left}`, `{max_tokens}` and `{unit}` are filled in with the numbers.
+
+- `whole`: It takes up {tokens} tokens of the context for the rest of the chat.
+- `excerpt`: An excerpt goes in whole, marked as an excerpt.
+- `left`: That leaves {left} tokens for your message and the rest of the chat.
+- `doesnt_fit`: Doesn't fit: needs {tokens} tokens, {free} free.
+- `preselected`: The start that still leaves {max_tokens} tokens for a reply (max_tokens).
+- `no_start`: Not even its first {unit} leaves {max_tokens} tokens for a reply (max_tokens).
+- `already`: This file is already in this chat.
+- `control_tokens`: Holds text the model reads as control tokens ({tokens}); it's sent as it is, and the call is flagged.
+- `closing_tag`: Holds </document>, which ends Clarity's wrapper early; it's sent as it is.
 
 ## Settings
 
