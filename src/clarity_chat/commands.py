@@ -12,6 +12,7 @@ once, and `settings` and `prompt`, which run at once while a reply is written or
 
 from __future__ import annotations
 
+import os
 import re
 import secrets
 import threading
@@ -339,11 +340,12 @@ def read_document(c: Commands, source: str, emit: Emit) -> documents.Document:
     if c.uploads is not None:
         if not UPLOAD_ID.fullmatch(source):
             raise ConfigError("From the page, attach a file by choosing it.")
-        if source not in c.uploads:
+        uploaded = c.uploads.get(source)  # one read: another upload can replace it any time
+        if uploaded is None:
             raise ConfigError("That file isn't uploaded any more. Choose it again.")
-        data, name = c.uploads[source]
-    else:
-        data, name = documents.read_path(source)
+        data, name = uploaded
+    else:  # `~` is your home folder, as a shell would read it
+        data, name = documents.read_path(os.path.expanduser(source))
     with c.progress:
         c.reading = name
     emit({"event": "reading", "name": name})
