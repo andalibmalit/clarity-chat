@@ -303,7 +303,11 @@ def make_app(
             raise Refused(409, "Clarity is open in another tab.")
 
     def shell(request: Request) -> Response:
-        return FileResponse(STATIC / "index.html", media_type="text/html")
+        # One substitution: the sheet's "Stopped reading NAME." from SENTENCES, for a Cancel
+        # before the server has answered (the lead's ruling on Checkpoint 3's point 2).
+        page = (STATIC / "index.html").read_text(encoding="utf-8")
+        stopped = html.escape(SENTENCES["stopped"])
+        return HTMLResponse(page.replace('data-stopped=""', f'data-stopped="{stopped}"', 1))
 
     def static(request: Request) -> Response:
         name = request.path_params["file"]
