@@ -97,7 +97,9 @@ def read_path(path: str) -> tuple[bytes, str]:
     MAX_BYTES is read."""
     name = checked_name(Path(path).name)
     try:
-        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+        # O_BINARY on Windows, where text mode would turn CRLF into LF and stop at 0x1A.
+        flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+        fd = os.open(path, flags)
     except OSError as e:  # the sentence says why, never the path (str(e) holds it)
         raise DocumentRefused(f"Can't open {name}: {e.strerror or type(e).__name__}.") from e
     except ValueError as e:  # a NUL or a lone surrogate in a folder's name (UnicodeEncodeError)
@@ -172,6 +174,9 @@ def run_child(request: dict[str, Any], data: bytes, cancel: threading.Event | No
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             env={"LC_ALL": "C.UTF-8"},  # nothing of Clarity's environment: no tokens, no paths
+            # Its own group on POSIX: a terminal's Ctrl-C is Clarity's to turn into a cancel,
+            # and an orphan still ends at its own deadline.
+            process_group=0 if os.name == "posix" else None,
         )
     except OSError as e:  # too many open files, the interpreter gone mid-session
         raise DocumentRefused(f"Clarity couldn't start its reader: {e.strerror or e}.") from e

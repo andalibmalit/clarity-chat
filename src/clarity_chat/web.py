@@ -271,6 +271,7 @@ def make_app(
     # The live tab; open streams per tab; tabs told they aren't live, which take over only
     # by POST /tab, never by reconnecting their stream.
     tabs: dict[str, Any] = {"live": None, "streams": {}, "told": set(), "seen": set()}
+    reading = [False]  # an upload's body is being read (one event loop: no lock needed)
 
     def check(request: Request, post: bool = False, kind: str = "application/json") -> None:
         """The secret, fetch metadata and, for a POST, the Origin and the content type."""
@@ -338,12 +339,18 @@ def make_app(
                 name = checked_name(re.split(r"[/\\]", request.query_params.get("name", ""))[-1])
             except DocumentRefused as e:
                 raise Refused(400, str(e)) from e
-            chunks, size = [], 0
-            async for chunk in request.stream():  # counted again: the length can lie
-                size += len(chunk)
-                if size > MAX_BYTES:
-                    raise Refused(413, TOO_BIG_FILE)
-                chunks.append(chunk)
+            if reading[0]:  # each holds up to 128 MB until it replaces the last: one at a time
+                raise Refused(409, "Another file is being uploaded. Wait for it, then try again.")
+            reading[0] = True
+            try:
+                chunks, size = [], 0
+                async for chunk in request.stream():  # counted again: the length can lie
+                    size += len(chunk)
+                    if size > MAX_BYTES:
+                        raise Refused(413, TOO_BIG_FILE)
+                    chunks.append(chunk)
+            finally:
+                reading[0] = False
         except Refused as e:
             return PlainTextResponse(str(e), e.status)
         upload_id = f"upload-{secrets.token_hex(6)}"
