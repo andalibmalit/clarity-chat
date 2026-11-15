@@ -37,8 +37,10 @@ def shot(page, name: str, item: str = "c1", full_page: bool = True) -> None:
 
 
 @pytest.fixture(scope="session")
-def browser_type_launch_args(browser_type_launch_args):
-    channel = {"channel": "chrome"} if sys.platform == "darwin" else {}
+def browser_type_launch_args(browser_type_launch_args, browser_name):
+    # Chrome on the Mac for Chromium only: `--browser webkit` or `firefox` runs locally too.
+    mac_chrome = sys.platform == "darwin" and browser_name == "chromium"
+    channel = {"channel": "chrome"} if mac_chrome else {}
     return {**browser_type_launch_args, **channel}
 
 
@@ -527,9 +529,10 @@ def test_stopped_before_any_text_says_so(clarity, page):
     shot(page, "E4-stopped-before-text", "c2")
 
 
-def test_edit_your_message_then_step_through_its_versions(clarity, page, context):
+def test_edit_your_message_then_step_through_its_versions(clarity, page, context, browser_name):
     _, redirect, _ = clarity
-    context.grant_permissions(["clipboard-read", "clipboard-write"])
+    if browser_name == "chromium":
+        context.grant_permissions(["clipboard-read", "clipboard-write"])  # none elsewhere
     chat_on(page, redirect)
     say(page, "Hi")
     page.click(".turn.user [data-action=edit]")

@@ -70,6 +70,7 @@ jobs:
   # are listed for v0.4.0.
   browser-others:
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # an engine where many waits time out shouldn't run for six hours
     continue-on-error: true
     strategy:
       fail-fast: false

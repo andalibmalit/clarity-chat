@@ -19,9 +19,13 @@ def summary(path: Path, engine: str) -> str:
     title = f"### The browser tier in {engine}"
     if not path.is_file():
         return f"{title}: no report (the run stopped before it)\n"
+    try:
+        cases = list(ET.parse(path).getroot().iter("testcase"))
+    except ET.ParseError:  # a run killed while it wrote the report
+        return f"{title}: report unreadable (the run stopped writing it)\n"
     passed = failed = skipped = 0
     lines = []
-    for case in ET.parse(path).getroot().iter("testcase"):
+    for case in cases:
         problem = case.find("failure")
         problem = problem if problem is not None else case.find("error")
         if problem is not None:

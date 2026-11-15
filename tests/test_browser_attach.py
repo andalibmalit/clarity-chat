@@ -26,9 +26,11 @@ LONG = "".join(f"Made-up line {n}.\n" for n in range(200)).encode()
 
 
 @pytest.fixture(scope="session")
-def browser_type_launch_args(browser_type_launch_args):
+def browser_type_launch_args(browser_type_launch_args, browser_name):
     """The installed Chrome on the Mac, as test_browser.py drives it."""
-    channel = {"channel": "chrome"} if sys.platform == "darwin" else {}
+    # Chrome on the Mac for Chromium only: `--browser webkit` or `firefox` runs locally too.
+    mac_chrome = sys.platform == "darwin" and browser_name == "chromium"
+    channel = {"channel": "chrome"} if mac_chrome else {}
     return {**browser_type_launch_args, **channel}
 
 
