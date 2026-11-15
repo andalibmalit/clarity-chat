@@ -1,5 +1,6 @@
 # Lint, type-check and test on Linux, Windows and macOS: the real test of the
-# cross-platform and UTF-8 rules. Tests need no network, no model and no llama-server.
+# cross-platform and UTF-8 rules. The `test` and `browser` jobs need no network, no model
+# and no llama-server; `live-cpu` builds llama-server and runs the SmolLM2 live tier.
 name: tests
 
 on:
@@ -61,3 +62,80 @@ jobs:
       - run: uv sync --locked --group browser
       - run: uv run playwright install --with-deps chromium
       - run: uv run pytest -m browser -v
+
+  # The SmolLM2 live tier on a CPU build of the pinned llama.cpp, on Linux, so the code that
+  # makes Clarity exact (llama-server's flags, the prompt IDs it echoes, seeds, replay) is
+  # tested on every push, not only on the maintainer's Mac. Plan: notes/plans/ci-live-linux.md.
+  # It changes no source: the CPU route is the one-line server.toml edit the docs give a CPU
+  # user, and the GPU placement check is deselected by its marker (`-m "live and not gpu"`).
+  # A failed same-output, replay or hash check here is a finding to investigate, not to mark.
+  live-cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          prune-cache: false  # keeps the converter's PyTorch wheel between runs
+      # No hf extra: no live test imports torch. The converter gets its own environment.
+      - run: uv sync --locked
+      - name: The pinned llama.cpp commit (checked by Clarity's own loader) and the image
+        id: pin
+        run: |
+          commit=$(uv run python -c 'from pathlib import Path; from clarity_chat.profiles import load_server_config; print(load_server_config(Path.cwd()).llama_cpp_commit)')
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "image=$ImageOS" >> "$GITHUB_OUTPUT"
+      # Every run, cache hit or not: each server start and each fetch read the commit from
+      # this checkout, and the converter comes from it. Only the built binaries are cached.
+      - name: Check out llama.cpp at that commit
+        env:
+          COMMIT: ${{ steps.pin.outputs.commit }}
+        run: |
+          git init -q vendor/llama.cpp
+          git -C vendor/llama.cpp fetch -q --depth 1 https://github.com/ggml-org/llama.cpp "$COMMIT"
+          git -C vendor/llama.cpp checkout -q --detach "$COMMIT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: llama-bin
+        with:
+          path: vendor/llama.cpp/build/bin
+          # Exact, with no restore-keys: Clarity refuses a binary from another commit.
+          # v1: bump it when the build flags change.
+          key: llama-bin-v1-${{ steps.pin.outputs.image }}-${{ steps.pin.outputs.commit }}
+      # GGML_NATIVE=OFF: one binary for every runner (SSE 4.2 to AVX2, no AVX-512), since
+      # the cache may hand it to a runner with another CPU.
+      - name: Build llama-server and llama-quantize for the CPU
+        if: steps.llama-bin.outputs.cache-hit != 'true'
+        run: |
+          cmake -S vendor/llama.cpp -B vendor/llama.cpp/build -DCMAKE_BUILD_TYPE=Release \
+            -DLLAMA_CURL=OFF -DGGML_NATIVE=OFF
+          cmake --build vendor/llama.cpp/build --config Release -j "$(nproc)" \
+            --target llama-server llama-quantize
+      - run: vendor/llama.cpp/build/bin/llama-server --version  # a broken cached binary fails here
+      # Hugging Face's cache: SmolLM2's source files and the third-party GGUF the download
+      # test fetches. It's addressed by commit, so an older cache is only incomplete.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/huggingface/hub
+          key: hf-hub-${{ hashFiles('models.toml') }}
+          restore-keys: hf-hub-
+      # Fetch on every run, so a fetch regression shows at once. Fetch rewrites the model's
+      # lock entry with its own hash, so restore the committed one (made on the Mac) and
+      # verify the Linux-made file against it; verify also records the file's new time.
+      - run: uv run clarity fetch smollm2-135m-instruct
+      - run: git restore models.lock
+      - run: uv run clarity verify smollm2-135m-instruct
+      - name: server.toml for the CPU, one line and nothing else
+        run: |
+          sed -i 's/^n-gpu-layers = "all".*/n-gpu-layers = 0  # CI: a CPU build/' server.toml
+          git diff server.toml
+          test "$(git diff --numstat server.toml)" = "$(printf '1\t1\tserver.toml')"
+      - run: nproc
+      - name: The live tests that don't need a GPU
+        run: uv run pytest -m "live and not gpu" -v -rs --junitxml=live.xml
+      # The live tier skips itself without llama-server or the model, and one test skips
+      # without llama-quantize: here a skip fails the job, as does a run with no test.
+      - run: uv run python scripts/junit_guard.py live.xml
+      - name: Deselected here, since they need a GPU
+        if: always()
+        run: uv run pytest --collect-only -q -m "live and gpu" >> "$GITHUB_STEP_SUMMARY"
