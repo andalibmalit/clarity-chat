@@ -26,6 +26,8 @@ TIME_LIMIT = 120.0  # seconds; the child's own deadline is a little later
 MEMORY_CAP = 1024 * 1024 * 1024  # the child's peak memory, in bytes
 OUTPUT_CAP = 256 * 1024 * 1024  # the child's answer, in bytes
 CHILD = [sys.executable, "-I", "-m", "clarity_chat.documents.child"]  # tests run stubs
+# SENTENCES' "stopped": the page shows it too, for a Cancel before the bytes are up.
+STOPPED = "Stopped reading {name}."
 MEMORY_EXIT, DEADLINE_EXIT = 70, 71  # as in child.py, which the parent doesn't import
 
 
@@ -230,7 +232,7 @@ def run_child(request: dict[str, Any], data: bytes, cancel: threading.Event | No
             if time.monotonic() - started > TIME_LIMIT:
                 why = f"{name} took longer than {TIME_LIMIT:.0f} seconds to read."
             elif cancel is not None and cancel.is_set():
-                why = f"Stopped reading {name}."
+                why = STOPPED.format(name=name)
             elif size[0] > OUTPUT_CAP:
                 why = too_long
             if why:

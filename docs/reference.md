@@ -219,7 +219,7 @@ A **line** is text split on `\n` only, each keeping its `\n`, so excerpts join b
 
 ## The attach sheet's sentences
 
-The page, the terminal and this list share these sentences and phrases, from one table in the code. The braces are filled in: `{tokens}`, `{free}`, `{left}`, `{max_tokens}`, `{first}` and `{last}` with numbers, `{unit}` with `page` or `line`, `{units}` and `{Units}` with its plural, `{count}` with how many units, lines or characters, `{names}` with file names, `{origin}` with the origin phrases below, and `{framing}` with the framing line.
+The page, the terminal and this list share these sentences and phrases, from one table in the code. The braces are filled in: `{tokens}`, `{free}`, `{left}`, `{max_tokens}`, `{first}` and `{last}` with numbers, `{unit}` with `page` or `line`, `{units}` and `{Units}` with its plural, `{count}` with how many units, lines or characters, `{name}` and `{names}` with file names, `{origin}` with the origin phrases below, and `{framing}` with the framing line.
 
 - `whole`: It takes up {tokens} tokens of the context for the rest of the chat.
 - `excerpt`: The pages or lines you choose go in complete, after a line saying they're an excerpt.
@@ -245,6 +245,7 @@ The page, the terminal and this list share these sentences and phrases, from one
 - `more_lines`: … and {count} more lines, ending with:
 - `more_characters`: … {count} more characters on this line
 - `choose`: Choose how to attach it.
+- `stopped`: Stopped reading {name}.
 - `no_room`: This chat has no room left for a file: its messages and max_tokens already fill the context. Lower max_tokens or start a new chat.
 - `no_framing`: No framing line ({origin}).
 - `origin_default`: Clarity's default

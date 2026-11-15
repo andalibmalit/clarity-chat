@@ -1296,7 +1296,7 @@ async function cancelRead(draw = true) {
   const { phase, upload, name } = attaching;
   if (phase !== "uploading" && phase !== "reading") return;
   attaching.phase = "stopped";
-  if (draw) sheetEnded(`Stopped reading ${name}.`, false);
+  if (draw) sheetEnded($("attach-sheet").dataset.stopped.replace("{name}", name), false); // SENTENCES
   if (phase === "uploading") {
     attaching.abort.abort();
     return;

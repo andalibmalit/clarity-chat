@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from html import escape
 from typing import Any
 
-from clarity_chat.documents.reading import Document, DocumentRefused, checked_name
+from clarity_chat.documents.reading import STOPPED, Document, DocumentRefused, checked_name
 from clarity_chat.profiles import Profile
 
 FRAMING = (
@@ -52,6 +52,7 @@ SENTENCES = {
     "more_lines": "… and {count} more lines, ending with:",
     "more_characters": "… {count} more characters on this line",
     "choose": "Choose how to attach it.",
+    "stopped": STOPPED,
     "no_room": "This chat has no room left for a file: its messages and max_tokens already fill "
     "the context. Lower max_tokens or start a new chat.",
     "no_framing": "No framing line ({origin}).",
