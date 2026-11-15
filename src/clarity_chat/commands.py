@@ -307,7 +307,8 @@ def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     nothing, what's waiting."""
     conversation = c.session.conversation
     assert conversation is not None
-    if not args:
+    if not args:  # the page asks before its file picker opens: text mode refuses here
+        c.session.attaching()
         return {"pending": summaries(conversation.pending)}
     if c.uploads is None and args in c.preread:  # --attach: exactly the file named, whole
         source, unit, first, last, check = args, None, 0, 0, False

@@ -774,7 +774,8 @@ class Session:
             token_bytes=tokenizer.max_token_bytes,
         )
 
-    def _attaching(self) -> tuple[Conversation, Profile, str]:
+    def attaching(self) -> tuple[Conversation, Profile, str]:
+        """The conversation, its profile and framing line, refusing a text-mode profile."""
         conversation = self._require_conversation()
         profile = conversation.profile
         if profile.mode != "chat":
@@ -794,7 +795,7 @@ class Session:
         """Add `doc`, whole or units `first` to `last`, to the attachments waiting for your
         next message, if it fits. Returns its record, as the turn will log it, and its fit:
         the free context before it and what it leaves."""
-        conversation, profile, framing = self._attaching()
+        conversation, profile, framing = self.attaching()
         assert self.tokenizer is not None
         new = piece(doc, profile, unit, first, last)
         pending = attached_in({"attachments": conversation.pending})
@@ -851,7 +852,7 @@ class Session:
         """What attaching `doc` would cost and leave, attaching nothing: the whole, the start
         that fits, the preselected start (leaving max_tokens more), the range given, and
         the whole in a new chat on this profile."""
-        conversation, profile, framing = self._attaching()
+        conversation, profile, framing = self.attaching()
         assert self.tokenizer is not None
         pending = attached_in({"attachments": conversation.pending})
         room = self.room(cancel=cancel, name=doc.name)
@@ -918,10 +919,19 @@ class Session:
             "chosen": chosen,
             "free_new_chat": new_chat.free,
             "fits_new_chat": new_chat.fits,
+            "tokens_new_chat": new_chat.tokens,
+            "left_new_chat": new_chat.left,
             "already_in_chat": self.already_in_chat(doc.sha256),
             **scan(doc.text, self.tokenizer.special_tokens_in),
             "framing": framing,
             "framing_origin": framing_of(profile)[1],
+            # The sheet's excerpt sentence follows the profile's setting, not one range's
+            # marker: a range that covers the whole file has none (Checkpoint 3, must 3).
+            "excerpt_marker_origin": "default"
+            if profile.excerpt_marker is None
+            else "profile"
+            if profile.excerpt_marker
+            else "none",
             "text": doc.text,
         }
 
