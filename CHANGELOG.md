@@ -8,6 +8,14 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-15
+
+Live tests on an M2 Max (macOS), 2026-11-15, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 19 passed, `-m hf` 18 passed, `-m olmo` 12 passed, `-m llama` 3 passed, and `-m browser` 78 passed (the web interface in Chrome).
+
+### Migration
+- For `clarity chat --json` readers: a `/chats` row's `conversation_id` is now the ID inside the log; the log file's name, which `/resume` and `clarity export` take, is the new `log_id`. They're the same for a log Clarity wrote that wasn't copied or renamed, so a script that passed `conversation_id` to `/resume` keeps working for those, and should pass `log_id`. `/state` gains `log_id`, `start` and `reply_end`, and `text` events gain `at` and `end`; readers that ignore unknown keys need no change.
+- Exports are named by their log file: an export of a copied or renamed log is now written under its own name, beside any export written before under the conversation ID, which stays as it was.
+
 ### Added
 - Llama 3.1 8B, Instruct and base (`llama-3.1-8b-instruct`, `llama-3.1-8b-base` in `models.toml`), with the profiles `llama-3.1-8b-chat` and `llama-3.1-8b-base`, which take Meta's recommended temperature and top_p (`use_recommended`). Meta gates the repos: accept the licence on each model's page and run `uv run hf auth login` before `clarity fetch`; Clarity never handles the token. The chat template starts every chat with a system header dated 26 Jul 2024, its fixed default, which `/prompt` shows. Live tests: `pytest -m llama`.
 - `clarity ui`, a web interface on `127.0.0.1:8765` over the same commands as `--json`. It prints a link with a secret made for this start and opens it through a private file; the page reads the secret from the link's fragment, keeps its event stream and joins a reply after a reload. When the connection drops, the page says Clarity isn't answering and keeps trying until it answers. It ships:
@@ -204,7 +212,9 @@ The first release.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - A llama-server that Clarity starts and checks itself, and a Transformers backend for the same weights.
 
-[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.3...v0.3.0
+[0.2.3]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/andalibmalit/clarity-chat/compare/v0.1.0...v0.2.0
