@@ -151,7 +151,8 @@ def test_dash_dash_attach_with_resume(fetched_root, chat_tokenizer, notes):
             "scan.pdf",
             make_pdf(["", ""]),
             "scan.pdf has no text Clarity can read. Its pages may be scanned images, which "
-            "Clarity doesn't read. Save a copy with a text layer (run OCR) and attach that.",
+            "Clarity doesn't read. Use a PDF app's text recognition (OCR) to add the text, then "
+            "attach that copy.",
         ),
         (
             "locked.pdf",

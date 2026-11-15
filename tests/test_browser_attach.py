@@ -184,7 +184,7 @@ def test_remove_a_chip_and_send_with_chips_and_no_text(clarity, page):
     page.click("[aria-label='Remove a.md']")
     until(page, lambda: "a.md" not in page.text_content("#chips"))
     page.click("#send")
-    page.wait_for_selector("#notice :text('Type a message to send with b.md.')")
+    page.wait_for_selector("#send-waits:has-text('Type a message to send with b.md.')")  # F12
 
 
 @pytest.mark.parametrize(
@@ -481,7 +481,8 @@ def test_edit_shows_what_it_keeps(clarity, page):
     page.wait_for_selector(".reply.last .tb")
     page.click(".turn.user [data-action=edit]")
     page.wait_for_selector(".editbox:not([hidden])")
-    assert page.text_content(".editbox .att").strip() == "Keeps: trail-notes.md"
+    keeps = "Keeps: trail-notes.md. An edit can't add or remove attachments."
+    assert page.text_content(".editbox .att").strip() == keeps
     shot(page, "C2-edit-keeps", "v031")
 
 
