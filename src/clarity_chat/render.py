@@ -97,6 +97,10 @@ class Tokenizer:
         return self.tok.decode(ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)
 
     @property
+    def max_token_bytes(self) -> int:
+        return 1
+
+    @property
     def bos(self) -> tuple[str | None, int | None]:
         return self.tok.bos_token, self.tok.bos_token_id
 

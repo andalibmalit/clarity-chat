@@ -752,7 +752,12 @@ class Session:
         return conversation, profile, framing_of(profile)[0]
 
     def attach(
-        self, doc: Document, unit: str | None = None, first: int = 0, last: int = 0
+        self,
+        doc: Document,
+        unit: str | None = None,
+        first: int = 0,
+        last: int = 0,
+        cancel: threading.Event | None = None,
     ) -> tuple[dict[str, Any], Fit]:
         """Add `doc`, whole or units `first` to `last`, to the attachments waiting for your
         next message, if it fits. Returns its record, as the turn will log it, and its fit:
@@ -795,7 +800,12 @@ class Session:
         return record, result
 
     def check(
-        self, doc: Document, unit: str | None = None, first: int = 0, last: int = 0
+        self,
+        doc: Document,
+        unit: str | None = None,
+        first: int = 0,
+        last: int = 0,
+        cancel: threading.Event | None = None,
     ) -> dict[str, Any]:
         """What attaching `doc` would cost and leave, attaching nothing: the whole, the start
         that fits, the preselected start (leaving max_tokens more), the range given, and

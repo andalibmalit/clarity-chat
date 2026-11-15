@@ -85,3 +85,36 @@ def aes_pdf(pages: list[str], version: int = 5) -> bytes:
     table += b"".join(b"%010d 00000 n \n" % o for o in offsets)
     trailer = b"trailer\n<< /Size %d /Root 1 0 R /Encrypt %d 0 R /ID [<00> <00>] >>\n" % (n + 1, n)
     return body + table + trailer + b"startxref\n%d\n%%%%EOF\n" % xref
+
+
+def shared_stream_pdf(n_pages: int, chars: int) -> bytes:
+    """A small file with a lot of text: `n_pages` pages that all show one compressed content
+    stream of `chars` made-up letters (the security review's amplifying PDF)."""
+    import zlib
+
+    data = zlib.compress(b"BT /F1 12 Tf 72 720 Td (" + b"A" * chars + b") Tj ET", 9)
+    kids = " ".join(f"{5 + i} 0 R" for i in range(n_pages))
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        f"<< /Type /Pages /Kids [{kids}] /Count {n_pages} >>".encode(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        b"<< /Length %d /Filter /FlateDecode >>\nstream\n" % len(data) + data + b"\nendstream",
+        *(
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R"
+            b" /Resources << /Font << /F1 3 0 R >> >> >>"
+            for _ in range(n_pages)
+        ),
+    ]
+    out = io.BytesIO()
+    out.write(b"%PDF-1.4\n")
+    offsets = []
+    for n, body in enumerate(objects, 1):
+        offsets.append(out.tell())
+        out.write(b"%d 0 obj\n" % n + body + b"\nendobj\n")
+    xref = out.tell()
+    out.write(b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1))
+    for offset in offsets:
+        out.write(b"%010d 00000 n \n" % offset)
+    out.write(b"trailer\n<< /Size %d /Root 1 0 R >>\n" % (len(objects) + 1))
+    out.write(b"startxref\n%d\n%%%%EOF\n" % xref)
+    return out.getvalue()
