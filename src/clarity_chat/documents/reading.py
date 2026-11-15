@@ -65,13 +65,19 @@ class Document:
         return hashlib.sha256(self.text.encode("utf-8")).hexdigest()
 
 
+BIDI = frozenset("\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
+
+
 def checked_name(name: str) -> str:
     """A file's name as the record keeps it: never a path, never a control character."""
     # Control characters; lone surrogates (a Linux name that isn't UTF-8, or --json), which
-    # can't be written as UTF-8; line and paragraph separators, which act as newlines.
-    if any(unicodedata.category(c) in ("Cc", "Cs", "Zl", "Zp") for c in name):
+    # can't be written as UTF-8; line and paragraph separators, which act as newlines; and
+    # text-direction controls, which show a name reversed (notes\u202edm.txt). Not all of
+    # Cf: U+200C is common in Persian names, and U+200D joins emoji.
+    if any(unicodedata.category(c) in ("Cc", "Cs", "Zl", "Zp") or c in BIDI for c in name):
         raise DocumentRefused(
-            "A file name can't hold a newline, a control character or a broken character."
+            "A file name can't hold a newline, a control character, a text-direction control "
+            "or a broken character."
         )
     if not name or len(name) > MAX_NAME:
         raise DocumentRefused(f"A file name must be 1 to {MAX_NAME} characters.")
