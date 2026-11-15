@@ -180,10 +180,10 @@ def format_attached(result: dict[str, Any]) -> str:
     ].format(left=f"{result['left']:,}")
 
 
-def format_check(check: dict[str, Any], max_tokens: int) -> str:
+def format_check(check: dict[str, Any]) -> str:
     """/attach PATH check: the sheet's numbers and sentences, a line each, names shown
     safely, and the command a new chat takes."""
-    lines = check_lines({**check, "name": shown(check["name"])}, max_tokens)
+    lines = check_lines({**check, "name": shown(check["name"])})
     if not check["fits"] and check["fits_new_chat"]:
         lines.append("/new, then attach it there.")
     return "\n".join(lines)
@@ -628,10 +628,7 @@ class ChatLoop:
         elif name == "history":
             self.write(format_history(result) + "\n")
         elif name == "attach" and "check" in result:
-            conversation = self.session.conversation
-            assert conversation is not None
-            max_tokens = conversation.settings["max_tokens"].value
-            self.write(format_check(result["check"], max_tokens) + "\n")
+            self.write(format_check(result["check"]) + "\n")
         elif name == "attach" and "attached" in result:
             self.write(format_attached(result) + "\n")
         elif name == "attach":

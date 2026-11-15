@@ -23,7 +23,7 @@ from typing import Any
 
 from clarity_chat import documents
 from clarity_chat.backends import BackendError
-from clarity_chat.documents import DocumentRefused, summaries
+from clarity_chat.documents import DocumentRefused, more_than, summaries
 from clarity_chat.logs import LOG_NAME, list_chats, unreadable
 from clarity_chat.profiles import ConfigError, profile_path
 from clarity_chat.session import CallOutcome, CancelledBeforeReply, DoesntFit, Session
@@ -337,7 +337,7 @@ def suggestion(c: Commands, e: DoesntFit, doc: documents.Document, source: str) 
     assert conversation is not None
     if e.start is None:
         return SENTENCES["none_fits"].format(unit=doc.unit)
-    max_tokens = conversation.settings["max_tokens"].value
+    max_tokens = f"{conversation.settings['max_tokens'].value:,}"
     fits = SENTENCES["fits_up_to"].format(Units=f"{doc.unit}s".capitalize(), last=e.start)
     if e.roomy is None:
         return f"{SENTENCES['no_start'].format(unit=doc.unit, max_tokens=max_tokens)} {fits}"
@@ -350,10 +350,10 @@ def suggestion(c: Commands, e: DoesntFit, doc: documents.Document, source: str) 
     return f"{roomy}: {taken}. {fits}"
 
 
-def check_lines(check: dict[str, Any], max_tokens: int | None = None) -> list[str]:
+def check_lines(check: dict[str, Any]) -> list[str]:
     """`check`'s numbers in the sheet's words, a line each, every sentence from SENTENCES
     (decision 20): the terminal prints them, and the page's sheet shows them."""
-    max_tokens = check["max_tokens"] if max_tokens is None else max_tokens
+    max_tokens = f"{check['max_tokens']:,}"  # the value its numbers were counted with
     unit, units = check["unit"], f"{check['unit']}s"
     facts = [check["kind"], documents.counted(check["total"], unit)]
     if check["empty_units"]:
@@ -412,11 +412,6 @@ def check_lines(check: dict[str, Any], max_tokens: int | None = None) -> list[st
     else:
         lines.append(SENTENCES["no_framing"].format(origin=origin))
     return lines
-
-
-def more_than(tokens: int | None, at_least: int | None) -> str:
-    """A count, or "more than N" when only its bound was taken (it surely doesn't fit)."""
-    return f"{tokens:,}" if tokens is not None else f"more than {(at_least or 1) - 1:,}"
 
 
 def read_document(c: Commands, source: str, emit: Emit) -> documents.Document:
