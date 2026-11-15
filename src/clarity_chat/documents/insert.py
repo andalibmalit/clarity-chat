@@ -11,6 +11,7 @@ from html import escape
 from typing import Any
 
 from clarity_chat.documents.reading import Document, DocumentRefused
+from clarity_chat.profiles import Profile
 
 FRAMING = (
     "Reference material: use it to understand the conversation; don't copy its wording or tone."
@@ -24,10 +25,12 @@ SENTENCES = {
     "excerpt": "An excerpt goes in whole, marked as an excerpt.",
     "left": "That leaves {left} tokens for your message and the rest of the chat.",
     "doesnt_fit": "Doesn't fit: needs {tokens} tokens, {free} free.",
-    "preselected": "The start that still leaves {max_tokens} tokens for a reply (max_tokens).",
-    "no_start": "Not even its first {unit} leaves {max_tokens} tokens for a reply (max_tokens).",
+    "preselected": "The start that still leaves {max_tokens} tokens (your max_tokens) for your "
+    "message and the rest of the chat.",
+    "no_start": "Not even its first {unit} leaves {max_tokens} tokens (your max_tokens) for your "
+    "message and the rest of the chat.",
     "already": "This file is already in this chat.",
-    "control_tokens": "Holds text the model reads as control tokens ({tokens}); it's sent as "
+    "control_tokens": "Holds text the tokenizer reads as control tokens ({tokens}); it's sent as "
     "it is, and the call is flagged.",
     "closing_tag": "Holds </document>, which ends Clarity's wrapper early; it's sent as it is.",
 }
@@ -62,15 +65,15 @@ class Fit:
     fits: bool
 
 
-def framing_of(profile: Any) -> tuple[str, str]:
+def framing_of(profile: Profile) -> tuple[str, str]:
     """The framing line and its origin: the profile's own (which may be empty: none),
     else Clarity's default."""
-    own = getattr(profile, "framing", None)
+    own = profile.framing
     return (FRAMING, "default") if own is None else (own, "profile")
 
 
 def piece(
-    doc: Document, profile: Any, unit: str | None = None, first: int = 0, last: int = 0
+    doc: Document, profile: Profile, unit: str | None = None, first: int = 0, last: int = 0
 ) -> Attached:
     """The document whole (no range, or one that covers it all), or an excerpt of it with
     its marker. `unit` is "pages" or "lines", as typed."""
@@ -88,8 +91,7 @@ def piece(
         )
     if (first, last) == (1, doc.total):
         return Attached(doc.name, doc.text, None)
-    template = getattr(profile, "excerpt_marker", None)
-    template = MARKER if template is None else template
+    template = MARKER if profile.excerpt_marker is None else profile.excerpt_marker
     marker = template.format(
         units=unit, first=f"{first:,}", last=f"{last:,}", total=f"{doc.total:,}"
     )
@@ -139,30 +141,30 @@ def start_that_fits(
     pending: list[Attached],
     framing: str,
     doc: Document,
-    profile: Any,
+    profile: Profile,
     keep: int = 0,
     checked: dict[int, Fit] | None = None,
 ) -> tuple[int, Fit] | None:
     """The largest k whose excerpt 1 to k leaves at least `keep` tokens (0: the start that
-    fits; max_tokens: the preselected range), found by a binary search over exact renders.
-    k is shown to fit and k+1 not to (or k is the whole); cost isn't proven to grow with k,
-    so this claims no global maximum. None when not even the first unit does."""
+    fits; max_tokens: the preselected range). It climbs k = 1, 2, 4, … to the first that
+    doesn't, then bisects between that and the last that did, so no render is longer than
+    twice the answer. k is shown to fit and k+1 not to (or k is the whole); cost isn't
+    proven to grow with k, so this claims no global maximum. None when not even the first
+    unit does. `checked` keeps each k's exact render for a second call with the same
+    pending attachments and framing."""
     unit = doc.unit + "s"
     before = room.tokens(content("", pending, framing))
-    checked: dict[int, Fit] = {}
+    checked = {} if checked is None else checked
 
-    def check(k: int) -> Fit:
+    def holds(k: int) -> bool:
         if k not in checked:
             checked[k] = fit(room, pending, piece(doc, profile, unit, 1, k), framing, before)
-        return checked[k]
+        return checked[k].fits and checked[k].left >= keep
 
-    lo, hi = 0, doc.total + 1  # check(lo) holds (or lo is 0); check(hi) fails (or hi is past)
-    while hi - lo > 1:
+    lo, hi = 0, 1  # holds(lo) (or lo is 0); holds(hi) is still to check
+    while hi <= doc.total and holds(hi):
+        lo, hi = hi, (min(hi * 2, doc.total) if hi < doc.total else hi + 1)
+    while hi - lo > 1:  # holds(lo); not holds(hi), or hi is past the end
         mid = (lo + hi) // 2
-        if check(mid).left >= keep and check(mid).fits:
-            lo = mid
-        else:
-            hi = mid
-    if lo == 0:
-        return None
-    return lo, check(lo)
+        lo, hi = (mid, hi) if holds(mid) else (lo, mid)
+    return None if lo == 0 else (lo, checked[lo])

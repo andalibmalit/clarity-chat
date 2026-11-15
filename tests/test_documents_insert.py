@@ -240,7 +240,7 @@ def test_the_start_that_fits_and_the_preselected_range(root):
     assert found is not None
     k, result = found
     assert result.fits and not fit(room, [], piece(d, p, "lines", 1, k + 1), FRAMING).fits
-    assert len(renders) <= math.ceil(math.log2(d.total)) + 3  # about log2(total) renders
+    assert len(renders) <= 2 * math.ceil(math.log2(d.total)) + 3  # climb, then bisect
     preselected = start_that_fits(room, [], FRAMING, d, p, keep=room.max_tokens)
     assert preselected is not None
     kept, chosen = preselected

@@ -204,10 +204,10 @@ The page, the terminal and this list share these sentences, from one table in th
 - `excerpt`: An excerpt goes in whole, marked as an excerpt.
 - `left`: That leaves {left} tokens for your message and the rest of the chat.
 - `doesnt_fit`: Doesn't fit: needs {tokens} tokens, {free} free.
-- `preselected`: The start that still leaves {max_tokens} tokens for a reply (max_tokens).
-- `no_start`: Not even its first {unit} leaves {max_tokens} tokens for a reply (max_tokens).
+- `preselected`: The start that still leaves {max_tokens} tokens (your max_tokens) for your message and the rest of the chat.
+- `no_start`: Not even its first {unit} leaves {max_tokens} tokens (your max_tokens) for your message and the rest of the chat.
 - `already`: This file is already in this chat.
-- `control_tokens`: Holds text the model reads as control tokens ({tokens}); it's sent as it is, and the call is flagged.
+- `control_tokens`: Holds text the tokenizer reads as control tokens ({tokens}); it's sent as it is, and the call is flagged.
 - `closing_tag`: Holds </document>, which ends Clarity's wrapper early; it's sent as it is.
 
 ## Settings
