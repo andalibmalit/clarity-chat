@@ -308,7 +308,8 @@ li.revealed .msg { outline: 2px solid var(--accent); outline-offset: 4px; border
 .drawer .problem { margin: 4px 0 2px; font-size: 12.5px; }
 .menu.titlemenu { left: 120px; top: 46px; min-width: 240px; z-index: 9; }
 .top .title[aria-disabled="true"] { cursor: default; }
-.rename { display: inline-flex; align-items: center; gap: 6px; }
+.rename { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rename .limit { white-space: nowrap; }
 .rename input { width: min(260px, 50vw); padding: 5px 8px; border: 1px solid var(--accent); border-radius: var(--r-sm); background: var(--raised); color: var(--ink); font: 500 14px var(--sans); }
 .btn.sm { padding: 3px 8px; font-size: 12.5px; }
 .btn[aria-disabled="true"] { opacity: 0.5; cursor: default; }
