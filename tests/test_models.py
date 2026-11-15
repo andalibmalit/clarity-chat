@@ -176,3 +176,30 @@ def test_the_shipped_models_toml_loads():
     repo = Path(__file__).resolve().parents[1]
     models = load_models(repo)
     assert "bge-small-en-v1.5" in models and "olmo-3-7b-instruct" in models
+
+
+def test_the_converter_record_keeps_the_version_python_imports(tmp_path, monkeypatch):
+    """The CI plan's advisor: in the converter's environment a package can be installed
+    twice, in uv's overlay (llama.cpp's pins, first on sys.path, the one Python imports)
+    and in the base environment under it. The record kept the last one distributions()
+    gave, so models.lock said transformers 5.22.2 where the converter ran 4.57.6. It keeps
+    the first on sys.path, as importlib.metadata.version() does."""
+    import sys
+
+    from clarity_chat import convert_shim
+
+    for folder, version in (("overlay", "4.57.6"), ("base", "5.22.2")):
+        info = tmp_path / folder / f"made_up_transformers-{version}.dist-info"
+        info.mkdir(parents=True)
+        (info / "METADATA").write_text(
+            f"Metadata-Version: 2.1\nName: made-up-transformers\nVersion: {version}\n", "utf-8"
+        )
+    converter = tmp_path / "convert.py"
+    converter.write_text("", "utf-8")  # runs, converts nothing
+    versions = tmp_path / "versions.json"
+    overlay_first = [str(tmp_path / "overlay"), str(tmp_path / "base"), *sys.path]
+    monkeypatch.setattr(sys, "path", overlay_first)
+    monkeypatch.setattr(sys, "argv", ["convert_shim.py", str(versions), str(converter)])
+    convert_shim.main()
+    packages = json.loads(versions.read_text("utf-8"))["packages"]
+    assert packages["made-up-transformers"] == "4.57.6"
