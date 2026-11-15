@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -130,10 +131,16 @@ def too_big(name: str) -> str:
 _last: Document | None = None  # the last document read, kept so a range change re-reads nothing
 
 
-def extract(data: bytes, name: str, cancel: threading.Event | None = None) -> Document:
+def extract(
+    data: bytes,
+    name: str,
+    cancel: threading.Event | None = None,
+    on_read: Callable[[], None] | None = None,
+) -> Document:
     """The document in `data`, or a DocumentRefused. The same bytes read the same way as the
     last call are read once: the answer is kept, by the bytes' sha256 and the kind (the
-    name decides HTML or text, so the same bytes can be read two ways)."""
+    name decides HTML or text, so the same bytes can be read two ways). `on_read` runs only
+    when they're really read, just before the child starts."""
     global _last
     name = checked_name(name)
     if len(data) > MAX_BYTES:
@@ -142,6 +149,8 @@ def extract(data: bytes, name: str, cancel: threading.Event | None = None) -> Do
     kind = kind_of(data, name)
     if _last is not None and (_last.sha256, _last.kind) == (sha256, kind):
         return replace(_last, name=name)
+    if on_read is not None:
+        on_read()
     answer = run_child({"name": name, "kind": kind}, data, cancel)
     if "refused" in answer:
         raise DocumentRefused(answer["refused"])

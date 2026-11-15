@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import io
+import json
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -666,6 +667,8 @@ class ChatLoop:
             )
             for warning in result["warnings"]:
                 self.write(f"! {warning}\n")
+            if result.get("dropped"):
+                self.write(not_kept(result["dropped"]) + "\n")
         elif name == "undo":
             text = result["head_text"]
             where = f"after: {text[:60]!r}" if result["head"] else "at the start"
@@ -711,6 +714,8 @@ class ChatLoop:
                 self.write(f"! {render_line(result['render'])}\n")
         elif name == "resume":
             self.write(format_resume(result) + "\n")
+            if result.get("dropped"):
+                self.write(not_kept(result["dropped"]) + "\n")
         elif name in ("mark", "unmark", "note"):
             self.write(annotated(result["records"]) + ".\n")
         elif name == "replay":
@@ -1063,7 +1068,14 @@ def run_command(args: argparse.Namespace) -> int:
             return cmd_annotate(args.log, "note", args.call_id, args.text)
         root = args.root.resolve() if args.root else find_root()
         # Read before any model starts (S12): a file that can't be attached stops here.
-        attach = read_files(args.attach or []) if args.command == "chat" else {}
+        attach = {}
+        if args.command == "chat" and args.attach:
+
+            def reading(name: str) -> None:  # --json's stdout carries events, so an event
+                said = json.dumps({"event": "reading", "name": name})
+                print(said if args.json else f"Reading {name}…", flush=True)
+
+            attach = read_files(args.attach, reading)
         if args.command in ("chat", "ui", "run", "replay"):
             from clarity_chat import instance
 

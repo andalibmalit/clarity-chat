@@ -95,9 +95,10 @@ class DoesntFit(DocumentRefused):
     """An attachment that doesn't fit the free context. `start`: for a whole file, the
     largest k whose units 1 to k fit, or None if not even the first does."""
 
-    def __init__(self, sentence: str, start: int | None = None) -> None:
+    def __init__(self, sentence: str, start: int | None = None, roomy: int | None = None) -> None:
         super().__init__(sentence)
         self.start = start
+        self.roomy = roomy  # the largest start that still leaves max_tokens: the sheet's
 
 
 class CancelledBeforeReply(BackendError):
@@ -737,7 +738,9 @@ class Session:
         tokenizer, template, profile = self.tokenizer, self.template_tokenizer, conversation.profile
         turns = [] if empty else conversation.path_to(conversation.head)
         path = [(t.role, t.content) for t in turns if t.origin != "priming"]
-        max_tokens = conversation.settings["max_tokens"].value
+        # A new chat starts from the profile's settings, not this chat's /set values.
+        settings = conversation.profile.settings if empty else conversation.settings
+        max_tokens = settings["max_tokens"].value
 
         def tokens(next_content: str) -> int:
             if cancel is not None and cancel.is_set():
@@ -782,14 +785,20 @@ class Session:
         room = self.room(cancel=cancel, name=doc.name)
         result = fit(room, pending, new, framing)
         if not result.fits:
-            start = None
+            start = roomy = None
             if covers_whole(doc, unit, first, last):
-                found = start_that_fits(room, pending, framing, doc, profile)
+                checked: dict[int, Fit] = {}
+                found = start_that_fits(room, pending, framing, doc, profile, checked=checked)
                 start = found[0] if found else None
+                found = start_that_fits(
+                    room, pending, framing, doc, profile, room.max_tokens, checked
+                )
+                roomy = found[0] if found else None
             raise DoesntFit(
                 f"{doc.name} doesn't fit: it needs {needs(result)} tokens and "
                 f"{result.free:,} are free in this chat.",
                 start,
+                roomy,
             )
         assert result.tokens is not None  # it fits: counted
         whole = covers_whole(doc, unit, first, last)

@@ -319,17 +319,34 @@ def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     try:
         _, fit = c.session.attach(doc, unit, first, last, c.cancel_event)
     except DoesntFit as e:
-        if unit is not None:
+        if unit is not None:  # a start from 1 answers another question than lines 5-190
             raise
-        if e.start is None:
-            raise DoesntFit(f"{e} Not even its first {doc.unit} fits.") from None
-        raise DoesntFit(
-            f"{e} The start that fits: /attach {source} {doc.unit}s 1-{e.start}.", e.start
-        ) from None
+        raise DoesntFit(f"{e} {suggestion(c, e, doc, source)}", e.start, e.roomy) from None
     if c.uploads is not None:
         c.uploads.pop(source, None)  # used: Add drops it
     pending = summaries(conversation.pending)
     return {"attached": pending[-1], "pending": pending, "free": fit.free, "left": fit.left}
+
+
+def suggestion(c: Commands, e: DoesntFit, doc: documents.Document, source: str) -> str:
+    """What a refusal of a whole file offers: the start that still leaves max_tokens for
+    your message, as the sheet preselects it (the lead's ruling, extending M1 to the
+    terminal), and how far the start that fits goes. The terminal names the command; the
+    page, which shows no terminal command, names the range."""
+    conversation = c.session.conversation
+    assert conversation is not None
+    if e.start is None:
+        return f"Not even its first {doc.unit} fits."
+    max_tokens = conversation.settings["max_tokens"].value
+    fits = f"{doc.unit.capitalize()}s 1 to {e.start} fit."
+    if e.roomy is None:
+        return f"Not even its first {doc.unit} leaves {max_tokens} tokens for your message. {fits}"
+    taken = (
+        f"{doc.unit}s 1 to {e.roomy}"
+        if c.uploads is not None
+        else f"/attach {source} {doc.unit}s 1-{e.roomy}"
+    )
+    return f"The start that still leaves {max_tokens} tokens for your message: {taken}. {fits}"
 
 
 def read_document(c: Commands, source: str, emit: Emit) -> documents.Document:
@@ -346,29 +363,49 @@ def read_document(c: Commands, source: str, emit: Emit) -> documents.Document:
         data, name = uploaded
     else:  # `~` is your home folder, as a shell would read it
         data, name = documents.read_path(os.path.expanduser(source))
-    with c.progress:
-        c.reading = name
-    emit({"event": "reading", "name": name})
+
+    def reading() -> None:  # only when a child starts: the cache answers without one
+        with c.progress:
+            c.reading = name
+        emit({"event": "reading", "name": name})
+
     try:
-        return extracted(data, name, c.cancel_event)
+        return extracted(data, name, c.cancel_event, reading)
     finally:
         with c.progress:
             c.reading = None
 
 
-def extracted(data: bytes, name: str, cancel: threading.Event | None = None) -> documents.Document:
+def extracted(
+    data: bytes,
+    name: str,
+    cancel: threading.Event | None = None,
+    on_read: Callable[[], None] | None = None,
+) -> documents.Document:
     try:
-        return documents.extract(data, name, cancel)
+        return documents.extract(data, name, cancel, on_read)
     except ConfigError:
         raise
     except Exception as e:  # noqa: BLE001 - a bug or a file nobody foresaw: say which
         raise DocumentRefused(f"Clarity couldn't read {name} ({type(e).__name__}: {e}).") from e
 
 
-def read_files(paths: list[str]) -> dict[str, documents.Document]:
+def read_files(
+    paths: list[str], on_read: Callable[[str], None] | None = None
+) -> dict[str, documents.Document]:
     """--attach's files, read and extracted before any model starts (S12), so a file that
-    can't be attached is refused before a long load. Only their count waits."""
-    return {path: extracted(*documents.read_path(path)) for path in paths}
+    can't be attached is refused before a long load. Only their count waits. `on_read`
+    gets each file's name as it's read. A file named twice is refused: one copy of it
+    would otherwise be dropped without a word."""
+    for path in paths:
+        if paths.count(path) > 1:
+            raise ConfigError(f"--attach names {path} twice. Name each file once.")
+    found = {}
+    for path in paths:
+        data, name = documents.read_path(path)
+        told = (lambda name=name: on_read(name)) if on_read is not None else None
+        found[path] = extracted(data, name, None, told)
+    return found
 
 
 def _detach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
