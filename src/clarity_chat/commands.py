@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends import BackendError
-from clarity_chat.logs import LOG_NAME, list_chats
+from clarity_chat.logs import LOG_NAME, list_chats, unreadable
 from clarity_chat.profiles import ConfigError, profile_path
 from clarity_chat.session import CallOutcome, CancelledBeforeReply, Session
 
@@ -72,10 +72,8 @@ class Commands:
             return COMMANDS[name].run(self, args, emit)
         try:
             return COMMANDS[name].run(self, args, emit)
-        except (KeyError, TypeError, AttributeError) as e:  # a log Clarity didn't write
-            raise ConfigError(
-                f"/{name} can't read this conversation: a record lacks or mangles {e}."
-            ) from e
+        except (KeyError, TypeError, AttributeError) as e:  # a log Clarity didn't write, or a bug
+            raise ConfigError(f"/{name}: {unreadable(e)}") from e
 
     def run(
         self,

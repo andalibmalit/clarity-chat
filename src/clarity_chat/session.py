@@ -20,7 +20,7 @@ from typing import Any
 
 from clarity_chat import steering
 from clarity_chat.backends import Backend, BackendError, Result
-from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records
+from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records, unreadable
 from clarity_chat.models import check_weights_quick, lock_entry, source_weights
 from clarity_chat.profiles import (
     SEED_MAX,
@@ -1349,8 +1349,8 @@ class Session:
             raise ConfigError(f"No conversation or log file {path}. The chat list has them.")
         try:
             return self._resume(path)
-        except (KeyError, TypeError, AttributeError) as e:  # a log Clarity didn't write
-            raise ConfigError(f"{path} can't be resumed: a record lacks or mangles {e}.") from e
+        except (KeyError, TypeError, AttributeError) as e:  # a log Clarity didn't write, or a bug
+            raise ConfigError(unreadable(e, f"the records of {path}")) from e
 
     def _resume(self, path: Path) -> dict[str, Any]:
         records = list(read_records(path))

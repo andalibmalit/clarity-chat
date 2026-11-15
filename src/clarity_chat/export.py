@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.files import write_text_atomic
-from clarity_chat.logs import LOG_NAME, client_git, read_records
+from clarity_chat.logs import LOG_NAME, client_git, read_records, unreadable
 from clarity_chat.profiles import ConfigError, load_profile
 from clarity_chat.render import Prompt, message_spans
 from clarity_chat.replay import facts_from_call
@@ -57,8 +57,8 @@ def export_log(session: Session, log_path: Path, out: Path | None = None) -> dic
         )
     try:
         return _export(session, log_path, out)
-    except (KeyError, TypeError, AttributeError) as e:  # a log Clarity didn't write
-        raise ConfigError(f"{log_path} can't be exported: a record lacks or mangles {e}.") from e
+    except (KeyError, TypeError, AttributeError) as e:  # a log Clarity didn't write, or a bug
+        raise ConfigError(unreadable(e, f"the records of {log_path}")) from e
 
 
 def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any]:
