@@ -74,6 +74,13 @@ class Document:
 
 
 BIDI = frozenset("\u061c\u200e\u200f\u202a\u202b\u202c\u202d\u202e\u2066\u2067\u2068\u2069")
+SHOWN_BIDI = {ord(c): f"⟨U+{ord(c):04X}⟩" for c in BIDI}
+
+
+def visible_bidi(text: str) -> str:
+    """Text as the page shows a document's text: each text-direction control written as
+    ⟨U+202E⟩, so none can reorder what's on screen (QA 1). The text sent stays exact."""
+    return text.translate(SHOWN_BIDI)
 
 
 def checked_name(name: str) -> str:

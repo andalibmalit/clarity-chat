@@ -38,6 +38,7 @@ from clarity_chat.documents.reading import (
     read_path,
     slow_read,
     too_big,
+    visible_bidi,
 )
 
 __all__ = [
@@ -71,6 +72,7 @@ __all__ = [
     "scan",
     "start_that_fits",
     "too_big",
+    "visible_bidi",
     "with_text",
     "summaries",
 ]

@@ -244,7 +244,7 @@ def test_hostile_text_with_a_direction_override_and_a_long_line_stays_text(make)
     parser = Unsafe()
     parser.feed(page)
     assert parser.found == [] and len(page) < 60_000
-    assert "\u202eMade-up reversed." in html.unescape(page)
+    assert "⟨U+202E⟩Made-up reversed." in html.unescape(page)  # shown, never reordering (QA 1)
 
 
 # --- could 12: the chips draw a range with an en dash

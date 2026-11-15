@@ -95,6 +95,8 @@ SENTENCES = {
     "stopped_counting": "Stopped counting {name}.",
     # A range of a file with no text in it: refused, never sent empty (the records finder, 3).
     "empty_excerpt": "{Units} {first} to {last} of {name} have no text Clarity can read.",
+    # /undo of a message that had attachments (QA 9): they were part of it.
+    "undone_attachments": "Its attachments went with it: {names}.",
     # Refusals the reader and its child write: their texts live beside the code that raises
     # them (insert.py imports both), and are listed here so reference.md lists them too.
     "too_slow": TOO_SLOW,
@@ -202,11 +204,13 @@ def piece(
     return Attached(doc.name, doc.text_of(first, last), marker or None)
 
 
-def with_text(new: Attached, unit: str | None, first: int, last: int) -> Attached:
+def with_text(doc: Document, new: Attached, unit: str | None, first: int, last: int) -> Attached:
     """A range you chose, refused if it holds no text (pages that are scanned images, or
-    blank lines): it would go in as an empty document under a marker naming its range. The
-    search for a start that fits counts such ranges; only a chosen one is refused."""
-    if unit is not None and new.marker is not None and not new.text.strip():
+    blank lines): it would go in as an empty document, with or without a marker naming its
+    range. The search for a start that fits counts such ranges; only a chosen one is
+    refused."""
+    if not covers_whole(doc, unit, first, last) and not new.text.strip():
+        assert unit is not None
         raise DocumentRefused(
             SENTENCES["empty_excerpt"].format(
                 Units=unit.capitalize(), first=f"{first:,}", last=f"{last:,}", name=new.name

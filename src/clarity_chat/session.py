@@ -841,7 +841,7 @@ class Session:
         the free context before it and what it leaves."""
         conversation, profile, framing = self.attaching()
         assert self.tokenizer is not None
-        new = with_text(piece(doc, profile, unit, first, last), unit, first, last)
+        new = with_text(doc, piece(doc, profile, unit, first, last), unit, first, last)
         pending = attached_in({"attachments": conversation.pending})
         room = self.room(cancel=cancel, name=doc.name)
         before = self._room_for_a_file(room, pending, framing)
@@ -952,7 +952,7 @@ class Session:
 
         chosen = None
         if unit is not None:
-            excerpt = with_text(piece(doc, profile, unit, first, last), unit, first, last)
+            excerpt = with_text(doc, piece(doc, profile, unit, first, last), unit, first, last)
             chosen = shown((last, fit(room, pending, excerpt, framing, counts.before)), first)
             assert chosen is not None
             chosen["text"] = excerpt.text  # for the sheet's extracted text (C1)

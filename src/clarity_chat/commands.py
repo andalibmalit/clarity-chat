@@ -331,6 +331,7 @@ def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         except ConfigError:  # no profile file to start: the check offers no new chat
             new = ""
         return {"check": c.session.check(doc, unit, first, last, c.cancel_event, new)}
+    already = c.session.already_in_chat(doc.sha256)  # a note, as the sheet's (QA 3)
     try:
         _, fit = c.session.attach(doc, unit, first, last, c.cancel_event)
     except DoesntFit as e:
@@ -340,7 +341,13 @@ def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     if c.uploads is not None:
         c.uploads.pop(source, None)  # used: Add drops it
     pending = summaries(conversation.pending)
-    return {"attached": pending[-1], "pending": pending, "free": fit.free, "left": fit.left}
+    return {
+        "attached": pending[-1],
+        "pending": pending,
+        "free": fit.free,
+        "left": fit.left,
+        "already_in_chat": already,
+    }
 
 
 def suggestion(c: Commands, e: DoesntFit, doc: documents.Document, source: str) -> str:
@@ -537,8 +544,17 @@ def _cancel(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _undo(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    conversation = c.session.conversation
+    assert conversation is not None
+    reply = conversation.current_reply("undo")
+    assert reply.parent_id is not None
+    message = conversation.turns[reply.parent_id]  # its attachments go with it (QA 9)
     head = c.session.undo()
-    return {"head": head.turn_id if head else None, "head_text": head.text if head else None}
+    return {
+        "head": head.turn_id if head else None,
+        "head_text": head.text if head else None,
+        "attachments": summaries(message.attachments),
+    }
 
 
 def _set(c: Commands, args: str, emit: Emit) -> dict[str, Any]:

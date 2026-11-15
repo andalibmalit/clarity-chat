@@ -365,6 +365,6 @@ def test_a_cancelled_edit_to_a_slash_message_comes_back_with_two_slashes(loop):
     backend.replies = [" Hi."] * 4
     assert chat.handle("Hi")
     draft = cancelled_draft(chat, backend, "/edit /notes for later")
-    assert draft == "//notes for later"
+    assert draft == "/edit /notes for later"  # the edit again, not a new message
     assert chat.handle(draft)
     assert last_message(chat) == "/notes for later"

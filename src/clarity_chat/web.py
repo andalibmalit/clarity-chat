@@ -60,6 +60,7 @@ from clarity_chat.documents import (
     more_than,
     slow_read,
     too_big,
+    visible_bidi,
 )
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.profiles import NEUTRAL, SETTING_HELP, SETTING_RANGES, ConfigError
@@ -101,6 +102,7 @@ templates = Environment(
     loader=FileSystemLoader(Path(__file__).parent / "web_templates"),
     autoescape=select_autoescape(default=True, default_for_string=True),
 )
+templates.filters["bidi"] = visible_bidi  # a document's text on screen (QA 1)
 
 
 class Worker:

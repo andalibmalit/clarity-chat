@@ -2,8 +2,8 @@
 <div class="body" data-call="{{ call.call_id }}">
 <details class="sec" data-key="prompt" open><summary class="sh2">What the model got <span class="n">{{ call.n_prompt_client }} tokens{% if bos is not none %} · {% if bos %}starts with a start token (BOS){% else %}no start token (BOS){% endif %}{% endif %}</span></summary>
 <div class="seg" role="group" aria-label="Show the prompt as"><button type="button" aria-pressed="true" data-pane="text">Text</button><button type="button" aria-pressed="false" data-pane="whitespace">Whitespace</button><button type="button" aria-pressed="false" data-pane="ids">Token IDs</button></div>
-<pre class="pre" data-pane="text">{% for piece, kind in pieces %}{{ marked(piece, kind) }}{% endfor %}</pre>
-<pre class="pre" data-pane="whitespace" hidden>{% for piece, kind in pieces %}{{ marked(piece.replace("\t", "→\t").replace("\n", "↵\n"), kind) }}{% endfor %}</pre>
+<pre class="pre" data-pane="text">{% for piece, kind in pieces %}{{ marked(piece | bidi, kind) }}{% endfor %}</pre>
+<pre class="pre" data-pane="whitespace" hidden>{% for piece, kind in pieces %}{{ marked((piece | bidi).replace("\t", "→\t").replace("\n", "↵\n"), kind) }}{% endfor %}</pre>
 <pre class="pre" data-pane="ids" hidden>{{ call.prompt_ids | join(" ") }}</pre>
 <p class="d2 key" data-caption>{% if not_highlighted %}Not highlighted: {{ not_highlighted }}.{% else %}<span class="sw" aria-hidden="true"></span>Highlighted: {% if text_mode %}the profile’s header, names and line ends.{% else %}text the chat template wrote.{% endif %}{% endif %}</p>
 {% if attachments %}<p class="d2 key"><span class="sw added" aria-hidden="true"></span>{{ highlight_added }}</p>
