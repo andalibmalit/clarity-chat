@@ -10,7 +10,7 @@ Two headings are Clarity's own, used when they apply:
 
 ## [0.3.0] - 2026-11-15
 
-Live tests on an M2 Max (macOS), 2026-11-15, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 19 passed, `-m hf` 18 passed, `-m olmo` 12 passed, `-m llama` 3 passed, and `-m browser` 78 passed (the web interface in Chrome).
+Live tests on an M2 Max (macOS), 2026-11-15, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 19 passed, `-m hf` 18 passed, `-m olmo` 12 passed, `-m llama` 3 passed, and `-m browser` 86 passed (the web interface in Chrome).
 
 ### Migration
 - For `clarity chat --json` readers: a `/chats` row's `conversation_id` is now the ID inside the log; the log file's name, which `/resume` and `clarity export` take, is the new `log_id`. They're the same for a log Clarity wrote that wasn't copied or renamed, so a script that passed `conversation_id` to `/resume` keeps working for those, and should pass `log_id`. `/state` gains `log_id`, `start` and `reply_end`, and `text` events gain `at` and `end`; readers that ignore unknown keys need no change.
