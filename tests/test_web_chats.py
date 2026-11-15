@@ -69,7 +69,11 @@ def test_the_drawer_lists_every_chat_newest_first_today_and_earlier(chat):
     current = next(r for r in listed if 'aria-current="true"' in r)
     assert f'data-resume="{state["log_id"]}"' in current and "No messages" in current
     first = next(c for c in chats if c["title"] and c["title"].startswith("Hi there"))
-    assert f'<span class="t">{first["title"]}</span><span class="p">text</span>' in today
+    hhmm = f"{first['log_id'][9:11]}:{first['log_id'][11:13]}"  # QA 7: today's time
+    assert (
+        f'<span class="t">{first["title"]}</span><span class="p"><span class="dt">{hhmm}</span>'
+        " · text</span>" in today
+    )
     old = next(c for c in chats if c["log_id"] == "20261030-162210-e41b07")
     assert (
         f'<span class="t">{old["title"]}</span><span class="p"><span class="dt">30 Oct</span>'
