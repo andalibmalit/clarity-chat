@@ -225,7 +225,7 @@ def test_the_memory_watchdog_ends_the_child(monkeypatch):
         "from clarity_chat.documents.child import watch\n"
         "watch(200 * 1024 * 1024, 30)\n"
         "held = []\n"
-        "for _ in range(60): held.append(bytearray(10 * 1024 * 1024))",  # 600 MB at most
+        'for _ in range(60): held.append(b"x" * (10 * 1024 * 1024))',  # written: resident
     )
     assert refused(b"Made-up.", "huge.pdf") == "huge.pdf took more than 1024 MB of memory to read."
 
