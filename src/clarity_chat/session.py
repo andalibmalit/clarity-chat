@@ -21,6 +21,7 @@ from typing import Any
 from clarity_chat import steering
 from clarity_chat.backends import Backend, BackendError, Result
 from clarity_chat.documents import (
+    TURN_FIELDS,
     Document,
     DocumentRefused,
     Fit,
@@ -142,8 +143,7 @@ class Turn:
         """The turn record's attachment fields: only for a turn that has attachments."""
         if not self.attachments:
             return {}
-        names = ("attachments", "framing", "framing_origin", "placement")
-        return {name: getattr(self, name) for name in names}
+        return {name: getattr(self, name) for name in TURN_FIELDS}
 
 
 @dataclass

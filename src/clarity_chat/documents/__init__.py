@@ -6,6 +6,7 @@ The rest of Clarity imports from this package only, never a submodule (v0.3.1 de
 from clarity_chat.documents.insert import (
     FRAMING,
     SENTENCES,
+    TURN_FIELDS,
     Attached,
     Fit,
     Room,
@@ -39,6 +40,7 @@ __all__ = [
     "MAX_BYTES",
     "SIZE_LIMIT",
     "SENTENCES",
+    "TURN_FIELDS",
     "Attached",
     "Document",
     "DocumentRefused",
