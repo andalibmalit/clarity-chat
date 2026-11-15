@@ -104,16 +104,23 @@ def read_path(path: str) -> tuple[bytes, str]:
     FIFO or a device swapped in can't hang the worker; only a regular file of at most
     MAX_BYTES is read."""
     name = checked_name(Path(path).name)
+    unfit = f"Can't open {name}: its path holds a character the system can't take."
+    try:
+        # A lone surrogate: POSIX can't encode it; Windows' UTF-16 names take it and answer
+        # "No such file". The same sentence on both (surrogateescape keeps POSIX's bytes).
+        path.encode("utf-8", "surrogateescape")
+    except UnicodeEncodeError as e:
+        raise DocumentRefused(unfit) from e
     try:
         # O_BINARY on Windows, where text mode would turn CRLF into LF and stop at 0x1A.
         flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
         fd = os.open(path, flags)
     except OSError as e:  # the sentence says why, never the path (str(e) holds it)
+        if os.path.isdir(path):  # Windows won't open a folder; POSIX opens it, fstat says
+            raise DocumentRefused(f"{name} isn't a file Clarity can attach.") from e
         raise DocumentRefused(f"Can't open {name}: {e.strerror or type(e).__name__}.") from e
-    except ValueError as e:  # a NUL or a lone surrogate in a folder's name (UnicodeEncodeError)
-        raise DocumentRefused(
-            f"Can't open {name}: its path holds a character the system can't take."
-        ) from e
+    except ValueError as e:  # a NUL in a folder's name
+        raise DocumentRefused(unfit) from e
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
