@@ -25,7 +25,6 @@ const clarity = {
   buffer: null, // events held while the page loads; null once it has
   sending: false, // this page waits for a command that writes or starts
   failedCall: null, // the last failed call's ID, from its record on the stream
-  waitSaid: null, // the wait Send said on screen during a start, until the start ends
   focusBox: false, // a start from the picker or New chat is running: focus to the box
   alerted: new Set(), // sentences already announced, so a redraw doesn't repeat them
 };
@@ -339,13 +338,9 @@ async function draw(number) {
   // While a model starts, Send waits and says why (a stopped server isn't a wait: Send then
   // fails with the backend's sentence, and the failed line offers to start it again).
   $("send-waits").textContent = starting ? "Waits until the model has started." : "";
+  if (!starting) $("send-waits").classList.add("vh"); // shown only while it waits
   if (starting) $("send").setAttribute("aria-disabled", "true");
   else $("send").removeAttribute("aria-disabled");
-  if (!starting && clarity.waitSaid) {
-    // The wait it said is over; a sentence shown since (a failed start) stays.
-    if ($("notice").textContent === clarity.waitSaid) notice(null, null);
-    clarity.waitSaid = null;
-  }
   const waits = $("picker-button").getAttribute("aria-disabled") === "true";
   $("new-chat").setAttribute("aria-disabled", String(waits));
   showWriting(state.running);
@@ -747,10 +742,9 @@ function send() {
   if (!text) return;
   if ($("send").getAttribute("aria-disabled") === "true") {
     // It waits (a model starting, from the picker too, which is still sending its start):
-    // said on screen, not only to a screen reader, and the text stays for Enter once it's
-    // ready (board B2; QA 1).
-    clarity.waitSaid = $("send-waits").textContent;
-    notice(null, clarity.waitSaid);
+    // the reason shows beside Send, not only to a screen reader, and the text stays for
+    // Enter once it's ready (board B2; QA 1). The redraw after the start hides it again.
+    $("send-waits").classList.remove("vh");
     return;
   }
   if (clarity.sending || $("send").hidden || $("send").disabled) return;
