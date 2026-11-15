@@ -456,3 +456,41 @@ def test_a_stopped_server_says_so_and_resume_starts_it_again(tmp_path):
         assert record["stop_type"] in ("eos", "limit")
     finally:
         session.close()
+
+
+# --- v0.3.1: attachments (the plan's live tiers)
+
+TRAIL_NOTES = b"Made-up trail notes.\nThree cairns mark the ridge.\nNo water after the pass.\n"
+
+
+def test_a_call_with_an_attachment_replays_identical(session):
+    from clarity_chat.documents import extract
+
+    session.new_conversation("smol-chat")
+    session.attach(extract(TRAIL_NOTES, "trail-notes.md"))
+    record = session.say("What marks the ridge?").record
+    all_checks_ok(record)
+    assert '<document name="trail-notes.md">\nMade-up trail notes.' in record["prompt_text"]
+    replayed = session.replay_current()
+    assert replayed["identical"], replayed
+    assert replayed["differences"] == {}, replayed["differences"]
+
+
+def test_a_resumed_chat_with_an_excerpt_renders_identical(tmp_path):
+    from clarity_chat.documents import extract
+
+    session = Session(REPO, logs_dir=tmp_path)
+    try:
+        session.new_conversation("smol-chat")
+        session.attach(extract(TRAIL_NOTES, "trail-notes.md"), "lines", 2, 3)
+        first = session.say("Is there water?").record
+        all_checks_ok(first)
+        assert "Excerpt: lines 2 to 3 of 3\nThree cairns" in first["prompt_text"]
+        assert session.conversation is not None
+        resumed = session.resume(session.conversation.log.path)
+        assert resumed["render"]["identical"] is True, resumed["render"]
+        follow_up = session.say("And the ridge?").record
+        all_checks_ok(follow_up)
+        assert follow_up["prompt_ids"][: len(first["prompt_ids"])] == first["prompt_ids"]
+    finally:
+        session.close()
