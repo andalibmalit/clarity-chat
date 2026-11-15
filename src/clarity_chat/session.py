@@ -20,7 +20,17 @@ from typing import Any
 
 from clarity_chat import steering
 from clarity_chat.backends import Backend, BackendError, Result
-from clarity_chat.documents import Document
+from clarity_chat.documents import (
+    Attached,
+    Document,
+    DocumentRefused,
+    Room,
+    fit,
+    framing_of,
+    message_content,
+    piece,
+    scan,
+)
 from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records, unreadable
 from clarity_chat.models import check_weights_quick, lock_entry, source_weights
 from clarity_chat.profiles import (
@@ -106,7 +116,17 @@ class Turn:
 
     @property
     def content(self) -> str:
-        return self.text
+        """The message as the model gets it: with its attachments' block, if any."""
+        return message_content(
+            self.text, {"attachments": self.attachments, "framing": self.framing}
+        )
+
+    def attached_fields(self) -> dict[str, Any]:
+        """The turn record's attachment fields: only for a turn that has attachments."""
+        if not self.attachments:
+            return {}
+        names = ("attachments", "framing", "framing_origin", "placement")
+        return {name: getattr(self, name) for name in names}
 
 
 @dataclass
@@ -191,6 +211,7 @@ class Conversation:
                 "text": text,
                 "call_id": turn.call_id,
                 **{k: v for k, v in extra.items() if k in ("regen_of", "edit_of") and v},
+                **turn.attached_fields(),
             }
         )
         return turn
@@ -675,19 +696,84 @@ class Session:
         profile's seed for this call (a batch run's seeds). `cancel`: an event the caller
         makes for this call and may set from any thread to stop it."""
         conversation = self._require_conversation()
-        user = conversation.add_turn("user", "user", text, conversation.head)
-        conversation.head = user.turn_id
+        attached: dict[str, Any] = {}
+        if conversation.pending:
+            framing, origin = framing_of(conversation.profile)
+            attached = {
+                "attachments": conversation.pending,
+                "framing": framing,
+                "framing_origin": origin,
+                "placement": "start",
+            }
+        user = conversation.add_turn("user", "user", text, conversation.head, **attached)
+        conversation.head, conversation.pending = user.turn_id, []
         return self.call(user, seed=seed, on_text=on_text, cancel=cancel)
+
+    def room(self) -> Room:
+        """How to count for the next message: its prompt's tokens for a given content, after
+        the chat so far, and the free context a prompt of that many tokens leaves."""
+        conversation = self._require_conversation()
+        assert self.tokenizer is not None
+        tokenizer, template, profile = self.tokenizer, self.template_tokenizer, conversation.profile
+        turns = conversation.path_to(conversation.head)
+        path = [(t.role, t.content) for t in turns if t.origin != "priming"]
+        max_tokens = conversation.settings["max_tokens"].value
+
+        def tokens(next_content: str) -> int:
+            return len(
+                build_prompt(tokenizer, profile, [*path, ("user", next_content)], template).ids
+            )
+
+        return Room(tokens, lambda n: room_left(self.backend.n_ctx, n, max_tokens), max_tokens)
 
     def attach(
         self, doc: Document, unit: str | None = None, first: int = 0, last: int = 0
     ) -> dict[str, Any]:
-        record = {"name": doc.name, "text": doc.text, "marker": None}
-        self._require_conversation().pending.append(record)
+        """Add `doc`, whole or units `first` to `last`, to the attachments waiting for your
+        next message, if it fits. Returns its record, as the turn will log it."""
+        conversation = self._require_conversation()
+        profile = conversation.profile
+        assert self.tokenizer is not None
+        if profile.mode != "chat":
+            raise ConfigError(
+                f"Attaching needs a chat-mode profile; {profile.name} is in text mode."
+            )
+        framing, _ = framing_of(profile)
+        new = piece(doc, profile, unit, first, last)
+        pending = [Attached(a["name"], a["text"], a["marker"]) for a in conversation.pending]
+        result = fit(self.room(), pending, new, framing)
+        if not result.fits:
+            raise DocumentRefused(
+                f"{doc.name} doesn't fit: it needs {result.tokens:,} tokens and "
+                f"{result.free:,} are free in this chat."
+            )
+        whole = unit is None or (first, last) == (1, doc.total)  # as piece decides
+        record = {
+            "name": doc.name,
+            "kind": doc.kind,
+            "bytes": doc.bytes,
+            "sha256": doc.sha256,
+            "extractor": doc.extractor,
+            "unit": doc.unit,
+            "total": doc.total,
+            "how": "whole" if whole else "excerpt",
+            "range": [1, doc.total] if whole else [first, last],
+            "marker": new.marker,
+            "text": new.text,
+            "extracted_sha256": doc.extracted_sha256,
+            "empty_units": doc.empty_units,
+            **scan(new.text, self.tokenizer.special_tokens_in),
+            "tokens": result.tokens,
+        }
+        conversation.pending.append(record)
         return record
 
     def already_in_chat(self, sha256: str) -> bool:
-        return False
+        """Whether a file with these bytes is waiting, or attached on this branch."""
+        conversation = self._require_conversation()
+        turns = conversation.path_to(conversation.head)
+        attached = [*conversation.pending, *(a for t in turns for a in t.attachments)]
+        return any(a["sha256"] == sha256 for a in attached)
 
     def regen_seed(self) -> int:
         """The next regeneration's seed: the highest seed used for the current message, plus
@@ -861,7 +947,12 @@ class Session:
         assert reply.parent_id is not None
         original = conversation.turns[reply.parent_id]
         user = conversation.add_turn(
-            "user", "edit", text, original.parent_id, edit_of=original.turn_id
+            "user",
+            "edit",
+            text,
+            original.parent_id,
+            edit_of=original.turn_id,
+            **original.attached_fields(),
         )
         conversation.head = user.turn_id
         # A failed edit leaves you where you were.
@@ -993,8 +1084,19 @@ class Session:
         tokenizer = prepared.tokenizer if prepared else self.tokenizer
         template_tokenizer = prepared.template_tokenizer if prepared else self.template_tokenizer
         assert tokenizer is not None
-        turns = [(t.role, t.text) for t in prompt_turns(conversation, user_turn)]
-        return build_prompt(tokenizer, conversation.profile, turns, template_tokenizer)
+        path = prompt_turns(conversation, user_turn)
+        turns = [(t.role, t.content) for t in path]
+        prompt = build_prompt(tokenizer, conversation.profile, turns, template_tokenizer)
+        for i, t in enumerate(path):  # control tokens in an attachment: name it (M4)
+            found = [
+                {"index": n, "name": a["name"], "tokens": tokenizer.special_tokens_in(a["text"])}
+                for n, a in enumerate(t.attachments)
+            ]
+            found = [f for f in found if f["tokens"]]
+            for entry in prompt.special_in_content:
+                if found and entry["in"] == f"turn {i + 1} ({t.role})":
+                    entry["attachments"] = found
+        return prompt
 
     def message_spans(self, user_turn: Turn, prompt: Prompt) -> list[dict] | dict[str, str]:
         """Where each message sits in `prompt` (render.message_spans), with turn IDs."""
@@ -1004,7 +1106,7 @@ class Session:
         return message_spans(
             self.tokenizer,
             conversation.profile,
-            [(t.role, t.text) for t in path],
+            [(t.role, t.content) for t in path],
             [t.turn_id for t in path],
             prompt,
             self.template_tokenizer,
@@ -1094,10 +1196,20 @@ class Session:
                     f"Your message contains {new_message}: the tokenizer reads these as control "
                     "tokens, not text. The prompt's token IDs, in the call's details, show them."
                 )
+            for a in user_turn.attachments:
+                if a["control_tokens"]:
+                    warnings.append(
+                        f"{a['name']} contains {a['control_tokens']}: the tokenizer reads these "
+                        "as control tokens, not text. It's sent as it is."
+                    )
             n_ctx, max_tokens = self.backend.n_ctx, values["max_tokens"]
             if room_left(n_ctx, len(prompt.ids), max_tokens) < 0:
+                path = prompt_turns(conversation, user_turn)
+                attached = sum(a["tokens"] for t in path for a in t.attachments)
+                of_them = f", {attached} of them in attached documents" if attached else ""
                 raise ContextError(
-                    f"The prompt is {len(prompt.ids)} tokens; with max_tokens {max_tokens} it "
+                    f"The prompt is {len(prompt.ids)} tokens{of_them}; with max_tokens "
+                    f"{max_tokens} it "
                     f"needs more than the context of {n_ctx} tokens. Nothing was sent. Start a "
                     "new chat, or lower max_tokens."
                 )
@@ -1140,6 +1252,7 @@ class Session:
             if back_to is None:  # a message, sent and failed
                 conversation.last_call = record  # /prompt shows the failed message's call
                 conversation.unanswered = {"turn_id": user_turn.turn_id, "text": user_turn.text}
+                conversation.pending = list(user_turn.attachments)  # waiting again
                 conversation.resume_differ = None  # it used the resumed one up
             elif user_turn.origin == "edit":  # as a resume reads it: the edit is the last turn
                 conversation.unanswered = None
@@ -1422,9 +1535,14 @@ class Session:
         for t in state.turns:
             call = state.calls.get(t.get("call_id") or "")
             seed = call["settings"]["seed"]["value"] if call else None
+            attached = {} if not t.get("attachments") else {
+                "attachments": t["attachments"], "framing": t["framing"],
+                "framing_origin": t["framing_origin"], "placement": t["placement"],
+            }  # fmt: skip
+            message_content(t["text"], t)  # an attachment missing a field: KeyError, refused
             conversation.turns[t["turn_id"]] = Turn(
                 t["turn_id"], t["parent_id"], t["role"], t["origin"], t["text"],
-                t.get("call_id"), seed, t.get("regen_of"), t.get("edit_of"),
+                t.get("call_id"), seed, t.get("regen_of"), t.get("edit_of"), **attached,
             )  # fmt: skip
         conversation.head = state.head
         conversation.warnings += self._profile_warnings(prepared)
@@ -1472,6 +1590,8 @@ class Session:
         differ = what_differs(record)
         conversation.resume_differ = {"count": sum(i["count"] for i in differ), "items": differ}
         conversation.unanswered = state.unanswered
+        if state.unanswered:  # its attachments wait again, as they did live
+            conversation.pending = list(conversation.turns[state.unanswered["turn_id"]].attachments)
         self._log_server_start()
         return record
 
