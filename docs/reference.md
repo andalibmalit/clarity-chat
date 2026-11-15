@@ -105,7 +105,7 @@ A command is `{"command": "say", "args": "Hello", "id": 1}`. `command` is a chat
 | `mark`, `unmark`, `note` | `records`: the records appended |
 | `title` | `record` |
 | `replay` | `replay`: the replay record |
-| `export` | `path`, `replaced`, `calls`, `failed_calls_left_out`, `calls_without_a_turn_left_out`, `steered`: each vector the calls were steered with (`file`, `sha256`) and its `call_ids`, empty if none was, and `attachments`: how many attached documents' text the file holds |
+| `export` | `path`, `replaced`, `calls`, `failed_calls_left_out`, `calls_without_a_turn_left_out`, `steered`: each vector the calls were steered with (`file`, `sha256`) and its `call_ids`, empty if none was, and `attachments`: true when the file holds the text of attached documents |
 | `chats` | `chats`, each with `log_id` (the ID above: the log file's name), `openable` (whether that name is one `/resume` takes: letters, digits, `_`, `-`, and dots after the first character), `conversation_id` (the ID inside the log; null if it can't be read), `path`, `profile`, `description` (the profile's), `model`, `started`, `title`, `title_set` and `error` |
 | `profiles` | `profiles`, each with `name`, `model`, `model_name` (the last part of the model's tokenizer repo), `backend`, `description`, `steered`, `local` (in `local/profiles/`), `fetched` and `error` (null, or why it doesn't load); and `not_checked`, a sentence on what isn't checked until a start |
 | `profile`, `new` | `conversation_id`, `profile`, `model`, `mode` and `warnings`; `dropped` when attachments were waiting in the chat it replaced: each one's record without its `text`, plus `n` |

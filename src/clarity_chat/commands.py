@@ -345,7 +345,7 @@ def _resume(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         raise ConfigError("/resume takes a conversation ID from /chats, not a path.")
     # An ID means logs/ID.jsonl only, never a file of that name in the working folder.
     path = c.session.log_for(log) if c.paths else c.session.logs_dir / f"{log}.jsonl"
-    waiting = dropped(c)
+    before = waiting(c)
     emit({"event": "status", "status": "starting", "log": log})
     record = c.session.resume(path)
     conversation = c.session.conversation
@@ -364,7 +364,7 @@ def _resume(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
             *(conversation.started_server or {}).get("warnings", []),
             *conversation.warnings,
         ],
-        **waiting,
+        **dropped(c, before),
     }
 
 
@@ -586,7 +586,7 @@ def named_profile(c: Commands, name: str) -> str:
 
 
 def _start(c: Commands, profile: str, emit: Emit) -> dict[str, Any]:
-    waiting = dropped(c)
+    before = waiting(c)
     emit({"event": "status", "status": "starting", "profile": Path(profile).stem})
     new = c.session.new_conversation(profile)
     emit({"event": "status", "status": "ready", "conversation_id": new.conversation_id})
@@ -596,7 +596,7 @@ def _start(c: Commands, profile: str, emit: Emit) -> dict[str, Any]:
         "model": new.profile.model,
         "mode": new.profile.mode,
         "warnings": [*(new.started_server or {}).get("warnings", []), *new.warnings],
-        **waiting,
+        **dropped(c, before),
     }
 
 
@@ -608,10 +608,16 @@ def summaries(attachments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def dropped(c: Commands) -> dict[str, Any]:
-    """The attachments waiting in the conversation a start replaces, for its result."""
-    pending = c.session.conversation.pending if c.session.conversation else []
-    return {"dropped": summaries(pending)} if pending else {}
+def waiting(c: Commands) -> list[dict[str, Any]]:
+    return list(c.session.conversation.pending) if c.session.conversation else []
+
+
+def dropped(c: Commands, before: list[dict[str, Any]]) -> dict[str, Any]:
+    """For a start's result: the attachments waiting `before` it that aren't waiting now.
+    A resume brings back a failed message's own, which aren't dropped."""
+    now = c.session.conversation.pending if c.session.conversation else []
+    gone = [a for a in before if a not in now]
+    return {"dropped": summaries(gone)} if gone else {}
 
 
 def model_state(c: Commands) -> str:
