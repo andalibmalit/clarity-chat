@@ -442,6 +442,7 @@ class ChatLoop:
         read: Callable[[str], str],
         write: Callable[[str], None],
         resume: str | None = None,
+        attach: dict[str, Any] | None = None,
     ) -> None:
         """`read(default)` returns one input, prefilled with `default` (for /edit).
         `resume`: a log to continue instead of starting with `profile_name`."""
@@ -865,6 +866,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     start.add_argument(
         "--resume", help="a conversation to continue: its ID (from `clarity chats`) or log file"
     )
+    chat.add_argument("--attach", action="append", metavar="FILE", help="attach a file")
     chat.add_argument(
         "--json",
         action="store_true",
