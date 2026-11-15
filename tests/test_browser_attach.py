@@ -227,6 +227,9 @@ def test_the_paperclip_waits_while_a_reply_is_written(clarity, page):
     page.click("#clip", force=True)  # Playwright waits on aria-disabled; a person needn't
     page.wait_for_selector("#clip-waits:has-text('Waits until the reply is done.')")
     assert page.is_hidden("#attach-sheet")
+    page.wait_for_selector(".reply.last .tb")  # the reply is done: the why goes (page mutation)
+    until(page, lambda: page.text_content("#clip-waits") == "")
+    assert page.get_attribute("#clip", "aria-disabled") is None
 
 
 # --- Checkpoint 3 (C1): Add, Cancel, the paperclip, the part's count and the radios
@@ -290,12 +293,14 @@ def test_cancel_during_the_upload_stops_it_and_says_so(clarity, page):
     it stopped, and no reading follows."""
     redirect, _ = clarity
     chat(page, redirect)
-    held = []
+    held, failed = [], []
     page.route("**/upload?*", lambda route: held.append(route))  # held until the test lets go
+    page.on("requestfailed", lambda request: failed.append(request.url))
     choose(page, "slow.md", NOTES)
     until(page, lambda: held, what="the upload sent")
     page.click("#attach-sheet [data-action=attach-cancel]")
     page.wait_for_selector("#attach-sheet :text('Stopped reading slow.md.')")
+    until(page, lambda: any("/upload?" in url for url in failed), what="the upload aborted")
     try:
         held[0].continue_()
     except Exception:  # the page aborted it: nothing to continue
@@ -410,3 +415,29 @@ def test_send_with_chips_waits_while_a_reply_is_written(clarity, page):
     page.keyboard.press("Enter")
     page.wait_for_selector("#send-waits:has-text('Waits until the reply is done.')")
     assert "Type a message" not in page.text_content("#notice")
+
+
+def test_an_answer_for_a_range_typed_over_is_dropped(clarity, page):
+    """Must 1 (page mutation): a slow answer for an older range never replaces the newer one."""
+    redirect, backend = clarity
+    backend._n_ctx = 2000
+    chat(page, redirect)
+    choose(page, "long.md", LONG)
+    ready(page)
+    held, done = [], []
+    page.route(
+        "**/view/attach?*",
+        lambda route: held.append(route) if "last=5" in route.request.url else route.continue_(),
+    )
+    page.on("requestfinished", lambda request: done.append(request.url))
+    page.fill("#attach-to", "5")
+    page.press("#attach-to", "Tab")
+    until(page, lambda: held, what="the read for lines 1-5 sent")
+    page.fill("#attach-to", "7")
+    page.press("#attach-to", "Tab")
+    until(page, lambda: part_args(page).endswith(" 1-7"), what="lines 1-7 counted")
+    for route in held:
+        route.continue_()
+    until(page, lambda: sum("last=5" in url for url in done) == len(held), what="1-5 answered")
+    page.wait_for_timeout(500)  # nothing to wait for: a late answer is drawn now, if ever
+    assert part_args(page).endswith(" 1-7") and page.input_value("#attach-to") == "7"
