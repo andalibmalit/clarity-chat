@@ -49,6 +49,7 @@ Live tests on an M2 Max (macOS), 2026-11-15, at the release's code (built in the
 - A failed start of the open chat's own model ("Start the model again", a `/replay` or `/new` on the same profile after its server stopped) no longer tries the same start a second time and then drops the chat: the chat stays, with its model stopped (`status: stopped`, whether the backend or the configuration refused), and the error is that sentence alone, so you can try again. A llama.cpp start that's refused before launching (llama.cpp moved or rebuilt) now leaves the model stopped, not ready with no server.
 - A read (`/history`, `/branches`, `/compare`, `/prompt`, `/probs`, `/settings`) that meets a record lacking a field it needs, in a log another program wrote, is refused with the field's name, as `/resume` and export refuse such a log; it no longer ends the session with an unexpected error.
 - A replay (`/replay`, `clarity replay`) of a call whose record lacks something it reads (the request, the reply's text or IDs, the stop type) is refused before anything starts, naming what's missing, where it ended the session with an unexpected error.
+- The web interface says a read's refusal without the terminal command's name ("Can't read this conversation: …", not "/probs can't read …"), as it already did for `/set`'s; the terminal keeps the name.
 
 ### Security
 - A page left open after Clarity stops neither draws nor loads what another program on its port sends: `/state` gives `start`, a random value made for each start, and the page stops at any other.
