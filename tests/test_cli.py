@@ -323,3 +323,48 @@ def test_prompt_of_a_call_that_failed_before_its_prompt_says_so():
     record = {"call_id": "call-000000000000", "error": "ConfigError: a made-up template error"}
     text = format_prompt(record, as_repr=False)
     assert "call-000000000000" in text and "a made-up template error" in text
+
+
+# --- a cancelled message that starts with "/" comes back escaped (the QA-driver review, must 1)
+
+
+def cancelled_draft(chat, backend, line: str) -> str:
+    """The draft a message comes back as when it's cancelled before its first token."""
+    backend.cancel_after = 0
+    assert chat.handle(line)
+    backend.cancel_after = None
+    return chat.draft
+
+
+def last_message(chat) -> str | None:
+    said = [t["text"] for t in chat.session.history() if t["role"] == "user"]
+    return said[-1] if said else None
+
+
+@pytest.mark.parametrize("line", ["//quit", "/say /quit"])
+def test_a_cancelled_slash_message_comes_back_as_a_message(loop, line):
+    chat, _, backend = loop
+    backend.replies = [" Hi."] * 4
+    draft = cancelled_draft(chat, backend, line)
+    assert draft == "//quit"
+    assert chat.handle(draft)  # sent, not run: the chat goes on
+    assert last_message(chat) == "/quit"
+
+
+def test_a_restored_attach_line_with_more_text_stays_a_message(loop):
+    chat, _, backend = loop
+    backend.replies = [" Hi."] * 4
+    draft = cancelled_draft(chat, backend, "//attach OUTSIDE")
+    assert chat.handle(draft + " and what it says")  # typed after the restored draft
+    assert last_message(chat) == "/attach OUTSIDE and what it says"
+    assert chat.session.conversation.pending == []
+
+
+def test_a_cancelled_edit_to_a_slash_message_comes_back_with_two_slashes(loop):
+    chat, _, backend = loop
+    backend.replies = [" Hi."] * 4
+    assert chat.handle("Hi")
+    draft = cancelled_draft(chat, backend, "/edit /notes for later")
+    assert draft == "//notes for later"
+    assert chat.handle(draft)
+    assert last_message(chat) == "/notes for later"
