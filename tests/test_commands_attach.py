@@ -299,5 +299,6 @@ def test_attach_reads_a_tilde_as_the_home_folder(chat, tmp_path, monkeypatch):
     """The security review's could 8: `/attach ~/notes.md` said "Can't open notes.md"."""
     session, _ = chat
     monkeypatch.setenv("HOME", str(tmp_path))
-    (tmp_path / "notes.md").write_text(NOTES, encoding="utf-8")
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Windows' home for ~
+    (tmp_path / "notes.md").write_bytes(NOTES.encode())
     assert run(Commands(session), "attach", "~/notes.md")["attached"]["name"] == "notes.md"

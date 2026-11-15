@@ -183,6 +183,21 @@ def stub(monkeypatch, code: str) -> None:
 
 
 def gone(pid: int) -> bool:
+    """Whether process `pid` has ended. Windows has no signal 0: its os.kill ends the process
+    (and a dead one raises WinError 87), so ask for the exit code there instead."""
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not handle:
+            return True
+        try:
+            code = ctypes.c_ulong()
+            kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            return code.value != 259  # STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -213,6 +228,7 @@ def test_cancel_stops_the_child_and_leaves_none(monkeypatch, tmp_path):
     assert str(e.value) == "Stopped reading slow.md." and gone(int(pidfile.read_text()))
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="no memory guard on Windows (v0.7.0)")
 def test_the_memory_watchdog_ends_the_child(monkeypatch):
     """A stub that allocates 10 MB at a time: the watchdog ends it past its cap (here
     200 MB), and the parent says so. Bounded, so a broken watchdog can't exhaust memory."""
@@ -294,6 +310,19 @@ def test_a_directory_or_a_fifo_is_refused_without_blocking(tmp_path):
             read_path(str(path))
         assert str(e.value) == f"{path.name} isn't a file Clarity can attach."
         assert time.monotonic() - started < 2
+
+
+def test_a_directory_the_open_refuses_gets_the_same_sentence(tmp_path, monkeypatch):
+    """Windows refuses to open a folder (Permission denied) where POSIX opens it and fstat
+    says it isn't a file: the same sentence either way (CI 43754075636)."""
+
+    def windows_open(path, flags, *args):
+        raise PermissionError(13, "Permission denied", path)
+
+    monkeypatch.setattr(os, "open", windows_open)
+    with pytest.raises(DocumentRefused) as e:
+        read_path(str(tmp_path))
+    assert str(e.value) == f"{tmp_path.name} isn't a file Clarity can attach."
 
 
 def test_a_path_s_name_is_kept_never_the_path(tmp_path):
@@ -517,6 +546,19 @@ def test_a_read_that_fails_after_the_open_is_refused(tmp_path, monkeypatch):
     with pytest.raises(DocumentRefused) as e:
         read_path(str(path))
     assert str(e.value) == "Can't read notes.md: Input/output error."
+
+
+def test_a_lone_surrogate_is_refused_where_the_system_would_look_for_it(monkeypatch):
+    """Windows' file names are UTF-16, so its open takes a lone surrogate and answers "No
+    such file"; POSIX can't encode one. The same sentence either way (CI 43754075636)."""
+
+    def windows_open(path, flags, *args):
+        raise FileNotFoundError(2, "No such file or directory", path)
+
+    monkeypatch.setattr(os, "open", windows_open)
+    with pytest.raises(DocumentRefused) as e:
+        read_path("/made-up/\ud800/notes.md")
+    assert str(e.value) == "Can't open notes.md: its path holds a character the system can't take."
 
 
 @pytest.mark.parametrize("path", ["made-up\x00/notes.md", "/made-up/\ud800/notes.md"])
