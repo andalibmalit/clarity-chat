@@ -125,3 +125,19 @@ def test_the_v0_2_3_golden_log_holds_regen_same_a_failed_call_and_end_tokens():
     assert calls[5]["stop_type"] == "cancelled" and calls[5]["timings"] == {}
     assert "description" in calls[0]["profile"]["toml"]
     assert any(r["type"] == "mark" and r["call_id"] == calls[0]["call_id"] for r in rows)
+
+
+def test_the_v0_3_0_golden_log_holds_a_rename_a_stop_and_a_resume_with_a_change():
+    from clarity_chat.resume import what_differs
+
+    rows = list(read_records(GOLDEN / "v0.3.0.jsonl"))
+    calls = [r for r in rows if r["type"] == "call"]
+    assert any(r["type"] == "title" and r["title"] == "Weather, made up" for r in rows)
+    stopped = calls[2]  # the page's Stop: /cancel from another thread, mid-stream
+    assert stopped["stop_type"] == "cancelled" and stopped["cancelled_during"] == "reply"
+    resume = next(r for r in rows if r["type"] == "resume")
+    assert resume["compared_with_call"] == stopped["call_id"]
+    item = what_differs(resume)[-1]  # what the page lists as "client · commit OLD → NEW"
+    assert item["call"] == stopped["call_id"]
+    assert item["changes"] == {"client": [{"path": "commit", "logged": "0" * 40, "now": "1" * 40}]}
+    assert calls[-1]["client"]["commit"] == "1" * 40  # a reply after the resume
