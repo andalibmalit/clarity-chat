@@ -350,9 +350,10 @@ def suggestion(c: Commands, e: DoesntFit, doc: documents.Document, source: str) 
     return f"{roomy}: {taken}. {fits}"
 
 
-def check_lines(check: dict[str, Any], max_tokens: int) -> list[str]:
+def check_lines(check: dict[str, Any], max_tokens: int | None = None) -> list[str]:
     """`check`'s numbers in the sheet's words, a line each, every sentence from SENTENCES
     (decision 20): the terminal prints them, and the page's sheet shows them."""
+    max_tokens = check["max_tokens"] if max_tokens is None else max_tokens
     unit, units = check["unit"], f"{check['unit']}s"
     facts = [check["kind"], documents.counted(check["total"], unit)]
     if check["empty_units"]:
