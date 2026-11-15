@@ -657,12 +657,19 @@ def test_details_draws_when_its_probabilities_or_compare_are_refused(chat):
     calls[second]["logprobs"]["tokens"][0].pop("top")
     fragment = details(client, second)
     assert 'Probabilities <span class="n">can’t be read</span>' in fragment
-    assert "/probs can't read this conversation: a record lacks or mangles 'top'." in fragment
+    # The page names no terminal command (sprint audit, as finding 20 did for "/set:").
+    assert "Can't read this conversation: a record lacks or mangles 'top'." in fragment
+    assert "/probs" not in fragment
     assert "Details · reply 2 of 2" in fragment and 'data-action="replay"' in fragment
     for call in (first, second):
         calls[call].pop("output_ids")
     fragment = details(client, first)
     assert "Details · this reply" in fragment and "reply 1 of" not in fragment
+    compared = client.get(f"/view/compare?call={first}", headers={**AUTH, **SAME})
+    assert (compared.status_code, compared.text) == (
+        503,
+        "Can't read this conversation: a record lacks or mangles 'output_ids'.",
+    )
     assert 'data-action="replay"' in fragment and "Request and response" in fragment
 
 
