@@ -348,6 +348,12 @@ def test_an_unexpected_error_shows_it_whole(clarity, page):
     assert page.text_content("#stopped-crash") == "Clarity stopped after an unexpected error."
     assert page.text_content("#stopped-error") == "RuntimeError: made-up: out of memory"
     shot(page, "A5-unexpected-error")
+    # Fix review, batch 6, item 1: a reload keeps the error (load() took the stopped
+    # /state for another start's and showed the plain page, which points at the terminal).
+    page.reload()
+    page.wait_for_selector("body[data-page=stopped]")
+    assert page.is_visible("#stopped-error") and page.is_hidden("#stopped-plain")
+    assert page.text_content("#stopped-error") == "RuntimeError: made-up: out of memory"
 
 
 def test_about_shows_the_version_and_help_opens_the_docs_at_this_commit(clarity, page):
@@ -1634,7 +1640,10 @@ def test_a_message_over_the_size_limit_is_refused_with_its_sentence(clarity, pag
     page.evaluate("text => { document.getElementById('message').value = text; }", huge)
     page.press("#message", "Enter")
     page.wait_for_selector("#notice .problem:has-text('Too big')")
-    assert "Clarity takes at most 8 MB at a time." in page.text_content("#notice .problem")
+    # The whole notice (fix review, batch 6, item 13): not a dropped connection, not "Failed".
+    assert (
+        page.text_content("#notice .problem") == "! Too big: Clarity takes at most 8 MB at a time."
+    )
     assert page.is_hidden("#writing-box") and page.is_visible("#send")
     assert page.evaluate("document.getElementById('message').value.length") == len(huge)
 
@@ -1841,3 +1850,166 @@ def test_a_profile_picked_by_keyboard_puts_focus_in_the_message_box(clarity, pag
     assert page.input_value("#message") == "Hi"
     page.wait_for_selector("#thread .intro")
     assert focused(page) == "message"
+
+
+# --- The fix review of 9f1610d..bac91fb (batch 6)
+
+
+def waits_shown(page) -> bool:
+    """#send-waits is shown, not only to a screen reader (.vh hides it visually)."""
+    return "vh" not in (page.get_attribute("#send-waits", "class") or "").split()
+
+
+def test_enter_during_a_replay_says_it_waits_and_sends_nothing(clarity, page):
+    """Item 2: Send during a Replay returned silently (the page is sending the replay).
+    It says "Waits until the command is done." beside Send, sends nothing and keeps the
+    text; the redraw after the replay hides the line."""
+    _, redirect, backend = clarity
+    chat_on(page, redirect, "long")
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    page.click(".reply.last [data-action=details]")
+    backend.replies, backend.piece_delay = [" Slowly," * 10], 0.3
+    page.click("#panel [data-action=replay]")
+    page.wait_for_selector("#panel [data-action=replay-stop]")
+    page.fill("#message", "Not yet")
+    page.press("#message", "Enter")
+    until(page, lambda: waits_shown(page), what="the wait beside Send")
+    assert page.text_content("#send-waits") == "Waits until the command is done."
+    page.wait_for_selector("#panel .result", timeout=20_000)  # the replay is done
+    page.wait_for_selector("#send-waits.vh", state="attached")
+    turns = page.evaluate("clarity.command('state')")["result"]["turns"]
+    assert [t["text"] for t in turns if t["role"] == "user"] == ["Hi"]
+    assert page.input_value("#message") == "Not yet"
+
+
+def test_enter_after_a_reload_mid_reply_sends_nothing_and_says_why(clarity, page):
+    """Item 13: after a reload mid-reply, Enter must not send a second message (the review's
+    mutation, Send's hidden state dropped from the guard, survived): the reply's wait shows
+    beside Send, and the text stays."""
+    _, redirect, backend = clarity
+    chat_on(page, redirect, "long")
+    backend.replies, backend.piece_delay = [" Slowly," * 14 + " done."], 0.3
+    page.evaluate("() => { clarity.command('say', 'Hi'); }")
+    page.wait_for_selector("#writing:has-text('Slowly, Slowly,')", state="attached")
+    page.reload()
+    page.wait_for_selector("#stop", state="visible")
+    page.fill("#message", "Not yet")
+    page.press("#message", "Enter")
+    until(page, lambda: waits_shown(page), what="the wait beside Send")
+    assert page.text_content("#send-waits") == "Waits until the reply is done."
+    page.wait_for_selector("#stop", state="hidden", timeout=20_000)
+    turns = page.evaluate("clarity.command('state')")["result"]["turns"]
+    assert [t["text"] for t in turns if t["role"] == "user"] == ["Hi"]
+    assert page.input_value("#message") == "Not yet"
+
+
+def test_a_message_whose_request_drops_says_so_and_gives_the_text_back(clarity, page):
+    """Item 13: the review's mutation (no .catch(unanswered) on a message) survived."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    page.route("**/command", lambda route: route.abort())
+    page.fill("#message", "Hi")
+    page.press("#message", "Enter")
+    until(page, lambda: page.is_visible("#notice .problem"), what="a notice")
+    page.unroute("**/command")
+    assert page.text_content("#notice .problem").startswith("! Clarity didn't answer (")
+    assert page.is_visible("#send") and page.is_hidden("#stop")
+    assert page.input_value("#message") == "Hi"
+
+
+def test_a_details_view_asked_for_after_a_redraw_s_still_wins(clarity, page):
+    """Item 7: Details for B asked while a redraw of the open panel (A) was on its way: the
+    redraw, asked later, outranked B, and B was dropped, though B is what you clicked."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    say(page, "Again")
+    until(page, lambda: page.locator(".reply.early").count() == 1, what="two replies")
+    page.wait_for_selector(".reply.last .tb")
+    earlier = page.get_attribute(".reply.early", "data-call")
+    newest = page.get_attribute(".reply.last", "data-call")
+    page.click(".reply.last [data-action=details]")  # A: the newest reply
+    page.wait_for_selector(f"#panel [data-call='{newest}']")
+    held: list = []
+    page.route(f"**/view/details?call={earlier}", lambda route: held.append(route))
+    page.click(".reply.early [data-action=details]", force=True)  # B, held
+    until(page, lambda: bool(held), what="B's view on its way")
+    page.evaluate("clarity.refresh()")  # a redraw of the open panel (A) lands first
+    held[0].continue_()
+    page.unroute(f"**/view/details?call={earlier}")
+    until(  # B, as clicked
+        page,
+        lambda: page.get_attribute("#panel [data-call]", "data-call") == earlier,
+        what="Details for the reply clicked",
+    )
+
+
+def test_a_panel_closed_while_its_view_was_on_the_way_stays_closed(clarity, page):
+    """Item 7: Close didn't count as newer than a Details view still on its way, so the
+    view reopened the panel you'd closed."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    page.click("#composer-row [data-action=settings]")  # a panel, open, to close
+    page.wait_for_selector("#panel:not([hidden])")
+    held: list = []
+    page.route("**/view/details*", lambda route: held.append(route))
+    page.click(".reply.last [data-action=details]")
+    until(page, lambda: bool(held), what="Details' view on its way")
+    page.click("#panel [data-action=panel-close]")
+    with page.expect_event("requestfinished", lambda r: "/view/details" in r.url):
+        held[0].continue_()
+    page.wait_for_timeout(500)  # shows nothing happens: the late view doesn't reopen it
+    assert page.is_hidden("#panel")
+
+
+def test_a_refusal_command_already_handled_isnt_called_a_dropped_connection(clarity, context):
+    """Item 8: a message sent from a tab that's no longer live got 409; the page showed
+    "Use it here" and also "Clarity didn't answer (not the live tab)."."""
+    _, redirect, _ = clarity
+    found = re.search(r'url=([^"]+)"', redirect.read_text(encoding="utf-8"))
+    assert found
+    first, second = context.new_page(), context.new_page()
+    first.goto(found.group(1))
+    first.wait_for_selector("body[data-page=ready]")
+    first.click("[data-profile=text]")
+    first.wait_for_selector("#thread .intro")
+    second.goto(found.group(1))
+    second.wait_for_selector("body[data-page=not-live]")
+    second.click("#use-here")
+    second.wait_for_selector("body[data-page=ready]")
+    first.evaluate("() => write('say', 'Hi', 'Hi')")  # the first tab sends anyway
+    first.wait_for_selector("body[data-page=not-live]")
+    assert "didn't answer" not in first.text_content("#notice")
+
+
+def test_a_start_whose_request_drops_says_so_and_focuses_the_picker(clarity, page):
+    """Item 9: start() had no handling for a dropped request (an unhandled rejection, and
+    focusBox left set); a refusal leaves focus on the picker, to choose again."""
+    _, redirect, _ = clarity
+    open_clarity(page, redirect)
+    page.route("**/command", lambda route: route.abort())
+    page.click("[data-profile=text]")
+    until(page, lambda: page.is_visible("#notice .problem"), what="a notice")
+    page.unroute("**/command")
+    assert page.text_content("#notice .problem").startswith("! text didn’t start. Clarity didn't")
+    until(page, lambda: focused(page) == "picker-button", what="focus on the picker")
+
+
+def test_a_rename_whose_request_drops_says_so(clarity, page):
+    """Item 9: rename() had no handling for a dropped request."""
+    _, redirect, _ = clarity
+    chat_on(page, redirect)
+    say(page, "Hi")
+    page.wait_for_selector(".reply.last .tb")
+    page.click("#title")
+    page.click("#title-menu [data-action=rename]")
+    page.fill("#rename-text", "A new title")
+    page.route("**/command", lambda route: route.abort())
+    page.press("#rename-text", "Enter")
+    until(page, lambda: page.is_visible("#notice .problem"), what="a notice")
+    page.unroute("**/command")
+    assert page.text_content("#notice .problem").startswith("! Clarity didn't answer (")
