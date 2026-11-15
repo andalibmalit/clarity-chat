@@ -89,6 +89,8 @@ SENTENCES = {
     "remove_waiting": "Shorten your message, remove an attachment and attach a shorter part, "
     "start a new chat, or lower max_tokens.",
     "slow_read": SLOW_READ,
+    # An empty /say, on the page and in the terminal (the whole-branch review's could 17).
+    "empty_message": "Type a message to send.",
     # Refusals the reader and its child write: their texts live beside the code that raises
     # them (insert.py imports both), and are listed here so reference.md lists them too.
     "too_slow": TOO_SLOW,
