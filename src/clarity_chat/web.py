@@ -49,20 +49,14 @@ from starlette.types import Message, Receive, Scope, Send
 
 from clarity_chat.backends import CHECK_HELP, BackendError
 from clarity_chat.backends.transformers_hf import FIXED_ORDER
-from clarity_chat.commands import (
-    CALL_ID,
-    READS,
-    REPLY_COMMANDS,
-    UPLOAD_ID,
-    Commands,
-    more_than,
-)
+from clarity_chat.commands import CALL_ID, READS, REPLY_COMMANDS, UPLOAD_ID, Commands
 from clarity_chat.documents import (
     MAX_BYTES,
     SENTENCES,
     DocumentRefused,
     checked_name,
     counted,
+    more_than,
     too_big,
 )
 from clarity_chat.json_chat import JsonChat
@@ -1538,7 +1532,7 @@ async def _attach(worker: Worker, params: dict[str, str | None]) -> str:
         check = found["result"]["check"] if "result" in found else check
     conversation = worker.commands.session.conversation
     state = await result_of(worker, "state")
-    max_tokens = conversation.settings["max_tokens"].value if conversation else 0
+    max_tokens = check["max_tokens"]  # what its numbers were counted with (could 15)
     own_marker = conversation is not None and conversation.profile.excerpt_marker is not None
     typed = (params["first"], params["last"]) if part_error else None
     sheet = attach_sheet(check, upload, max_tokens, own_marker, state["pending"], part_error, typed)

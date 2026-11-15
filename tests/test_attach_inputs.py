@@ -101,11 +101,13 @@ def test_attach_args(args, parsed):
     assert attach_args(args) == parsed
 
 
-def test_a_megabyte_of_whitespace_parses_at_once():
-    """The old pattern backtracked: 40,000 spaces froze every thread for 28 s."""
+def test_forty_thousand_spaces_parse_at_once():
+    """The old pattern backtracked: 40,000 spaces froze every thread for 28 s. Not a
+    megabyte, which the old pattern took hours over, so the red-green check can run it on
+    its red tree and fail in under a minute (part 1's fix review, could 14)."""
     started = time.monotonic()
-    attach_args("x" + " " * (1024 * 1024) + "y check")
-    attach_args("x" + " " * (1024 * 1024) + "lines 1-")
+    attach_args("x" + " " * 40_000 + "y check")
+    attach_args("x" + " " * 40_000 + "lines 1-")
     assert time.monotonic() - started < 2
 
 

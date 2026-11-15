@@ -269,12 +269,13 @@ def test_a_second_upload_while_one_is_read_is_refused(chat):
     """The security review's could 4: each upload holds up to 128 MB until it replaces the
     last, so only one is read at a time."""
     _, _, app = chat
-    release = asyncio.Event()
+    release, reading = asyncio.Event(), asyncio.Event()
 
     async def both():
         sent: list = []
 
         async def slow():
+            reading.set()  # the first upload's body is being read now
             await release.wait()
             return {"type": "http.request", "body": NOTES, "more_body": False}
 
@@ -282,7 +283,7 @@ def test_a_second_upload_while_one_is_read_is_refused(chat):
             sent.append(message)
 
         first = asyncio.create_task(app(scope(), slow, send))
-        await asyncio.sleep(0.05)
+        await reading.wait()  # ordered by the event, never a pause (part 1's fix review, could 11)
         second: list = []
 
         async def quick():

@@ -97,12 +97,21 @@ class Tokenizer:
         return self.tok.decode(ids, skip_special_tokens=False, clean_up_tokenization_spaces=False)
 
     @cached_property
-    def max_token_bytes(self) -> int:
+    def max_token_bytes(self) -> int | None:
         """The longest token's text, in UTF-8 bytes: no token covers more of a text, so a
         text of B bytes takes at least B / this many tokens. Decoded one token at a time, a
         piece of a character comes out as U+FFFD (3 bytes), never shorter than the bytes it
         covers. It holds for tokenizers whose tokens decode back to the text, as byte-level
-        BPE's do (Clarity's are)."""
+        BPE's do (Clarity's are). None for any other tokenizer: a normalizer (NFC can shrink
+        text) or another decoder (SentencePiece's drops a lone token's leading space) breaks
+        the premise, and its counts are then taken exactly (part 1's fix review, should 4)."""
+        from tokenizers import decoders
+
+        backend = getattr(self.tok, "backend_tokenizer", None)
+        if backend is None or backend.normalizer is not None:
+            return None
+        if not isinstance(backend.decoder, decoders.ByteLevel):
+            return None
         texts = self.tok.batch_decode(
             [[i] for i in range(len(self.tok))],
             skip_special_tokens=False,
@@ -297,14 +306,15 @@ def build_prompt(
 ) -> Prompt:
     """The prompt for `turns`. `tokenizer` is always the model's; in chat mode `template`
     (default: the same tokenizer) supplies only the chat template."""
+    # The same render prompt_text gives the bound's frame, so the two can't drift.
     if profile.mode == "text":
-        text = render_text(profile, turns)
+        text = prompt_text(profile, turns, tokenizer)
         ids, bos = tokenize(tokenizer, text, "text")
         found = special_in_content(tokenizer, profile, turns)
         return Prompt(text=text, ids=ids, bos=bos, template=None, special_in_content=found)
     source = template or tokenizer
     template_info = chat_template_source(source, profile)  # checks there is a template first
-    text = render_chat(source, profile, turns)
+    text = prompt_text(profile, turns, source)
     ids, bos = tokenize(tokenizer, text, "chat")
     found = special_in_content(tokenizer, profile, turns)
     return Prompt(text=text, ids=ids, bos=bos, template=template_info, special_in_content=found)

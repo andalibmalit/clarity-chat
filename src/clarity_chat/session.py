@@ -21,7 +21,9 @@ from typing import Any
 from clarity_chat import steering
 from clarity_chat.backends import Backend, BackendError, Result
 from clarity_chat.documents import (
+    SENTENCES,
     TURN_FIELDS,
+    Attached,
     Document,
     DocumentRefused,
     Fit,
@@ -29,10 +31,12 @@ from clarity_chat.documents import (
     added_ranges,
     attached_in,
     checked_attachments,
+    content,
     covers_whole,
     fit,
     framing_of,
     message_content,
+    more_than,
     piece,
     scan,
     start_that_fits,
@@ -144,6 +148,17 @@ class Turn:
         if not self.attachments:
             return {}
         return {name: getattr(self, name) for name in TURN_FIELDS}
+
+
+@dataclass(frozen=True)
+class Counts:
+    """A check's counts that don't depend on the range asked for, kept for the next check."""
+
+    before: int  # the prompt's tokens with what's waiting
+    whole: Fit
+    new_chat: Fit
+    start: tuple[int, Fit] | None  # the start that fits
+    roomy: tuple[int, Fit] | None  # the start that still leaves max_tokens
 
 
 @dataclass
@@ -411,6 +426,7 @@ class Session:
         self.backends: dict[tuple[str, str | None], Backend] = {}
         self.backend = backend or self.backend_for("llama.cpp", None)
         self.conversation: Conversation | None = None
+        self._checked: tuple[tuple, Counts] | None = None  # the last check's counts
         self.model: ModelEntry | None = None
         self.model_lock: dict[str, Any] = {}
         self.tokenizer: Tokenizer | None = None
@@ -783,7 +799,8 @@ class Session:
         new = piece(doc, profile, unit, first, last)
         pending = attached_in({"attachments": conversation.pending})
         room = self.room(cancel=cancel, name=doc.name)
-        result = fit(room, pending, new, framing)
+        before = self._room_for_a_file(room, pending, framing)
+        result = fit(room, pending, new, framing, before)
         if not result.fits:
             start = roomy = None
             if covers_whole(doc, unit, first, last):
@@ -795,7 +812,8 @@ class Session:
                 )
                 roomy = found[0] if found else None
             raise DoesntFit(
-                f"{doc.name} doesn't fit: it needs {needs(result)} tokens and "
+                f"{doc.name} doesn't fit: it needs {more_than(result.tokens, result.at_least)} "
+                "tokens and "
                 f"{result.free:,} are free in this chat.",
                 start,
                 roomy,
@@ -836,8 +854,30 @@ class Session:
         conversation, profile, framing = self._attaching()
         assert self.tokenizer is not None
         pending = attached_in({"attachments": conversation.pending})
-        room, checked = self.room(cancel=cancel, name=doc.name), {}
-        whole = fit(room, pending, piece(doc, profile), framing)
+        room = self.room(cancel=cancel, name=doc.name)
+        # The whole, the new chat and the two starts are kept for the last document and chat
+        # state, so a range change in the sheet renders only the range (part 1's fix review,
+        # should 5: at a 128K context one whole render takes seconds and gigabytes).
+        key = (
+            doc.sha256, doc.kind, profile.name, conversation.conversation_id, conversation.head,
+            tuple((a["sha256"], tuple(a["range"])) for a in conversation.pending),
+            room.max_tokens, self.backend.n_ctx,
+        )  # fmt: skip
+        if self._checked is None or self._checked[0] != key:
+            before = self._room_for_a_file(room, pending, framing)
+            checked: dict[int, Fit] = {}
+            self._checked = (
+                key,
+                Counts(
+                    before,
+                    fit(room, pending, piece(doc, profile), framing, before),
+                    fit(self.room(True, cancel, doc.name), [], piece(doc, profile), framing),
+                    start_that_fits(room, pending, framing, doc, profile, checked=checked),
+                    start_that_fits(room, pending, framing, doc, profile, room.max_tokens, checked),
+                ),
+            )
+        counts = self._checked[1]
+        whole, new_chat = counts.whole, counts.new_chat
         units = doc.unit + "s"
 
         def shown(k_fit: tuple[int, Fit] | None, first: int = 1) -> dict[str, Any] | None:
@@ -856,10 +896,9 @@ class Session:
         chosen = None
         if unit is not None:
             excerpt = piece(doc, profile, unit, first, last)
-            chosen = shown((last, fit(room, pending, excerpt, framing)), first)
+            chosen = shown((last, fit(room, pending, excerpt, framing, counts.before)), first)
             assert chosen is not None
             chosen["text"] = excerpt.text  # for the sheet's extracted text (C1)
-        new_chat = fit(self.room(True, cancel, doc.name), [], piece(doc, profile), framing)
         return {
             "name": doc.name,
             "kind": doc.kind,
@@ -873,12 +912,9 @@ class Session:
             "free": whole.free,
             "fits": whole.fits,
             "left_whole": whole.left,
-            "start_that_fits": shown(
-                start_that_fits(room, pending, framing, doc, profile, checked=checked)
-            ),
-            "preselected": shown(
-                start_that_fits(room, pending, framing, doc, profile, room.max_tokens, checked)
-            ),
+            "start_that_fits": shown(counts.start),
+            "preselected": shown(counts.roomy),
+            "max_tokens": room.max_tokens,  # what the numbers were counted with
             "chosen": chosen,
             "free_new_chat": new_chat.free,
             "fits_new_chat": new_chat.fits,
@@ -888,6 +924,15 @@ class Session:
             "framing_origin": framing_of(profile)[1],
             "text": doc.text,
         }
+
+    @staticmethod
+    def _room_for_a_file(room: Room, pending: list[Attached], framing: str) -> int:
+        """The prompt's tokens with what's waiting, refusing first when the chat has no room
+        left at all (part 1's fix review, should 3): no count then, and no negative number."""
+        before = room.tokens(content("", pending, framing))
+        if room.room_left(before) < 1:
+            raise DocumentRefused(SENTENCES["no_room"])
+        return before
 
     def already_in_chat(self, sha256: str) -> bool:
         """Whether a file with these bytes is waiting, or attached on this branch."""
@@ -1865,14 +1910,6 @@ def annotate_log(
     log = LogFile(path)
     log.on_append = on_record
     return annotate_call(log, about, kind, text, "review")
-
-
-def needs(found: Fit) -> str:
-    """A cost as a refusal says it: exact, or "more than N" when only the bound was taken."""
-    if found.tokens is None:
-        assert found.at_least is not None
-        return f"more than {found.at_least - 1:,}"
-    return f"{found.tokens:,}"
 
 
 def attached_tokens(spans: Any, conversation: Conversation, user_turn: Turn) -> str:

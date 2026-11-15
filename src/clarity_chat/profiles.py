@@ -125,12 +125,16 @@ class Setting:
         return {"value": self.value, "origin": self.origin}
 
 
+# tomllib raises TOMLDecodeError, a ValueError, for bad TOML, and a plain ValueError for an
+# integer of over 4,300 digits: both are refusals (part 1's fix review, should 6).
+
+
 def read_toml(path: Path) -> dict:
     if not path.is_file():
         raise ConfigError(f"{path}: file not found.")
     try:
         return tomllib.loads(read_text(path))
-    except tomllib.TOMLDecodeError as e:
+    except ValueError as e:
         raise ConfigError(f"{path}: {e}") from e
 
 
@@ -327,7 +331,7 @@ def parse_setting(name: str, text: str, where: str) -> Any:
     else:
         try:
             value = tomllib.loads(f"v = {text}")["v"]
-        except tomllib.TOMLDecodeError:
+        except ValueError:
             value = text
     return check_setting(name, value, where)
 
@@ -558,7 +562,7 @@ def load_profile(
         toml_text = read_text(path)
     try:
         data = tomllib.loads(toml_text)
-    except tomllib.TOMLDecodeError as e:
+    except ValueError as e:
         raise ConfigError(f"{where}: {e}") from e
 
     mode = data.get("mode")
@@ -644,7 +648,7 @@ def load_profile(
                 text = _text_or_file(priming, "priming", base, root, files, where, logged_files)
                 try:
                     priming_data = tomllib.loads(text)
-                except tomllib.TOMLDecodeError as e:
+                except ValueError as e:
                     raise ConfigError(f"{where}: priming file: {e}") from e
                 if set(priming_data) != {"messages"}:
                     raise ConfigError(

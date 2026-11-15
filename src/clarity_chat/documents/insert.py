@@ -51,12 +51,23 @@ SENTENCES = {
     "only with the message it's sent with.",
     "more_lines": "… and {count} more lines, ending with:",
     "choose": "Choose how to attach it.",
+    "no_room": "This chat has no room left for a file: its messages and max_tokens already fill "
+    "the context. Lower max_tokens or start a new chat.",
     "no_framing": "No framing line ({origin}).",
     "origin_default": "Clarity's default",
     "origin_profile": "this profile",
     "encrypted": "encrypted (it opens without a password)",
     "empty_units": "{count} with no text",
 }
+
+
+def more_than(tokens: int | None, at_least: int | None) -> str:
+    """A cost as the sheet, the terminal and the refusals say it: exact, or "more than N"
+    when only its bound was taken (it surely doesn't fit)."""
+    if tokens is not None:
+        return f"{tokens:,}"
+    assert at_least is not None
+    return f"more than {at_least - 1:,}"
 
 
 def counted(n: int, unit: str) -> str:
@@ -86,7 +97,7 @@ class Room:
     room_left: Callable[[int], int]
     max_tokens: int
     frame_bytes: int
-    token_bytes: int
+    token_bytes: int | None  # None: the bound's premise doesn't hold, so count exactly
 
 
 @dataclass(frozen=True)
@@ -195,7 +206,7 @@ def checked_attachments(record: Mapping[str, Any]) -> dict[str, Any]:
         name = attachment["name"]
         try:  # as an upload's is: a log someone else wrote can't put one on screen
             checked_name(name)
-            if "/" in name or "\\" in name:
+            if "/" in name:  # a "\\" is a legal character in a macOS or Linux name
                 raise DocumentRefused("A file name is never a path.")
         except DocumentRefused as e:  # TypeError: readers refuse it as unreadable
             raise TypeError(f"an attachment has a name Clarity wouldn't write. {e}") from None
@@ -249,10 +260,11 @@ def fit(
         before = room.tokens(content("", pending, framing))
     available = room.room_left(before)
     text = content("", [*pending, new], framing)
-    written = room.frame_bytes + len(text.strip().encode("utf-8"))
-    at_least = -(-written // room.token_bytes) - before
-    if at_least > available:
-        return Fit(tokens=None, free=available, left=None, fits=False, at_least=at_least)
+    if room.token_bytes:
+        written = room.frame_bytes + len(text.strip().encode("utf-8"))
+        at_least = max(-(-written // room.token_bytes) - before, 1)  # the wrapper alone costs
+        if at_least > available:
+            return Fit(tokens=None, free=available, left=None, fits=False, at_least=at_least)
     cost = room.tokens(text) - before
     return Fit(tokens=cost, free=available, left=available - cost, fits=cost <= available)
 
