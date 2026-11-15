@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from html import escape
 from typing import Any
 
-from clarity_chat.documents.reading import Document, DocumentRefused
+from clarity_chat.documents.reading import Document, DocumentRefused, checked_name
 from clarity_chat.profiles import Profile
 
 FRAMING = (
@@ -164,6 +164,13 @@ def checked_attachments(record: Mapping[str, Any]) -> dict[str, Any]:
     for attachment in fields["attachments"]:
         if missing := ATTACHMENT_FIELDS - set(attachment):
             raise KeyError(", ".join(sorted(missing)))
+        name = attachment["name"]
+        try:  # as an upload's is: a log someone else wrote can't put one on screen
+            checked_name(name)
+            if "/" in name or "\\" in name:
+                raise DocumentRefused("A file name is never a path.")
+        except DocumentRefused as e:  # TypeError: readers refuse it as unreadable
+            raise TypeError(f"an attachment has a name Clarity wouldn't write. {e}") from None
     return fields
 
 

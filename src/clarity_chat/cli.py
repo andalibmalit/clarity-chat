@@ -158,7 +158,14 @@ def format_pending(pending: list[dict[str, Any]]) -> str:
 
 def attachment_line(a: dict[str, Any]) -> str:
     """1. trail-notes.md, whole, 2,104 tokens (the number is /detach's)"""
-    return f"{a['n']}. {a['name']}, {how_attached(a)}, {a['tokens']:,} tokens"
+    return f"{a['n']}. {shown(a['name'])}, {how_attached(a)}, {a['tokens']:,} tokens"
+
+
+def shown(text: str) -> str:
+    """A file name as the terminal prints it: control and invisible characters written as
+    Python writes them (\\x1b, \\u202e), so whatever reached it can't send the terminal escape
+    sequences or show reversed."""
+    return text if text.isprintable() else repr(text)[1:-1]
 
 
 def how_attached(a: dict[str, Any]) -> str:
@@ -167,7 +174,7 @@ def how_attached(a: dict[str, Any]) -> str:
 
 def format_attached(result: dict[str, Any]) -> str:
     a = result["attached"]
-    return f"Attached {a['name']}, {how_attached(a)}, {a['tokens']:,} tokens. " + SENTENCES[
+    return f"Attached {shown(a['name'])}, {how_attached(a)}, {a['tokens']:,} tokens. " + SENTENCES[
         "left"
     ].format(left=f"{result['left']:,}")
 
@@ -180,7 +187,7 @@ def format_check(check: dict[str, Any], max_tokens: int) -> str:
         facts.append(f"{check['empty_units']:,} with no text")
     if check["encrypted"]:
         facts.append("encrypted (it opens without a password)")
-    lines = [f"{check['name']}: {', '.join(facts)}."]
+    lines = [f"{shown(check['name'])}: {', '.join(facts)}."]
     if check["fits"]:
         lines.append(
             SENTENCES["whole"].format(tokens=f"{check['tokens_whole']:,}")
@@ -243,7 +250,7 @@ def needs(tokens: int | None, at_least: int | None) -> str:
 
 
 def not_kept(pending: list[dict[str, Any]]) -> str:
-    names = ", ".join(a["name"] for a in pending)
+    names = ", ".join(shown(a["name"]) for a in pending)
     return (
         f"Not kept: {names}, waiting for your next message. An attachment is logged only "
         "with the message it's sent with."
@@ -692,7 +699,7 @@ class ChatLoop:
         elif name == "attach":
             self.write(format_pending(result["pending"]) + "\n")
         elif name == "detach":
-            names = ", ".join(a["name"] for a in result["detached"]) or "nothing"
+            names = ", ".join(shown(a["name"]) for a in result["detached"]) or "nothing"
             self.write(f"Detached {names}. {format_pending(result['pending'])}\n")
         elif name == "branches":
             show = format_branch_ends if "ends" in result else format_branches
