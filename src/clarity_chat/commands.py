@@ -233,7 +233,7 @@ def _regen(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
             )
         return {**regen_replies(c, emit, list(seeds)), "seeds": seeds}
     # ASCII digits only: str.isdigit() also accepts "²", which int() refuses.
-    n = int(args) if re.fullmatch(r"[0-9]+", args) else 0 if args else 1
+    n = int(args) if NUMBER.fullmatch(args) else 0 if args else 1
     if n < 1:
         raise ConfigError(
             "Usage: /regen [N], where N is a whole number of replies, 1 or more; or /regen same."
@@ -274,20 +274,27 @@ def _edit(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return c.call(emit, lambda **kw: c.session.edit(text, **kw))
 
 
-# The path (or upload ID) is everything before an optional range and `check` (decision 16).
-ATTACH_ARGS = re.compile(
-    r"(?P<source>.+?)(?:\s+(?P<unit>pages|lines)\s+(?P<first>[0-9]+)-(?P<last>[0-9]+))?"
-    r"(?:\s+(?P<check>check))?",
-    re.S,
-)
 UPLOAD_ID = re.compile(r"upload-[0-9a-f]{12}")
+NUMBER = re.compile(r"[0-9]{1,9}")  # int() refuses over 4,300 digits; 9 is plenty here
 
 
 def attach_args(args: str) -> tuple[str, str | None, int, int, bool]:
-    found = ATTACH_ARGS.fullmatch(args)
-    assert found is not None
-    first, last = int(found["first"] or 0), int(found["last"] or 0)
-    return found["source"], found["unit"], first, last, bool(found["check"])
+    """The path (or upload ID), the range and `check`: the path is everything before an
+    optional `pages A-B` or `lines A-B` and `check` (decision 16). Split from the right,
+    with no pattern that can backtrack: a long run of spaces once froze every thread."""
+    source, check = args, False
+    parts = source.rsplit(None, 1)
+    if len(parts) == 2 and parts[1] == "check":
+        source, check = parts[0], True
+    parts = source.rsplit(None, 2)
+    if len(parts) == 3 and parts[1] in ("pages", "lines"):
+        first, dash, last = parts[2].partition("-")
+        digits = [n.isascii() and n.isdigit() for n in (first, last)]
+        if dash and all(digits):
+            if not (NUMBER.fullmatch(first) and NUMBER.fullmatch(last)):
+                raise ConfigError("A range's numbers have at most 9 digits.")
+            return parts[0], parts[1], int(first), int(last), check
+    return source, None, 0, 0, check
 
 
 # The sheet's sentences, for the terminal: only these modules import the documents package.
@@ -301,12 +308,12 @@ def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     assert conversation is not None
     if not args:
         return {"pending": summaries(conversation.pending)}
-    found = ATTACH_ARGS.fullmatch(args)
-    assert found is not None  # anything matches: the source takes what the rest doesn't
-    source, unit = found["source"], found["unit"]
-    first, last = int(found["first"] or 0), int(found["last"] or 0)
+    if c.uploads is None and args in c.preread:  # --attach: exactly the file named, whole
+        source, unit, first, last, check = args, None, 0, 0, False
+    else:
+        source, unit, first, last, check = attach_args(args)
     doc = read_document(c, source, emit)
-    if found["check"]:
+    if check:
         return {"check": c.session.check(doc, unit, first, last, c.cancel_event)}
     try:
         _, fit = c.session.attach(doc, unit, first, last, c.cancel_event)
@@ -370,8 +377,9 @@ def _detach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     if not args:
         conversation.pending = []
         return {"detached": listed, "pending": []}
-    if not re.fullmatch(r"[0-9]+", args) or not 1 <= int(args) <= len(listed):
-        raise ConfigError(f"No attachment {args}. /attach lists them.")
+    if not NUMBER.fullmatch(args) or not 1 <= int(args) <= len(listed):
+        shown = args if len(args) <= 10 else args[:10] + "…"
+        raise ConfigError(f"No attachment {shown}. /attach lists them.")
     del conversation.pending[int(args) - 1]
     return {"detached": [listed[int(args) - 1]], "pending": summaries(conversation.pending)}
 
