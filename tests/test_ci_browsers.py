@@ -55,3 +55,40 @@ def test_the_job_runs_webkit_and_firefox_allowed_to_fail_with_its_summary():
 def test_getting_started_says_the_page_has_been_checked_in_chrome_only():
     text = (REPO / "docs/getting-started.md").read_text(encoding="utf-8")
     assert "The page has been checked in Chrome only." in text
+
+
+# --- the whole-branch review's should 8 and 9
+
+
+def test_the_other_browsers_job_has_a_time_limit():
+    workflow = (REPO / ".github/workflows/tests.yml").read_text(encoding="utf-8")
+    job = workflow.split("\n  browser-others:\n", 1)[1].split("\n  live-cpu:", 1)[0]
+    assert "timeout-minutes: 30" in job
+
+
+def test_an_unreadable_report_is_said_in_the_summary(tmp_path):
+    xml = tmp_path / "browser.xml"
+    xml.write_text(JUNIT[:200], encoding="utf-8")  # a run killed while writing it
+    text = summary_module().summary(xml, "WebKit")
+    assert (
+        text == "### The browser tier in WebKit: report unreadable (the run stopped writing it)\n"
+    )
+
+
+def test_chrome_s_channel_is_only_for_chromium_and_clipboard_grants_are_guarded():
+    for name in ("test_browser.py", "test_browser_attach.py"):
+        source = (REPO / "tests" / name).read_text(encoding="utf-8")
+        assert 'browser_name == "chromium"' in source, name
+    browser = (REPO / "tests/test_browser.py").read_text(encoding="utf-8")
+    grants = browser.count("grant_permissions(")
+    assert grants == browser.count(
+        'if browser_name == "chromium":\n        context.grant_permissions('
+    )
+
+
+def test_the_guide_says_where_the_whole_extracted_text_is_and_the_readme_attaching():
+    guides = (REPO / "docs/guides.md").read_text(encoding="utf-8")
+    assert "**Show extracted text** shows the start and end of what will go in" in guides
+    assert "the whole is in **Details** after you send" in guides
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    assert "Attach a document to a message" in readme
