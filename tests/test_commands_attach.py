@@ -19,9 +19,9 @@ RANGE = {"unit", "range", "tokens", "tokens_at_least", "left", "marker"}
 CHECK = {
     "name", "kind", "bytes", "unit", "total", "empty_units", "encrypted", "tokens_whole",
     "tokens_whole_at_least", "free", "fits", "left_whole", "start_that_fits", "preselected",
-    "chosen", "max_tokens", "free_new_chat", "fits_new_chat", "already_in_chat",
-    "control_tokens",
-    "has_closing_tag", "framing", "framing_origin", "text",
+    "chosen", "max_tokens", "free_new_chat", "fits_new_chat", "tokens_new_chat",
+    "left_new_chat", "already_in_chat", "control_tokens",
+    "has_closing_tag", "framing", "framing_origin", "excerpt_marker_origin", "text",
 }  # fmt: skip
 NOTES = "Line one.\nLine two.\nLine three.\n"
 
