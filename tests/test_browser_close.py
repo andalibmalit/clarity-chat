@@ -150,3 +150,19 @@ def test_a_dollar_in_a_name_is_shown_as_typed(clarity, page):  # noqa: F811
     page.unroute("**/upload?*")
     page.wait_for_selector("#attach-sheet [role=status]")
     assert page.text_content("#attach-sheet [role=status]").strip() == "Stopped reading a$'b.md."
+
+
+def test_each_press_opens_the_picker_on_a_fresh_input(clarity, page):  # noqa: F811
+    """Firefox CI (run 43766644268): a second picker on the same input sometimes never
+    opened. Each press gets its own input, still `#attach-file` (the QA driver's upload
+    step), and the file chosen in it is read."""
+    redirect, _ = clarity
+    chat(page, redirect)
+    with page.expect_file_chooser() as first:
+        page.click("#clip")
+    with page.expect_file_chooser() as second:
+        page.click("#clip")
+    assert first.value.element.evaluate("input => input.isConnected") is False
+    assert second.value.element.evaluate("input => input.id") == "attach-file"
+    second.value.set_files({"name": "notes.md", "mimeType": "text/markdown", "buffer": NOTES})
+    ready(page)
