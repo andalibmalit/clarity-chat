@@ -386,3 +386,15 @@ def test_a_framing_that_isn_t_a_string_is_refused_at_load(root):
     with pytest.raises(ConfigError) as e:
         profile(root, "\n[documents]\nframing = 3\n")
     assert "[documents] framing must be a string" in str(e.value)
+
+
+def test_a_start_that_leaves_exactly_keep_tokens_counts(root):
+    """Checkpoint 1's mutation run: `left > keep` survived. The boundary: an excerpt that
+    leaves exactly `keep` tokens qualifies."""
+    d = doc([f"{n:03}\n" for n in range(100)])
+    room, _ = counting_room(n_ctx=600, max_tokens=50)
+    p = profile(root)
+    keep = fit(room, [], piece(d, p, "lines", 1, 20), FRAMING).left
+    assert fit(room, [], piece(d, p, "lines", 1, 21), FRAMING).left < keep
+    found = start_that_fits(room, [], FRAMING, d, p, keep=keep)
+    assert found is not None and found[0] == 20

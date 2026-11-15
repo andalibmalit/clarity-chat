@@ -445,3 +445,23 @@ def test_html_without_its_closing_head_tag_reads_its_body():
 def test_html_whitespace_collapses_across_inline_tags():
     """Should 8: the line is collapsed when it ends, not piece by piece."""
     assert extract(b"<p>Three <b> cairns</b> here</p>", "c.html").text == "Three cairns here\n"
+
+
+def test_pypdf_gets_clarity_s_root_object_recovery_limit(monkeypatch):
+    """Checkpoint 1's mutation run: not passing the limit (unbounded) survived, since only
+    a huge broken file would show it. pypdf's default today is 10,000; Clarity sets it, so
+    a moved default can't widen it."""
+    import pypdf
+
+    from clarity_chat.documents import child
+
+    seen = {}
+    real = pypdf.PdfReader
+
+    def reader(*args, **kwargs):
+        seen.update(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(pypdf, "PdfReader", reader)
+    child.pdf_pages(make_pdf(["Made-up page."]), "made-up.pdf")
+    assert seen["root_object_recovery_limit"] == child.ROOT_RECOVERY_LIMIT == 10_000
