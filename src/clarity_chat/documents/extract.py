@@ -4,9 +4,16 @@ used by every front end, the extraction run in a child process with limits (v0.3
 from __future__ import annotations
 
 import hashlib
+import json
+import os
+import stat
+import subprocess
 import sys
 import threading
-from dataclasses import dataclass
+import time
+import unicodedata
+from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any
 
 from clarity_chat.profiles import ConfigError
@@ -59,33 +66,146 @@ class Document:
 
 
 def checked_name(name: str) -> str:
-    return name  # A1's stub: no checks yet
+    """A file's name as the record keeps it: never a path, never a control character."""
+    if any(unicodedata.category(c) == "Cc" for c in name):
+        raise DocumentRefused("A file name can't hold a newline or another control character.")
+    if not name or len(name) > MAX_NAME:
+        raise DocumentRefused(f"A file name must be 1 to {MAX_NAME} characters.")
+    return name
 
 
 def kind_of(data: bytes, name: str) -> str:
-    return "text"
+    """A PDF by its first bytes, whatever its name; HTML by its name's ending; text else."""
+    if data.startswith(b"%PDF-"):
+        return "pdf"
+    return "html" if name.lower().endswith((".html", ".htm")) else "text"
 
 
 def read_path(path: str) -> tuple[bytes, str]:
-    raise DocumentRefused("Not built yet.")
+    """A file's bytes and name. Opened without blocking and checked on its descriptor, so a
+    FIFO or a device swapped in can't hang the worker; only a regular file of at most
+    MAX_BYTES is read."""
+    name = checked_name(Path(path).name)
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+    except OSError as e:
+        raise DocumentRefused(f"Can't open {name}: {e.strerror or e}.") from e
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise DocumentRefused(f"{name} isn't a file Clarity can attach.")
+        if info.st_size > MAX_BYTES:
+            raise DocumentRefused(too_big(name))
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            data = f.read(MAX_BYTES + 1)
+    finally:
+        os.close(fd)
+    if len(data) > MAX_BYTES:
+        raise DocumentRefused(too_big(name))
+    return data, name
 
 
-_last: Document | None = None
+def too_big(name: str) -> str:
+    return f"{name} is too big: Clarity reads files of at most {MAX_BYTES // 1024 // 1024} MB."
+
+
+_last: Document | None = None  # the last document read, kept so a range change re-reads nothing
 
 
 def extract(data: bytes, name: str, cancel: threading.Event | None = None) -> Document:
-    """A1's stub: no child, no refusals."""
-    return Document(
+    """The document in `data`, or a DocumentRefused. The same bytes as the last call are
+    read once: the answer is kept (by the bytes' sha256)."""
+    global _last
+    name = checked_name(name)
+    if len(data) > MAX_BYTES:
+        raise DocumentRefused(too_big(name))
+    sha256 = hashlib.sha256(data).hexdigest()
+    if _last is not None and _last.sha256 == sha256:
+        return replace(_last, name=name)
+    kind = kind_of(data, name)
+    answer = run_child({"name": name, "kind": kind}, data, cancel)
+    if "refused" in answer:
+        raise DocumentRefused(answer["refused"])
+    if "failed" in answer:
+        raise DocumentRefused(f"Clarity couldn't read {name} ({answer['failed']}).")
+    _last = Document(
         name=name,
-        kind=kind_of(data, name),
+        kind=kind,
         bytes=len(data),
-        sha256=hashlib.sha256(data).hexdigest(),
-        extractor={},
-        unit="line",
-        units=tuple(data.decode("utf-8", "replace").split("\n")),
-        empty_units=0,
+        sha256=sha256,
+        extractor=answer["extractor"],
+        unit=answer["unit"],
+        units=tuple(answer["units"]),
+        empty_units=answer["empty_units"],
     )
+    return _last
 
 
 def run_child(request: dict[str, Any], data: bytes, cancel: threading.Event | None) -> dict:
-    return {}
+    """The child's answer to `request` and `data`. Killed at the time limit, on `cancel` and
+    past the output cap; its stderr is discarded and it's always reaped."""
+    name = request["name"]
+    started = time.monotonic()
+    request = {**request, "memory_cap": MEMORY_CAP, "seconds": TIME_LIMIT + 5}
+    proc = subprocess.Popen(
+        CHILD,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        env={"LC_ALL": "C.UTF-8"},  # nothing of Clarity's environment: no tokens, no paths
+    )
+    stdin, stdout = proc.stdin, proc.stdout
+    assert stdin is not None and stdout is not None
+    out: list[bytes] = []
+    size = [0]
+
+    def write() -> None:
+        try:
+            stdin.write(json.dumps(request).encode("ascii") + b"\n")
+            stdin.write(data)
+            stdin.close()
+        except OSError:  # the child ended early (a limit, a stub): its exit code says why
+            pass
+
+    def read() -> None:
+        while chunk := stdout.read(1 << 16):
+            size[0] += len(chunk)
+            if size[0] > OUTPUT_CAP:
+                return
+            out.append(chunk)
+
+    threads = [threading.Thread(target=f, daemon=True) for f in (write, read)]
+    for thread in threads:
+        thread.start()
+    why = None
+    while proc.poll() is None:
+        if time.monotonic() - started > TIME_LIMIT:
+            why = f"{name} took longer than {TIME_LIMIT:.0f} seconds to read."
+        elif cancel is not None and cancel.is_set():
+            why = f"Stopped reading {name}."
+        elif size[0] > OUTPUT_CAP:
+            why = f"{name}'s text is too long: more than {OUTPUT_CAP // 1024 // 1024} MB."
+        if why:
+            proc.kill()
+            break
+        time.sleep(0.01)
+    proc.wait()
+    for thread in threads:
+        thread.join(5)
+    if why is None and size[0] > OUTPUT_CAP:
+        why = f"{name}'s text is too long: more than {OUTPUT_CAP // 1024 // 1024} MB."
+    if why is None and proc.returncode == MEMORY_EXIT:
+        why = f"{name} took more than {MEMORY_CAP // 1024 // 1024} MB of memory to read."
+    if why is None and proc.returncode == DEADLINE_EXIT:
+        why = f"{name} took longer than {TIME_LIMIT:.0f} seconds to read."
+    if why:
+        raise DocumentRefused(why)
+    try:
+        answer = json.loads(b"".join(out))
+    except ValueError:
+        raise DocumentRefused(
+            f"Clarity couldn't read {name}: its reader stopped (exit {proc.returncode})."
+        ) from None
+    if not isinstance(answer, dict):
+        raise DocumentRefused(f"Clarity couldn't read {name}: its reader gave no answer.")
+    return answer
