@@ -2028,3 +2028,24 @@ def test_a_rename_whose_request_drops_says_so(clarity, page):
     until(page, lambda: page.is_visible("#notice .problem"), what="a notice")
     page.unroute("**/command")
     assert page.text_content("#notice .problem").startswith("! Clarity didn't answer (")
+
+
+def test_a_compare_card_s_bookmark_marks_its_reply(clarity, page):
+    """E3 (v0.3.1): the thread's bookmark and popover on each Compare card."""
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    make_three(page, backend)
+    open_replies(page)
+    page.click(".listpop [data-action=compare]")
+    page.wait_for_selector("#compare .cmp-cards")
+    first = page.evaluate("clarity.command('compare')")["result"]["replies"][0]["call_id"]
+    card = f'#compare .card[data-call="{first}"]'
+    page.click(f"{card} [data-action=marks]")
+    page.wait_for_selector(f"{card} .pop:not([hidden])")
+    page.click(f"{card} .pop [data-action=mark]")
+    page.wait_for_selector(f"{card} .pop:not([hidden]) :text('Marked:')")
+    assert "marked" in (page.get_attribute(f"{card} .bm", "class") or "")
+    marks = page.evaluate("clarity.command('compare')")["result"]["replies"][0]["marks"]
+    assert [m["label"] for m in marks] == ["interesting"]
+    assert page.is_visible("#compare")  # still comparing
+    shot(page, "K4-compare-bookmark", "v031")
