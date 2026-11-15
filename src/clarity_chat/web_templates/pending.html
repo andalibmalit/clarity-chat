@@ -1,0 +1,2 @@
+{# The attachments waiting for your next message (v0.3.1 B3). C1 draws them as chips. #}{% for a in pending %}<span class="chip" data-n="{{ a.n }}">{{ a.name }} · {{ "whole" if a.how == "whole" else a.unit ~ "s " ~ a.range[0] ~ "-" ~ a.range[1] }} · {{ "{:,}".format(a.tokens) }} tokens</span>
+{% endfor %}
