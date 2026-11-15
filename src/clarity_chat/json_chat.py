@@ -58,11 +58,12 @@ class JsonChat:
             self.closed = True
 
     def run(self, first: list[dict[str, Any]], then: Sequence[dict[str, Any]] = ()) -> None:
-        """Run the `first` commands (from --profile or --resume), then each input line. If a
-        first command fails, the session ends there, as the terminal's does."""
+        """Run the `first` commands (from --profile or --resume), then `then` (--attach's),
+        then each input line. If a first command fails, the session ends there, as the
+        terminal's does."""
         pending: queue.Queue[dict[str, Any] | None] = queue.Queue()
         self.starts = list(first)
-        for command in first:
+        for command in [*first, *then]:  # `then` (--attach) isn't a start: a refusal goes on
             pending.put(command)
         threading.Thread(target=self.read, args=(pending,), daemon=True).start()
         while not self.closed:
