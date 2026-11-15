@@ -28,7 +28,11 @@ OUTPUT_CAP = 256 * 1024 * 1024  # the child's answer, in bytes
 CHILD = [sys.executable, "-I", "-m", "clarity_chat.documents.child"]  # tests run stubs
 # SENTENCES' "stopped": the page shows it too, for a Cancel before the bytes are up.
 STOPPED = "Stopped reading {name}."
-MEMORY_EXIT, DEADLINE_EXIT = 70, 71  # as in child.py, which the parent doesn't import
+SMALLER = "Attach a smaller file, or split it and attach the part you need."  # F11
+TOO_SLOW = "{name} took longer than {seconds} seconds to read. " + SMALLER
+TOO_MUCH_MEMORY = "{name} took more than {memory} of memory to read. " + SMALLER
+SLOW_READ = "A long file can take a minute to read. Clarity stops at {seconds} seconds."
+MEMORY_EXIT, DEADLINE_EXIT = 70, 71  # as in child.py, which this module doesn't import
 
 
 class DocumentRefused(ConfigError):
@@ -133,6 +137,11 @@ def size_words(n: int) -> str:
     return f"{n // gb} GB" if n % gb == 0 else f"{n // 1024 // 1024} MB"
 
 
+def slow_read() -> str:
+    """What the page's reading state says after a few seconds (the walkthrough's F15)."""
+    return SLOW_READ.format(seconds=f"{TIME_LIMIT:.0f}")
+
+
 def too_big(name: str) -> str:
     return f"{name} is too big: Clarity reads files up to {SIZE_LIMIT}."
 
@@ -230,7 +239,7 @@ def run_child(request: dict[str, Any], data: bytes, cancel: threading.Event | No
         why = None
         while proc.poll() is None:
             if time.monotonic() - started > TIME_LIMIT:
-                why = f"{name} took longer than {TIME_LIMIT:.0f} seconds to read."
+                why = TOO_SLOW.format(name=name, seconds=f"{TIME_LIMIT:.0f}")
             elif cancel is not None and cancel.is_set():
                 why = STOPPED.format(name=name)
             elif size[0] > OUTPUT_CAP:
@@ -247,9 +256,9 @@ def run_child(request: dict[str, Any], data: bytes, cancel: threading.Event | No
     if why is None and size[0] > OUTPUT_CAP:
         why = too_long
     if why is None and proc.returncode == MEMORY_EXIT:
-        why = f"{name} took more than {size_words(MEMORY_CAP)} of memory to read."
+        why = TOO_MUCH_MEMORY.format(name=name, memory=size_words(MEMORY_CAP))
     if why is None and proc.returncode == DEADLINE_EXIT:
-        why = f"{name} took longer than {TIME_LIMIT:.0f} seconds to read."
+        why = TOO_SLOW.format(name=name, seconds=f"{TIME_LIMIT:.0f}")
     if why:
         raise DocumentRefused(why)
     try:

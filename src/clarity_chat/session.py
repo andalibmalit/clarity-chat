@@ -1381,19 +1381,17 @@ class Session:
                         "as control tokens, not text. It's sent as it is."
                     )
             n_ctx, max_tokens = self.backend.n_ctx, values["max_tokens"]
-            if room_left(n_ctx, len(prompt.ids), max_tokens) < 0:
+            over = -room_left(n_ctx, len(prompt.ids), max_tokens)
+            if over > 0:
                 of_them = attached_tokens(record["message_spans"], conversation, user_turn)
                 # The chips come back with your text, so removing one is advice you can
                 # follow only when this message had some (ruling 9, the fact-check's row 53b).
-                advice = (
-                    SENTENCES["remove_waiting"]
-                    if user_turn.attachments
-                    else "Start a new chat, or lower max_tokens."
-                )
+                advice = SENTENCES["remove_waiting" if user_turn.attachments else "stop_advice"]
+                # max_tokens as typed, a setting; the counts with separators (ruling 2).
                 raise ContextError(
                     f"The prompt is {len(prompt.ids):,} tokens{of_them}; with max_tokens "
-                    f"{max_tokens:,} it needs more than the context of {n_ctx:,} tokens. "
-                    f"Nothing was sent. {advice}"
+                    f"{max_tokens} it doesn't fit in the context of {n_ctx:,} tokens. Nothing "
+                    f"was sent. {SENTENCES['too_long'].format(over=f'{over:,}')} {advice}"
                 )
             if len(prompt.ids) > CONTEXT_WARN_FRACTION * n_ctx:
                 warnings.append(

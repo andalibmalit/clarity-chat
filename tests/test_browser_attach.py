@@ -348,7 +348,7 @@ def test_the_paperclip_refuses_in_text_mode_before_the_picker(clarity, page):
     page.on("filechooser", lambda chooser: choosers.append(chooser))
     page.click("#clip")
     sentence = "Attaching needs a chat-mode profile; text is in text mode."
-    page.wait_for_selector(f"#clip-waits:has-text('{sentence}')")
+    page.wait_for_selector(f"#notice .problem:has-text('{sentence}')")  # a refusal box (F12)
     assert choosers == [] and page.is_hidden("#attach-sheet")
 
 
@@ -498,7 +498,7 @@ def test_a_failed_send_brings_the_chips_back_and_offers_removing_one(clarity, pa
     page.fill("#message", "Line one?")
     page.click("#send")
     page.wait_for_selector("[role=alert]:has-text('Nothing was sent.')")
-    assert "Remove an attachment waiting for this message" in page.text_content("#thread")
+    assert "remove an attachment and attach a shorter part" in page.text_content("#thread")
     page.wait_for_selector("#chips .chip")
     assert "long.md" in page.text_content("#chips") and page.input_value("#message") == "Line one?"
     shot(page, "C2-stop-chips-back", "v031")

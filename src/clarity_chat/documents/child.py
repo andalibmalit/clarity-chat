@@ -61,6 +61,18 @@ def watch(memory_cap: int, seconds: float, interval: float = 0.02) -> None:
     threading.Thread(target=loop, daemon=True).start()
 
 
+# Two refusals SENTENCES lists (insert.py imports them; the design walkthrough's F11, F25).
+PROTECTED = (
+    "{name} is protected, even if it opens without a password. Export or print it to a new "
+    "PDF and attach that."
+)
+NO_TEXT = (
+    "{name} has no text Clarity can read. Its pages may be scanned images, which Clarity "
+    "doesn't read. Use a PDF app's text recognition (OCR) to add the text, then attach that "
+    "copy."
+)
+
+
 class Refused(Exception):
     """A sentence for the user: what's wrong with the file, and what to do."""
 
@@ -152,7 +164,7 @@ def pdf_pages(data: bytes, name: str) -> tuple[list[str], dict]:
     import pypdf
     from pypdf.errors import DependencyError, PdfReadError
 
-    protected = f"{name} is protected. Save an unprotected copy and attach that."
+    protected = PROTECTED.format(name=name)
     try:
         reader = pypdf.PdfReader(io.BytesIO(data), root_object_recovery_limit=ROOT_RECOVERY_LIMIT)
     except (DependencyError, NotImplementedError) as e:  # an encryption pypdf can't open
@@ -204,10 +216,7 @@ def extract(kind: str, data: bytes, name: str) -> dict:
             raise Refused(f"{name} has no pages.")
         empty = sum(1 for page in pages if not page.strip())
         if empty == len(pages):
-            raise Refused(
-                f"{name} has no text Clarity can read. Its pages may be scanned images, which "
-                "Clarity doesn't read. Save a copy with a text layer (run OCR) and attach that."
-            )
+            raise Refused(NO_TEXT.format(name=name))
         units, unit = pages, "page"
     else:
         if kind == "html":

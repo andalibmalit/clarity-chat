@@ -432,11 +432,12 @@ def test_the_sheet_s_words_are_all_in_the_one_table():
     """Part 1's whole-branch review, should 5, and the fact-check's rows 4, 12 and 15: the
     terminal and the sheet take every sentence from SENTENCES."""
     assert SENTENCES["free"] == (
-        "{free} tokens free in this chat, after setting aside max_tokens for the reply."
-    )
+        "{free} tokens free in this chat, after setting aside {max_tokens} for the reply "
+        "(your max_tokens)."
+    )  # the walkthrough's F4
     assert SENTENCES["excerpt"] == (
-        "The pages or lines you choose go in complete, after a line saying they're an excerpt."
-    )
+        "Only the {units} you choose are sent, after a line that says they're an excerpt."
+    )  # the walkthrough's F14
     assert SENTENCES["no_marker"] == "No excerpt marker (this profile)."
     assert SENTENCES["fits_up_to"] == "{Units} 1 to {last} fit."
     assert SENTENCES["none_fits"] == "Not even its first {unit} fits."

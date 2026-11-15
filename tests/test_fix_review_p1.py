@@ -311,4 +311,5 @@ def test_check_says_the_max_tokens_it_counted_with(chat):
     Commands(session).run("set", "max_tokens 40", lambda e: None)
     check = session.check(doc())
     assert check["max_tokens"] == 40
-    assert SENTENCES["free"].format(free=f"{check['free']:,}") in check_lines(check)
+    free = SENTENCES["free"].format(free=f"{check['free']:,}", max_tokens="40")
+    assert free in check_lines(check)

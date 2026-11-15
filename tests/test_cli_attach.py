@@ -59,7 +59,7 @@ def test_attach_says_it_s_reading_then_what_it_took_and_what_s_left(loop, notes)
     text = "".join(output)
     assert text.startswith("Reading notes.md…\n")
     assert f"Attached notes.md, whole, {a['tokens']:,} tokens. That leaves " in text
-    assert " tokens for your message and the rest of the chat.\n" in text
+    assert " tokens for your messages and the replies.\n" in text
 
 
 def test_check_prints_the_sheet_s_numbers_and_sentences(loop, notes):
@@ -69,10 +69,10 @@ def test_check_prints_the_sheet_s_numbers_and_sentences(loop, notes):
     text = "".join(output)
     assert "notes.md: text, 3 lines." in text
     assert (
-        f"It takes up {check['tokens_whole']:,} tokens of the context for the rest of the chat. "
-        f"That leaves {check['left_whole']:,} tokens for your message and the rest of the chat."
+        f"It takes up {check['tokens_whole']:,} tokens in every later prompt of this chat. "
+        f"That leaves {check['left_whole']:,} tokens for your messages and the replies."
     ) in text
-    assert f"{check['free']:,} tokens free in this chat, after setting aside max_tokens" in text
+    assert f"{check['free']:,} tokens free in this chat, after setting aside 16" in text
     assert "The start that fits" not in text  # the whole fits (part 1's review, could 14)
     assert f"Framing line (Clarity's default): {FRAMING}" in text
     assert chat.session.conversation.pending == []
@@ -232,5 +232,5 @@ def test_check_s_lines_come_from_the_one_table(loop, notes):
     text = "".join(output)
     assert "notes.md: text, 3 lines." in text
     assert SENTENCES["framing"].format(origin="Clarity's default", framing="") in text
-    assert "Lines 2 to 3: " in text and SENTENCES["excerpt"] in text
+    assert "Lines 2 to 3: " in text and SENTENCES["excerpt"].format(units="lines") in text
     assert "The start that fits" not in text  # the whole fits: no start lines (could 14)

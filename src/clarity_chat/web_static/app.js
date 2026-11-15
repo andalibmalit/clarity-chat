@@ -808,9 +808,14 @@ function send() {
   if ($("send").disabled) return;
   if (!text) {
     // Chips and no text: the command table says why (S6), and nothing is sent.
+    // Forgetting to type isn't an error: said beside Send, as its waits are (F12).
     command("say", "")
       .catch(unanswered)
-      .then((answer) => answer.error && notice("!", answer.error));
+      .then((answer) => {
+        if (!answer.error) return;
+        $("send-waits").textContent = answer.error;
+        $("send-waits").classList.remove("vh");
+      });
     return;
   }
   $("message").value = "";
@@ -855,6 +860,7 @@ async function annotate(kind, call, text = "") {
 function editing(item, on) {
   item.querySelector(".msg").hidden = on;
   item.querySelector(".msgbar").hidden = on;
+  for (const line of item.querySelectorAll(":scope > .att")) line.hidden = on; // "Keeps" says it (F9)
   item.querySelector("[data-edit]").hidden = !on;
   if (on) item.querySelector("[data-edit] textarea").focus();
   else item.querySelector('[data-action="edit"]').focus();
@@ -1205,8 +1211,9 @@ async function pickFile() {
   }
   const answer = await command("attach").catch(unanswered);
   if (answer.handled) return;
-  $("clip-waits").textContent = answer.error || "";
-  if (!answer.error) $("attach-file").click();
+  $("clip-waits").textContent = "";
+  if (answer.error) notice("!", answer.error); // a refusal, drawn as one (the walkthrough's F12)
+  else $("attach-file").click();
 }
 
 function sheetHead(title, close) {
@@ -1259,6 +1266,15 @@ function sheetReading(name) {
   $("attach-body").replaceChildren(sheetHead(name, false), status, actions);
   if (!$("attach-sheet").open) $("attach-sheet").showModal();
   cancel.focus();
+  // A slow file: after a few seconds, how long it may take (F15; the sentence is SENTENCES').
+  const attempt = attaching.attempt;
+  setTimeout(() => {
+    if (attempt !== attaching.attempt || !["uploading", "reading"].includes(attaching.phase)) return;
+    const slow = document.createElement("p");
+    slow.className = "d2";
+    slow.textContent = $("attach-sheet").dataset.slow;
+    status.after(slow);
+  }, 3000);
 }
 
 function sheetEnded(sentence, refused = true) {
@@ -1277,10 +1293,12 @@ function sheetEnded(sentence, refused = true) {
   box.append(line);
   const actions = document.createElement("div");
   actions.className = "actions";
-  actions.append(sheetButton("Close", "attach-close", "btn"));
+  const spacer = document.createElement("span");
+  spacer.className = "sp";
+  actions.append(spacer, sheetButton("Choose another file", "attach-pick", "btn ghost"), sheetButton("Close", "attach-close", "btn"));
   $("attach-body").replaceChildren(sheetHead("Not attached", true), box, actions);
   if (!$("attach-sheet").open) $("attach-sheet").showModal();
-  actions.querySelector("button").focus();
+  actions.querySelector("[data-action=attach-close]").focus();
 }
 
 async function attachFile(file) {
@@ -1359,7 +1377,8 @@ async function loadSheet(range, first = false) {
   // one for keys typed over since, would show a count for another range (must 1).
   if (!current() || !$("attach-sheet").open || !boxesHold(range)) return;
   attaching.phase = "sheet";
-  const opened = $("attach-preview") && !$("attach-preview").hidden;
+  // The preview stays as you left it; a new sheet opens as the server drew it (F7).
+  const opened = $("attach-preview") ? !$("attach-preview").hidden : null;
   const focus = document.activeElement;
   const typing = focus && ["attach-from", "attach-to"].includes(focus.id) ? focus : null;
   swap($("attach-body"), html);
@@ -1371,7 +1390,7 @@ async function loadSheet(range, first = false) {
   }
   docsLinks($("attach-body"));
   rove($("attach-body"));
-  showPreview(opened);
+  showPreview(opened === null ? !$("attach-preview").hidden : opened);
   updateAdd();
   const back = focus && focus.id && $(focus.id);
   if (first || !back) $("attach-title").focus();
@@ -1391,7 +1410,7 @@ function updateAdd() {
   const ok = Boolean(choice) && choice.dataset.ok === "true";
   if (ok) add.removeAttribute("aria-disabled");
   else add.setAttribute("aria-disabled", "true");
-  add.textContent = choice && choice.dataset.choice === "new" ? "Start new chat" : "Add";
+  add.textContent = choice && choice.dataset.choice === "new" ? "Start new chat" : "Add to message";
   const why = $("attach-why");
   why.dataset.choose = why.dataset.choose || why.textContent; // the server's sentence
   let text = "";
@@ -1783,6 +1802,15 @@ document.addEventListener("keydown", (event) => {
 const THREAD = {
   // Details (C4b): one call's record, from the toolbar, the facts line or a failed line.
   details: (element, call) => showPanel("details", { call }, element),
+  // Your message's attachment line: Details for its reply, at Attachments (F16).
+  attached: async (element) => {
+    await showPanel("details", { call: element.dataset.reply }, element);
+    const section = $("panel").querySelector("details[data-key=attachments]");
+    if (!section) return;
+    section.open = true;
+    section.querySelector("summary").focus();
+    section.scrollIntoView({ block: "nearest" });
+  },
   settings: (element) => showPanel("settings", {}, element),
   replies: (element) => openReplies(element),
   appearance() {
