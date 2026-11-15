@@ -465,3 +465,39 @@ def test_pypdf_gets_clarity_s_root_object_recovery_limit(monkeypatch):
     monkeypatch.setattr(pypdf, "PdfReader", reader)
     child.pdf_pages(make_pdf(["Made-up page."]), "made-up.pdf")
     assert seen["root_object_recovery_limit"] == child.ROOT_RECOVERY_LIMIT == 10_000
+
+
+# --- the security review's should 1: every error reading a path is a refusal
+
+
+def test_a_read_that_fails_after_the_open_is_refused(tmp_path, monkeypatch):
+    """EIO from a failing disk or mount, after the open and fstat passed."""
+    path = tmp_path / "notes.md"
+    path.write_text("Made-up.", encoding="utf-8")
+
+    class Failing:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, size):
+            raise OSError(5, "Input/output error")
+
+    monkeypatch.setattr(os, "fdopen", Failing)
+    with pytest.raises(DocumentRefused) as e:
+        read_path(str(path))
+    assert str(e.value) == "Can't read notes.md: Input/output error."
+
+
+@pytest.mark.parametrize("path", ["made-up\x00/notes.md", "/made-up/\ud800/notes.md"])
+def test_a_path_the_system_can_t_take_is_refused(path):
+    """A NUL or a lone surrogate in a folder's name (from --json): the name check sees only
+    the last part, and the open raised ValueError or UnicodeEncodeError."""
+    with pytest.raises(DocumentRefused) as e:
+        read_path(path)
+    assert str(e.value) == "Can't open notes.md: its path holds a character the system can't take."
