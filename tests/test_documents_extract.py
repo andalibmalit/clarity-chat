@@ -568,7 +568,8 @@ def test_the_reader_runs_in_its_own_process_group(monkeypatch):
         monkeypatch, "import os, json, sys; sys.stdout.write(json.dumps({'group': os.getpgid(0)}))"
     )
     answer = reading.run_child({"name": "x.md", "kind": "text"}, b"", None)
-    assert answer["group"] != os.getpgrp()
+    if sys.platform != "win32":  # for ty on Windows, which the skip doesn't narrow
+        assert answer["group"] != os.getpgrp()
 
 
 def test_html_s_record_names_the_python_that_read_it():

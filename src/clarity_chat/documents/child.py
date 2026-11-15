@@ -19,10 +19,8 @@ import time
 from html.parser import HTMLParser
 from typing import Any
 
-try:
+if sys.platform != "win32":  # Windows: no memory guard until v0.7.0; the deadline holds
     import resource
-except ImportError:  # Windows: no memory guard until v0.7.0; the deadline still holds
-    resource = None
 
 MEMORY_EXIT = 70  # the watchdog's exit codes, which the parent turns into sentences
 DEADLINE_EXIT = 71
@@ -34,12 +32,20 @@ def memory_used() -> int:
     /proc/self/statm: a new process's peak (getrusage) starts at its parent's, so Clarity's
     own memory would count. On macOS, the peak, which is the process's own. 0 where there's
     no way to tell (Windows)."""
-    if sys.platform.startswith("linux"):
+    if sys.platform == "win32":
+        return 0
+    if sys.platform == "linux":
         with open("/proc/self/statm", encoding="ascii") as f:
             return int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
-    if resource is None:
-        return 0
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # bytes on macOS
+
+
+def limit_address_space(memory_cap: int) -> bool:
+    """On Linux, RLIMIT_AS at twice the cap, which the kernel enforces; whether it's set."""
+    if sys.platform != "linux":
+        return False
+    resource.setrlimit(resource.RLIMIT_AS, (memory_cap * 2, memory_cap * 2))
+    return True
 
 
 def watch(memory_cap: int, seconds: float, interval: float = 0.02) -> None:
@@ -47,8 +53,7 @@ def watch(memory_cap: int, seconds: float, interval: float = 0.02) -> None:
     what's allocated between polls; on Linux, RLIMIT_AS stops the process at twice the cap
     as well."""
     deadline = time.monotonic() + seconds
-    if resource is not None and sys.platform.startswith("linux"):
-        resource.setrlimit(resource.RLIMIT_AS, (memory_cap * 2, memory_cap * 2))
+    limited = limit_address_space(memory_cap)
 
     def loop() -> None:
         while True:
@@ -58,7 +63,12 @@ def watch(memory_cap: int, seconds: float, interval: float = 0.02) -> None:
                 os._exit(DEADLINE_EXIT)
             time.sleep(interval)
 
-    threading.Thread(target=loop, daemon=True).start()
+    try:
+        threading.Thread(target=loop, daemon=True).start()
+    except RuntimeError:  # under the address-space limit, no room for the thread's stack
+        if limited:
+            os._exit(MEMORY_EXIT)
+        raise
 
 
 # Two refusals SENTENCES lists (insert.py imports them; the design walkthrough's F11, F25).
@@ -244,14 +254,21 @@ def lines(text: str) -> list[str]:
 def main() -> None:
     request = json.loads(sys.stdin.buffer.readline())
     watch(request["memory_cap"], request["seconds"])
-    data = sys.stdin.buffer.read()
+    # On Linux the address-space limit turns going past twice the cap into a MemoryError,
+    # wherever it happens: it's the memory refusal, as the watchdog's exit is (CI at a28f1c4).
     try:
-        answer = extract(request["kind"], data, request["name"])
-    except Refused as e:
-        answer = {"refused": str(e)}
-    except Exception as e:  # noqa: BLE001 - a hostile file: the parent says which error
-        answer = {"failed": type(e).__name__}
-    sys.stdout.buffer.write(json.dumps(answer).encode("ascii"))
+        data = sys.stdin.buffer.read()
+        try:
+            answer = extract(request["kind"], data, request["name"])
+        except Refused as e:
+            answer = {"refused": str(e)}
+        except MemoryError:
+            raise
+        except Exception as e:  # noqa: BLE001 - a hostile file: the parent says which error
+            answer = {"failed": type(e).__name__}
+        sys.stdout.buffer.write(json.dumps(answer).encode("ascii"))
+    except MemoryError:
+        os._exit(MEMORY_EXIT)
 
 
 if __name__ == "__main__":
