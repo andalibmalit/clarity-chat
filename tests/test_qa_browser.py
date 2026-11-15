@@ -216,6 +216,8 @@ def test_a_sleep_lets_the_page_s_requests_through(tmp_path, monkeypatch):
     waited: list[float] = []
     page = FakePage()
     page.wait_for_timeout = waited.append  # ty: ignore[unresolved-attribute]
-    monkeypatch.setattr(qa.time, "sleep", lambda seconds: waited.append(-seconds))
+    import time
+
+    monkeypatch.setattr(time, "sleep", lambda seconds: waited.append(-seconds))
     qa.run_step(page, "sleep", "2.5", tmp_path, 1)
     assert waited == [2500]
