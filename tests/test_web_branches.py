@@ -13,7 +13,7 @@ from starlette.testclient import TestClient
 from clarity_chat import web
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend
-from tests.test_web import AUTH, ORIGIN, PORT, SAME, SECRET, command
+from tests.test_web import AUTH, ORIGIN, PORT, SAME, SECRET, command, wait_until, writing
 
 
 @pytest.fixture
@@ -160,10 +160,10 @@ def test_with_nothing_marked_the_marked_list_says_how_to_mark(chat):
 def test_while_a_reply_is_written_the_panel_waits(chat):
     client, session = chat
     result(client, "say", "Hi")
-    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 0.3
+    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 1.0
     worker = threading.Thread(target=lambda: command(client, "say", "Again"))
     worker.start()
-    threading.Event().wait(0.4)
+    wait_until(lambda: writing(client))  # the reply is being written
     try:
         fragment = panel(client)
         during = worker.is_alive()  # it didn't wait for the reply

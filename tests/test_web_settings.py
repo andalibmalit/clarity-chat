@@ -18,7 +18,7 @@ from clarity_chat import web
 from clarity_chat.profiles import SETTING_HELP
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend
-from tests.test_web import AUTH, ORIGIN, PORT, SAME, SECRET, command
+from tests.test_web import AUTH, ORIGIN, PORT, SAME, SECRET, command, wait_until, writing
 
 
 @pytest.fixture
@@ -106,10 +106,10 @@ def test_a_changed_row_offers_one_way_back(chat):
 
 def test_while_a_reply_is_written_the_controls_wait_and_say_why(chat):
     client, session = chat
-    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 0.3
+    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 1.0
     worker = threading.Thread(target=lambda: command(client, "say", "Hi"))
     worker.start()
-    threading.Event().wait(0.4)
+    wait_until(lambda: writing(client))  # the reply is being written
     try:
         fragment = panel(client)  # /settings answers during a reply
         during = worker.is_alive()

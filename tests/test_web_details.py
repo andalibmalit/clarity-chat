@@ -15,7 +15,7 @@ from starlette.testclient import TestClient
 from clarity_chat import web
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend
-from tests.test_web import AUTH, ORIGIN, PORT, SAME, SECRET, command
+from tests.test_web import AUTH, ORIGIN, PORT, SAME, SECRET, command, wait_until, writing
 
 
 @pytest.fixture
@@ -327,10 +327,10 @@ def test_replay_waits_while_another_command_changes_the_chat(chat):
 
     client, session = chat
     call = result(client, "say", "Hi")["call"]
-    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 0.3
+    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 1.0
     worker = threading.Thread(target=lambda: command(client, "say", "Again"))
     worker.start()
-    threading.Event().wait(0.4)
+    wait_until(lambda: writing(client))  # the reply is being written
     try:
         fragment = details(client, call["call_id"])
         during = worker.is_alive()
@@ -453,10 +453,10 @@ def test_details_drawn_during_its_own_replay_offers_stop(chat):
 
     client, session = chat
     call = result(client, "say", "Hi")["call"]
-    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 0.3
+    session.backend.replies, session.backend.piece_delay = [" A slow reply"], 1.0
     worker = threading.Thread(target=lambda: command(client, "replay", call["call_id"]))
     worker.start()
-    threading.Event().wait(0.4)
+    wait_until(lambda: (result(client, "state")["running"] or {}).get("command") == "replay")
     try:
         fragment = details(client, call["call_id"])
         during = worker.is_alive()
