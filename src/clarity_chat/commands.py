@@ -46,8 +46,11 @@ class Command:
 
 
 class Commands:
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self, session: Session, uploads: dict[str, tuple[bytes, str]] | None = None
+    ) -> None:
         self.session = session
+        self.uploads = uploads
         self.busy = threading.Lock()  # held while a command runs: one at a time
         self.cancel_event: threading.Event | None = None  # the running command's
         self.running: str | None = None  # the running command's name
@@ -263,6 +266,14 @@ def regen_replies(c: Commands, emit: Emit, seeds: list[int | None]) -> dict[str,
 def _edit(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     text = needs(args, "/edit TEXT")
     return c.call(emit, lambda **kw: c.session.edit(text, **kw))
+
+
+def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    return {}
+
+
+def _detach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    return {}
 
 
 def _cancel(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -799,6 +810,8 @@ COMMANDS: dict[str, Command] = {
         _edit,
         cancellable=True,
     ),
+    "attach": Command("/attach [PATH]", "attach a file", _attach, cancellable=True),
+    "detach": Command("/detach [N]", "remove an attachment", _detach),
     "undo": Command(
         "/undo", "go back past the last exchange; your next message starts a branch", _undo
     ),
