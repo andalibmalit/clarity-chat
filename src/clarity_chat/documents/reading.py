@@ -92,8 +92,12 @@ def read_path(path: str) -> tuple[bytes, str]:
     name = checked_name(Path(path).name)
     try:
         fd = os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
-    except OSError as e:
-        raise DocumentRefused(f"Can't open {name}: {e.strerror or e}.") from e
+    except OSError as e:  # the sentence says why, never the path (str(e) holds it)
+        raise DocumentRefused(f"Can't open {name}: {e.strerror or type(e).__name__}.") from e
+    except ValueError as e:  # a NUL or a lone surrogate in a folder's name (UnicodeEncodeError)
+        raise DocumentRefused(
+            f"Can't open {name}: its path holds a character the system can't take."
+        ) from e
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
@@ -102,6 +106,8 @@ def read_path(path: str) -> tuple[bytes, str]:
             raise DocumentRefused(too_big(name))
         with os.fdopen(fd, "rb", closefd=False) as f:
             data = f.read(MAX_BYTES + 1)
+    except OSError as e:  # a failing disk or mount after the open (EIO), a Windows lock
+        raise DocumentRefused(f"Can't read {name}: {e.strerror or type(e).__name__}.") from e
     finally:
         os.close(fd)
     if len(data) > MAX_BYTES:
