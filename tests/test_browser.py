@@ -1755,12 +1755,19 @@ def test_enter_during_a_start_says_it_waits_and_enter_after_it_sends(clarity, pa
     page.wait_for_selector("#thread [role=status]")  # Starting text…
     page.get_by_role("textbox", name="Message").click()
     page.keyboard.type("Name one animal.")
+
+    def shown() -> bool:  # not only to a screen reader (.vh is visually hidden)
+        return "vh" not in (page.get_attribute("#send-waits", "class") or "").split()
+
+    assert not shown()  # said to a screen reader only, until you send
     page.keyboard.press("Enter")
     page.wait_for_timeout(500)
-    assert page.text_content("#notice") == "Waits until the model has started."
+    # The lead's placement: the visible line is beside Send, not above the box.
+    assert shown() and page.text_content("#notice") == ""
+    assert page.text_content("#send-waits") == "Waits until the model has started."
     assert page.input_value("#message") == "Name one animal."
     page.wait_for_selector("#thread .intro")  # ready
-    assert page.query_selector("#notice :text('Waits until the model has started.')") is None
+    assert not shown() and page.text_content("#send-waits") == ""
     page.get_by_role("textbox", name="Message").click()
     page.keyboard.press("Enter")
     page.wait_for_selector(".turn.user .msg")
