@@ -10,5 +10,37 @@ from clarity_chat.documents.extract import (
     extract,
     read_path,
 )
+from clarity_chat.documents.insert import (
+    FRAMING,
+    SENTENCES,
+    Attached,
+    Fit,
+    Room,
+    content,
+    fit,
+    framing_of,
+    free,
+    piece,
+    scan,
+    start_that_fits,
+)
 
-__all__ = ["Document", "DocumentRefused", "checked_name", "extract", "read_path"]
+__all__ = [
+    "FRAMING",
+    "SENTENCES",
+    "Attached",
+    "Document",
+    "DocumentRefused",
+    "Fit",
+    "Room",
+    "checked_name",
+    "content",
+    "extract",
+    "fit",
+    "framing_of",
+    "free",
+    "piece",
+    "read_path",
+    "scan",
+    "start_that_fits",
+]
