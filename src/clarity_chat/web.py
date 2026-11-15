@@ -654,13 +654,13 @@ def facts_line(call: dict[str, Any], steerable: bool) -> dict[str, Any]:
         plain.append(f"steered ×{steering['scale']}")
     elif steerable:
         plain.append("not steered")
-    if "length" in flags:
+    if "empty_reply" in flags:
+        plain.append("empty reply (nothing, or only blank space)")
+    if "length" in flags:  # last, so its next step follows it (the template's link)
         limit = call["settings"]["max_tokens"]["value"]
         plain.append(f"stopped at the token limit (max_tokens {limit})")
     if "cancelled" in flags:
         plain.append("stopped by you")
-    if "empty_reply" in flags:
-        plain.append("empty reply (nothing, or only blank space)")
     warn = []
     ignored = sum(1 for e in call.get("not_applied") or [] if e.get("affects_output"))
     if ignored:
@@ -677,6 +677,7 @@ def facts_line(call: dict[str, Any], steerable: bool) -> dict[str, Any]:
     return {
         "plain": plain,
         "context_full": "context_full" in flags,
+        "token_limit": "length" in flags,
         "warn": warn,
         "restart": "server_running" in checks,
     }
