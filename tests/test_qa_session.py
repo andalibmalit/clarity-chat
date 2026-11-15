@@ -210,7 +210,7 @@ def test_ordinary_steps_pass_as_written(tmp_path):
         "/resume 20261111-120000-abcdef",
         "/export",
         "/set logprobs 5",
-        "//resume /not/a/command",
+        "//hello /not/a/command",  # a message; `//resume PATH` would come back as /resume
     ]
     steps = tmp_path / "steps.txt"
     steps.write_text("\n".join(lines) + "\n", encoding="utf-8")

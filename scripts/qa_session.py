@@ -20,11 +20,13 @@ through models.lock), plus `smol-steer-hf`, steered by the repeng test vector th
 `--init` copies into the root's local/vectors/. It checks that server.toml differs from the
 checkout's in its flags only, that the weights match models.lock's sha256, and that
 nothing in the root is a link (Clarity and the driver follow links, so one could reach a
-private folder). An attachment (`--attach PATH`, a `/attach PATH` step, or `attach` in
-`--json`) must name a file in the root: the path as written, without a trailing `check`,
-`pages A-B` or `lines A-B`, and with `~` expanded, each resolved from the root with links
-followed, and not a file with a second name. Otherwise Clarity, outside the sandbox, could
-read a file the sandbox denies into the transcript.
+private folder). An attachment (`--attach PATH`, a `/attach PATH` step, `attach` in
+`--json`, or a message such as `//attach PATH` that a cancel would put back as that
+command) must name a file in the root: the path as given and as Clarity's own attach_args
+reads it, with `~` expanded, resolved from the root with links followed, with no `..` and
+not a file with a second name. Otherwise Clarity, outside the sandbox, could read a file
+the sandbox denies into the transcript. Each step is checked again, and the root scanned
+for links again, just before it's typed; a step over 1,000 bytes is refused.
 `--init` also resets server.toml. Arguments are parsed with Clarity's own parser and
 steps with its own command splitter, so they are checked as Clarity will read them.
 """
@@ -206,21 +208,34 @@ RANGE = re.compile(r"\s+(check|pages\s+\S+|lines\s+\S+)\s*$")  # after /attach's
 
 def attach_problem(root: Path, value: str) -> str | None:
     """Why Clarity may not read the attachment path `value`; None when it may. Every reading
-    of it is judged, since the driver can't know which Clarity takes: as written and without
-    a trailing range or `check`, each as is and with `~` expanded, resolved from the root
-    with links followed. A file with a second name (a hard link) may be one outside."""
+    of it is judged: as given and stripped; without the range and `check` as Clarity's own
+    attach_args removes them, and as RANGE removes one; each as is and with `~` expanded,
+    resolved from the root with links followed. Refused too: a `..` (resolve() drops it by
+    name after a file, where the system refuses the path), a file with a second name (a hard
+    link may be a file outside), and a path the guard can't judge."""
+    from clarity_chat.commands import attach_args
+    from clarity_chat.profiles import ConfigError
+
+    readings = {value, value.strip(), RANGE.sub("", value.strip())}
+    try:
+        readings |= {attach_args(value)[0], attach_args(value.strip())[0]}
+    except ConfigError as e:  # Clarity refuses the command too
+        return f"{value!r}: {e}"
     base = root.resolve()
-    for reading in {value.strip(), RANGE.sub("", value.strip())}:
-        try:
-            paths = {Path(reading), Path(reading).expanduser()}
-        except RuntimeError:  # ~name of no such user
-            return f"{value!r}: a ~ path that can't be judged; use a path in the scratch root"
-        for path in paths:
-            resolved = (path if path.is_absolute() else root / path).resolve()
-            if not resolved.is_relative_to(base):
-                return f"{value!r} is outside the scratch root {root}"
-            if resolved.is_file() and resolved.stat().st_nlink > 1:
-                return f"{value!r} has a second name (a hard link); attach a plain file"
+    try:
+        for reading in readings:
+            for path in {Path(reading), Path(reading).expanduser()}:
+                if ".." in path.parts:
+                    return f"{value!r} has a '..': name the file from the scratch root without one"
+                resolved = (path if path.is_absolute() else root / path).resolve()
+                if not resolved.is_relative_to(base):
+                    return f"{value!r} is outside the scratch root {root}"
+                if resolved.is_file() and resolved.stat().st_nlink > 1:
+                    return f"{value!r} has a second name (a hard link); attach a plain file"
+    except RuntimeError:  # ~name of no such user
+        return f"{value!r}: a ~ path that can't be judged; use a path in the scratch root"
+    except (ValueError, OSError) as e:  # a NUL, a lone surrogate, a name too long
+        return f"{value!r} can't be judged ({type(e).__name__}); use a plain path in the root"
     return None
 
 
@@ -238,32 +253,56 @@ def inside(root: Path, value: str) -> bool:
 # --- steps ---------------------------------------------------------------------------
 
 
+STEP_MAX_BYTES = 1000  # a terminal in line mode keeps 1,024 bytes of a line on macOS
+
+
 def parse_steps(path: Path, json_mode: bool, root: Path | None = None) -> list[str]:
     """The steps, checked before anything starts, so a typo can't stop a session midway and
-    no step names a file outside the root. No control characters: the line editor acts on
-    them (Ctrl-A moves to the start of the line), so a step could become another command."""
-    from clarity_chat.cli import split_command
-
+    no step names a file outside the root."""
     steps = []
     for n, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
         if not line or line.startswith("#"):
             continue
-        where = f"{path}:{n}"
-        if any(unicodedata.category(c) in ("Cc", "Zl", "Zp") for c in line):
-            raise Refused(f"{where}: a control character; use <ctrl-c> for Ctrl-C")
-        if line.startswith("<") and line != "<ctrl-c>":
-            if not re.fullmatch(r"<(wait|ctrl-c after) [0-9]+(\.[0-9]+)?>", line):
-                raise Refused(f"{where}: unknown step {line!r}")
-        elif json_mode:
-            check_json_step(where, line, root)
-        elif line.startswith("/"):
-            name, arg = split_command(line)
-            if name in NAMED and arg.strip() and not ID.fullmatch(arg.strip()):
-                raise Refused(f"{where}: /{name} takes a name or ID here, not {arg!r}")
-            if attaches(name):
-                check_attach_step(where, arg, root)
+        check_step(f"{path}:{n}", line, json_mode, root)
         steps.append(line)
     return steps
+
+
+def check_step(where: str, line: str, json_mode: bool, root: Path | None) -> None:
+    """One step, before the run and again just before it's typed. No control characters: the
+    line editor acts on them (Ctrl-A moves to the start of the line), so a step could become
+    another command. No line over STEP_MAX_BYTES: Clarity might get less than was judged."""
+    if len(line.encode("utf-8", "surrogatepass")) > STEP_MAX_BYTES:
+        raise Refused(f"{where}: a step over {STEP_MAX_BYTES} bytes")
+    if any(unicodedata.category(c) in ("Cc", "Zl", "Zp") for c in line):
+        raise Refused(f"{where}: a control character; use <ctrl-c> for Ctrl-C")
+    if line.startswith("<") and line != "<ctrl-c>":
+        if not re.fullmatch(r"<(wait|ctrl-c after) [0-9]+(\.[0-9]+)?>", line):
+            raise Refused(f"{where}: unknown step {line!r}")
+    elif json_mode:
+        check_json_step(where, line, root)
+    elif line.startswith("/"):
+        check_command(where, line, root)
+
+
+def check_command(where: str, line: str, root: Path | None) -> None:
+    """A typed line that starts with "/", and what a message would become as a command. A
+    message cancelled before its reply goes back in the input with one slash fewer, so
+    `//attach PATH`, `/say /attach PATH` and `/edit /attach PATH` are judged as `/attach
+    PATH`, whatever Clarity's input does."""
+    from clarity_chat.cli import split_command
+
+    name, arg = split_command(line)
+    if any(unicodedata.category(c) == "Cf" for c in name):  # a zero-width space hides a name
+        raise Refused(f"{where}: a format character in the command's name")
+    if name in NAMED and arg.strip() and not ID.fullmatch(arg.strip()):
+        raise Refused(f"{where}: /{name} takes a name or ID here, not {arg!r}")
+    if attaches(name):
+        check_attach_step(where, arg, root)
+    if line.startswith("//"):
+        check_command(where, line[1:], root)
+    elif name in ("say", "edit") and arg.startswith("/"):
+        check_command(where, arg, root)
 
 
 def check_attach_step(where: str, arg: str, root: Path | None) -> None:
@@ -366,7 +405,15 @@ def main() -> int:
             elif step.startswith("<wait "):
                 time.sleep(float(step[6:-1]))
             else:
-                send(primary, log, step.encode() + b"\r")
+                # Again just before typing it: the root, and the step's own check, so a link
+                # planted during the run (say, in a long wait) isn't read.
+                try:
+                    no_links(root)
+                    check_step(f"step {n}", step, json_mode, root)
+                except Refused as e:
+                    log.write(f"[qa: not typed: {e}]\n".encode())
+                else:
+                    send(primary, log, step.encode() + b"\r")
             later = steps[n] if n < len(steps) else ""
             if timed := re.fullmatch(r"<ctrl-c after ([0-9.]+)>", later):
                 read_until_quiet(primary, log, float(timed[1]), quiet=float("inf"))

@@ -174,10 +174,19 @@ def upload_file(where: str, arg: str, root: Path | None) -> Path:
     if root is None:
         raise Refused(f"{where}: upload needs the scratch root to judge its file")
     value = parts[1]
-    problem = qa_session().attach_problem(root, value)
-    path = (root / Path(value).expanduser()).resolve()  # an absolute path replaces root
-    if problem is None and not path.is_file():
-        problem = f"{value!r} isn't a file"
+    if (problem := qa_session().attach_problem(root, value)) is None:
+        # The path given to the page is judged itself, as given: inside the root, a plain
+        # file, one name. attach_problem's readings are the extra check.
+        try:
+            path = (root / Path(value).expanduser()).resolve()  # an absolute path replaces root
+            if not path.is_relative_to(root.resolve()):
+                problem = f"{value!r} is outside it"
+            elif not path.is_file():
+                problem = f"{value!r} isn't a file"
+            elif path.stat().st_nlink > 1:
+                problem = f"{value!r} has a second name (a hard link)"
+        except (RuntimeError, ValueError, OSError) as e:
+            problem = f"{value!r} can't be judged ({type(e).__name__})"
     if problem is not None:
         raise Refused(f"{where}: upload takes a file in the scratch root: {problem}")
     return path
