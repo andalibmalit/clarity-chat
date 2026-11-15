@@ -78,6 +78,7 @@ testpaths = ["tests"]
 addopts = "-m 'not live and not olmo and not llama and not hf and not measure and not embed and not browser'"
 markers = [
     "live: needs the built llama-server and the fetched SmolLM2 model",
+    "gpu: a live test that needs the model on a GPU; CI's CPU job deselects it",
     "olmo: needs the fetched OLMo 3 models",
     "llama: needs the fetched Llama 3.1 8B models (and the hf extra for Transformers)",
     "hf: needs the hf extra (torch) and a fetched model",
