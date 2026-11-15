@@ -118,13 +118,13 @@ def test_a_whole_file_that_doesn_t_fit_is_refused_with_the_numbers_and_the_start
     c = Commands(session)
     check = run(c, "attach", f"{path} check")["check"]
     assert check["tokens_whole"] is not None
-    k = check["start_that_fits"]["range"][1]
+    k, roomy = check["start_that_fits"]["range"][1], check["preselected"]["range"][1]
     with pytest.raises(DocumentRefused) as e:
         run(c, "attach", str(path))
     assert str(e.value) == (
         f"long.md doesn't fit: it needs {check['tokens_whole']:,} tokens and "
-        f"{check['free']:,} are free in this chat. The start that fits: /attach {path} "
-        f"lines 1-{k}."
+        f"{check['free']:,} are free in this chat. The start that still leaves 16 tokens for "
+        f"your message: /attach {path} lines 1-{roomy}. Lines 1 to {k} fit."
     )
     assert session.conversation.pending == []
 
@@ -207,9 +207,13 @@ def test_state_lists_what_s_waiting_and_what_s_being_read(chat, notes, monkeypat
     seen = []
     real = documents.extract
 
-    def extract(data, name, cancel=None):
-        seen.append(run(c, "state")["reading"])
-        return real(data, name, cancel)
+    def extract(data, name, cancel=None, on_read=None):
+        def told():
+            assert on_read is not None
+            on_read()
+            seen.append(run(c, "state")["reading"])
+
+        return real(data, name, cancel, told)
 
     monkeypatch.setattr(documents, "extract", extract)
     run(c, "attach", str(notes))
@@ -272,7 +276,7 @@ def test_any_error_while_reading_is_a_refusal_not_a_stopped_session(chat, notes,
     """M5: every exception from the documents package reaches the user as a refusal."""
     session, _ = chat
 
-    def broken(data, name, cancel=None):
+    def broken(data, name, cancel=None, on_read=None):
         raise RuntimeError("made-up failure")
 
     monkeypatch.setattr(documents, "extract", broken)

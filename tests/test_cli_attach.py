@@ -89,7 +89,7 @@ def test_a_refusal_prints_the_numbers_and_the_command_that_fits(loop, tmp_path):
     chat.handle(f"/attach {path}")
     text = "".join(output)
     assert "! long.md doesn't fit: it needs " in text
-    assert f"The start that fits: /attach {path} lines 1-" in text
+    assert f"tokens for your message: /attach {path} lines 1-" in text
 
 
 def test_a_line_before_the_prompt_lists_what_s_waiting(fetched_root, chat_tokenizer, notes):
