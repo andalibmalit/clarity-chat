@@ -12,23 +12,33 @@ import io
 import json
 import os
 import re
-import resource
 import sys
 import threading
 import time
 from html.parser import HTMLParser
 from typing import Any
 
+try:
+    import resource
+except ImportError:  # Windows: no memory guard until v0.7.0; the deadline still holds
+    resource = None
+
 MEMORY_EXIT = 70  # the watchdog's exit codes, which the parent turns into sentences
 DEADLINE_EXIT = 71
-MAX_STREAM = 64 * 1024 * 1024  # no stream in a file Clarity reads can be longer
 ROOT_RECOVERY_LIMIT = 10_000  # pypdf's default, set here so a moved default can't widen it
 
 
-def peak_memory() -> int:
-    """This process's peak resident memory, in bytes (getrusage gives kilobytes on Linux)."""
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    return peak if sys.platform == "darwin" else peak * 1024
+def memory_used() -> int:
+    """This process's resident memory, in bytes. On Linux, the current figure from
+    /proc/self/statm: a new process's peak (getrusage) starts at its parent's, so Clarity's
+    own memory would count. On macOS, the peak, which is the process's own. 0 where there's
+    no way to tell (Windows)."""
+    if sys.platform.startswith("linux"):
+        with open("/proc/self/statm", encoding="ascii") as f:
+            return int(f.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+    if resource is None:
+        return 0
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # bytes on macOS
 
 
 def watch(memory_cap: int, seconds: float, interval: float = 0.02) -> None:
@@ -36,12 +46,12 @@ def watch(memory_cap: int, seconds: float, interval: float = 0.02) -> None:
     what's allocated between polls; on Linux, RLIMIT_AS stops the process at twice the cap
     as well."""
     deadline = time.monotonic() + seconds
-    if sys.platform.startswith("linux"):
+    if resource is not None and sys.platform.startswith("linux"):
         resource.setrlimit(resource.RLIMIT_AS, (memory_cap * 2, memory_cap * 2))
 
     def loop() -> None:
         while True:
-            if peak_memory() > memory_cap:
+            if memory_used() > memory_cap:
                 os._exit(MEMORY_EXIT)
             if time.monotonic() > deadline:
                 os._exit(DEADLINE_EXIT)
@@ -140,28 +150,23 @@ def pdf_pages(data: bytes, name: str) -> tuple[list[str], dict]:
     from pypdf.errors import DependencyError, PdfReadError
 
     protected = f"{name} is protected. Save an unprotected copy and attach that."
-
-    class Reader(pypdf.PdfReader):
-        def _handle_encryption(self, password: str | bytes | None) -> None:
-            # The reader tries "" here, before any page: AES is refused first.
-            if protection(self.trailer["/Encrypt"]) == "aes":
-                raise Refused(protected)
-            super()._handle_encryption(password)
-
-    with pypdf.apply_configuration(maximum_declared_stream_length=MAX_STREAM):
-        try:
-            reader = Reader(io.BytesIO(data), root_object_recovery_limit=ROOT_RECOVERY_LIMIT)
-        except (DependencyError, NotImplementedError) as e:  # an encryption pypdf can't open
+    try:
+        reader = pypdf.PdfReader(io.BytesIO(data), root_object_recovery_limit=ROOT_RECOVERY_LIMIT)
+    except (DependencyError, NotImplementedError) as e:  # an encryption pypdf can't open
+        raise Refused(protected) from e
+    encrypted = reader.is_encrypted
+    # AES needs a crypto provider Clarity doesn't add: refused from the dictionary, so a
+    # provider some other package installed (which would open it) changes nothing.
+    if encrypted and protection(reader.trailer["/Encrypt"]) == "aes":
+        raise Refused(protected)
+    if encrypted and not reader.decrypt(""):
+        raise Refused(f"{name} needs a password. Save a copy without one and attach that.")
+    try:
+        pages = [page.extract_text(extraction_mode="plain") for page in reader.pages]
+    except PdfReadError as e:
+        if encrypted:
             raise Refused(protected) from e
-        encrypted = reader.is_encrypted
-        if encrypted and not reader.decrypt(""):
-            raise Refused(f"{name} needs a password. Save a copy without one and attach that.")
-        try:
-            pages = [page.extract_text(extraction_mode="plain") for page in reader.pages]
-        except PdfReadError as e:
-            if encrypted:
-                raise Refused(protected) from e
-            raise
+        raise
     extractor = {"name": "pypdf", "version": pypdf.__version__, "mode": "plain"}
     return pages, {**extractor, "encrypted": encrypted}
 
@@ -192,6 +197,8 @@ def extract(kind: str, data: bytes, name: str) -> dict:
     PDF into its pages."""
     if kind == "pdf":
         pages, extractor = pdf_pages(data, name)
+        if not pages:
+            raise Refused(f"{name} has no pages.")
         empty = sum(1 for page in pages if not page.strip())
         if empty == len(pages):
             raise Refused(f"{name} has no text to read: its pages are images.")
