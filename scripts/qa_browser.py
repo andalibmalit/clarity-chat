@@ -10,6 +10,8 @@ Playwright, and runs STEPS, one per line. SELECTOR is a Playwright selector: CSS
 
     click SELECTOR          click the element (the rest of the line)
     fill SELECTOR :: TEXT   put TEXT in a text box; `fill SELECTOR ::` empties it
+    upload SELECTOR :: FILE give a file input FILE, a file in the scratch root (relative
+                            to it, or absolute), as choosing it in the picker would
     type TEXT               type at the focus
     press KEY               press a key, or Shift with one: Enter, Escape, Tab, Shift+Tab,
                             Shift+Enter, Space, ArrowRight, Home (no Meta, Control or Alt,
@@ -50,6 +52,7 @@ from __future__ import annotations
 
 import argparse
 import errno
+import functools
 import importlib.util
 import os
 import re
@@ -67,7 +70,10 @@ if TYPE_CHECKING:
 REPO = Path(__file__).resolve().parents[1]
 QA_DIR = REPO / "notes" / "qa"  # local-only; scratch roots, steps and what they showed
 CLARITY = "http://127.0.0.1:8765/"  # web.PORT
-VERBS = {"click", "fill", "type", "press", "wait", "gone", "sleep", "shot", "reload", "width"}
+VERBS = {
+    *("click", "fill", "upload", "type", "press", "wait", "gone"),
+    *("sleep", "shot", "reload", "width"),
+}
 NAME = re.compile(r"[A-Za-z0-9_-]+")
 KEY = re.compile(r"(Shift\+)?[A-Za-z0-9]+")
 LINK_S = 90  # `clarity ui` prints its link once it listens, in seconds on SmolLM2
@@ -92,8 +98,9 @@ class Transcript:
             self.file.flush()
 
 
+@functools.cache
 def qa_session() -> ModuleType:
-    """scripts/qa_session.py, for its scratch root (prepare_root)."""
+    """scripts/qa_session.py, for its scratch root (prepare_root) and its attachment rule."""
     spec = importlib.util.spec_from_file_location("qa_session", REPO / "scripts" / "qa_session.py")
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
@@ -138,6 +145,8 @@ def parse_steps(path: Path, root: Path | None = None) -> list[tuple[str, str]]:
             raise Refused(f"{where}: {verb} needs an argument")
         if verb == "fill" and fill_parts(arg) is None:
             raise Refused(f"{where}: fill takes SELECTOR :: TEXT")
+        if verb == "upload":
+            upload_file(where, arg, root)
         if verb == "press" and not KEY.fullmatch(arg):
             raise Refused(f"{where}: press takes a key name, or Shift+ one, such as Shift+Enter")
         if verb == "shot" and not NAME.fullmatch(arg):
@@ -152,6 +161,26 @@ def parse_steps(path: Path, root: Path | None = None) -> list[tuple[str, str]]:
             raise Refused(f"{where}: reload takes nothing")
         steps.append((verb, arg))
     return steps
+
+
+def upload_file(where: str, arg: str, root: Path | None) -> Path:
+    """The file an `upload SELECTOR :: FILE` step gives the page, resolved. The driver reads it
+    outside the sandbox, so it must be a plain file in the scratch root, judged by
+    qa_session.py's rule for attachments (links followed, `~` expanded, no second name).
+    Checked when the steps are read and again when the step runs."""
+    parts = fill_parts(arg)
+    if parts is None or not parts[1]:
+        raise Refused(f"{where}: upload takes SELECTOR :: FILE")
+    if root is None:
+        raise Refused(f"{where}: upload needs the scratch root to judge its file")
+    value = parts[1]
+    problem = qa_session().attach_problem(root, value)
+    path = (root / Path(value).expanduser()).resolve()  # an absolute path replaces root
+    if problem is None and not path.is_file():
+        problem = f"{value!r} isn't a file"
+    if problem is not None:
+        raise Refused(f"{where}: upload takes a file in the scratch root: {problem}")
+    return path
 
 
 def allowed(url: str) -> bool:
@@ -173,6 +202,9 @@ def run_step(page: Page, verb: str, arg: str, out: Path, n: int, root: Path | No
         parts = fill_parts(arg)
         assert parts is not None  # parse_steps checked it
         page.fill(*parts)
+    elif verb == "upload":
+        selector = arg.partition(" ::")[0]
+        page.set_input_files(selector, upload_file(f"step {n}", arg, root))
     elif verb == "type":
         page.keyboard.type(arg)
     elif verb == "press":
@@ -228,7 +260,7 @@ def main() -> int:
             parser.error(f"{given} must be in a folder below {qa_dir}")
     session = qa_session()
     try:
-        steps = parse_steps(steps_path)
+        steps = parse_steps(steps_path, root)
         session.prepare_root(root, init=args.init)
         out.mkdir(parents=True, exist_ok=True)
         file = create(out / "transcript.txt", "x")
@@ -269,7 +301,7 @@ def main() -> int:
         if not linked.is_set():
             log.write("[qa: clarity ui didn't print its link]\n")
             return 1
-        return drive(root / "local" / "clarity-open.html", steps, out, log)
+        return drive(root / "local" / "clarity-open.html", steps, out, log, root)
     finally:
         clarity.send_signal(signal.SIGINT)  # as Ctrl-C in its terminal
         try:
@@ -282,7 +314,9 @@ def main() -> int:
         file.close()
 
 
-def drive(redirect: Path, steps: list[tuple[str, str]], out: Path, log: Transcript) -> int:
+def drive(
+    redirect: Path, steps: list[tuple[str, str]], out: Path, log: Transcript, root: Path
+) -> int:
     from playwright.sync_api import Error, sync_playwright
 
     def route(route: Route) -> None:
@@ -310,8 +344,8 @@ def drive(redirect: Path, steps: list[tuple[str, str]], out: Path, log: Transcri
             page.wait_for_selector("body[data-page=ready]", timeout=WAIT_MS)
             for n, (verb, arg) in enumerate(steps, 1):
                 log.write(f"[qa step {n}: {verb} {arg}]\n" if arg else f"[qa step {n}: {verb}]\n")
-                run_step(page, verb, arg, out, n)
-        except (Error, OSError) as e:
+                run_step(page, verb, arg, out, n, root)
+        except (Error, OSError, Refused) as e:
             where = f"step {n}" if n else "the first load"
             log.write(f"[qa: {where} failed: {e}]\n")  # whole: it says why
             try:
