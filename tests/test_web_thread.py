@@ -471,3 +471,30 @@ def test_the_page_knows_the_same_reads_as_the_server():
     found = re.search(r"const READS = new Set\(\[([^\]]*)\]\)", code)
     page = set(re.findall(r'"(\w+)"', found.group(1))) if found else set()
     assert page == web.READS
+
+
+# --- QA of v0.3.0 (batch 5)
+
+
+def test_the_token_limit_stop_names_its_next_step(chat):
+    """QA 9 (run23): "stopped at the token limit (max_tokens N)" said what happened but
+    not what to do, as "the context is full · start a new chat" does. It adds "raise
+    max_tokens in Settings", which opens Settings."""
+    client, session = chat
+    session.backend.replies = [" " + "word " * 40]  # longer than max_tokens 16
+    result(client, "say", "Hi")
+    assert (
+        "stopped at the token limit (max_tokens 16) · "
+        '<button type="button" class="linkbtn" data-action="settings">'
+        "raise max_tokens in Settings</button>"
+    ) in thread(client)
+
+
+def test_the_replies_button_s_name_starts_with_replies_whatever_the_count(chat):
+    """QA 10 (run07): "Replies" became "2 replies", so someone looking for "Replies" (a
+    screen reader's list, a script) missed it. The count follows the word."""
+    client, _ = chat
+    result(client, "say", "Hi")
+    result(client, "regen")
+    names = re.findall(r'data-action="replies">(.*?)<svg', thread(client))
+    assert names and all(re.fullmatch(r'Replies <span class="n">\d+</span>', n) for n in names)

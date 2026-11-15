@@ -7,6 +7,7 @@ process; nothing listens on a port.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import threading
 from html.parser import HTMLParser
@@ -1258,3 +1259,13 @@ def test_enter_s_redirect_file_is_gone_once_a_new_tab_connects(
         os.close(write)
         server.should_exit = True
         thread.join(10)
+
+
+def test_the_rename_box_says_its_limit():
+    """QA 5 (run28): the box stopped at 120 characters with no sentence, so the cut was
+    silent. The limit is said beside it, and the box points to it."""
+    page = (web.STATIC / "index.html").read_text(encoding="utf-8")
+    box = re.search(r'<input type="text" id="rename-text"[^>]*>', page)
+    assert box and 'maxlength="120"' in box.group(0)
+    assert 'aria-describedby="rename-limit"' in box.group(0)
+    assert re.search(r'id="rename-limit"[^>]*>At most 120 characters\.<', page)

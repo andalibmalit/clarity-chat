@@ -431,7 +431,7 @@ def test_several_replies_say_which_is_being_written(clarity, page):
     assert page.locator("#writing-dots span").count() == 3
     shot(page, "E2-several-replies", "c2")
     page.wait_for_selector("#stop", state="hidden", timeout=20_000)  # done: the page knew
-    assert page.text_content(".reply.last [data-action=replies]") == "4 replies"
+    assert page.text_content(".reply.last [data-action=replies]") == "Replies 4"
 
 
 def test_a_failed_message_comes_back_to_the_box(clarity, page):
@@ -463,7 +463,7 @@ def test_a_failed_regenerate_offers_try_again(clarity, page):
     shot(page, "E5-failed-regenerate", "c2")
     backend.fail_with = None
     page.click("#notice [data-action=regen]")
-    page.wait_for_selector(".reply.last [data-action=replies]:has-text('2 replies')")
+    page.wait_for_selector(".reply.last [data-action=replies]:has-text('Replies 2')")
 
 
 def test_when_the_server_stopped_start_the_model_again(clarity, page):
@@ -735,7 +735,7 @@ def test_more_replies_from_the_pop_out_of_one_reply(clarity, page):
     page.wait_for_selector("#writing-status:has-text('Writing reply 2 of 3')")
     assert page.text_content("#stop-label") == "Stop the rest"
     page.wait_for_selector("#stop", state="hidden", timeout=20_000)
-    assert page.text_content(".reply.last [data-action=replies]") == "4 replies"
+    assert page.text_content(".reply.last [data-action=replies]") == "Replies 4"
 
 
 def make_three(page, backend) -> None:
@@ -744,7 +744,7 @@ def make_three(page, backend) -> None:
     backend.replies = [" Second one.", " Third one."]
     page.evaluate("clarity.command('regen', '2')")
     page.evaluate("clarity.refresh()")
-    page.wait_for_selector(".reply.last [data-action=replies]:has-text('3 replies')")
+    page.wait_for_selector(".reply.last [data-action=replies]:has-text('Replies 3')")
 
 
 def test_the_rows_and_showing_another_reply(clarity, page):
@@ -779,7 +779,7 @@ def test_again_with_the_same_seeds_after_a_change_then_compare(clarity, page):
     shot(page, "F3-again", "c3")
     backend.replies = [" ok, then more.", " Second one!", " Third one."]
     page.click(".listpop [data-action=again]")
-    wait_for(page, ".reply.last [data-action=replies]:has-text('6 replies')")
+    wait_for(page, ".reply.last [data-action=replies]:has-text('Replies 6')")
     open_replies(page)
     assert "You set temperature to 0.3" in page.text_content(".listpop .divider")
     assert page.locator(".listpop [data-action=again]").count() == 0
@@ -812,7 +812,7 @@ def test_compare_cards_when_only_the_seed_differs_and_when_both_do(clarity, page
     page.evaluate("clarity.command('set', 'temperature 0.3')")
     page.evaluate("clarity.command('regen')")
     page.evaluate("clarity.refresh()")
-    wait_for(page, ".reply.last [data-action=replies]:has-text('4 replies')")
+    wait_for(page, ".reply.last [data-action=replies]:has-text('Replies 4')")
     open_replies(page)
     page.click(".listpop [data-action=compare]")
     page.wait_for_selector("#compare .cmp-cards")  # advice in the lead's style, not an error
@@ -1440,7 +1440,7 @@ def test_a_toolbar_is_one_tab_stop_with_arrow_keys_inside(clarity, page):
     page.keyboard.press("Enter")
     page.wait_for_selector("#stop:not([hidden])")
     assert focused(page) == "stop"
-    page.wait_for_selector(".reply.last [data-action=replies]:has-text('2 replies')")
+    page.wait_for_selector(".reply.last [data-action=replies]:has-text('Replies 2')")
     page.wait_for_function("document.activeElement.dataset.action === 'regen'")
     assert page.text_content("#finished") == "Reply finished"  # for screen readers only
     assert page.text_content("#writing-status") == ""
@@ -1467,7 +1467,7 @@ def test_the_replies_rows_are_one_tab_stop_with_up_and_down(clarity, page):
     page.wait_for_selector(".reply.last .tb")
     page.evaluate("clarity.command('regen', '2')")
     page.evaluate("clarity.refresh()")
-    page.wait_for_selector(".reply.last [data-action=replies]:has-text('3 replies')")
+    page.wait_for_selector(".reply.last [data-action=replies]:has-text('Replies 3')")
     page.click(".reply.last [data-action=replies]")
     page.wait_for_selector(".listpop .rows .go")
     stops = tab_indexes(page, ".listpop .rows .go")
@@ -1793,3 +1793,21 @@ def test_details_on_the_newest_reply_is_that_reply_s(clarity, page):
         shown = page.get_attribute("#panel [data-call]", "data-call")
         assert (n, shown, "An earlier reply" in heading) == (n, newest, False), heading
         page.get_by_role("complementary").get_by_role("button", name="Close").click()
+
+
+def test_a_profile_picked_by_keyboard_puts_focus_in_the_message_box(clarity, page):
+    """QA 4 (run36): after Enter on a profile, focus stayed on the picker button, which
+    waits while the model starts, so the next keys went elsewhere. The box takes text
+    during a start, so focus goes there as soon as it can."""
+    _, redirect, backend = clarity
+    open_clarity(page, redirect)
+    hold_start(backend, 3)
+    page.focus("#picker-menu [data-profile=text]")
+    page.keyboard.press("Enter")
+    page.wait_for_selector("#thread [role=status]")  # Starting text…
+    page.wait_for_timeout(300)
+    assert focused(page) == "message"
+    page.keyboard.type("Hi")
+    assert page.input_value("#message") == "Hi"
+    page.wait_for_selector("#thread .intro")
+    assert focused(page) == "message"

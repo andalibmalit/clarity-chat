@@ -83,7 +83,7 @@ def test_the_drawer_lists_every_chat_newest_first_today_and_earlier(chat):
 
 def test_an_earlier_year_shows_in_the_date():
     assert web.chat_date("20251230-101010-abcdef", date(2026, 11, 14)) == ("earlier", "30 Dec 2025")
-    assert web.chat_date("20261114-090000-abcdef", date(2026, 11, 14)) == ("today", None)
+    assert web.chat_date("20261114-090000-abcdef", date(2026, 11, 14)) == ("today", "09:00")
     assert web.chat_date("20261113-235959-abcdef", date(2026, 11, 14)) == ("earlier", "13 Nov")
     assert web.chat_date("old-v010", date(2026, 11, 14)) == ("earlier", None)
 
@@ -446,3 +446,35 @@ def test_a_dotted_log_name_opens_by_name_and_chats_rows_say_both_ids(chat):
     fragment = view(client, "chats")
     current = [r for r in rows(fragment) if 'aria-current="true"' in r]
     assert len(current) == 1 and 'data-resume="chat.v2"' in current[0]
+
+
+# --- QA of v0.3.0 (batch 5)
+
+
+def test_today_s_chats_show_the_time_they_started():
+    """QA 7: Today's rows had only the title and profile, so a day of "Name one animal."
+    chats couldn't be told apart. They show the local time the chat started (HH:MM)."""
+    assert web.chat_date("20261114-090500-abcdef", date(2026, 11, 14)) == ("today", "09:05")
+    assert web.chat_date("20261114-235959-abcdef", date(2026, 11, 14)) == ("today", "23:59")
+
+
+def test_what_changed_since_the_last_call_says_each_change_old_to_new(chat):
+    """QA 6 (run23): "Changed since its last call (…): client." named a category. Each
+    change reads as Details' "Changed since the call" does: "client · commit OLD → NEW"."""
+    import json
+
+    client, session = chat
+    result(client, "say", "Hi")
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    first = log.stem
+    records = [json.loads(line) for line in log.read_text("utf-8").splitlines()]
+    for record in records:
+        if record.get("type") == "call":
+            now = record["client"]["commit"]
+            record["client"]["commit"] = "a" * 40
+    log.write_text("".join(json.dumps(r) + "\n" for r in records), "utf-8")
+    result(client, "new")
+    assert result(client, "resume", first)["differ"]["count"] >= 1
+    listed = re.search(r'<ul id="differ"[^>]*>(.*?)</ul>', view(client, "thread"), re.S)
+    assert listed and f"client · commit {'a' * 40} → {now}" in listed.group(1)
