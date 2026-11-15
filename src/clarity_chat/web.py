@@ -770,6 +770,7 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
         mark_label=mark_label,
         differ=state["resume_differ"] if starting is None else None,
         differ_line=differ_line,
+        changed_lines=changed_lines,
         back_in_box=back_in_box,
     )
 
@@ -1131,25 +1132,32 @@ def stopped_words(call: dict[str, Any], eog: list[dict[str, Any]] | None) -> str
 SHOWN_CHANGES = 5  # per fact, as the terminal shows them; the record has the rest
 
 
-def replay_result(replay: dict[str, Any]) -> dict[str, Any]:
-    """A replay's short label (labels: v030-teaching-check, item 22), what changed since the
-    call ("machine · macos.version 26.0.1 → 26.1", as board G4 draws it), its notes and its
-    own flags."""
+def changed_lines(differences: dict[str, list[dict[str, Any]]], record: str) -> list[str]:
+    """Each recorded difference as "machine · macos.version 26.0.1 → 26.1" (board G4), at
+    most SHOWN_CHANGES per fact, then how many more `record` holds. A replay's result in
+    Details and a reopened chat's list of what changed both say changes this way."""
 
     def clipped(value: Any) -> str:  # a /props entry can be long; the record has it all
         words = value_words(value)
         return words if len(words) <= 70 else words[:69] + "…"
 
-    facts = [n for n in replay.get("differences") or {} if n not in CANNOT_CHANGE_OUTPUT]
-    changed = []
-    for fact in facts:
-        entries = replay["differences"][fact]
-        changed += [
+    lines = []
+    for fact, entries in differences.items():
+        lines += [
             f"{fact} · {e['path']} {clipped(e['logged'])} → {clipped(e['now'])}"
             for e in entries[:SHOWN_CHANGES]
         ]
         if len(entries) > SHOWN_CHANGES:
-            changed.append(f"{fact} · {len(entries) - SHOWN_CHANGES} more in the replay record")
+            lines.append(f"{fact} · {len(entries) - SHOWN_CHANGES} more in {record}")
+    return lines
+
+
+def replay_result(replay: dict[str, Any]) -> dict[str, Any]:
+    """A replay's short label (labels: v030-teaching-check, item 22), what changed since the
+    call (changed_lines), its notes and its own flags."""
+    differences = replay.get("differences") or {}
+    facts = [n for n in differences if n not in CANNOT_CHANGE_OUTPUT]
+    changed = changed_lines({n: differences[n] for n in facts}, "the replay record")
     if replay["identical"]:
         label = "Identical"
     elif replay.get("unexplained_difference"):
