@@ -67,8 +67,12 @@ class Document:
 
 def checked_name(name: str) -> str:
     """A file's name as the record keeps it: never a path, never a control character."""
-    if any(unicodedata.category(c) == "Cc" for c in name):
-        raise DocumentRefused("A file name can't hold a newline or another control character.")
+    # Control characters; lone surrogates (a Linux name that isn't UTF-8, or --json), which
+    # can't be written as UTF-8; line and paragraph separators, which act as newlines.
+    if any(unicodedata.category(c) in ("Cc", "Cs", "Zl", "Zp") for c in name):
+        raise DocumentRefused(
+            "A file name can't hold a newline, a control character or a broken character."
+        )
     if not name or len(name) > MAX_NAME:
         raise DocumentRefused(f"A file name must be 1 to {MAX_NAME} characters.")
     return name
@@ -113,16 +117,17 @@ _last: Document | None = None  # the last document read, kept so a range change 
 
 
 def extract(data: bytes, name: str, cancel: threading.Event | None = None) -> Document:
-    """The document in `data`, or a DocumentRefused. The same bytes as the last call are
-    read once: the answer is kept (by the bytes' sha256)."""
+    """The document in `data`, or a DocumentRefused. The same bytes read the same way as the
+    last call are read once: the answer is kept, by the bytes' sha256 and the kind (the
+    name decides HTML or text, so the same bytes can be read two ways)."""
     global _last
     name = checked_name(name)
     if len(data) > MAX_BYTES:
         raise DocumentRefused(too_big(name))
     sha256 = hashlib.sha256(data).hexdigest()
-    if _last is not None and _last.sha256 == sha256:
-        return replace(_last, name=name)
     kind = kind_of(data, name)
+    if _last is not None and (_last.sha256, _last.kind) == (sha256, kind):
+        return replace(_last, name=name)
     answer = run_child({"name": name, "kind": kind}, data, cancel)
     if "refused" in answer:
         raise DocumentRefused(answer["refused"])
@@ -142,58 +147,67 @@ def extract(data: bytes, name: str, cancel: threading.Event | None = None) -> Do
 
 
 def run_child(request: dict[str, Any], data: bytes, cancel: threading.Event | None) -> dict:
-    """The child's answer to `request` and `data`. Killed at the time limit, on `cancel` and
-    past the output cap; its stderr is discarded and it's always reaped."""
+    """The child's answer to `request` and `data`. Killed at the time limit, on `cancel`,
+    past the output cap, and if the wait itself is interrupted (Ctrl-C): never left
+    running. Its stderr is discarded and it's always reaped."""
     name = request["name"]
     started = time.monotonic()
     request = {**request, "memory_cap": MEMORY_CAP, "seconds": TIME_LIMIT + 5}
-    proc = subprocess.Popen(
-        CHILD,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        env={"LC_ALL": "C.UTF-8"},  # nothing of Clarity's environment: no tokens, no paths
-    )
-    stdin, stdout = proc.stdin, proc.stdout
-    assert stdin is not None and stdout is not None
-    out: list[bytes] = []
-    size = [0]
+    try:
+        proc = subprocess.Popen(
+            CHILD,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env={"LC_ALL": "C.UTF-8"},  # nothing of Clarity's environment: no tokens, no paths
+        )
+    except OSError as e:  # too many open files, the interpreter gone mid-session
+        raise DocumentRefused(f"Clarity couldn't start its reader: {e.strerror or e}.") from e
+    cap = OUTPUT_CAP // 1024 // 1024
+    too_long = f"{name} is too long to read: what its reader sent back passed {cap} MB."
+    try:
+        stdin, stdout = proc.stdin, proc.stdout
+        assert stdin is not None and stdout is not None
+        out: list[bytes] = []
+        size = [0]
 
-    def write() -> None:
-        try:
-            stdin.write(json.dumps(request).encode("ascii") + b"\n")
-            stdin.write(data)
-            stdin.close()
-        except OSError:  # the child ended early (a limit, a stub): its exit code says why
-            pass
+        def write() -> None:
+            try:
+                stdin.write(json.dumps(request).encode("ascii") + b"\n")
+                stdin.write(data)
+                stdin.close()
+            except OSError:  # the child ended early (a limit, a stub): its exit code says why
+                pass
 
-    def read() -> None:
-        while chunk := stdout.read(1 << 16):
-            size[0] += len(chunk)
-            if size[0] > OUTPUT_CAP:
-                return
-            out.append(chunk)
+        def read() -> None:
+            while chunk := stdout.read(1 << 16):
+                size[0] += len(chunk)
+                if size[0] > OUTPUT_CAP:
+                    return
+                out.append(chunk)
 
-    threads = [threading.Thread(target=f, daemon=True) for f in (write, read)]
-    for thread in threads:
-        thread.start()
-    why = None
-    while proc.poll() is None:
-        if time.monotonic() - started > TIME_LIMIT:
-            why = f"{name} took longer than {TIME_LIMIT:.0f} seconds to read."
-        elif cancel is not None and cancel.is_set():
-            why = f"Stopped reading {name}."
-        elif size[0] > OUTPUT_CAP:
-            why = f"{name}'s text is too long: more than {OUTPUT_CAP // 1024 // 1024} MB."
-        if why:
+        threads = [threading.Thread(target=f, daemon=True) for f in (write, read)]
+        for thread in threads:
+            thread.start()
+        why = None
+        while proc.poll() is None:
+            if time.monotonic() - started > TIME_LIMIT:
+                why = f"{name} took longer than {TIME_LIMIT:.0f} seconds to read."
+            elif cancel is not None and cancel.is_set():
+                why = f"Stopped reading {name}."
+            elif size[0] > OUTPUT_CAP:
+                why = too_long
+            if why:
+                break
+            time.sleep(0.01)
+    finally:
+        if proc.poll() is None:
             proc.kill()
-            break
-        time.sleep(0.01)
-    proc.wait()
+        proc.wait()
     for thread in threads:
         thread.join(5)
     if why is None and size[0] > OUTPUT_CAP:
-        why = f"{name}'s text is too long: more than {OUTPUT_CAP // 1024 // 1024} MB."
+        why = too_long
     if why is None and proc.returncode == MEMORY_EXIT:
         why = f"{name} took more than {MEMORY_CAP // 1024 // 1024} MB of memory to read."
     if why is None and proc.returncode == DEADLINE_EXIT:
