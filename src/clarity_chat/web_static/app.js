@@ -342,6 +342,9 @@ async function draw(number) {
   $("title").hidden = (!chat && !again) || !said || clarity.renaming;
   if (changing(state.running)) $("title").setAttribute("aria-disabled", "true");
   else $("title").removeAttribute("aria-disabled");
+  // Its reason, shown when pressed while it waits (E1); hidden again on each redraw.
+  $("title-waits").textContent = changing(state.running) ? waitsFor(state.running) : "";
+  $("title-waits").classList.add("vh");
   $("title-text").textContent = state.title || "New chat";
   $("title").classList.toggle("fresh", !state.title);
   $("message").disabled = !chat && !starting; // you can type while a model starts
@@ -540,7 +543,12 @@ function hideMenu(returnFocus) {
 document.addEventListener("click", (event) => {
   const button = event.target.closest('[aria-haspopup="menu"]');
   if (button) {
-    if (button.getAttribute("aria-disabled") === "true") return;
+    if (button.getAttribute("aria-disabled") === "true") {
+      // A menu that waits says why on screen, not only to a screen reader (E1).
+      const why = $(button.getAttribute("aria-describedby") || "");
+      if (why) why.classList.remove("vh");
+      return;
+    }
     if (openMenu && openMenu.button === button) hideMenu(false);
     else if (button.id === "picker-button") openPicker();
     else showMenu(button);
@@ -776,7 +784,12 @@ function refused(name, type, sentence) {
 function send() {
   const text = $("message").value;
   // While a reply is written, Send is hidden (Stop is in its place) and Enter waits too.
-  if (!text && $("chips").hidden) return;
+  if (!text && $("chips").hidden) {
+    // Nothing to send: said beside Send (E1, sent or said why), not a silent press.
+    $("send-waits").textContent = "Type a message to send.";
+    $("send-waits").classList.remove("vh");
+    return;
+  }
   if ($("send").getAttribute("aria-disabled") === "true") {
     // It waits (a model starting, from the picker too, which is still sending its start):
     // the reason shows beside Send, not only to a screen reader, and the text stays for
@@ -1167,9 +1180,12 @@ function clipWhy(running) {
   // The paperclip waits while a model starts or anything that changes the chat runs (a
   // reply, a Replay), and says why when pressed (Checkpoint 3, must 2 and could 13).
   if (clarity.state && clarity.state.model === "starting") return "Waits until the model has started.";
-  if (running && WRITES.has(running.command)) return "Waits until the reply is done.";
-  if (changing(running) || clarity.sending) return "Waits until the command is done.";
+  if (changing(running) || clarity.sending) return waitsFor(running);
   return "";
+}
+
+function waitsFor(running) {
+  return running && WRITES.has(running.command) ? "Waits until the reply is done." : "Waits until the command is done.";
 }
 
 async function pickFile() {
