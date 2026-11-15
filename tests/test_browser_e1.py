@@ -113,7 +113,9 @@ STATES = {
 @pytest.mark.parametrize("state", list(STATES))
 def test_every_control_sends_or_says_why(clarity, page, state):  # noqa: F811 - the fixture
     redirect, backend = clarity
-    page.context.grant_permissions(["clipboard-read", "clipboard-write"])  # Copy answers
+    # So Copy answers. WebKit and Firefox (E2's CI job) have no such permissions to grant.
+    if page.context.browser.browser_type.name == "chromium":
+        page.context.grant_permissions(["clipboard-read", "clipboard-write"])
     sent: list[str] = []
     asked: list[str] = []  # views and uploads, after a press
 
