@@ -1,5 +1,6 @@
 # Monthly, grouped into one pull request per ecosystem. tokenizers, transformers and jinja2
-# can change output, so each gets its own pull request and the live tests (CONTRIBUTING.md).
+# can change output, and pypdf the text extracted from a PDF, so each gets its own pull
+# request and the live tests (CONTRIBUTING.md).
 version: 2
 updates:
   - package-ecosystem: "uv"
@@ -14,6 +15,7 @@ updates:
           - "tokenizers"
           - "transformers"
           - "jinja2"
+          - "pypdf"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

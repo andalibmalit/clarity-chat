@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Added
+- A new dependency, `pypdf` 7.1.0, pinned exactly, to read the PDFs you attach to a message. Its version can change the text extracted from a PDF, so a bump comes in a change of its own, as for `tokenizers`, `transformers` and `jinja2`.
+
 ### Output may change
 - Conversions (`clarity fetch` on the convert route) now run in an isolated environment: llama.cpp's pinned converter requirements on a fresh base. Run from Clarity's folder, the converter's environment was built on Clarity's own `.venv`, so Clarity's packages and source were importable behind the pinned ones. The pinned versions were the ones imported either way, so existing GGUFs are expected to be unchanged; a refetch would show any difference as a different sha256.
 
