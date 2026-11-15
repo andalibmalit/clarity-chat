@@ -281,6 +281,15 @@ ATTACH_ARGS = re.compile(
     re.S,
 )
 UPLOAD_ID = re.compile(r"upload-[0-9a-f]{12}")
+
+
+def attach_args(args: str) -> tuple[str, str | None, int, int, bool]:
+    found = ATTACH_ARGS.fullmatch(args)
+    assert found is not None
+    first, last = int(found["first"] or 0), int(found["last"] or 0)
+    return found["source"], found["unit"], first, last, bool(found["check"])
+
+
 # The sheet's sentences, for the terminal: only these modules import the documents package.
 SENTENCES = documents.SENTENCES
 
