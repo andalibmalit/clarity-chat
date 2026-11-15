@@ -829,7 +829,7 @@ function showPop(button) {
 
 function hidePop(returnFocus) {
   if (!openPop) return;
-  const button = openPop.closest("li").querySelector(".bm");
+  const button = openPop.closest("[data-call]").querySelector(".bm"); // a reply, or a card
   openPop.hidden = true;
   button.setAttribute("aria-expanded", "false");
   openPop = null;
@@ -837,11 +837,18 @@ function hidePop(returnFocus) {
 }
 
 async function annotate(kind, call, text = "") {
-  // /mark, /unmark or /note on this reply by its call ID; the popover opens again after.
+  // /mark, /unmark or /note on this reply by its call ID; the popover opens again after,
+  // in the thread or on its Compare card (E3), which is drawn again too.
   const answer = await command(kind, `${call} ${text}`.trim());
   await refresh();
+  const comparing = !$("compare").hidden;
+  if (comparing) {
+    const html = await view("compare", { call: compareFor }).catch(() => null);
+    if (html !== null) swap($("compare"), html);
+  }
   if (answer.error) notice("!", answer.error);
-  const button = document.querySelector(`li[data-call="${CSS.escape(call)}"] .bm`);
+  const root = comparing ? $("compare") : $("thread");
+  const button = root.querySelector(`[data-call="${CSS.escape(call)}"] .bm`);
   if (button) showPop(button);
 }
 

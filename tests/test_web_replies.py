@@ -298,7 +298,8 @@ def test_each_compare_card_has_the_thread_s_bookmark(chat):
         assert f'aria-controls="cpop-{call}" data-action="marks"' in fragment
         pop = re.search(rf'<div class="pop" id="cpop-{call}".*?</form>', fragment, re.S)
         assert pop, call
-        assert ("Marked: interesting" if reply is first else "Mark as interesting") in pop.group(0)
+        words = re.sub(r"<[^>]+>", "", pop.group(0))  # the label sits in its own span
+        assert ("Marked: interesting" if reply is first else "Mark as interesting") in words
         assert f'for="cnote-{call}"' in pop.group(0)  # ids apart from the thread's own
     card = re.search(rf'<div class="card" data-call="{second["call_id"]}">', fragment)
     assert card, "each card names its reply's call"
