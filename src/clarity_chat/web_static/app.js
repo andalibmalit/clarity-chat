@@ -483,6 +483,9 @@ async function quit() {
 function act(element) {
   if (element.getAttribute("aria-disabled") === "true") {
     if (element.id === "clip") $("clip-waits").textContent = element.dataset.why || "";
+    // A control that waits with a screen-reader reason shows it when pressed (E1, extended).
+    const why = $(element.getAttribute("aria-describedby") || "");
+    if (why) why.classList.remove("vh");
     return;
   }
   if (element.dataset.profile !== undefined) {
@@ -492,7 +495,7 @@ function act(element) {
   const action = element.dataset.action;
   if (action === "new") {
     if (clarity.state.conversation_id) start("new", "");
-    else openPicker();
+    else newWithoutAChat();
   } else if (action === "about") {
     about();
   } else if (action === "quit") {
@@ -1202,6 +1205,18 @@ function readingLine(state) {
   const cancel = sheetButton("Cancel", "reading-cancel", "linkbtn");
   cancel.dataset.upload = (running.args || "").split(" ")[0];
   $("reading-line").replaceChildren(`Reading ${state.reading.name}…`, " ", cancel);
+}
+
+function newWithoutAChat() {
+  // New chat with no chat open (the first screen, or a model starting): the picker, where
+  // you choose the profile; it waits during a start and says why (E1, extended).
+  closeDrawer(false);
+  if ($("picker-button").getAttribute("aria-disabled") === "true") {
+    const why = $("picker-waits");
+    if (why) why.classList.remove("vh");
+  } else {
+    openPicker();
+  }
 }
 
 function compareProblem(sentence) {
