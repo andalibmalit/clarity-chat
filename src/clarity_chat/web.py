@@ -537,12 +537,18 @@ REDIRECT = """<!doctype html>
 """
 
 
+def page_words(sentence: str) -> str:
+    """A read's refusal as the page says it: without the terminal command's name it starts
+    with ("/probs can't read this conversation: …"), which the page has no use for."""
+    return re.sub(r"^/[a-z]+ can't read", "Can't read", sentence)
+
+
 async def result_of(worker: Worker, name: str, args: str = "") -> dict[str, Any]:
     """A command's result for a view. Any error (the session stopped, or a read refused)
     answers 503 with its sentence, which the page shows."""
     answer = await worker.ask(name, args)
     if "error" in answer:
-        raise Refused(503, answer["error"])
+        raise Refused(503, page_words(answer["error"]))
     return answer["result"]
 
 
@@ -1281,7 +1287,7 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
         read_probs = await read_or_refusal(worker, "probs", call["call_id"])
         probs = read_probs.get("result") or {
             "reason": "unreadable",
-            "unavailable": read_probs["error"],
+            "unavailable": page_words(read_probs["error"]),
         }
         worker.probs[call["call_id"]] = probs
         if len(worker.probs) > PROBS_KEPT:
