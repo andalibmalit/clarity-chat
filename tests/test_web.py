@@ -284,6 +284,53 @@ def test_ui_refuses_a_port_in_use_before_starting_anything(fetched_root):
             web.serve(fetched_root, port=port, session_factory=lambda: pytest.fail("started"))
 
 
+def test_ui_prints_its_link_at_once_into_a_pipe(fetched_root):
+    """`clarity ui | tee`, or the QA driver: a pipe holds Python's output in a buffer until it
+    fills or the program exits, so a link printed without a flush never arrives while
+    Clarity runs. A real interpreter and a real pipe, with the fake backend."""
+    import os
+    import queue
+    import subprocess
+    import threading
+
+    from tests.conftest import REPO
+
+    script = (
+        "import sys; from pathlib import Path; from clarity_chat import web; "
+        "from clarity_chat.session import Session; from tests.fakes import FakeBackend; "
+        "root = Path(sys.argv[1]); "
+        "web.serve(root, port=int(sys.argv[2]), opener=lambda path: None, read_lines=False, "
+        "session_factory=lambda: Session(root, backend=FakeBackend()))"
+    )
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONUNBUFFERED"}
+    child = subprocess.Popen(
+        [sys.executable, "-c", script, str(fetched_root), str(free_port())],
+        cwd=REPO,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        encoding="utf-8",
+    )
+    lines: queue.Queue[str] = queue.Queue()
+    stdout = child.stdout
+    assert stdout is not None
+    threading.Thread(target=lambda: lines.put(stdout.readline()), daemon=True).start()
+    try:
+        try:
+            first = lines.get(timeout=30)
+        except queue.Empty:  # what a pipe got before the fix: nothing while Clarity runs
+            first = ""
+    finally:
+        child.terminate()
+        try:
+            child.wait(10)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+    assert first.startswith("Clarity is at http://127.0.0.1:"), first
+
+
 def test_ui_writes_a_private_redirect_file_opens_it_and_deletes_it_on_first_use(
     fetched_root, tiny_tokenizer
 ):
