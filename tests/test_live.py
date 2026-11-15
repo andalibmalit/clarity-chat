@@ -1,6 +1,8 @@
-"""Live tests: the real llama-server (server.toml, GPU) and the fetched SmolLM2-135M-Instruct.
+"""Live tests: the real llama-server (server.toml) and the fetched SmolLM2-135M-Instruct.
 
 Run with `uv run pytest -m live`. Skipped if llama-server isn't built or SmolLM2 isn't fetched.
+Only the `gpu`-marked test needs the model on a GPU; CI runs the rest on a Linux CPU build
+(`-m "live and not gpu"`, with `n-gpu-layers = 0`).
 """
 
 from __future__ import annotations

@@ -236,7 +236,7 @@ def test_the_converter_runs_isolated_from_clarity_s_environment(tmp_path, monkey
 
 
 @pytest.mark.live
-def test_the_converter_environment_sees_only_its_pinned_packages():
+def test_the_converter_sees_nothing_of_claritys_environment_and_imports_its_pinned_transformers():
     """The probe behind the isolation fix, through the command fetch_convert runs, from
     Clarity's folder (where uv would find Clarity's .venv): no .venv or src on sys.path, none
     of Clarity's dev tools installed, and llama.cpp's pinned transformers imported. Live:
