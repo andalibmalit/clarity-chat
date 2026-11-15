@@ -24,6 +24,7 @@ from clarity_chat.documents.insert import (
     summaries,
 )
 from clarity_chat.documents.reading import (
+    MAX_BYTES,
     Document,
     DocumentRefused,
     checked_name,
@@ -33,6 +34,7 @@ from clarity_chat.documents.reading import (
 
 __all__ = [
     "FRAMING",
+    "MAX_BYTES",
     "SENTENCES",
     "Attached",
     "Document",

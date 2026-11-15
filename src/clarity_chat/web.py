@@ -49,7 +49,8 @@ from starlette.types import Message, Receive, Scope, Send
 
 from clarity_chat.backends import CHECK_HELP, BackendError
 from clarity_chat.backends.transformers_hf import FIXED_ORDER
-from clarity_chat.commands import CALL_ID, READS, REPLY_COMMANDS, Commands
+from clarity_chat.commands import CALL_ID, READS, REPLY_COMMANDS, UPLOAD_ID, Commands
+from clarity_chat.documents import MAX_BYTES, SENTENCES, DocumentRefused, checked_name
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.profiles import NEUTRAL, SETTING_HELP, SETTING_RANGES, ConfigError
 from clarity_chat.replay import CANNOT_CHANGE_OUTPUT, cancelled_refusal, replay_notes
@@ -72,6 +73,7 @@ MAX_BODY = 64 * 1024  # any route's body
 # /command's: any message a profile's context can take (the terminal and --json have no
 # cap, so the page mustn't be the odd one out for a realistic message).
 MAX_COMMAND = 8 * 1024 * 1024
+TOO_BIG_FILE = f"Too big: Clarity attaches files of at most {MAX_BYTES // 1024 // 1024} MB."
 HEARTBEAT = 15.0  # seconds between keep-alive lines on the event stream
 CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'; "
@@ -98,7 +100,10 @@ class Worker:
     during a reply) run at once on the caller's thread."""
 
     def __init__(self, session: Session) -> None:
-        self.commands = Commands(session)
+        # The upload waiting to be attached, by its ID: one for the app, in memory, replaced
+        # by the next and dropped when attached. The page's /attach takes only these IDs.
+        self.uploads: dict[str, tuple[bytes, str]] = {}
+        self.commands = Commands(session, uploads=self.uploads)
         self.jobs: queue.Queue[tuple[str, str, concurrent.futures.Future]] = queue.Queue()
         self.listeners: list[Callable[[dict[str, Any]], None]] = []  # one per open stream
         self.lock = threading.Lock()
@@ -267,7 +272,7 @@ def make_app(
     # by POST /tab, never by reconnecting their stream.
     tabs: dict[str, Any] = {"live": None, "streams": {}, "told": set(), "seen": set()}
 
-    def check(request: Request, post: bool = False) -> None:
+    def check(request: Request, post: bool = False, kind: str = "application/json") -> None:
         """The secret, fetch metadata and, for a POST, the Origin and the content type."""
         given = request.headers.get("authorization", "")
         token = given[7:].encode("utf-8", "replace") if given.startswith("Bearer ") else b""
@@ -280,8 +285,8 @@ def make_app(
         if post:
             if request.headers.get("origin") != origin:
                 raise Refused(403, "Only Clarity's own page can ask for this.")
-            if request.headers.get("content-type", "").split(";")[0].strip() != "application/json":
-                raise Refused(415, "Send JSON.")
+            if request.headers.get("content-type", "").split(";")[0].strip() != kind:
+                raise Refused(415, "Send JSON." if kind == "application/json" else f"Send {kind}.")
 
     def live(tab: str) -> None:
         if tabs["live"] is None:
@@ -314,6 +319,38 @@ def make_app(
         if parsed["command"] == "quit" and "result" in answer:  # Quit Clarity, from the page
             response.background = BackgroundTask(lambda: app.state.quit())
         return response
+
+    async def upload(request: Request) -> Response:
+        """A file's bytes, kept in memory for /attach. Every check runs before any of the
+        body is read (S4): the secret, the Origin, the type, the length, the tab, the name."""
+        try:
+            check(request, post=True, kind="application/octet-stream")
+            length = request.headers.get("content-length", "")
+            if not re.fullmatch(r"[0-9]+", length):
+                raise Refused(411, "Send the file's length (Content-Length).")
+            if int(length) > MAX_BYTES:
+                raise Refused(413, TOO_BIG_FILE)
+            tab = request.query_params.get("tab", "")
+            if not tab:
+                raise Refused(400, "An upload names its tab.")
+            live(tab)
+            try:  # a browser sends the file's own name; keep only its last part
+                name = checked_name(re.split(r"[/\\]", request.query_params.get("name", ""))[-1])
+            except DocumentRefused as e:
+                raise Refused(400, str(e)) from e
+            chunks, size = [], 0
+            async for chunk in request.stream():  # counted again: the length can lie
+                size += len(chunk)
+                if size > MAX_BYTES:
+                    raise Refused(413, TOO_BIG_FILE)
+                chunks.append(chunk)
+        except Refused as e:
+            return PlainTextResponse(str(e), e.status)
+        upload_id = f"upload-{secrets.token_hex(6)}"
+        with worker.lock:
+            worker.uploads.clear()
+            worker.uploads[upload_id] = (b"".join(chunks), name)
+        return JSONResponse({"upload": upload_id, "name": name, "bytes": size})
 
     async def take_tab(request: Request) -> Response:
         try:
@@ -391,7 +428,10 @@ def make_app(
             call = request.query_params.get("call")
             if call is not None and not CALL_ID.fullmatch(call):
                 raise Refused(400, "That isn't a call ID.")
-            return HTMLResponse(await renderer(worker, {"call": call}))
+            params: dict[str, str | None] = {"call": call}
+            if request.path_params["name"] == "attach":
+                params.update(attach_params(request.query_params))
+            return HTMLResponse(await renderer(worker, params))
         except Refused as e:
             return PlainTextResponse(str(e), e.status)
 
@@ -415,6 +455,7 @@ def make_app(
             Route("/view/{name}", view, methods=["GET"]),
             Route("/tab", take_tab, methods=["POST"]),
             Route("/export", export, methods=["GET"]),
+            Route("/upload", upload, methods=["POST"]),
         ]
     )
     app.state.worker = worker
@@ -1431,6 +1472,40 @@ async def _chats(worker: Worker, params: dict[str, str | None]) -> str:
     )
 
 
+# --- Attach (v0.3.1 B3): the sheet from `/attach ID [range] check`, and the waiting chips
+
+
+def attach_params(query: Any) -> dict[str, str | None]:
+    """/view/attach's parameters: an upload ID, and a range (unit, first, last) or none."""
+    upload = query.get("upload", "")
+    if not UPLOAD_ID.fullmatch(upload):
+        raise Refused(400, "That isn't an upload ID.")
+    unit, first, last = (query.get(k) for k in ("unit", "first", "last"))
+    if (unit, first, last) == (None, None, None):
+        return {"upload": upload, "range": None}
+    if unit not in ("pages", "lines") or not all(
+        n is not None and re.fullmatch(r"[0-9]+", n) for n in (first, last)
+    ):
+        raise Refused(400, "A range is pages or lines, then two whole numbers.")
+    return {"upload": upload, "range": f"{unit} {first}-{last}"}
+
+
+async def _attach(worker: Worker, params: dict[str, str | None]) -> str:
+    """The attach sheet for an upload: the check's numbers, or its refusal."""
+    args = " ".join(a for a in (params["upload"], params["range"], "check") if a)
+    answer = await read_or_refusal(worker, "attach", args)
+    check = (answer.get("result") or {}).get("check")
+    return templates.get_template("attach.html").render(
+        error=answer.get("error"), check=check, sentences=SENTENCES
+    )
+
+
+async def _pending(worker: Worker, params: dict[str, str | None]) -> str:
+    """The attachments waiting for your next message, as chips."""
+    state = await result_of(worker, "state")
+    return templates.get_template("pending.html").render(pending=state["pending"])
+
+
 def export_sheet(answer: dict[str, Any]) -> dict[str, Any]:
     """The export sheet: the file and what it holds, from /export's result, or the
     refusal's sentence."""
@@ -1506,4 +1581,6 @@ VIEW_RENDERERS = {
     "branches": _branches,
     "chats": _chats,
     "export": _export,
+    "attach": _attach,
+    "pending": _pending,
 }

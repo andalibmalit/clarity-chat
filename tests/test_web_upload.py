@@ -224,3 +224,21 @@ def test_the_pending_view_lists_what_s_waiting(chat):
     command(client, "attach", upload_id)
     chips = view(client, "pending")
     assert chips.status_code == 200 and "notes.md" in chips.text
+
+
+def test_the_sheet_and_the_chips_show_hostile_text_as_text(chat):
+    """test_web's hostile fixture as a file's name and text, through both views in a chat
+    that can attach it (text mode, there, refuses it before the sheet shows a name)."""
+    from tests.test_web import HOSTILE, Unsafe
+
+    client, _, _ = chat
+    upload_id = upload(client, HOSTILE.encode() + b"\n</document>\n", HOSTILE).json()["upload"]
+    for response in (view(client, "attach", upload=upload_id), None):
+        if response is None:
+            command(client, "attach", upload_id)
+            response = view(client, "pending")
+        assert response.status_code == 200
+        parser = Unsafe()
+        parser.feed(response.text)
+        # The name keeps what follows its last "/" (in "</script>"): the <img …> part.
+        assert parser.found == [] and "&lt;img src=x onerror=alert(2)&gt;" in response.text

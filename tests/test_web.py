@@ -1119,12 +1119,19 @@ def test_every_view_shows_hostile_text_as_text(fetched_root, tiny_tokenizer, tmp
         command(client, "say", HOSTILE)
         failed = result("prompt")["call"]["call_id"]
         named = ("replies", "compare", "details")  # these take a call
-        views = [(name, "") for name in web.VIEW_RENDERERS if name not in named]
+        uploaded = client.post(
+            "/upload",
+            params={"tab": "tab-1", "name": HOSTILE},
+            headers={**POST, "Content-Type": "application/octet-stream"},
+            content=HOSTILE.encode(),
+        ).json()["upload"]  # text mode refuses to attach it: the sheet shows the refusal
+        views = [(name, "") for name in web.VIEW_RENDERERS if name not in (*named, "attach")]
         views += [(name, call) for name in named]
-        views += [("details", failed)]
+        views += [("details", failed), ("attach", uploaded)]
         found, texts = {}, {}
         for name, at in views:
-            response = client.get(f"/view/{name}", params={"call": at} if at else {}, headers=GET)
+            key = "upload" if name == "attach" else "call"
+            response = client.get(f"/view/{name}", params={key: at} if at else {}, headers=GET)
             assert response.status_code == 200, (name, response.text)
             parser = Unsafe()
             parser.feed(response.text)
