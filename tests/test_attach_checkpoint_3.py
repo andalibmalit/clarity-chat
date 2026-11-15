@@ -264,3 +264,19 @@ def test_the_chips_are_list_items(make):
     command(client, "attach", upload(client, NOTES).json()["upload"])
     chips = client.get("/view/pending", headers=GET).text
     assert '<span class="chip" role="listitem">' in chips
+
+
+# --- the lead's ruling on point 2: "Stopped reading NAME." has one source, SENTENCES
+
+
+def test_stopped_reading_comes_from_the_table_on_the_page_and_in_the_reader(make):
+    from clarity_chat import web
+
+    client, _, _ = make()
+    shell = client.get("/", headers=GET).text
+    assert 'data-stopped="Stopped reading {name}."' in shell
+    script = (web.STATIC / "app.js").read_text(encoding="utf-8")
+    assert "Stopped reading" not in script  # the page reads it from the shell
+    assert SENTENCES.get("stopped") == "Stopped reading {name}."
+    index = (web.STATIC / "index.html").read_text(encoding="utf-8")
+    assert "Stopped reading" not in index  # the server fills it in
