@@ -203,3 +203,33 @@ def test_the_converter_record_keeps_the_version_python_imports(tmp_path, monkeyp
     convert_shim.main()
     packages = json.loads(versions.read_text("utf-8"))["packages"]
     assert packages["made-up-transformers"] == "4.57.6"
+
+
+def test_the_converter_runs_isolated_from_clarity_s_environment(tmp_path, monkeypatch):
+    """The CI plan's follow-up: from Clarity's folder, `uv run --no-project --python 3.13`
+    took Clarity's .venv as the overlay's base, so its site-packages and src were on the
+    converter's sys.path despite -I (a probe showed both). --isolated gives the overlay a
+    fresh base: only llama.cpp's pinned packages, as models.py's comment promises."""
+    import subprocess
+
+    repo = Path(__file__).resolve().parents[1]
+    server = load_server_config(repo)
+    model = load_models(repo)["smollm2-135m-instruct"]
+    monkeypatch.setattr(models, "git_state", lambda path: {"commit": server.llama_cpp_commit})
+    monkeypatch.setattr(models, "_download", lambda repo, revision, patterns: tmp_path)
+    started: list[list[str]] = []
+
+    class Stop(Exception):
+        pass
+
+    def popen(command, **kwargs):
+        started.append(command)
+        raise Stop
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    with pytest.raises(Stop):
+        models.fetch_convert(tmp_path, model, server)
+    command = started[0]
+    run = command[: command.index("python")]  # uv's own options, before the interpreter
+    assert run[:2] == ["uv", "run"] and {"--no-project", "--isolated"} <= set(run), run
+    assert command[command.index("python") + 1] == "-I"
