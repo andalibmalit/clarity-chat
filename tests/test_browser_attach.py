@@ -68,11 +68,16 @@ def chat(page, redirect) -> None:
     page.wait_for_selector("#thread .intro")
 
 
+TYPES = {".pdf": "application/pdf", ".md": "text/markdown", ".txt": "text/plain"}
+
+
 def choose(page, name: str, data: bytes) -> None:
-    """The paperclip, then the system's file picker (Playwright sets its file)."""
+    """The paperclip, then the system's file picker (Playwright sets its file), with the type
+    a browser gives a file of that name (Checkpoint 3, should 9)."""
     with page.expect_file_chooser() as chooser:
         page.click("#clip")
-    chooser.value.set_files({"name": name, "mimeType": "application/octet-stream", "buffer": data})
+    kind = TYPES.get(name[name.rfind(".") :], "application/octet-stream")
+    chooser.value.set_files({"name": name, "mimeType": kind, "buffer": data})
 
 
 def ready(page) -> None:
@@ -112,27 +117,30 @@ def test_the_preselected_part_then_one_line_then_send_gets_a_reply(clarity, page
     shot(page, "C1-sheet-part", "v031")
     page.click("[data-action=attach-add]")
     page.wait_for_selector("#chips .chip")
-    assert "long.md · lines 1-" in page.text_content("#chips")
+    assert "long.md · lines 1–" in page.text_content("#chips")
     page.fill("#message", "Line one?")  # within max_tokens (16): what M1 leaves room for
     page.click("#send")
     page.wait_for_selector(".reply.last .tb")
     assert page.text_content(".reply.last .msg").startswith(" A made-up reply")  # 16 tokens
 
 
-def test_a_changed_range_shows_its_count_without_reading_again(clarity, page):
+def test_a_changed_range_shows_its_count_without_reading_again(clarity, page, monkeypatch):
     redirect, backend = clarity
     backend._n_ctx = 2000
+    started = []
+    real = reading.run_child
+    monkeypatch.setattr(reading, "run_child", lambda *a: started.append(1) or real(*a))
     chat(page, redirect)
     choose(page, "long.md", LONG)
     ready(page)
-    readings = page.evaluate("clarity.command('state')")["result"]["reading"]
-    assert readings is None
+    assert started == [1]  # the server runs in this process: the child started once
     page.fill("#attach-from", "5")
     page.fill("#attach-to", "9")
     page.press("#attach-to", "Tab")
     page.wait_for_selector("#attach-body .range .ct:has-text('tokens')")
     until(page, lambda: "Excerpt: lines 5 to 9 of 200" in page.text_content("#attach-body"))
     assert page.get_attribute("[data-choice=part][role=radio]", "data-args").endswith(" lines 5-9")
+    assert started == [1]  # and not again for the range
 
 
 def test_reading_shows_with_cancel_and_cancel_says_it_stopped(clarity, page, monkeypatch):
@@ -172,6 +180,7 @@ def test_remove_a_chip_and_send_with_chips_and_no_text(clarity, page):
         ready(page)
         page.click("[data-action=attach-add]")
         page.wait_for_selector(f"#chips :text('{name}')")
+    assert page.get_attribute("#chips", "role") == "list"  # Checkpoint 3, could 13
     page.click("[aria-label='Remove a.md']")
     until(page, lambda: "a.md" not in page.text_content("#chips"))
     page.click("#send")
@@ -218,3 +227,186 @@ def test_the_paperclip_waits_while_a_reply_is_written(clarity, page):
     page.click("#clip", force=True)  # Playwright waits on aria-disabled; a person needn't
     page.wait_for_selector("#clip-waits:has-text('Waits until the reply is done.')")
     assert page.is_hidden("#attach-sheet")
+
+
+# --- Checkpoint 3 (C1): Add, Cancel, the paperclip, the part's count and the radios
+
+
+def part_args(page) -> str:
+    return page.get_attribute("[data-choice=part][role=radio]", "data-args") or ""
+
+
+def test_add_attaches_the_range_in_the_boxes_when_clicked_at_once(clarity, page):
+    """Must 1: Add right after typing attaches what the boxes say, or waits."""
+    redirect, backend = clarity
+    backend._n_ctx = 2000
+    chat(page, redirect)
+    choose(page, "long.md", LONG)
+    ready(page)
+    page.fill("#attach-to", "5")
+    page.click("[data-action=attach-add]", force=True)  # at once; it may wait
+    until(page, lambda: page.is_hidden("#attach-sheet") or part_args(page).endswith(" 1-5"))
+    pending = page.evaluate("clarity.command('state')")["result"]["pending"]
+    assert [a["range"] for a in pending] in ([], [[1, 5]])
+    if not pending:
+        page.click("[data-action=attach-add]")
+    page.wait_for_selector("#chips .chip")
+    assert "long.md · lines 1–5 ·" in page.text_content("#chips")
+
+
+def test_a_cleared_box_makes_add_wait(clarity, page):
+    redirect, backend = clarity
+    backend._n_ctx = 2000
+    chat(page, redirect)
+    choose(page, "long.md", LONG)
+    ready(page)
+    assert page.get_attribute("[data-action=attach-add]", "aria-disabled") != "true"
+    page.fill("#attach-to", "")
+    assert page.get_attribute("[data-action=attach-add]", "aria-disabled") == "true"
+    assert page.is_visible("#attach-why")
+
+
+def test_the_paperclip_waits_during_a_replay(clarity, page):
+    """Must 2, scenario A: a Replay runs, so the paperclip waits and says why."""
+    redirect, backend = clarity
+    chat(page, redirect)
+    page.fill("#message", "Hi")
+    page.click("#send")
+    page.wait_for_selector(".reply.last .tb")
+    page.click(".reply.last [data-action=details]")
+    page.wait_for_selector("#panel:not([hidden]) .sec")
+    backend.replies, backend.piece_delay = [" Slowly," * 10], 0.3
+    page.click("#panel [data-action=replay]")
+    page.wait_for_selector("#panel [role=status]:has-text('Replaying…')")
+    choosers = []
+    page.on("filechooser", choosers.append)
+    page.click("#clip", force=True)
+    page.wait_for_selector("#clip-waits:has-text('Waits until the command is done.')")
+    assert choosers == [] and page.is_hidden("#attach-sheet")
+
+
+def test_cancel_during_the_upload_stops_it_and_says_so(clarity, page):
+    """Must 2, scenario B: Cancel before the bytes are up aborts the upload; the sheet says
+    it stopped, and no reading follows."""
+    redirect, _ = clarity
+    chat(page, redirect)
+    held = []
+    page.route("**/upload?*", held.append)  # the upload waits until the test lets it go
+    choose(page, "slow.md", NOTES)
+    until(page, lambda: held, what="the upload sent")
+    page.click("#attach-sheet [data-action=attach-cancel]")
+    page.wait_for_selector("#attach-sheet :text('Stopped reading slow.md.')")
+    try:
+        held[0].continue_()
+    except Exception:  # the page aborted it: nothing to continue
+        pass
+    page.wait_for_timeout(500)
+    assert page.query_selector("#attach-sheet [role=radiogroup]") is None
+    state = page.evaluate("clarity.command('state')")["result"]
+    assert state["running"] is None and state["reading"] is None
+
+
+def test_escape_while_reading_stops_the_read(clarity, page, monkeypatch):
+    """Must 2, scenario C: Escape on "Reading…" cancels the read and says so."""
+    redirect, _ = clarity
+    stub(monkeypatch, "import time; time.sleep(30)")
+    chat(page, redirect)
+    choose(page, "slow.md", NOTES)
+    page.wait_for_selector("#attach-sheet :text('Reading slow.md…')")
+    until(page, lambda: page.evaluate("clarity.command('state')")["result"]["reading"])
+    page.keyboard.press("Escape")
+    page.wait_for_selector("#attach-sheet :text('Stopped reading slow.md.')")
+    until(page, lambda: page.evaluate("clarity.command('state')")["result"]["running"] is None)
+
+
+def test_choosing_the_part_counts_its_range_at_once(clarity, page):
+    """Should 4: the part, chosen with nothing counted, is counted; Add then says why."""
+    redirect, _ = clarity
+    chat(page, redirect)
+    choose(page, "notes.md", NOTES)
+    ready(page)
+    add = "[data-action=attach-add]"
+    assert page.get_attribute(add, "aria-describedby") == "attach-whole-note"
+    page.click("[data-choice=part][role=radio]")
+    page.wait_for_selector("#attach-body .range .ct:has-text('tokens')")
+    assert page.get_attribute(add, "aria-disabled") != "true"
+    assert page.get_attribute(add, "aria-describedby") == "attach-part-note"
+
+
+def test_the_paperclip_refuses_in_text_mode_before_the_picker(clarity, page):
+    """Should 5: the session's sentence shows under the composer, and nothing is uploaded."""
+    redirect, _ = clarity
+    open_clarity(page, redirect)
+    page.click("[data-profile=text]")
+    page.wait_for_selector("#thread .intro")
+    choosers = []
+    page.on("filechooser", choosers.append)
+    page.click("#clip")
+    sentence = "Attaching needs a chat-mode profile; text is in text mode."
+    page.wait_for_selector(f"#clip-waits:has-text('{sentence}')")
+    assert choosers == [] and page.is_hidden("#attach-sheet")
+
+
+def test_a_file_far_over_the_limit_is_refused_in_the_sheet(clarity, page, monkeypatch):
+    """Should 8: the 413 comes while the browser is still sending; could 16: its title is
+    the read refusals' one."""
+    redirect, _ = clarity
+    monkeypatch.setattr(web, "MAX_BYTES", 1024 * 1024)
+    chat(page, redirect)
+    choose(page, "big.pdf", b"%PDF-" + b"0" * (5 * 1024 * 1024))
+    page.wait_for_selector("#attach-sheet [role=alert]")
+    assert "big.pdf is too big" in page.text_content("#attach-sheet [role=alert]")
+    assert page.text_content("#attach-title").strip() == "Not attached"
+
+
+def test_show_extracted_text_opens_and_closes_the_preview(clarity, page):
+    redirect, _ = clarity
+    chat(page, redirect)
+    choose(page, "notes.md", NOTES)
+    ready(page)
+    button = "[data-action=attach-preview]"
+    assert page.is_hidden("#attach-preview")
+    page.click(button)
+    assert page.is_visible("#attach-preview")
+    assert page.get_attribute(button, "aria-expanded") == "true"
+    assert "Three cairns mark the ridge." in page.text_content("#attach-preview")
+    assert page.text_content(button) == "Hide extracted text"
+    page.click(button)
+    assert page.is_hidden("#attach-preview") and page.text_content(button) == "Show extracted text"
+
+
+def test_the_choices_are_one_tab_stop_and_the_arrows_choose(clarity, page):
+    """Could 13: the radio group's pattern."""
+    redirect, _ = clarity
+    chat(page, redirect)
+    choose(page, "notes.md", NOTES)
+    ready(page)
+    whole, part = "[data-choice=whole][role=radio]", "[data-choice=part][role=radio]"
+    assert page.get_attribute(whole, "tabindex") == "0"
+    assert page.get_attribute(part, "tabindex") == "-1"
+    page.focus(whole)
+    page.keyboard.press("ArrowDown")
+    until(page, lambda: page.get_attribute(part, "aria-checked") == "true")
+    page.wait_for_selector("#attach-body .range .ct:has-text('tokens')")
+    assert page.evaluate("document.activeElement.dataset.choice") == "part"
+
+
+def test_send_with_chips_waits_while_a_reply_is_written(clarity, page):
+    """Could 13: an empty box with chips, during a reply, waits like any send."""
+    redirect, backend = clarity
+    chat(page, redirect)
+    page.fill("#message", "Hi")
+    page.click("#send")
+    page.wait_for_selector(".reply.last .tb")
+    choose(page, "a.md", b"Made-up a.\n")
+    ready(page)
+    page.click("[data-action=attach-add]")
+    page.wait_for_selector("#chips .chip")
+    backend.replies = [" One two three four five six seven eight nine ten."]
+    backend.piece_delay = 0.4
+    page.click(".reply.last [data-action=regen]")
+    page.wait_for_selector("#writing:has-text('two')")
+    page.focus("#message")
+    page.keyboard.press("Enter")
+    page.wait_for_selector("#send-waits:has-text('Waits until the reply is done.')")
+    assert "Type a message" not in page.text_content("#notice")

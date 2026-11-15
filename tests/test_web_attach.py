@@ -143,7 +143,7 @@ def test_new_chat_with_this_document_when_it_fits_only_there(make):
     text = sheet(client, upload=upload_id)
     assert 'data-choice="new"' in text
     assert "Starts a new chat on this profile with the whole file attached" in text
-    assert SENTENCES["new_chat"].format(free=f"{check['free_new_chat']:,}") in text
+    assert SENTENCES["whole"].format(tokens=f"{check['tokens_new_chat']:,}") in text
 
 
 def test_when_nothing_fits_add_waits_and_says_why(make):

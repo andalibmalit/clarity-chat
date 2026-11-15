@@ -201,7 +201,8 @@ def test_the_attach_view_shows_the_check_of_an_upload(chat):
     assert sheet.status_code == 200 and "notes.md" in sheet.text
     ranged = view(client, "attach", upload=upload_id, unit="lines", first="2", last="3")
     assert ranged.status_code == 200
-    assert 'id="attach-from" type="number"' in ranged.text and 'value="2"' in ranged.text
+    assert re.search(r'id="attach-from"[^>]*value="2"', ranged.text)
+    assert re.search(r'id="attach-to"[^>]*value="3"', ranged.text)
     assert session.conversation.pending == []  # a view attaches nothing
 
 
