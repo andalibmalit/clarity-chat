@@ -1383,15 +1383,21 @@ class Session:
             n_ctx, max_tokens = self.backend.n_ctx, values["max_tokens"]
             if room_left(n_ctx, len(prompt.ids), max_tokens) < 0:
                 of_them = attached_tokens(record["message_spans"], conversation, user_turn)
+                # The chips come back with your text, so removing one is advice you can
+                # follow only when this message had some (ruling 9, the fact-check's row 53b).
+                advice = (
+                    SENTENCES["remove_waiting"]
+                    if user_turn.attachments
+                    else "Start a new chat, or lower max_tokens."
+                )
                 raise ContextError(
-                    f"The prompt is {len(prompt.ids)} tokens{of_them}; with max_tokens "
-                    f"{max_tokens} it "
-                    f"needs more than the context of {n_ctx} tokens. Nothing was sent. Start a "
-                    "new chat, or lower max_tokens."
+                    f"The prompt is {len(prompt.ids):,} tokens{of_them}; with max_tokens "
+                    f"{max_tokens:,} it needs more than the context of {n_ctx:,} tokens. "
+                    f"Nothing was sent. {advice}"
                 )
             if len(prompt.ids) > CONTEXT_WARN_FRACTION * n_ctx:
                 warnings.append(
-                    f"The prompt uses {len(prompt.ids)} of {n_ctx} context tokens "
+                    f"The prompt uses {len(prompt.ids):,} of {n_ctx:,} context tokens "
                     f"({len(prompt.ids) / n_ctx:.0%})."
                 )
             if cancel is not None and cancel.is_set():  # cancelled while the prompt was built
@@ -1928,10 +1934,10 @@ def attached_tokens(spans: Any, conversation: Conversation, user_turn: Turn) -> 
     attachment's cost when it was attached, said as such."""
     if isinstance(spans, list):
         n = sum(a["tokens"][1] - a["tokens"][0] for e in spans for a in e.get("added", []))
-        return f", {n} of them in attached documents and their framing lines" if n else ""
+        return f", {n:,} of them in attached documents and their framing lines" if n else ""
     path = prompt_turns(conversation, user_turn)
     n = sum(a["tokens"] for t in path for a in t.attachments)
-    return f", {n} of them for attached documents, counted when attached" if n else ""
+    return f", {n:,} of them for attached documents, counted when attached" if n else ""
 
 
 def prompt_turns(conversation: Conversation, user_turn: Turn) -> list[Turn]:

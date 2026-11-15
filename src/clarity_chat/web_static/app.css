@@ -249,6 +249,12 @@ details.more > summary .d2 { font-weight: 400; margin-left: 6px; }
 #panel details.sec > * + * { margin-top: 8px; }
 #panel .pre { max-height: 320px; overflow: auto; }
 #panel .pre mark { background: var(--you); color: inherit; border-radius: 2px; }
+#panel .pre mark.added { background: var(--added); text-decoration: underline 1px var(--added-line); text-underline-offset: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+#panel .key { display: flex; align-items: center; gap: 6px; }
+#panel .key .sw { flex: none; width: 22px; height: 12px; border-radius: 2px; background: var(--you); }
+#panel .key .sw.added { background: var(--added); border-bottom: 2px solid var(--added-line); }
+#panel .tbl .q { font-family: var(--read); font-style: italic; }
+#panel .tbl td.m { white-space: nowrap; font-variant-numeric: tabular-nums; }
 #panel .warn { color: var(--warn); font-size: 13px; }
 #panel .kv dd .gl { display: block; font-family: var(--sans); color: var(--muted); font-size: 12px; }
 #panel .kv.three { grid-template-columns: max-content 1fr max-content; }
@@ -502,3 +508,5 @@ dialog.sheet.attach { width: min(620px, calc(100vw - 32px)); max-height: calc(10
 .attach .actions { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
 .attach .actions .sp { flex: 1; }
 .attach .why { font-size: var(--small); color: var(--muted); }
+.turn.user .att { display: inline-flex; align-items: center; gap: 6px; align-self: flex-end; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.editbox .att { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }

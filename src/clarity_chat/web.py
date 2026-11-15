@@ -797,6 +797,19 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
     turns = state["turns"]
     for turn in turns:  # a reply's controls name its call: none without a call ID (old logs)
         turn["controls"] = bool(CALL_ID.fullmatch(turn["call_id"] or ""))
+        # Your message's attachments, each with its cost when attached, and Edit's line (C2).
+        attached = turn.get("attachments") or []
+        turn["attached"] = [
+            SENTENCES["attached_line"].format(
+                name=a["name"], how=how_words(a), tokens=f"{a['tokens']:,}"
+            )
+            for a in attached
+        ]
+        turn["keeps"] = (
+            SENTENCES["keeps"].format(names=", ".join(a["name"] for a in attached))
+            if attached
+            else None
+        )
     starting = has_chats = intro = facts = failed = None
     idle = changing(state) is None
     # Reopened with your last message unanswered: one sentence says it's back in the box,
@@ -1166,20 +1179,73 @@ def unhighlighted(call: dict[str, Any]) -> str | None:
     return None
 
 
-def prompt_pieces(call: dict[str, Any]) -> list[tuple[str, bool]]:
-    """The prompt text in pieces, each marked when the template or the profile wrote it;
-    one unmarked piece when the spans aren't there (see unhighlighted)."""
+def prompt_pieces(call: dict[str, Any]) -> list[tuple[str, str | None]]:
+    """The prompt text in pieces, each with who put it there: "template" when the template
+    or the profile wrote it, "added" for a framing line or a document Clarity put in your
+    message (`added`, C2), else None; one piece when the spans aren't there (see
+    unhighlighted)."""
     text, pieces, at = call.get("prompt_text") or "", [], 0
     spans = call.get("message_spans")
     for span in spans if isinstance(spans, list) else []:
         start, end = span["chars"]
         if start > at:
-            pieces.append((text[at:start], False))
-        pieces.append((text[start:end], span["kind"] in ("template", "profile")))
+            pieces.append((text[at:start], None))
+        if span["kind"] in ("template", "profile"):
+            pieces.append((text[start:end], "template"))
+        else:
+            inner = start
+            for added in span.get("added", []):
+                first, last = added["chars"]
+                if first > inner:
+                    pieces.append((text[inner:first], None))
+                pieces.append((text[first:last], "added"))
+                inner = max(inner, last)
+            if end > inner:
+                pieces.append((text[inner:end], None))
         at = max(at, end)
     if at < len(text):
-        pieces.append((text[at:], False))
+        pieces.append((text[at:], None))
     return pieces
+
+
+def how_words(attachment: dict[str, Any]) -> str:
+    """ "whole", or an excerpt's range: "pages 1–23 of 131"."""
+    if attachment["how"] == "whole":
+        return "whole"
+    first, last = attachment["range"]
+    return f"{attachment['unit']}s {first}–{last} of {attachment['total']:,}"
+
+
+def attachment_rows(call: dict[str, Any], turns: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Details' Attachments row (C2): each document in this prompt, the message it was sent
+    with, and where its block sits in the prompt's tokens, from the spans' `added`."""
+    by_id = {turn["turn_id"]: turn for turn in turns}
+    spans = call.get("message_spans")
+    rows = []
+    for entry in spans if isinstance(spans, list) else []:
+        for added in entry.get("added", []):
+            if added["what"] != "attachment":
+                continue
+            turn = by_id[entry["turn_id"]]  # Details opens only for calls on this path
+            attachment = turn["attachments"][added["index"]]
+            start, end = added["tokens"]
+            said = turn["text"] if len(turn["text"]) <= 40 else turn["text"][:40].rstrip() + "…"
+            rows.append(
+                {
+                    "what": f"{attachment['name']} · {how_words(attachment)}",
+                    "with": f"“{said}”",
+                    "tokens": f"{start:,} to {end - 1:,}",
+                }
+            )
+    return rows
+
+
+def attached_before(call: dict[str, Any], turns: list[dict[str, Any]]) -> bool:
+    """Whether a message in this call's prompt had attachments: the turns before its reply,
+    or all of them for a failed call (its message is the last)."""
+    ids = [turn["turn_id"] for turn in turns]
+    upto = ids.index(call["turn_id"]) if call.get("turn_id") in ids else len(turns)
+    return any(turn.get("attachments") for turn in turns[:upto])
 
 
 def stopped_words(call: dict[str, Any], eog: list[dict[str, Any]] | None) -> str:
@@ -1364,6 +1430,9 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
         else first[0] == call["bos"]["bos_token_id"],
         pieces=prompt_pieces(call),
         not_highlighted=unhighlighted(call),
+        highlight_added=SENTENCES["highlight_added"],
+        attachments=attachment_rows(call, turns),
+        attached=attached_before(call, turns),
         text_mode=(call.get("bos") or {}).get("mode") == "text",
         stopped=stopped_words(call, settings.get("eog_tokens")),
         length=f"{produced} tokens · " + (f"{seconds:.1f} s" if known else "time unknown"),

@@ -460,9 +460,13 @@ def test_the_sent_message_shows_its_attachment_line_live_and_after_a_reload(clar
     tokens = turn["attachments"][0]["tokens"]
     line = f"Attached: trail-notes.md · whole · {tokens:,} tokens when attached"
     assert line in page.text_content(".turn.user .att")
+    shot(page, "C2-thread-line", "v031")
     page.reload()
     page.wait_for_selector(".reply.last .tb")
     assert line in page.text_content(".turn.user .att")
+    page.click(".reply.last [data-action=details]")  # for the design walkthrough
+    page.wait_for_selector("#panel mark.added")
+    shot(page, "C2-details-added", "v031")
 
 
 def test_edit_shows_what_it_keeps(clarity, page):
@@ -478,6 +482,7 @@ def test_edit_shows_what_it_keeps(clarity, page):
     page.click(".turn.user [data-action=edit]")
     page.wait_for_selector(".editbox:not([hidden])")
     assert page.text_content(".editbox .att").strip() == "Keeps: trail-notes.md"
+    shot(page, "C2-edit-keeps", "v031")
 
 
 def test_a_failed_send_brings_the_chips_back_and_offers_removing_one(clarity, page):
@@ -495,6 +500,7 @@ def test_a_failed_send_brings_the_chips_back_and_offers_removing_one(clarity, pa
     assert "Remove an attachment waiting for this message" in page.text_content("#thread")
     page.wait_for_selector("#chips .chip")
     assert "long.md" in page.text_content("#chips") and page.input_value("#message") == "Line one?"
+    shot(page, "C2-stop-chips-back", "v031")
 
 
 def test_the_branches_button_says_whether_its_panel_is_open(clarity, page):

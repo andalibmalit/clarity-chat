@@ -53,6 +53,13 @@ SENTENCES = {
     "more_characters": "… {count} more characters on this line",
     "choose": "Choose how to attach it.",
     "stopped": STOPPED,
+    # Your sent message's line: the cost when attached, so it doesn't read as a contradiction
+    # of Details' tokens in the prompt (the fact-check's rows 50-52).
+    "attached_line": "Attached: {name} · {how} · {tokens} tokens when attached",
+    "keeps": "Keeps: {names}",
+    "highlight_added": "Highlighted: the framing line and documents Clarity put in your message.",
+    "remove_waiting": "Remove an attachment waiting for this message, attach less, start a new "
+    "chat, or lower max_tokens.",
     "no_room": "This chat has no room left for a file: its messages and max_tokens already fill "
     "the context. Lower max_tokens or start a new chat.",
     "no_framing": "No framing line ({origin}).",
