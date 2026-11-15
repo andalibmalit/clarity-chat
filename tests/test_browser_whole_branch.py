@@ -142,7 +142,7 @@ def test_a_failed_compare_redraw_after_a_mark_says_so(clarity, page):  # noqa: F
     page.wait_for_selector("#compare .card .pop:not([hidden])")
     page.route("**/view/compare?*", lambda route: route.fulfill(status=500, body="Made-up."))
     page.click("#compare .card .pop [data-action=mark]")
-    page.wait_for_selector("#notice .problem")
+    page.wait_for_selector("#compare .problem")  # in Compare: the notice line is hidden there
 
 
 def test_a_choice_made_while_a_range_is_counted_stays(clarity, page):  # noqa: F811

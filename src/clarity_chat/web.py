@@ -1239,10 +1239,12 @@ def how_words(attachment: dict[str, Any]) -> str:
     if attachment["how"] == "whole":
         return "whole"
     first, last = attachment["range"]
-    return f"{attachment['unit']}s {first}–{last} of {attachment['total']:,}"
+    return f"{attachment['unit']}s {first:,}–{last:,} of {attachment['total']:,}"
 
 
 def attachment_rows(call: dict[str, Any], turns: list[dict[str, Any]]) -> list[dict[str, str]]:
+    # `turns`: /prompt's prompt_attachments, the call's own messages with attachments, on
+    # whatever branch (the whole-branch review's must 1).
     """Details' Attachments row (C2): each document in this prompt and each framing line,
     the message it was sent with, and where it sits in the prompt's tokens with its count
     (the walkthrough's F3), from the spans' `added`."""
@@ -1251,7 +1253,7 @@ def attachment_rows(call: dict[str, Any], turns: list[dict[str, Any]]) -> list[d
     rows = []
     for entry in spans if isinstance(spans, list) else []:
         for added in entry.get("added", []):
-            turn = by_id[entry["turn_id"]]  # Details opens only for calls on this path
+            turn = by_id[entry["turn_id"]]
             if added["what"] == "attachment":
                 attachment = turn["attachments"][added["index"]]
                 what = f"{attachment['name']} · {how_words(attachment)}"
@@ -1268,14 +1270,6 @@ def attachment_rows(call: dict[str, Any], turns: list[dict[str, Any]]) -> list[d
                 }
             )
     return rows
-
-
-def attached_before(call: dict[str, Any], turns: list[dict[str, Any]]) -> bool:
-    """Whether a message in this call's prompt had attachments: the turns before its reply,
-    or all of them for a failed call (its message is the last)."""
-    ids = [turn["turn_id"] for turn in turns]
-    upto = ids.index(call["turn_id"]) if call.get("turn_id") in ids else len(turns)
-    return any(turn.get("attachments") for turn in turns[:upto])
 
 
 def stopped_words(call: dict[str, Any], eog: list[dict[str, Any]] | None) -> str:
@@ -1461,9 +1455,9 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
         pieces=prompt_pieces(call),
         not_highlighted=unhighlighted(call),
         highlight_added=SENTENCES["highlight_added"],
-        attachments=attachment_rows(call, turns),
+        attachments=attachment_rows(call, read["prompt_attachments"]),
         attachments_caption=SENTENCES["attachments_caption"],
-        attached=attached_before(call, turns),
+        attached=bool(read["prompt_attachments"]),  # a message in this prompt had some
         text_mode=(call.get("bos") or {}).get("mode") == "text",
         stopped=stopped_words(call, settings.get("eog_tokens")),
         length=f"{produced} tokens · " + (f"{seconds:.1f} s" if known else "time unknown"),
@@ -1739,12 +1733,12 @@ def attach_sheet(
         part["max"] = start["range"][1]
         if not check["fits"]:
             at_most = SENTENCES["at_most"].format(
-                units=units, last=start["range"][1], left=f"{start['left']:,}"
+                units=units, last=f"{start['range'][1]:,}", left=f"{start['left']:,}"
             )
             if suggested:
                 assert pre is not None
                 filled = SENTENCES["filled_in"].format(
-                    units=units, last=pre["range"][1], max_tokens=f"{max_tokens:,}"
+                    units=units, last=f"{pre['range'][1]:,}", max_tokens=f"{max_tokens:,}"
                 )
                 part["notes"] += [
                     f"{filled} {at_most}",
@@ -1821,6 +1815,8 @@ async def _pending(worker: Worker, params: dict[str, str | None]) -> str:
     state = await result_of(worker, "state")
     for a in state["pending"]:  # the cost when attached, as the thread's line says (F3)
         a["cost"] = SENTENCES["chip_tokens"].format(tokens=f"{a['tokens']:,}")
+        first, last = a["range"]
+        a["shown"] = "whole" if a["how"] == "whole" else f"{a['unit']}s {first:,}–{last:,}"
     return templates.get_template("pending.html").render(pending=state["pending"])
 
 

@@ -209,7 +209,7 @@ def test_check_says_more_than_when_only_the_bound_was_taken(loop, tmp_path):
     chat.handle(f"/attach {path} lines 1-19000 check")
     text = "".join(output)
     assert "Doesn't fit: needs more than " in text
-    assert "Lines 1 to 19000: Doesn't fit: needs more than " in text
+    assert "Lines 1 to 19,000: Doesn't fit: needs more than " in text  # ruling 2
 
 
 def test_the_terminal_shows_a_name_s_control_characters_visibly():

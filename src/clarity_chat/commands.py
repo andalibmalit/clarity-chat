@@ -57,6 +57,7 @@ class Commands:
         # and never a path (decision 16). The terminal and --json read paths.
         self.uploads = uploads
         self.reading: str | None = None  # the file /attach is reading, for /state
+        self.cancelled_upload: str | None = None  # the page's Cancel, by its upload ID
         self.preread: dict[str, documents.Document] = {}  # --attach files, read before a start
         self.busy = threading.Lock()  # held while a command runs: one at a time
         self.cancel_event: threading.Event | None = None  # the running command's
@@ -168,10 +169,12 @@ class Commands:
         )
 
     def reply_running(self) -> bool:
-        """A reply is being written or replayed, not a model started: /set can't run
-        meanwhile, so the settings hold, and Settings can open with its controls waiting."""
+        """A reply is being written or replayed, or a file read, not a model started: /set
+        can't run meanwhile, so the settings hold, and Settings can open with its controls
+        waiting. A file's read changes no setting or call, so a page drawn during it (a
+        reload mid-read) needn't wait for it (the whole-branch review's could 13)."""
         with self.progress:
-            return self.running in REPLY_COMMANDS and not self.starting
+            return self.running in {*REPLY_COMMANDS, "attach"} and not self.starting
 
     def call(self, emit: Emit, start: Callable[..., CallOutcome]) -> dict[str, Any]:
         outcome = start(
@@ -211,8 +214,9 @@ def _say(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         names = [a["name"] for a in pending]
         listed = names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
         raise ConfigError(f"Type a message to send with {listed}.")
-    text = needs(args, "/say TEXT")
-    return c.call(emit, lambda **kw: c.session.say(text, **kw))
+    if not args:  # one sentence for the terminal and the page (the whole-branch review, 17)
+        raise ConfigError("Type a message to send.")
+    return c.call(emit, lambda **kw: c.session.say(args, **kw))
 
 
 def _regen(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -314,6 +318,11 @@ def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         source, unit, first, last, check = args, None, 0, 0, False
     else:
         source, unit, first, last, check = attach_args(args)
+    if check and c.cancelled_upload is not None and source == c.cancelled_upload:
+        c.cancelled_upload = None  # cancelled before its read started: it never starts
+        uploaded = (c.uploads or {}).get(source)
+        name = uploaded[1] if uploaded else source
+        raise documents.DocumentRefused(SENTENCES["stopped"].format(name=name))
     doc = read_document(c, source, emit)
     if check:
         return {"check": c.session.check(doc, unit, first, last, c.cancel_event)}
@@ -339,11 +348,12 @@ def suggestion(c: Commands, e: DoesntFit, doc: documents.Document, source: str) 
     if e.start is None:
         return SENTENCES["none_fits"].format(unit=doc.unit)
     max_tokens = f"{conversation.settings['max_tokens'].value:,}"
-    fits = SENTENCES["fits_up_to"].format(Units=f"{doc.unit}s".capitalize(), last=e.start)
+    # Range ends in a sentence take separators; a command to copy stays bare (ruling 2).
+    fits = SENTENCES["fits_up_to"].format(Units=f"{doc.unit}s".capitalize(), last=f"{e.start:,}")
     if e.roomy is None:
         return f"{SENTENCES['no_start'].format(unit=doc.unit, max_tokens=max_tokens)} {fits}"
     taken = (
-        f"{doc.unit}s 1 to {e.roomy}"
+        f"{doc.unit}s 1 to {e.roomy:,}"
         if c.uploads is not None
         else f"/attach {source} {doc.unit}s 1-{e.roomy}"
     )
@@ -378,19 +388,21 @@ def check_lines(check: dict[str, Any]) -> list[str]:
         else:
             lines.append(
                 SENTENCES["start_that_fits"].format(
-                    units=units, last=start["range"][1], tokens=f"{start['tokens']:,}"
+                    units=units, last=f"{start['range'][1]:,}", tokens=f"{start['tokens']:,}"
                 )
             )
             if preselected is None:
                 lines.append(SENTENCES["no_start"].format(unit=unit, max_tokens=max_tokens))
             else:
                 reason = SENTENCES["preselected"].format(max_tokens=max_tokens).removesuffix(".")
-                lines.append(f"{reason}: {units} 1 to {preselected['range'][1]}.")
+                lines.append(f"{reason}: {units} 1 to {preselected['range'][1]:,}.")
         if check["fits_new_chat"]:
             lines.append(SENTENCES["new_chat"].format(free=f"{check['free_new_chat']:,}"))
     if chosen := check["chosen"]:
         first, last = chosen["range"]
-        named = SENTENCES["chosen"].format(Units=units.capitalize(), first=first, last=last)
+        named = SENTENCES["chosen"].format(
+            Units=units.capitalize(), first=f"{first:,}", last=f"{last:,}"
+        )
         if chosen["left"] is not None and chosen["left"] >= 0:
             told = SENTENCES["left"].format(left=f"{chosen['left']:,}")
             lines.append(f"{named} {chosen['tokens']:,} tokens. {told}")
@@ -493,8 +505,18 @@ def _detach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _cancel(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    """Stop the running command if it can be stopped; say what was stopped, or why not."""
+    """Stop the running command if it can be stopped; say what was stopped, or why not.
+    The page names an upload: its read stops if it runs, and is refused if it hasn't
+    started yet (the whole-branch review's should 4)."""
     event, running = c.cancel_event, c.running
+    if args:
+        if c.uploads is None or not UPLOAD_ID.fullmatch(args):
+            raise ConfigError("Usage: /cancel")
+        c.cancelled_upload = args
+        reads_it = running == "attach" and c.running_args.split(" ")[0] == args
+        if event is not None and reads_it:
+            event.set()
+        return {"cancelled": True, "upload": args}
     if event is None or running is None:
         return {"cancelled": False, "reason": "Nothing is running."}
     if not COMMANDS[running].cancellable:
@@ -615,7 +637,25 @@ def _prompt(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     conversation = c.session.conversation
     assert conversation is not None
     call = call or conversation.last_call
-    return {"call": call, "replays": replays_of(conversation.log.path, call) if call else []}
+    return {
+        "call": call,
+        "replays": replays_of(conversation.log.path, call) if call else [],
+        "prompt_attachments": prompt_attachments(conversation, call) if call else [],
+    }
+
+
+def prompt_attachments(conversation: Any, call: dict[str, Any]) -> list[dict[str, Any]]:
+    """The messages in a call's prompt that had attachments, each with its text and
+    SUMMARYs, from every branch (the whole-branch review's must 1: a failed send's message,
+    or one left by Edit or Undo, isn't on today's path)."""
+    parent = call.get("parent_id")
+    if parent not in conversation.turns:
+        return []
+    return [
+        {"turn_id": t.turn_id, "text": t.text, "attachments": summaries(t.attachments)}
+        for t in conversation.path_to(parent)
+        if t.attachments
+    ]
 
 
 def replays_of(log: Path, call: dict[str, Any]) -> list[dict[str, Any]]:
@@ -901,6 +941,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "log_id": conversation.log.path.stem,  # what /resume takes
         "title": chat_summary(conversation.log.path)["title"],
         "profile": conversation.profile.name,
+        "mode": conversation.profile.mode,  # the paperclip opens the picker in the press
         "head": conversation.head,
         "turns": turns,
         "unanswered": conversation.unanswered,

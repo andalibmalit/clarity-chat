@@ -1384,9 +1384,11 @@ class Session:
             over = -room_left(n_ctx, len(prompt.ids), max_tokens)
             if over > 0:
                 of_them = attached_tokens(record["message_spans"], conversation, user_turn)
-                # The chips come back with your text, so removing one is advice you can
-                # follow only when this message had some (ruling 9, the fact-check's row 53b).
-                advice = SENTENCES["remove_waiting" if user_turn.attachments else "stop_advice"]
+                # Only a failed send puts its attachments back as chips, so removing one is
+                # advice you can follow only then: not after /regen or /edit (ruling 9,
+                # the fact-check's row 53b, the whole-branch review's must 2).
+                waiting = back_to is None and bool(user_turn.attachments)
+                advice = SENTENCES["remove_waiting" if waiting else "stop_advice"]
                 # max_tokens as typed, a setting; the counts with separators (ruling 2).
                 raise ContextError(
                     f"The prompt is {len(prompt.ids):,} tokens{of_them}; with max_tokens "
