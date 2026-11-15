@@ -119,3 +119,27 @@ def test_both_llama_profiles_take_meta_s_values_from_the_committed_lock():
         settings = resolve_settings(profile.raw_settings, defaults, name, recommended)
         assert (settings["temperature"].value, settings["top_p"].value) == (0.6, 0.9), name
         assert settings["temperature"].origin == settings["top_p"].origin == "model", name
+
+
+def test_a_hand_edited_recommended_entry_is_refused_naming_models_lock(
+    fetched_root, tiny_tokenizer
+):
+    """Fix review, batch 6, item 3: `recommended = "temperature=0.6"` in models.lock made
+    /settings answer "a record lacks or mangles 'str' object is not a mapping", blaming the
+    chat's log for models.lock. Its shape is checked where models.lock is read."""
+    import pytest
+
+    from clarity_chat.models import read_lock, write_lock_entry
+    from clarity_chat.profiles import ConfigError, fetch_hint
+
+    entry = read_lock(fetched_root)["models"]["tiny"]
+    write_lock_entry(fetched_root, "tiny", {**entry, "recommended": "temperature=0.6"})
+    session = Session(
+        fetched_root, backend=FakeBackend(), tokenizer_loader=lambda r, v: tiny_tokenizer
+    )
+    with pytest.raises(ConfigError) as refused:
+        session.new_conversation("text")
+    assert str(refused.value) == (
+        "models.lock's recommended settings for 'tiny' aren't a table of values. "
+        + fetch_hint("tiny")
+    )
