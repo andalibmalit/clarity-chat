@@ -20,6 +20,7 @@ Two headings are Clarity's own, used when they apply:
 - Conversions (`clarity fetch` on the convert route) now run in an isolated environment: llama.cpp's pinned converter requirements on a fresh base. Run from Clarity's folder, the converter's environment was built on Clarity's own `.venv`, so Clarity's packages and source were importable behind the pinned ones. The pinned versions were the ones imported either way, so existing GGUFs are expected to be unchanged; a refetch would show any difference as a different sha256.
 
 ### Fixed
+- In the web interface, every control either does something or says why it doesn't: Send with an empty box says "Type a message to send.", and the chat's title and the profile picker, while they wait for a reply or a command, say why when pressed instead of telling only a screen reader.
 - `clarity fetch` records the converter's package versions as the converter imports them. A package installed both in llama.cpp's pinned overlay and in the environment under it was recorded at the lower one's version, so `models.lock` said transformers 5.22.2 and numpy 2.5.4 where the converter ran transformers 4.57.6 and numpy 2.2.6. The conversion itself was right. A model already in `models.lock` keeps its old record until it's fetched again.
 
 ## [0.3.0] - 2026-11-15
