@@ -57,7 +57,6 @@ import signal
 import subprocess
 import sys
 import threading
-import time
 from pathlib import Path
 from types import ModuleType
 from typing import IO, TYPE_CHECKING
@@ -183,7 +182,7 @@ def run_step(page: Page, verb: str, arg: str, out: Path, n: int) -> None:
     elif verb == "gone":
         page.wait_for_selector(arg, state="hidden", timeout=WAIT_MS)
     elif verb == "sleep":
-        time.sleep(float(arg))
+        page.wait_for_timeout(float(arg) * 1000)  # time.sleep would hold every routed request
     elif verb == "shot":
         shot(page, out, f"{n:02d}-{arg}")
     elif verb == "reload":
