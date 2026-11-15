@@ -93,7 +93,7 @@ def test_the_last_reply_and_an_earlier_one_get_their_toolbars(chat):
     result(client, "regen")
     fork = result(client, "branches")["forks"][-1]
     assert len(fork["options"]) == 2
-    assert f">{len(fork['options'])} replies<" in thread(client)
+    assert f'>Replies <span class="n">{len(fork["options"])}</span><' in thread(client)
     result(client, "say", "Again")
     fragment = thread(client)
     assert fragment.count('aria-label="Actions for an earlier reply"') == 1
