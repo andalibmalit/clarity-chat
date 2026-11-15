@@ -205,3 +205,17 @@ def test_each_path_must_be_below_notes_qa(tmp_path, monkeypatch, which):
 )
 def test_the_browser_reaches_only_clarity(url, ok):
     assert qa.allowed(url) is ok
+
+
+def test_a_sleep_lets_the_page_s_requests_through(tmp_path, monkeypatch):
+    """QA of v0.3.0, items 1 and 2: the driver routes every request through a handler that
+    runs in Playwright's own loop, and `sleep` was time.sleep, which stops that loop, so
+    every request the page made during a sleep waited for the next step. Redraws landed
+    after the next click (Details opened the reply that was last before the redraw). A
+    sleep waits in Playwright, which keeps serving the requests."""
+    waited: list[float] = []
+    page = FakePage()
+    page.wait_for_timeout = waited.append  # ty: ignore[unresolved-attribute]
+    monkeypatch.setattr(qa.time, "sleep", lambda seconds: waited.append(-seconds))
+    qa.run_step(page, "sleep", "2.5", tmp_path, 1)
+    assert waited == [2500]
