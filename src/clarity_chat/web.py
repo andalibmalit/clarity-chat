@@ -328,7 +328,7 @@ def make_app(
             length = request.headers.get("content-length", "")
             if not re.fullmatch(r"[0-9]+", length):
                 raise Refused(411, "Send the file's length (Content-Length).")
-            if int(length) > MAX_BYTES:
+            if len(length) > 18 or int(length) > MAX_BYTES:  # int() refuses over 4,300 digits
                 raise Refused(413, TOO_BIG_FILE)
             tab = request.query_params.get("tab", "")
             if not tab:
@@ -1484,7 +1484,7 @@ def attach_params(query: Any) -> dict[str, str | None]:
     if (unit, first, last) == (None, None, None):
         return {"upload": upload, "range": None}
     if unit not in ("pages", "lines") or not all(
-        n is not None and re.fullmatch(r"[0-9]+", n) for n in (first, last)
+        n is not None and re.fullmatch(r"[0-9]{1,9}", n) for n in (first, last)
     ):
         raise Refused(400, "A range is pages or lines, then two whole numbers.")
     return {"upload": upload, "range": f"{unit} {first}-{last}"}
