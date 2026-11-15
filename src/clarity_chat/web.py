@@ -52,7 +52,7 @@ from clarity_chat.backends.transformers_hf import FIXED_ORDER
 from clarity_chat.commands import CALL_ID, READS, REPLY_COMMANDS, Commands
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.profiles import NEUTRAL, SETTING_HELP, SETTING_RANGES, ConfigError
-from clarity_chat.replay import CANNOT_CHANGE_OUTPUT, replay_notes
+from clarity_chat.replay import CANNOT_CHANGE_OUTPUT, cancelled_refusal, replay_notes
 from clarity_chat.session import CONTEXT_WARN_FRACTION, ContextError, Session
 
 PORT = 8765  # fixed, a constant: server.toml describes llama-server only
@@ -1310,6 +1310,10 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
         ],
         ignored=[e for e in call.get("not_applied") or [] if e.get("affects_output")],
         replays=[replay_result(r) for r in replays],
+        # A cancelled reply can't be replayed: said up front, with the refusal's sentence.
+        unreplayable=cancelled_refusal(call["call_id"])
+        if call.get("stop_type") == "cancelled"
+        else None,
         replaying=replaying,
         waits=running is not None and not replaying,
         settings=[

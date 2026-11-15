@@ -14,11 +14,12 @@
 {% endfor %}<dl class="kv">{% if error %}<dt>Output</dt><dd>none</dd>{% else %}<dt>Stopped</dt><dd>{{ stopped }}{% if call.stop_type == "eos" %}<span class="gl">The model wrote a token that ends a reply.</span>{% endif %}</dd><dt>Length</dt><dd>{{ length }}</dd>{% endif %}<dt>Model</dt><dd>{{ model_line }}</dd><dt>Profile</dt><dd>{{ call.profile.name }}</dd><dt>Call</dt><dd>{{ call.call_id }}</dd></dl>
 {% if not error %}<details class="checks" data-key="checks"{% if failed %} open{% endif %}><summary>Checks</summary><ul class="checks">{% for name, ok in checks %}<li><span class="tag">{{ "passed" if ok else "failed" }}</span> <span class="key">{{ name }}</span> {{ check_help.get(name, ("", ""))[0] }}</li>{% endfor %}</ul></details>
 {% endif %}</details>
-{% if not error %}<details class="sec" data-key="replay" open><summary class="sh2">Replay <span class="n">{% if replaying %}replaying{% elif replays %}replayed {{ replays | length }}×{% if not replays[-1].identical %}, different{% endif %}{% else %}not replayed yet{% endif %}</span></summary>
-{% if replaying %}<p class="st" role="status">Replaying…</p><button type="button" class="btn" data-action="replay-stop">Stop</button>
+{% if not error %}<details class="sec" data-key="replay" open><summary class="sh2">Replay <span class="n">{% if unreplayable %}can’t be replayed{% elif replaying %}replaying{% elif replays %}replayed {{ replays | length }}×{% if not replays[-1].identical %}, different{% endif %}{% else %}not replayed yet{% endif %}</span></summary>
+{% if unreplayable %}<p>{{ unreplayable }}</p>
+{% elif replaying %}<p class="st" role="status">Replaying…</p><button type="button" class="btn" data-action="replay-stop">Stop</button>
 {% elif waits %}<button type="button" class="btn" id="replay" data-action="replay" aria-disabled="true" aria-describedby="replay-waits">Replay</button><p class="waits" id="replay-waits">Waits until the reply is done.</p>
 {% else %}<button type="button" class="btn" id="replay" data-action="replay">Replay</button>
-{% endif %}<p class="d2">Sends the same prompt and settings again and compares the result with this reply.</p>
+{% endif %}{% if not unreplayable %}<p class="d2">Sends the same prompt and settings again and compares the result with this reply.</p>{% endif %}
 {% if replays and not replaying %}{% set r = replays[-1] %}<p class="result">{{ r.label }}</p>
 {% for flag in r.flags %}<p class="warn">! {{ flag }}</p>
 {% endfor %}<p class="d2">{% if r.first_different_token is not none %}From output token {{ r.first_different_token }}. {% endif %}Compared: {{ r.compared }}.</p>
