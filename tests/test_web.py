@@ -1132,9 +1132,14 @@ def test_every_view_shows_hostile_text_as_text(fetched_root, tiny_tokenizer, tmp
         assert conversation is not None and conversation.last_call is not None
         conversation.last_call["call_id"] = 'x" onclick="alert(3)'  # a hand-edited log
         parser = Unsafe()
-        parser.feed(client.get("/view/thread", headers=GET).text)
+        edited = client.get("/view/thread", headers=GET).text
+        parser.feed(edited)
         found["thread, hand-edited"] = parser.found
     assert {view: bad for view, bad in found.items() if bad} == {}
+    # And no Details on that line (fix review, batch 6, item 10): it would send no call ID.
+    failed_line = re.search(r'<div class="problem"[^>]*>.*?</div>', edited, re.S)
+    assert failed_line and "! Failed:" in failed_line.group(0)
+    assert 'data-action="details"' not in failed_line.group(0)
     assert "likeliest per token" in texts[f"details {call}"]  # the probabilities were drawn
     assert "&lt;script&gt;" in texts["thread "] and "! Failed:" in texts["thread "]
 
