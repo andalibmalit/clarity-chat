@@ -56,16 +56,23 @@ def encrypted_pdf(pages: list[str], user_password: str = "") -> bytes:
     return out.getvalue()
 
 
-def aes_pdf(pages: list[str]) -> bytes:
-    """A PDF whose encryption dictionary asks for AES-256 (/V 5). Its content isn't really
-    encrypted: Clarity reads the dictionary and refuses before decrypting anything."""
+AES_DICTIONARIES = {
+    5: b"<< /Filter /Standard /V 5 /R 6 /Length 256 /P -4"
+    b" /O <00> /U <00> /OE <00> /UE <00> /Perms <00> >>",
+    4: b"<< /Filter /Standard /V 4 /R 4 /Length 128 /P -4"
+    b" /CF << /StdCF << /CFM /AESV2 /AuthEvent /DocOpen /Length 16 >> >>"
+    b" /StmF /StdCF /StrF /StdCF /O <%s> /U <%s> >>" % (b"00" * 32, b"00" * 32),
+}
+
+
+def aes_pdf(pages: list[str], version: int = 5) -> bytes:
+    """A PDF whose encryption dictionary asks for AES: AES-256 (/V 5), or AES-128 through a
+    /V 4 crypt filter (/AESV2). Its content isn't really encrypted: Clarity reads the
+    dictionary and refuses before decrypting anything."""
     plain = make_pdf(pages)
     head, _, _ = plain.rpartition(b"xref\n")
     n = plain.count(b" 0 obj\n") + 1
-    extra = (
-        b"%d 0 obj\n<< /Filter /Standard /V 5 /R 6 /Length 256 /P -4"
-        b" /O <00> /U <00> /OE <00> /UE <00> /Perms <00> >>\nendobj\n" % n
-    )
+    extra = b"%d 0 obj\n" % n + AES_DICTIONARIES[version] + b"\nendobj\n"
     offsets = []
     position = 0
     body = head + extra
