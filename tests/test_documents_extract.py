@@ -393,7 +393,9 @@ def test_the_real_child_gets_the_memory_cap_and_a_deadline_past_the_time_limit(m
 
 @pytest.mark.skipif(sys.platform == "win32", reason="no memory guard on Windows (v0.7.0)")
 def test_the_real_child_stops_at_its_memory_cap(monkeypatch):
-    """Must 2: the real child, at a 1 MB cap, which the interpreter alone passes."""
+    """Must 2: the real child, at a 1 MB cap, which the interpreter alone passes. The same
+    refusal on Linux, where RLIMIT_AS at twice the cap fails the child's next allocation
+    (a MemoryError, or a thread it can't start), and on macOS, where the watchdog sees it."""
     monkeypatch.setattr(reading, "MEMORY_CAP", 1024 * 1024)
     assert refused(b"Made-up.", "notes.md") == (
         "notes.md took more than 1 MB of memory to read." + SPLIT
@@ -580,3 +582,38 @@ def test_html_s_record_names_the_python_that_read_it():
         "version": 1,
         "python": platform.python_version(),
     }
+
+
+# --- CI at a28f1c4: a MemoryError under Linux's address-space limit exited 1
+
+
+@pytest.mark.parametrize(
+    "where",
+    [
+        "child.extract = lambda *a: (_ for _ in ()).throw(MemoryError())",  # while reading
+        "child.json.dumps = lambda *a, **k: (_ for _ in ()).throw(MemoryError())",  # writing
+    ],
+)
+def test_a_memory_error_in_the_child_is_the_memory_refusal(monkeypatch, where):
+    stub(monkeypatch, f"from clarity_chat.documents import child\n{where}\nchild.main()")
+    assert refused(b"Made-up.", "notes.md").startswith(
+        "notes.md took more than 1 GB of memory to read."
+    )
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no memory guard on Windows (v0.7.0)")
+def test_a_thread_the_child_can_t_start_under_its_limit_is_the_memory_refusal(monkeypatch):
+    """At Linux's 2 MB address-space limit (the 1 MB test's cap), the watchdog's own thread
+    can fail to start. Simulated here, as on Linux: the limit set, then the start fails."""
+    code = (
+        "import threading\n"
+        "from clarity_chat.documents import child\n"
+        "child.limit_address_space = lambda cap: True\n"
+        'def fail(self): raise RuntimeError("can\'t start new thread")\n'
+        "threading.Thread.start = fail\n"
+        "child.main()"
+    )
+    stub(monkeypatch, code)
+    assert refused(b"Made-up.", "notes.md").startswith(
+        "notes.md took more than 1 GB of memory to read."
+    )
