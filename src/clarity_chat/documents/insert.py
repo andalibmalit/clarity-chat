@@ -123,6 +123,10 @@ def message_content(text: str, fields: Mapping[str, Any]) -> str:
     return content(text, attached, fields["framing"])
 
 
+def added_ranges(fields: Mapping[str, Any]) -> list[dict[str, Any]]:
+    return []
+
+
 def scan(text: str, special_tokens: Callable[[str], list[str]]) -> dict[str, Any]:
     """What to list before attaching: control tokens the tokenizer reads in the text, and
     whether it holds the wrapper's closing tag. Neither is refused or escaped."""

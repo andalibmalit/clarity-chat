@@ -40,12 +40,16 @@ def doc(text: str = "Line one.\nLine two.\n", name: str = "notes.md") -> Documen
     )
 
 
-@pytest.fixture
-def chat(fetched_root, chat_tokenizer):
-    backend = FakeBackend([f" r{i}." for i in range(50)], tokenizer=chat_tokenizer)
-    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
+def chat_session(root, tokenizer) -> tuple[Session, FakeBackend]:
+    backend = FakeBackend([f" r{i}." for i in range(50)], tokenizer=tokenizer)
+    session = Session(root, backend=backend, tokenizer_loader=lambda r, v: tokenizer)
     session.new_conversation("chat")
     return session, backend
+
+
+@pytest.fixture
+def chat(fetched_root, chat_tokenizer):
+    return chat_session(fetched_root, chat_tokenizer)
 
 
 def records(session, kind):
