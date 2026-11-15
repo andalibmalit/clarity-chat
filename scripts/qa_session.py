@@ -224,6 +224,8 @@ def attach_problem(root: Path, value: str) -> str | None:
         value.encode("utf-8", "surrogateescape")
     except UnicodeEncodeError:
         return f"{value!r} can't be judged (a lone surrogate); use a plain path in the root"
+    if "\x00" in value:  # POSIX's resolve raises on a NUL; Windows' doesn't
+        return f"{value!r} can't be judged (a NUL); use a plain path in the root"
     readings = {value, value.strip(), RANGE.sub("", value.strip())}
     try:
         readings |= {attach_args(value)[0], attach_args(value.strip())[0]}
