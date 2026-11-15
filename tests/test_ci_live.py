@@ -17,6 +17,24 @@ guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
 
 
+def about_placement(statement: ast.stmt) -> bool:
+    """A statement a gpu test may hold: an assert whose test (not its message) reads
+    placement, `placement = ...server_record["placement"]`, or an `if` holding only these
+    (the Mac's Metal checks)."""
+    if isinstance(statement, ast.Assert):
+        return "placement" in ast.unparse(statement.test)
+    if isinstance(statement, ast.Assign):
+        value = statement.value
+        return (
+            isinstance(value, ast.Subscript)
+            and ast.unparse(value.slice) == "'placement'"
+            and ast.unparse(value.value).endswith("server_record")
+        )
+    if isinstance(statement, ast.If):
+        return all(about_placement(s) for s in statement.body + statement.orelse)
+    return False
+
+
 def gpu_problems(source: str) -> list[str]:
     """What's wrong with the `gpu` marking in `source`, test_live.py's text. CI runs
     `-m "live and not gpu"` on a CPU build: a check of where the model was placed can't pass
@@ -37,13 +55,21 @@ def gpu_problems(source: str) -> list[str]:
         for name, node in tests.items()
         if any(ast.unparse(d) == "pytest.mark.gpu" for d in node.decorator_list)
     }
-    problems = []
+    problems = [
+        f"line {node.lineno}: pytestmark carries gpu, which deselects the whole module"
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assign)
+        and any(ast.unparse(t) == "pytestmark" for t in node.targets)
+        and "gpu" in ast.unparse(node.value)
+    ]
     if not reads_placement or gpu != reads_placement:
         problems.append(f"gpu marks {sorted(gpu)}; placement is read by {sorted(reads_placement)}")
-    for name in sorted(gpu):  # nothing else rides along: every assert is about placement
-        asserts = [s for s in ast.walk(tests[name]) if isinstance(s, ast.Assert)]
-        if not asserts or not all("placement" in ast.unparse(s) for s in asserts):
-            problems.append(f"{name} checks more than placement")
+    for name in sorted(gpu):  # nothing else rides along
+        problems += [
+            f"{name}, line {s.lineno}: {ast.unparse(s).splitlines()[0]}"
+            for s in tests[name].body
+            if not about_placement(s)
+        ]
     return problems
 
 
