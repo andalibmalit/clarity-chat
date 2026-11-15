@@ -189,3 +189,14 @@ def test_json_attaches_after_its_start_and_goes_on_after_a_refusal(
         ("result", "attach"),
     ]
     assert [a["name"] for a in events[-1]["result"]["pending"]] == ["notes.md"]
+
+
+def test_check_says_more_than_when_only_the_bound_was_taken(loop, tmp_path):
+    """The security review's must 1: a file that surely doesn't fit isn't counted whole."""
+    chat, output, backend = loop
+    path = tmp_path / "long.md"
+    path.write_text("".join(f"Made-up line {n}.\n" for n in range(20_000)), encoding="utf-8")
+    chat.handle(f"/attach {path} lines 1-19000 check")
+    text = "".join(output)
+    assert "Doesn't fit: needs more than " in text
+    assert "Lines 1-19000: Doesn't fit: needs more than " in text

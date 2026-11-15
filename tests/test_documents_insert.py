@@ -204,7 +204,9 @@ def test_an_unknown_documents_key_is_refused(root):
 
 def counting_room(n_ctx: int, max_tokens: int, base: int = 100):
     """A room where a prompt's tokens are `base` plus its next message's length in
-    characters, and where every call to `tokens` is counted."""
+    characters, and where every call to `tokens` is counted. Its longest token is too long
+    for the bound ever to decide, so these tests count exactly (test_attach_bounds.py holds
+    the bound)."""
     renders: list[str] = []
 
     def tokens(next_content: str) -> int:
@@ -212,9 +214,19 @@ def counting_room(n_ctx: int, max_tokens: int, base: int = 100):
         return base + len(next_content)
 
     room = Room(
-        tokens=tokens, room_left=lambda n: n_ctx - n - max_tokens - 1, max_tokens=max_tokens
+        tokens=tokens,
+        room_left=lambda n: n_ctx - n - max_tokens - 1,
+        max_tokens=max_tokens,
+        frame_bytes=0,
+        token_bytes=10**9,
     )
     return room, renders
+
+
+def counted_left(found) -> int:
+    """A count these tests' rooms always make (the bound never decides there)."""
+    assert found.tokens is not None and found.left is not None
+    return found.left
 
 
 def test_cost_free_left_and_fits():
@@ -226,9 +238,10 @@ def test_cost_free_left_and_fits():
     result = fit(room, waiting, new, FRAMING)
     assert result.tokens == after - before  # the difference of two exact renders
     assert result.free == free(room, waiting, FRAMING) == 1000 - before - 50 - 1
+    assert result.tokens is not None
     assert (result.left, result.fits) == (result.free - result.tokens, True)
     tight = fit(counting_room(n_ctx=400, max_tokens=50)[0], waiting, new, FRAMING)
-    assert tight.fits is False and tight.left < 0
+    assert tight.fits is False and counted_left(tight) < 0
 
 
 def test_the_start_that_fits_and_the_preselected_range(root):
@@ -244,8 +257,8 @@ def test_the_start_that_fits_and_the_preselected_range(root):
     preselected = start_that_fits(room, [], FRAMING, d, p, keep=room.max_tokens)
     assert preselected is not None
     kept, chosen = preselected
-    assert chosen.left >= 300 and kept < k
-    assert fit(room, [], piece(d, p, "lines", 1, kept + 1), FRAMING).left < 300
+    assert counted_left(chosen) >= 300 and kept < k
+    assert counted_left(fit(room, [], piece(d, p, "lines", 1, kept + 1), FRAMING)) < 300
 
 
 def test_when_not_even_the_first_unit_fits_there_is_no_range(root):
@@ -308,7 +321,13 @@ def test_the_cost_is_counted_with_the_model_s_own_render(root, which, olmo_token
     def tokens(next_content: str) -> int:
         return len(build_prompt(tokenizer, p, [*turns, ("user", next_content)]).ids)
 
-    room = Room(tokens=tokens, room_left=lambda n: 4096 - n - 16 - 1, max_tokens=16)
+    room = Room(
+        tokens=tokens,
+        room_left=lambda n: 4096 - n - 16 - 1,
+        max_tokens=16,
+        frame_bytes=0,
+        token_bytes=tokenizer.max_token_bytes,
+    )
     new = Attached("notes.md", "Made-up notes.\n", None)
     result = fit(room, [], new, FRAMING)
     with_block = build_prompt(tokenizer, p, [*turns, ("user", content("", [new], FRAMING))])
@@ -362,8 +381,9 @@ def test_cost_equal_to_free_fits(root):
     room, _ = counting_room(n_ctx=1000, max_tokens=50)
     new = Attached("b.md", "B", None)
     cost = fit(room, [], new, FRAMING).tokens
-    exact, _ = counting_room(n_ctx=100 + cost + 50 + 1, max_tokens=50)
-    assert fit(exact, [], new, FRAMING).fits is True
+    assert cost is not None
+    just, _ = counting_room(n_ctx=100 + cost + 50 + 1, max_tokens=50)
+    assert fit(just, [], new, FRAMING).fits is True
     short, _ = counting_room(n_ctx=100 + cost + 50, max_tokens=50)
     assert fit(short, [], new, FRAMING).fits is False
 
@@ -394,7 +414,7 @@ def test_a_start_that_leaves_exactly_keep_tokens_counts(root):
     d = doc([f"{n:03}\n" for n in range(100)])
     room, _ = counting_room(n_ctx=600, max_tokens=50)
     p = profile(root)
-    keep = fit(room, [], piece(d, p, "lines", 1, 20), FRAMING).left
-    assert fit(room, [], piece(d, p, "lines", 1, 21), FRAMING).left < keep
+    keep = counted_left(fit(room, [], piece(d, p, "lines", 1, 20), FRAMING))
+    assert counted_left(fit(room, [], piece(d, p, "lines", 1, 21), FRAMING)) < keep
     found = start_that_fits(room, [], FRAMING, d, p, keep=keep)
     assert found is not None and found[0] == 20

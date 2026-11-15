@@ -298,9 +298,9 @@ def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     first, last = int(found["first"] or 0), int(found["last"] or 0)
     doc = read_document(c, source, emit)
     if found["check"]:
-        return {"check": c.session.check(doc, unit, first, last)}
+        return {"check": c.session.check(doc, unit, first, last, c.cancel_event)}
     try:
-        _, fit = c.session.attach(doc, unit, first, last)
+        _, fit = c.session.attach(doc, unit, first, last, c.cancel_event)
     except DoesntFit as e:
         if unit is not None:
             raise
