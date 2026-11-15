@@ -1006,6 +1006,15 @@ async def _compare(worker: Worker, params: dict[str, str | None]) -> str:
             words += [setting_words(n, v) for n, v in groups[reply["group"]]["settings"].items()]
         reply["head"] = f"reply {reply['k']} of {len(replies)} · " + " · ".join(words)
         reply["stop"] = STOPS.get(reply["stop_type"])
+        # The thread's bookmark on each card (E3), named for its reply as the board does; none
+        # while a command changes the chat, or without a call ID (a log another program wrote).
+        which = f"reply {reply['k']} of {len(replies)}"
+        named = reply["marks"] or reply["notes"]
+        reply["bookmark"] = (
+            (f"{mark_label(reply)}, {which}" if named else f"Mark {which}")
+            if changing(state) is None and CALL_ID.fullmatch(reply["call_id"] or "")
+            else None
+        )
     rows, columns, sentence = [], [], None
     if compared["pairs"]:
         pairs = {(p["a"], p["b"]): p for p in compared["pairs"]}
