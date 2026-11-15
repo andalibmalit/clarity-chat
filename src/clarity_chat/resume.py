@@ -110,7 +110,7 @@ def what_differs(record: dict[str, Any]) -> list[dict[str, Any]]:
     each sentence, and how many things it covers. The terminal prints these and the web UI
     counts them, so both agree. Left out, because none says something changed: an
     unanswered message, a guessed head, restored /set values and facts not recorded."""
-    items = []
+    items: list[tuple[str, int] | tuple[str, int, dict[str, Any]]] = []
     if record["profile_file"] != "same":
         state = {"changed": "has changed since", "missing": "is gone"}.get(
             record["profile_file"], "is outside the project folder, so it wasn't read"
@@ -153,9 +153,14 @@ def what_differs(record: dict[str, Any]) -> list[dict[str, Any]]:
                 + ", ".join(record["differences"])
                 + ". The resume record lists each difference.",
                 len(record["differences"]),
+                {"call": record["compared_with_call"], "changes": record["differences"]},
             )
         )
     render = record["render"]
     if render is not None and not render["identical"]:
         items.append((render_line(render), 1))
-    return [{"text": text, "count": count} for text, count in items]
+    # The facts changed since the last call also come as data (`call`, `changes`), so the
+    # web interface can list each change as Details does.
+    return [
+        {"text": item[0], "count": item[1], **(item[2] if len(item) > 2 else {})} for item in items
+    ]
