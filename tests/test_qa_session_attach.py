@@ -256,3 +256,29 @@ def test_a_link_planted_after_the_start_is_caught_before_its_step_is_typed(drive
     status, transcript = run("hello", "/attach docs/notes.md", between=plant)
     assert not any(b"attach" in data for data in typed), typed
     assert "[qa:" in transcript and "not typed" in transcript, transcript
+
+
+# --- the reviewer's confirmation: two coulds -----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("line", "refused"),
+    [("/" * 999, False), ("/" * 900 + "attach ../secret.txt", True)],
+)
+def test_a_step_of_many_slashes_is_judged_without_crashing(root, line, refused):
+    """A line of slashes went one recursion deep per slash, so 999 raised RecursionError."""
+    got = refusal(lambda: qa.parse_steps(steps(root, line), json_mode=False, root=root))
+    assert isinstance(got, qa.Refused) if refused else got == [line], got
+
+
+def test_a_file_gone_between_the_listing_and_its_check_is_skipped(root, monkeypatch):
+    """no_links runs again while Clarity runs, and Clarity removes files of its own."""
+    (root / "docs" / "away.md").unlink()
+    real_walk = os.walk
+
+    def walk(top, followlinks=False):
+        yield str(root), [], ["gone-by-now.txt"]  # listed, then removed before the lstat
+        yield from real_walk(top, followlinks=followlinks)
+
+    monkeypatch.setattr(qa.os, "walk", walk)
+    assert refusal(lambda: qa.no_links(root)) is None
