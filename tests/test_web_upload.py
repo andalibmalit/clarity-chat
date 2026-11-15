@@ -123,7 +123,8 @@ def test_a_name_with_a_control_character_is_refused(chat):
     answer = upload(client, name="notes\n.md")
     assert (answer.status_code, answer.text) == (
         400,
-        "A file name can't hold a newline, a control character or a broken character.",
+        "A file name can't hold a newline, a control character, a text-direction control or a "
+        "broken character.",
     )
 
 

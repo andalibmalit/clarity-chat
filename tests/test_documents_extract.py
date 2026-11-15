@@ -501,3 +501,27 @@ def test_a_path_the_system_can_t_take_is_refused(path):
     with pytest.raises(DocumentRefused) as e:
         read_path(path)
     assert str(e.value) == "Can't open notes.md: its path holds a character the system can't take."
+
+
+# --- the security review's should 5: names
+
+
+@pytest.mark.parametrize(
+    "mark", ["؜", "‎", "‏", "‪", "‫", "‬", "‭", "‮",
+             "⁦", "⁧", "⁨", "⁩"],
+)  # fmt: skip
+def test_a_name_with_a_text_direction_control_is_refused(mark):
+    """notes‮dm.txt shows as notes‮dm.txt: reversed, in the chips, the sheet and the
+    terminal."""
+    with pytest.raises(DocumentRefused) as e:
+        checked_name(f"notes{mark}dm.txt")
+    assert str(e.value) == (
+        "A file name can't hold a newline, a control character, a text-direction control or a "
+        "broken character."
+    )
+
+
+@pytest.mark.parametrize("name", ["نامه‌ها.md", "notes 👩‍💻.md"])
+def test_joiners_stay_allowed(name):
+    """U+200C is common in Persian names; U+200D joins emoji."""
+    assert checked_name(name) == name
