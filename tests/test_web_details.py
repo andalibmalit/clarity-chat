@@ -634,7 +634,9 @@ def test_a_turn_missing_an_attachment_field_gets_an_answer_not_a_stopped_session
     chat_mode, field, name, takes_call
 ):
     """The sweep above, for a turn record (the A3-A4 tripwire's should 6): /history now reads
-    a message's attachments. Taken out in memory, as /resume refuses such a log."""
+    a message's attachments. Taken out in memory, as /resume refuses such a log. No live
+    path makes such a turn today (resume checks the whole shape), so it can't fail on
+    today's reads: it's kept as a guard for the reads C2 adds (part 1's review, could 12)."""
     from tests.test_session_attach import doc
 
     client, session = chat_mode

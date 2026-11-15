@@ -158,6 +158,7 @@ GOOD = {**UPLOAD, "Content-Length": str(len(NOTES))}
         ({"Content-Type": "application/json"}, 415),
         ({"Content-Length": None}, 411),
         ({"Content-Length": str(64 * 1024 * 1024 + 1)}, 413),
+        ({"Host": "evil.example"}, 403),  # part 1's review, could 13: B3's wrong Host
     ],
 )
 def test_a_refusal_comes_before_any_of_the_body_is_read(chat, change, status):
