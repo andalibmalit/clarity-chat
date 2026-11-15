@@ -113,10 +113,10 @@ def test_the_preselected_part_then_one_line_then_send_gets_a_reply(clarity, page
     page.click("[data-action=attach-add]")
     page.wait_for_selector("#chips .chip")
     assert "long.md · lines 1-" in page.text_content("#chips")
-    page.fill("#message", "What's on the first line?")
+    page.fill("#message", "Line one?")  # within max_tokens (16): what M1 leaves room for
     page.click("#send")
     page.wait_for_selector(".reply.last .tb")
-    assert page.text_content(".reply.last .msg") == " A made-up reply."
+    assert page.text_content(".reply.last .msg").startswith(" A made-up reply")  # 16 tokens
 
 
 def test_a_changed_range_shows_its_count_without_reading_again(clarity, page):
@@ -194,7 +194,8 @@ def test_a_refusal_shows_in_the_sheet(clarity, page, name, data, sentence):
     redirect, _ = clarity
     chat(page, redirect)
     choose(page, name, data)
-    page.wait_for_selector(f"#attach-sheet [role=alert]:has-text('{sentence}')")
+    page.wait_for_selector("#attach-sheet [role=alert]")
+    assert sentence in page.text_content("#attach-sheet [role=alert]")
 
 
 def test_a_file_too_big_is_refused_with_its_name(clarity, page, monkeypatch):
@@ -214,6 +215,6 @@ def test_the_paperclip_waits_while_a_reply_is_written(clarity, page):
     page.click("#send")
     page.wait_for_selector("#writing:has-text('two')")
     assert page.get_attribute("#clip", "aria-disabled") == "true"
-    page.click("#clip")
+    page.click("#clip", force=True)  # Playwright waits on aria-disabled; a person needn't
     page.wait_for_selector("#clip-waits:has-text('Waits until the reply is done.')")
     assert page.is_hidden("#attach-sheet")

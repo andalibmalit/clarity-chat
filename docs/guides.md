@@ -158,6 +158,8 @@ In a chat-mode profile, `/attach notes.md` puts the file's text at the start of 
 
 `/attach notes.md check` counts the file without attaching it: what the whole takes, what it leaves for your message, and where it would fit. If the whole doesn't fit, the refusal names the largest start that still leaves `max_tokens` for your message, as a command to copy, such as `/attach notes.md pages 1-19`. Attach part of a file with `pages A-B` for a PDF or `lines A-B` for anything else: those go in complete, after a line saying they're an excerpt. A new chat (`/new`) has more room, and a lower `max_tokens` leaves more for the document. Clarity never trims a document to make it fit.
 
+In the web interface, the paperclip beside the message box opens your computer's file picker. The sheet that opens shows the same numbers as `check`: choose **Attach whole**, **Attach part of it** (a file that doesn't fit opens on the part that still leaves room for your message, and the range boxes take any other), or **New chat with this document** when only an empty chat has room. **Show extracted text** shows what will go in. The attachments waiting for your message show as chips above the box; × removes one.
+
 The framing line comes from the profile. To change it, set `framing` in the profile's `[documents]` table; `framing = ""` sends none. `excerpt_marker` sets the excerpt's line the same way ([profile keys](reference.md#profile-keys)).
 
 ## Follow branches

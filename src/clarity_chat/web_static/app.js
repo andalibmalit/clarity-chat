@@ -320,7 +320,7 @@ async function draw(number) {
     stopped();
     return;
   }
-  const [thread, row] = await Promise.all([view("thread"), view("picker")]);
+  const [thread, row, chips] = await Promise.all([view("thread"), view("picker"), view("pending")]);
   if (number !== drawn) return;
   clarity.state = answer.result;
   if (openMenu && openMenu.menu.id === "picker-menu") hideMenu(false);
@@ -331,6 +331,8 @@ async function draw(number) {
   if (clarity.differOpen) showDiffer(true);
   shade(); // the thread is new: shade its reply again if Probabilities is open
   swap($("composer-row"), row);
+  swap($("chips"), chips);
+  $("chips").hidden = !$("chips").querySelector(".chip");
   const state = clarity.state;
   const starting = state.model === "starting";
   const chat = Boolean(state.conversation_id) && !starting;
@@ -348,6 +350,7 @@ async function draw(number) {
     $("message").focus(); // a start from the picker (QA 4)
   }
   $("send").disabled = !chat && !starting;
+  $("clip").disabled = !chat;
   // While a model starts, Send waits and says why (a stopped server isn't a wait: Send then
   // fails with the backend's sentence, and the failed line offers to start it again).
   $("send-waits").textContent = starting ? "Waits until the model has started." : "";
@@ -474,7 +477,10 @@ async function quit() {
 }
 
 function act(element) {
-  if (element.getAttribute("aria-disabled") === "true") return;
+  if (element.getAttribute("aria-disabled") === "true") {
+    if (element.id === "clip") $("clip-waits").textContent = "Waits until the reply is done.";
+    return;
+  }
   if (element.dataset.profile !== undefined) {
     start("profile", element.dataset.profile);
     return;
@@ -678,6 +684,10 @@ function showWriting(running) {
   $("writing-box").hidden = !on;
   $("send").hidden = on;
   $("stop").hidden = !on;
+  // The paperclip waits while a reply is written, and says why when pressed (C1).
+  if (on) $("clip").setAttribute("aria-disabled", "true");
+  else $("clip").removeAttribute("aria-disabled");
+  if (!on) $("clip-waits").textContent = "";
   if (!on) {
     $("writing-status").textContent = ""; // the region stays in the page, empty
     $("writing-dots").replaceChildren();
@@ -763,7 +773,11 @@ function refused(name, type, sentence) {
 function send() {
   const text = $("message").value;
   // While a reply is written, Send is hidden (Stop is in its place) and Enter waits too.
-  if (!text) return;
+  if (!text) {
+    // Chips and no text: the command table says why (S6), and nothing is sent.
+    if (!$("chips").hidden) command("say", "").then((answer) => answer.error && notice("!", answer.error));
+    return;
+  }
   if ($("send").getAttribute("aria-disabled") === "true") {
     // It waits (a model starting, from the picker too, which is still sending its start):
     // the reason shows beside Send, not only to a screen reader, and the text stays for
@@ -1131,6 +1145,183 @@ document.addEventListener("change", (event) => {
   else setting(`${box.dataset.name} ${box.value}`, box.closest(".srow"), box);
 });
 
+// --- Attach (v0.3.1 C1): the paperclip, the sheet and the chips (board V31Attach)
+//
+// The file goes to /upload as it is; the sheet is the `attach` view, drawn from `/attach ID
+// [range] check`, so every number and sentence is the server's. A changed range asks for
+// the sheet again (the extraction is cached: no second reading). Add sends the checked
+// choice's command.
+
+const attaching = { upload: null, name: "", reading: false, timer: null };
+
+function sheetHead(name) {
+  const head = document.createElement("div");
+  head.className = "shhd";
+  const title = document.createElement("h2");
+  title.id = "attach-title";
+  title.tabIndex = -1;
+  title.textContent = name;
+  head.append(title);
+  return head;
+}
+
+function sheetButton(label, action, cls) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = cls;
+  button.dataset.action = action;
+  button.textContent = label;
+  return button;
+}
+
+function sheetReading(name) {
+  // "Reading NAME…" with Cancel, while the file goes up and its text is read (S1).
+  const status = document.createElement("p");
+  status.className = "reading";
+  status.setAttribute("role", "status");
+  const spin = document.createElement("span");
+  spin.className = "spin";
+  spin.setAttribute("aria-hidden", "true");
+  status.append(spin, `Reading ${name}…`);
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  const cancel = sheetButton("Cancel", "attach-cancel", "btn ghost");
+  actions.append(cancel);
+  $("attach-body").replaceChildren(sheetHead(name), status, actions);
+  if (!$("attach-sheet").open) $("attach-sheet").showModal();
+  cancel.focus();
+}
+
+function sheetRefused(name, sentence) {
+  const line = document.createElement("p");
+  line.setAttribute("role", "alert");
+  const bold = document.createElement("strong");
+  bold.textContent = "!";
+  line.append(bold, " ", sentence);
+  const box = document.createElement("div");
+  box.className = "problem";
+  box.append(line);
+  const actions = document.createElement("div");
+  actions.className = "actions";
+  actions.append(sheetButton("Close", "attach-close", "btn"));
+  $("attach-body").replaceChildren(sheetHead(name), box, actions);
+  if (!$("attach-sheet").open) $("attach-sheet").showModal();
+  actions.querySelector("button").focus();
+}
+
+async function attachFile(file) {
+  attaching.reading = true;
+  attaching.name = file.name;
+  sheetReading(file.name);
+  try {
+    const query = new URLSearchParams({ tab: TAB, name: file.name });
+    // The type is set here: a File body would send its own (application/pdf), refused 415.
+    const response = await request(`/upload?${query}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: file,
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      if (text === "Clarity is open in another tab.") notLive();
+      else sheetRefused(file.name, text);
+      return;
+    }
+    attaching.upload = (await response.json()).upload;
+    await loadSheet({}, true);
+  } catch (error) {
+    const lost = unanswered(error);
+    if (!lost.handled) sheetRefused(file.name, lost.error);
+  } finally {
+    attaching.reading = false;
+  }
+}
+
+async function loadSheet(range, first = false) {
+  let html;
+  try {
+    html = await view("attach", { upload: attaching.upload, ...range });
+  } catch (error) {
+    sheetRefused(attaching.name, error.message);
+    return;
+  }
+  if (!$("attach-sheet").open) return; // closed meanwhile
+  const opened = $("attach-preview") && !$("attach-preview").hidden;
+  const focus = document.activeElement && document.activeElement.id;
+  swap($("attach-body"), html);
+  docsLinks($("attach-body"));
+  showPreview(opened);
+  updateAdd();
+  const back = focus && $(focus);
+  if (first || !back) $("attach-title").focus();
+  else back.focus();
+}
+
+function checkedChoice() {
+  return $("attach-body").querySelector("[role=radio][aria-checked=true]");
+}
+
+function updateAdd() {
+  const add = $("attach-body").querySelector("[data-action=attach-add]");
+  if (!add) return;
+  const choice = checkedChoice();
+  const ok = Boolean(choice) && choice.dataset.ok === "true";
+  if (ok) add.removeAttribute("aria-disabled");
+  else add.setAttribute("aria-disabled", "true");
+  add.textContent = choice && choice.dataset.choice === "new" ? "Start new chat" : "Add";
+  $("attach-why").hidden = ok || Boolean(choice); // "Choose how…" only when none is chosen
+}
+
+function showPreview(on) {
+  const preview = $("attach-preview");
+  if (!preview) return;
+  preview.hidden = !on;
+  const button = $("attach-body").querySelector("[data-action=attach-preview]");
+  button.setAttribute("aria-expanded", String(on));
+  button.textContent = on ? "Hide extracted text" : "Show extracted text";
+}
+
+function rangeChanged() {
+  clearTimeout(attaching.timer);
+  const from = $("attach-from").value;
+  const to = $("attach-to").value;
+  if (!/^[0-9]{1,9}$/.test(from) || !/^[0-9]{1,9}$/.test(to)) return;
+  const unit = $("attach-body").querySelector(".range").dataset.unit;
+  loadSheet({ unit, first: from, last: to });
+}
+
+document.addEventListener("input", (event) => {
+  if (!["attach-from", "attach-to"].includes(event.target.id)) return;
+  clearTimeout(attaching.timer);
+  attaching.timer = setTimeout(rangeChanged, 400); // typing: one read once it settles
+});
+
+document.addEventListener("change", (event) => {
+  if (["attach-from", "attach-to"].includes(event.target.id)) rangeChanged();
+});
+
+async function addAttachment() {
+  const choice = checkedChoice();
+  if (!choice || choice.dataset.ok !== "true") return;
+  let answer;
+  if (choice.dataset.choice === "new") {
+    answer = await command("new").catch(unanswered);
+    if (!answer.error && !answer.handled) answer = await command("attach", choice.dataset.args).catch(unanswered);
+  } else {
+    answer = await command("attach", choice.dataset.args).catch(unanswered);
+  }
+  if (answer.handled) return;
+  if (answer.error) {
+    const line = $("attach-body").querySelector(".sheet-error");
+    line.textContent = `! ${answer.error}`;
+    line.hidden = false;
+    return;
+  }
+  $("attach-sheet").close();
+  await refresh();
+  $("message").focus();
+}
+
 // --- Chats and export (C5)
 
 async function showDrawer(opener = null) {
@@ -1492,7 +1683,23 @@ const THREAD = {
   "rename-cancel": () => renaming(false, true),
   export: () => exportChat(),
   "export-close": () => $("export-sheet").close(),
-  "attach-pick": () => {}, // C1 (v0.3.1): the paperclip, the sheet and the chips
+  "attach-pick": () => $("attach-file").click(), // the system's file picker
+  "attach-choose": (element) => {
+    for (const radio of $("attach-body").querySelectorAll("[role=radio]")) {
+      radio.setAttribute("aria-checked", String(radio === element));
+    }
+    updateAdd();
+  },
+  "attach-preview": () => showPreview($("attach-preview").hidden),
+  "attach-add": () => addAttachment(),
+  "attach-cancel": () => command("cancel"), // the reading stops: the sheet says so (ruling 8)
+  "attach-close": () => $("attach-sheet").close(),
+  detach: async (element) => {
+    const answer = await command("detach", element.dataset.n);
+    if (answer.error) notice("!", answer.error);
+    await refresh();
+    $("message").focus();
+  },
   download: async () => {
     // A refusal shows in the sheet.
     const why = await download();
@@ -1555,5 +1762,14 @@ document.addEventListener("DOMContentLoaded", () => {
   $("about").addEventListener("close", () => $("clarity-button").focus());
   $("appearance").addEventListener("close", () => $("clarity-button").focus());
   $("stop").addEventListener("click", () => command("cancel"));
+  $("attach-file").addEventListener("change", () => {
+    const file = $("attach-file").files[0];
+    $("attach-file").value = ""; // the same file can be chosen again
+    if (file) attachFile(file);
+  });
+  $("attach-sheet").addEventListener("close", () => {
+    attaching.upload = null;
+    $("clip").focus();
+  });
   load().catch(() => {});
 });

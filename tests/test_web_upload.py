@@ -20,6 +20,7 @@ from tests.test_web import AUTH, CSP, GET, ORIGIN, PORT, SAME, SECRET, command
 UPLOAD = {**AUTH, **SAME, "Origin": ORIGIN, "Content-Type": "application/octet-stream"}
 NOTES = b"Line one.\nLine two.\nLine three.\n"
 UPLOAD_ID = re.compile(r"upload-[0-9a-f]{12}")
+TOO_BIG = "n.md is too big: Clarity reads files up to 64 MB (67,108,864 bytes)."  # ruling 4
 
 
 @pytest.fixture
@@ -171,11 +172,11 @@ def test_a_refusal_comes_before_any_of_the_body_is_read(chat, change, status):
 def test_too_big_says_the_limit_and_is_checked_again_while_reading(chat):
     _, _, app = chat
     code, _, text = raw(app, {**GOOD, "Content-Length": str(64 * 1024 * 1024 + 1)}, [NOTES])
-    assert (code, text) == (413, "Too big: Clarity attaches files up to 64 MB (67,108,864 bytes).")
+    assert (code, text) == (413, TOO_BIG)
     chunk = b"x" * (1024 * 1024)
     lying = {**GOOD, "Content-Length": "10"}
     code, taken, text = raw(app, lying, [chunk] * 70)
-    assert (code, text) == (413, "Too big: Clarity attaches files up to 64 MB (67,108,864 bytes).")
+    assert (code, text) == (413, TOO_BIG)
     assert taken < 70  # it stopped reading
 
 
@@ -199,7 +200,8 @@ def test_the_attach_view_shows_the_check_of_an_upload(chat):
     sheet = view(client, "attach", upload=upload_id)
     assert sheet.status_code == 200 and "notes.md" in sheet.text
     ranged = view(client, "attach", upload=upload_id, unit="lines", first="2", last="3")
-    assert ranged.status_code == 200 and "Lines 2 to 3:" in ranged.text
+    assert ranged.status_code == 200
+    assert 'id="attach-from" type="number"' in ranged.text and 'value="2"' in ranged.text
     assert session.conversation.pending == []  # a view attaches nothing
 
 
