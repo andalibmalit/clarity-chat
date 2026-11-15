@@ -628,6 +628,25 @@ def test_a_call_record_missing_a_field_gets_an_answer_not_a_stopped_session(
     assert "result" in answer or answer["type"] == "ConfigError", answer
 
 
+@pytest.mark.parametrize("field", ["name", "sha256", "tokens", "how", "range"])
+@pytest.mark.parametrize(("name", "takes_call"), READS_OF_A_CALL)
+def test_a_turn_missing_an_attachment_field_gets_an_answer_not_a_stopped_session(
+    chat_mode, field, name, takes_call
+):
+    """The sweep above, for a turn record (the A3-A4 tripwire's should 6): /history now reads
+    a message's attachments. Taken out in memory, as /resume refuses such a log."""
+    from tests.test_session_attach import doc
+
+    client, session = chat_mode
+    session.attach(doc())
+    call = result(client, "say", "What's in it?")["call"]
+    assert session.conversation is not None
+    session.conversation.turns[call["parent_id"]].attachments[0].pop(field)
+    answer = command(client, name, call["call_id"] if takes_call else "").json()
+    assert not answer.get("stopped"), answer
+    assert "result" in answer or answer["type"] == "ConfigError", answer
+
+
 @pytest.mark.parametrize("field", ["output_ids", "output_text", "stop_type", "request"])
 def test_a_replay_of_a_call_missing_a_field_says_which_and_the_session_goes_on(chat, field):
     """Found by the sweep above: a replay read the call's request, text and stop type
