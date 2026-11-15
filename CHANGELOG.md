@@ -9,6 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Added
+- A chat-mode profile's `[documents]` table sets the line that goes before attached documents in your message (`framing`) and the first line of an excerpt (`excerpt_marker`); `""` means none. Attaching arrives with this release's commands.
 - A new dependency, `pypdf` 7.1.0, pinned exactly, to read the PDFs you attach to a message. Its version can change the text extracted from a PDF, so a bump comes in a change of its own, as for `tokenizers`, `transformers` and `jinja2`.
 
 ### Output may change

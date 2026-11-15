@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import re
+import string
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -91,7 +92,10 @@ PROFILE_KEYS_COMMON = {
     "device",
     "ctx_size",
     "steering",
+    "documents",
 }
+DOCUMENTS_KEYS = {"framing", "excerpt_marker"}
+MARKER_FIELDS = {"units", "first", "last", "total"}
 # apply_chat_template arguments that Clarity sets, or that would change what it renders or
 # returns behind the logged template (chat_template replaces the template's text).
 RESERVED_TEMPLATE_KWARGS = {
@@ -354,6 +358,9 @@ class Profile:
     device: str | None = None  # Transformers backend only: mps (default), cpu or cuda
     ctx_size: int | None = None  # None: server.toml's ctx-size
     steering: SteeringTable | None = None  # the [steering] table, Transformers only
+    # [documents]: None means Clarity's default; "" means none (no framing or marker line)
+    framing: str | None = None
+    excerpt_marker: str | None = None
     vector: Vector | None = None  # its vector, loaded and checked by Session.prepare
     layers: list[int] | None = None  # the blocks it steers, from Session.prepare
     # chat mode
@@ -499,6 +506,40 @@ def _messages(value: object, where: str) -> list[dict[str, str]]:
     return messages
 
 
+def _documents(table: object, mode: str, where: str) -> tuple[str | None, str | None]:
+    """The [documents] table: the framing line and the excerpt marker, each a string (the
+    framing may span lines; empty means none). Chat mode only in v0.3.1."""
+    if table is None:
+        return None, None
+    if mode != "chat":
+        raise ConfigError(f"{where}: [documents] is for chat mode only: attachments need it.")
+    if not isinstance(table, dict):
+        raise ConfigError(f"{where}: [documents] must be a table.")
+    unknown = sorted(set(table) - DOCUMENTS_KEYS)
+    if unknown:
+        raise ConfigError(
+            f"{where}: [documents] has unknown keys {unknown}. Allowed: {sorted(DOCUMENTS_KEYS)}."
+        )
+    for key in DOCUMENTS_KEYS & set(table):
+        if not isinstance(table[key], str):
+            raise ConfigError(f"{where}: [documents] {key} must be a string.")
+    marker = table.get("excerpt_marker")
+    if marker is not None:
+        try:
+            fields = list(string.Formatter().parse(marker))
+        except ValueError as e:
+            raise ConfigError(f"{where}: [documents] excerpt_marker: {e}.") from e
+        for _, field_name, spec, conversion in fields:
+            if field_name is None:
+                continue
+            if field_name not in MARKER_FIELDS or spec or conversion:
+                raise ConfigError(
+                    f"{where}: [documents] excerpt_marker can use {{units}}, {{first}}, {{last}} "
+                    f"and {{total}}, with no format, got {{{field_name}}}."
+                )
+    return table.get("framing"), marker
+
+
 def load_profile(
     root: Path, name_or_path: str, defaults: dict[str, Any], logged: dict[str, Any] | None = None
 ) -> Profile:
@@ -554,6 +595,7 @@ def load_profile(
             )
         steering = _steering(steering, root, where)
 
+    framing, excerpt_marker = _documents(data.get("documents"), mode, where)
     raw_settings = check_settings_table(data.get("settings", {}), where)
     if steering is not None and "steering_scale" not in raw_settings:
         raise ConfigError(
@@ -587,6 +629,8 @@ def load_profile(
         device=device,
         ctx_size=ctx_size,
         steering=steering,
+        framing=framing,
+        excerpt_marker=excerpt_marker,
     )
 
     if mode == "chat":

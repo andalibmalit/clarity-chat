@@ -253,7 +253,7 @@ def test_when_not_even_the_first_unit_fits_there_is_no_range(root):
     d = doc(["x" * 5000 + "\n", "y\n"])
     room, _ = counting_room(n_ctx=2000, max_tokens=300)
     assert start_that_fits(room, [], FRAMING, d, profile(root)) is None
-    room, _ = counting_room(n_ctx=5600, max_tokens=500)
+    room, _ = counting_room(n_ctx=6000, max_tokens=500)
     assert start_that_fits(room, [], FRAMING, d, profile(root)) is not None
     assert start_that_fits(room, [], FRAMING, d, profile(root), keep=500) is None
 
