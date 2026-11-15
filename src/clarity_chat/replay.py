@@ -40,6 +40,12 @@ REPLAY_NEEDS = (
 )
 
 
+def cancelled_refusal(call_id: str) -> str:
+    """Why a cancelled call can't be replayed: the refusal, and what Details says instead
+    of offering Replay."""
+    return f"Call {call_id} was cancelled, so its reply is incomplete."
+
+
 def find_call(path: Path, call_id: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
     """The call record and the start record of the server that ran it (None if not logged)."""
     call = None
@@ -56,7 +62,7 @@ def find_call(path: Path, call_id: str) -> tuple[dict[str, Any], dict[str, Any] 
     if call.get("error"):
         raise ConfigError(f"Call {call_id} has no reply to compare with ({call['error']}).")
     if call.get("stop_type") == "cancelled":
-        raise ConfigError(f"Call {call_id} was cancelled, so its reply is incomplete.")
+        raise ConfigError(cancelled_refusal(call_id))
     server_id = (call.get("backend") or {}).get("server_id")
     return call, servers.get(server_id) if server_id else None
 
