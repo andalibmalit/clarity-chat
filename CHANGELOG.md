@@ -21,6 +21,7 @@ Two headings are Clarity's own, used when they apply:
   - Appearance: five themes (Notebook, Neutral, Sky, Space, High contrast), light, dark or the system's, and a Motion switch for Sky and Space's scenery, off by default when the system asks for reduced motion; kept in the browser, not in a file. Keyboard: Enter sends, Shift+Enter starts a new line, toolbars and the replies' rows move with the arrow keys, and focus returns where it came from. Narrow windows keep every control.
   - Its fonts, Rasa and IBM Plex Sans and Mono, as their publishers' unmodified files under the SIL Open Font License, each family with its licence (`web_static/fonts/`). Nothing loads from the network.
 - `/chats` and `/profiles` answer at once, even during a reply, and `/settings` and `/prompt` do while a reply is written or replayed, as `/state` and `/cancel` do; with `--json` they run as soon as they're read. `/state` also gives `log_id`, the name `/resume` takes, which differs from the conversation ID for a copied or renamed log.
+- `/resume`'s `differ`: the item for facts changed since the last call also gives `call` and `changes` (the resume record's differences), so a reader can list each change.
 - `text` events carry `at` and `end`, the piece's place in the reply, and `/state` gives `reply_end`, so a reader that starts mid-reply joins the stream without dropping or repeating text.
 
 ### Changed
