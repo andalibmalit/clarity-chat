@@ -100,7 +100,7 @@ def test_edit_shows_only_what_it_keeps(clarity, page):  # noqa: F811
 
 
 def test_empty_send_with_chips_is_a_quiet_line_and_text_mode_a_refusal(clarity, page):  # noqa: F811
-    """F12: forgetting to type isn't an error; a refusal isn't a hint."""
+    """F12: forgetting to type isn't an error, so it's a quiet line beside Send."""
     redirect, _ = clarity
     chat(page, redirect)
     choose(page, "notes.md", NOTES)
@@ -111,6 +111,11 @@ def test_empty_send_with_chips_is_a_quiet_line_and_text_mode_a_refusal(clarity, 
     page.wait_for_selector("#send-waits:has-text('Type a message to send with notes.md.')")
     assert page.query_selector("#notice .problem") is None
     shot(page, "R-empty-send-chips", "v031")
+
+
+def test_the_text_mode_refusal_is_a_refusal(clarity, page):  # noqa: F811
+    """F12's other half: the text-mode sentence in the notice box, as the board draws it."""
+    redirect, _ = clarity
     open_clarity(page, redirect)
     page.click("[data-profile=text]")
     page.wait_for_selector("#thread .intro")

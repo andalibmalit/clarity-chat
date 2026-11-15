@@ -57,6 +57,7 @@ from clarity_chat.documents import (
     checked_name,
     counted,
     more_than,
+    slow_read,
     too_big,
 )
 from clarity_chat.json_chat import JsonChat
@@ -307,7 +308,9 @@ def make_app(
         # before the server has answered (the lead's ruling on Checkpoint 3's point 2).
         page = (STATIC / "index.html").read_text(encoding="utf-8")
         stopped = html.escape(SENTENCES["stopped"])
-        return HTMLResponse(page.replace('data-stopped=""', f'data-stopped="{stopped}"', 1))
+        slow = html.escape(slow_read())
+        page = page.replace('data-stopped=""', f'data-stopped="{stopped}"', 1)
+        return HTMLResponse(page.replace('data-slow=""', f'data-slow="{slow}"', 1))
 
     def static(request: Request) -> Response:
         name = request.path_params["file"]
@@ -810,6 +813,19 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
             if attached
             else None
         )
+    # Edit can't take waiting chips along: its box says which stay (the walkthrough's F10).
+    waiting = [a["name"] for a in state["pending"]]
+    stays = (
+        SENTENCES["stays_waiting" if len(waiting) == 1 else "stay_waiting"].format(
+            names=", ".join(waiting)
+        )
+        if waiting
+        else None
+    )
+    # Your message's attachment line opens Details for its reply, at Attachments (F16).
+    for turn, after in zip(turns, turns[1:], strict=False):
+        if after["role"] == "assistant" and after["controls"]:
+            turn["reply_call"] = after["call_id"]
     starting = has_chats = intro = facts = failed = None
     idle = changing(state) is None
     # Reopened with your last message unanswered: one sentence says it's back in the box,
@@ -852,6 +868,7 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
         differ_line=differ_line,
         changed_lines=changed_lines,
         back_in_box=back_in_box,
+        stays=stays,
     )
 
 
@@ -1226,24 +1243,28 @@ def how_words(attachment: dict[str, Any]) -> str:
 
 
 def attachment_rows(call: dict[str, Any], turns: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """Details' Attachments row (C2): each document in this prompt, the message it was sent
-    with, and where its block sits in the prompt's tokens, from the spans' `added`."""
+    """Details' Attachments row (C2): each document in this prompt and each framing line,
+    the message it was sent with, and where it sits in the prompt's tokens with its count
+    (the walkthrough's F3), from the spans' `added`."""
     by_id = {turn["turn_id"]: turn for turn in turns}
     spans = call.get("message_spans")
     rows = []
     for entry in spans if isinstance(spans, list) else []:
         for added in entry.get("added", []):
-            if added["what"] != "attachment":
-                continue
             turn = by_id[entry["turn_id"]]  # Details opens only for calls on this path
-            attachment = turn["attachments"][added["index"]]
+            if added["what"] == "attachment":
+                attachment = turn["attachments"][added["index"]]
+                what = f"{attachment['name']} · {how_words(attachment)}"
+            else:
+                what = "Framing line"
             start, end = added["tokens"]
             said = turn["text"] if len(turn["text"]) <= 40 else turn["text"][:40].rstrip() + "…"
             rows.append(
                 {
-                    "what": f"{attachment['name']} · {how_words(attachment)}",
+                    "kind": added["what"],
+                    "what": what,
                     "with": f"“{said}”",
-                    "tokens": f"{start:,} to {end - 1:,}",
+                    "tokens": f"{start:,} to {end - 1:,} · {end - start:,} tokens",
                 }
             )
     return rows
@@ -1441,6 +1462,7 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
         not_highlighted=unhighlighted(call),
         highlight_added=SENTENCES["highlight_added"],
         attachments=attachment_rows(call, turns),
+        attachments_caption=SENTENCES["attachments_caption"],
         attached=attached_before(call, turns),
         text_mode=(call.get("bos") or {}).get("mode") == "text",
         stopped=stopped_words(call, settings.get("eog_tokens")),
@@ -1702,19 +1724,34 @@ def attach_sheet(
         part.update(first=first, last=last, ok=chosen["left"] is not None and chosen["left"] >= 0)
         if part["ok"]:
             part["count"] = f"{chosen['tokens']:,} tokens"
-            part["notes"].append(SENTENCES["left"].format(left=f"{chosen['left']:,}"))
+            part["notes"].append(
+                SENTENCES["left"].format(left=f"{chosen['left']:,}")
+                + " "
+                + SENTENCES["reply_share"].format(max_tokens=f"{max_tokens:,}")
+            )
         else:
             needed = more_than(chosen["tokens"], chosen["tokens_at_least"])
             part["notes"].append(SENTENCES["doesnt_fit"].format(tokens=needed, free=free))
-        if pre and chosen["range"] == pre["range"]:
-            part["notes"].append(SENTENCES["preselected"].format(max_tokens=f"{max_tokens:,}"))
+    # The suggested range, what it buys, and the most that fits with what that leaves, so
+    # the two don't read as a contradiction (the design walkthrough's F1).
+    suggested = bool(pre and chosen and chosen["range"] == pre["range"])
     if start:
         part["max"] = start["range"][1]
         if not check["fits"]:
-            Units = units.capitalize()
-            part["notes"].append(
-                SENTENCES["fits_up_to"].format(Units=Units, last=start["range"][1])
+            at_most = SENTENCES["at_most"].format(
+                units=units, last=start["range"][1], left=f"{start['left']:,}"
             )
+            if suggested:
+                assert pre is not None
+                filled = SENTENCES["filled_in"].format(
+                    units=units, last=pre["range"][1], max_tokens=f"{max_tokens:,}"
+                )
+                part["notes"] += [
+                    f"{filled} {at_most}",
+                    SENTENCES["longer_chat"].format(units=units),
+                ]
+            else:
+                part["notes"].append(at_most)
     else:
         part["max"] = check["total"]
     if not check["fits"] and not pre:
@@ -1735,7 +1772,9 @@ def attach_sheet(
         "name": check["name"],
         "upload": upload,
         "facts": facts,
-        "free": SENTENCES["free"].format(free=free),
+        "free": SENTENCES["free"].format(free=free, max_tokens=f"{max_tokens:,}"),
+        # A PDF's boxes take file pages, not printed ones (F2).
+        "pdf_pages": SENTENCES["pdf_pages"] if check["kind"] == "pdf" else None,
         "already": SENTENCES["already"] if check["already_in_chat"] else None,
         "choice": choice,
         "whole": {"fits": check["fits"], "note": whole_note},
@@ -1743,7 +1782,9 @@ def attach_sheet(
         "units": units.capitalize(),
         "unit_plural": units,
         "total": f"{check['total']:,}",
-        "excerpt": SENTENCES["no_marker" if own_marker == "none" else "excerpt"],
+        "excerpt": SENTENCES["no_marker"]
+        if own_marker == "none"
+        else SENTENCES["excerpt"].format(units=units),
         "new": {
             "does": SENTENCES["new_chat_does"],
             "whole": SENTENCES["whole"].format(tokens=f"{check['tokens_new_chat']:,}"),
@@ -1766,6 +1807,8 @@ def attach_sheet(
         "marker_label": SENTENCES["marker_label"].format(origin=marker_origin),
         "marker": marker,
         "preview": preview(chosen["text"] if chosen else check["text"]),
+        # Open for a PDF or a web page, the one check that the text came out right (F7).
+        "preview_open": check["kind"] in ("pdf", "html"),
         "choose": SENTENCES["choose"],
         "described_by": {"whole": "attach-whole-note", "part": "attach-part-note"}.get(
             choice or "", "attach-why"
@@ -1776,6 +1819,8 @@ def attach_sheet(
 async def _pending(worker: Worker, params: dict[str, str | None]) -> str:
     """The attachments waiting for your next message, as chips."""
     state = await result_of(worker, "state")
+    for a in state["pending"]:  # the cost when attached, as the thread's line says (F3)
+        a["cost"] = SENTENCES["chip_tokens"].format(tokens=f"{a['tokens']:,}")
     return templates.get_template("pending.html").render(pending=state["pending"])
 
 

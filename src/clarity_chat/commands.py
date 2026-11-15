@@ -362,7 +362,7 @@ def check_lines(check: dict[str, Any]) -> list[str]:
     if check["encrypted"]:
         facts.append(SENTENCES["encrypted"])
     lines = [f"{check['name']}: {', '.join(facts)}."]
-    lines.append(SENTENCES["free"].format(free=f"{check['free']:,}"))
+    lines.append(SENTENCES["free"].format(free=f"{check['free']:,}", max_tokens=max_tokens))
     if check["fits"]:
         lines.append(
             SENTENCES["whole"].format(tokens=f"{check['tokens_whole']:,}")
@@ -398,7 +398,10 @@ def check_lines(check: dict[str, Any]) -> list[str]:
             needed = more_than(chosen["tokens"], chosen["tokens_at_least"])
             free = f"{check['free']:,}"
             lines.append(f"{named} {SENTENCES['doesnt_fit'].format(tokens=needed, free=free)}")
-        lines.append(SENTENCES["excerpt"] if chosen["marker"] else SENTENCES["no_marker"])
+        if check["excerpt_marker_origin"] == "none":  # the profile's setting, not this range's
+            lines.append(SENTENCES["no_marker"])
+        else:
+            lines.append(SENTENCES["excerpt"].format(units=units))
     if check["already_in_chat"]:
         lines.append(SENTENCES["already"])
     if check["control_tokens"]:

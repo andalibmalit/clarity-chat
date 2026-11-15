@@ -40,7 +40,8 @@ def test_a_range_that_covers_the_file_still_says_excerpts_carry_a_marker(make):
     client, _, _ = make()
     upload_id = upload(client, NOTES).json()["upload"]
     text = sheet(client, upload=upload_id, unit="lines", first="1", last="3")
-    assert SENTENCES["excerpt"] in text and SENTENCES["no_marker"] not in text
+    excerpt = SENTENCES["excerpt"].format(units="lines")
+    assert excerpt in text and SENTENCES["no_marker"] not in text
 
 
 def test_a_profile_with_no_marker_says_so_before_any_range(make):
@@ -48,7 +49,7 @@ def test_a_profile_with_no_marker_says_so_before_any_range(make):
     upload_id = upload(client, NOTES).json()["upload"]
     assert checked(client, upload_id)["excerpt_marker_origin"] == "none"
     text = sheet(client, upload=upload_id)
-    assert SENTENCES["no_marker"] in text and SENTENCES["excerpt"] not in text
+    assert SENTENCES["no_marker"] in text and "after a line that says" not in text
 
 
 def test_the_marker_label_names_the_profile_s_own_marker(make):
@@ -211,13 +212,14 @@ def test_the_preselected_sentence_uses_separators(make):
     command(client, "set", "max_tokens 1024")
     upload_id = upload(client, LONG, "long.md").json()["upload"]
     assert checked(client, upload_id)["preselected"] is not None
-    assert SENTENCES["preselected"].format(max_tokens="1,024") in sheet(client, upload=upload_id)
+    page = html.unescape(sheet(client, upload=upload_id))
+    assert "the largest start it found that leaves at least 1,024." in page
 
 
 @pytest.mark.parametrize(
     ("name", "data", "setup", "sentence"),
     [
-        ("aes.pdf", aes_pdf(["Made-up."]), None, "aes.pdf is protected."),
+        ("aes.pdf", aes_pdf(["Made-up."]), None, "aes.pdf is protected, even if"),
         ("slow.md", NOTES, "import time; time.sleep(60)", "slow.md took longer than 1 seconds"),
         ("huge.md", NOTES, "import sys; sys.exit(70)", "huge.md took more than 1 GB of memory"),
     ],

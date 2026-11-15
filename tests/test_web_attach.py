@@ -80,7 +80,7 @@ def test_a_file_that_fits_is_offered_whole_with_its_numbers(make):
     text = sheet(client, upload=upload_id)
     assert '<h2 id="attach-title"' in text and "notes.md" in text
     assert "Text · 3 lines · 32 bytes" in text
-    assert SENTENCES["free"].format(free=f"{check['free']:,}") in text
+    assert SENTENCES["free"].format(free=f"{check['free']:,}", max_tokens="16") in text
     whole = radio(text, "whole")
     assert 'aria-checked="true"' in whole and 'aria-disabled="true"' not in whole
     assert f'data-args="{upload_id}"' in whole
@@ -108,8 +108,8 @@ def test_a_file_that_doesn_t_fit_preselects_the_part_that_leaves_room(make):
     assert 'aria-checked="true"' in part and f'data-args="{upload_id} lines 1-{pre}"' in part
     assert value(text, "attach-from") == "1" and value(text, "attach-to") == str(pre)
     assert value(text, "attach-to", "max") == str(start)  # the box's limit: the start that fits
-    assert SENTENCES["preselected"].format(max_tokens="16") in text
-    assert SENTENCES["fits_up_to"].format(Units="Lines", last=start) in text
+    assert SENTENCES["filled_in"].format(units="lines", last=pre, max_tokens="16") in text
+    assert f"At most lines 1 to {start} fit" in text
     assert "Excerpt: lines 1 to " in text  # the marker it will carry
 
 
@@ -121,8 +121,9 @@ def test_a_range_shows_its_own_count_and_what_it_leaves(make):
     assert 'aria-checked="true"' in radio(text, "part")
     assert f"{chosen['tokens']:,} tokens" in text
     assert SENTENCES["left"].format(left=f"{chosen['left']:,}") in text
-    assert SENTENCES["excerpt"] in text and "Excerpt: lines 2 to 3 of 3" in text
-    assert SENTENCES["preselected"].split("{")[0] not in text  # not the preselected one
+    excerpt = SENTENCES["excerpt"].format(units="lines")
+    assert excerpt in text and "Excerpt: lines 2 to 3 of 3" in text
+    assert "Clarity filled in" not in text  # not the suggested range
 
 
 def test_a_range_outside_the_file_says_so_in_the_part(make):

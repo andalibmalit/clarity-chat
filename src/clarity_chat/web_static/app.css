@@ -204,7 +204,7 @@ ol.thread { list-style: none; margin: 0; padding: 0; display: flex; flex-directi
 .card .msg { font-size: 16px; }
 .card { position: relative; } /* Compare's cards: the thread's bookmark in the foot (E3) */
 .card .bm { position: static; width: 28px; height: 28px; flex: none; }
-.card .pop { left: auto; right: 6px; top: calc(100% - 4px); }
+.card .pop { left: 0; right: 0; width: auto; top: calc(100% - 4px); } /* within its card (F13) */
 .cardh, .cellh { font-size: 12.5px; color: var(--muted); }
 .cellh { display: none; }
 .cfoot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); }
@@ -492,6 +492,9 @@ dialog.sheet.attach { width: min(620px, calc(100vw - 32px)); max-height: calc(10
 .attach .sheet-error { color: var(--warn); }
 .attach .opts { display: flex; flex-direction: column; gap: 8px; }
 .attach .opt { border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 8px 10px; }
+/* The board's chosen and disabled choices (the walkthrough's F6). */
+.attach .opt:has(> .optbtn[aria-checked="true"]) { border-color: var(--accent); }
+.attach .opt:has(> .optbtn[aria-disabled="true"]) { background: var(--sunken); }
 .attach .optbtn { display: flex; align-items: center; gap: 8px; font: inherit; font-weight: 500; color: var(--ink); background: none; border: 0; padding: 0; cursor: pointer; }
 .attach .optbtn[aria-disabled="true"] { color: var(--muted); cursor: default; }
 .attach .rd { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--muted); flex: none; }
@@ -501,9 +504,10 @@ dialog.sheet.attach { width: min(620px, calc(100vw - 32px)); max-height: calc(10
 .attach .range { display: flex; align-items: center; gap: 6px; margin: 6px 0 0 22px; font-size: 13px; font-variant-numeric: tabular-nums; flex-wrap: wrap; }
 .attach .range input { width: 6em; font: inherit; padding: 3px 6px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--raised); color: var(--ink); }
 .attach .warnl { margin: 10px 0 0; font-size: 13px; color: var(--warn); }
-.attach .frame { margin-top: 12px; border-top: 1px solid var(--rule); padding-top: 8px; font-size: 13px; }
+.attach .frame { margin-top: 12px; background: var(--sunken); border-radius: var(--r-sm); padding: 8px 10px; font-size: 13px; }
 .attach .fl { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); }
-.attach .ft { margin: 2px 0 8px; overflow-wrap: anywhere; white-space: pre-wrap; }
+.attach .ft { margin: 2px 0 8px; overflow-wrap: anywhere; white-space: pre-wrap; font-family: var(--mono); font-size: 12.5px; }
+.attach .range .ct { font-weight: 500; color: var(--ink); } /* the row's key number (F18) */
 .attach .preview { margin-top: 10px; max-height: 240px; overflow: auto; border: 1px solid var(--rule); border-radius: var(--r-sm); padding: 8px 10px; }
 .attach .preview pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; }
 .attach .preview .more { margin: 6px 0; font-size: 12.5px; color: var(--muted); }
@@ -514,3 +518,6 @@ dialog.sheet.attach { width: min(620px, calc(100vw - 32px)); max-height: calc(10
 .turn.user .att { display: inline-flex; align-items: center; gap: 6px; align-self: flex-end; font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .editbox .att { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
 .menuwhy, #picker-waits { font-size: 13px; color: var(--muted); align-self: center; }
+.turn.user button.att { background: none; border: 0; padding: 0; font: inherit; font-size: 12.5px; cursor: pointer; }
+.turn.user button.att:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+#panel .att-caption { margin-top: 6px; }

@@ -219,13 +219,18 @@ A **line** is text split on `\n` only, each keeping its `\n`, so excerpts join b
 
 ## The attach sheet's sentences
 
-The page, the terminal and this list share these sentences and phrases, from one table in the code. The braces are filled in: `{tokens}`, `{free}`, `{left}`, `{max_tokens}`, `{first}` and `{last}` with numbers, `{unit}` with `page` or `line`, `{units}` and `{Units}` with its plural, `{count}` with how many units, lines or characters, `{name}` and `{names}` with file names, `{origin}` with the origin phrases below, and `{framing}` with the framing line, and `{how}` with `whole` or an excerpt's range ("pages 1–23 of 131").
+The page, the terminal and this list share these sentences and phrases, from one table in the code. The braces are filled in: `{tokens}`, `{free}`, `{left}`, `{max_tokens}`, `{first}` and `{last}` with numbers, `{unit}` with `page` or `line`, `{units}` and `{Units}` with its plural, `{count}` with how many units, lines or characters, `{name}` and `{names}` with file names, `{origin}` with the origin phrases below, `{framing}` with the framing line, `{how}` with `whole` or an excerpt's range ("pages 1–23 of 131"), `{over}` with how many tokens a prompt is over, and `{seconds}` and `{memory}` with the reader's time limit (120) and memory cap ("1 GB").
 
-- `whole`: It takes up {tokens} tokens of the context for the rest of the chat.
-- `excerpt`: The pages or lines you choose go in complete, after a line saying they're an excerpt.
+- `whole`: It takes up {tokens} tokens in every later prompt of this chat.
+- `excerpt`: Only the {units} you choose are sent, after a line that says they're an excerpt.
 - `no_marker`: No excerpt marker (this profile).
-- `free`: {free} tokens free in this chat, after setting aside max_tokens for the reply.
-- `left`: That leaves {left} tokens for your message and the rest of the chat.
+- `free`: {free} tokens free in this chat, after setting aside {max_tokens} for the reply (your max_tokens).
+- `left`: That leaves {left} tokens for your messages and the replies.
+- `reply_share`: Each later reply can use up to {max_tokens} of them (your max_tokens).
+- `filled_in`: Clarity filled in {units} 1 to {last}: the largest start it found that leaves at least {max_tokens}.
+- `at_most`: At most {units} 1 to {last} fit, leaving {left}.
+- `longer_chat`: For a longer chat, attach fewer {units}.
+- `pdf_pages`: Pages are counted from the file's first page, not the numbers printed on them.
 - `doesnt_fit`: Doesn't fit: needs {tokens} tokens, {free} free.
 - `start_that_fits`: The start that fits: {units} 1 to {last} ({tokens} tokens).
 - `fits_up_to`: {Units} 1 to {last} fit.
@@ -235,11 +240,11 @@ The page, the terminal and this list share these sentences and phrases, from one
 - `chosen`: {Units} {first} to {last}:
 - `new_chat`: The whole fits a new chat on this profile, with {free} tokens free there.
 - `already`: This file is already in this chat.
-- `control_tokens`: Holds text the tokenizer reads as control tokens ({tokens}); it's sent as it is, and the call is flagged.
+- `control_tokens`: Holds text the tokenizer reads as control tokens ({tokens}); it's sent as it is, and the call is flagged. The model may read them as its own markers, such as the end of a message.
 - `closing_tag`: Holds </document>, which ends Clarity's wrapper early; it's sent as it is.
 - `framing`: Framing line ({origin}): {framing}
-- `framing_label`: Framing line ({origin})
-- `marker_label`: Excerpt marker ({origin})
+- `framing_label`: Clarity introduces the document to the model with this line ({origin}):
+- `marker_label`: The excerpt starts with this line, so the model knows it's partial ({origin}):
 - `new_chat_does`: Starts a new chat on this profile with the whole file attached, waiting for your first message. This chat stays in Chats.
 - `not_kept`: Not kept: {names}, waiting for your next message. An attachment is logged only with the message it's sent with.
 - `more_lines`: … and {count} more lines, ending with:
@@ -247,9 +252,20 @@ The page, the terminal and this list share these sentences and phrases, from one
 - `choose`: Choose how to attach it.
 - `stopped`: Stopped reading {name}.
 - `attached_line`: Attached: {name} · {how} · {tokens} tokens when attached
-- `keeps`: Keeps: {names}
-- `highlight_added`: Highlighted: the framing line and documents Clarity put in your message.
-- `remove_waiting`: Remove an attachment waiting for this message, attach less, start a new chat, or lower max_tokens.
+- `chip_tokens`: {tokens} tokens when attached
+- `keeps`: Keeps: {names}. An edit can't add or remove attachments.
+- `stays_waiting`: {names} stays waiting for your next message.
+- `stay_waiting`: {names} stay waiting for your next message.
+- `highlight_added`: Highlighted: the framing line and documents Clarity put in your messages.
+- `attachments_caption`: Your message's line counts each attachment as it cost when it was attached: its block, the blank lines Clarity puts around it (not highlighted here) and, for a message's first, the framing line.
+- `too_long`: It's {over} tokens too long.
+- `stop_advice`: Shorten your message, start a new chat, or lower max_tokens.
+- `remove_waiting`: Shorten your message, remove an attachment and attach a shorter part, start a new chat, or lower max_tokens.
+- `slow_read`: A long file can take a minute to read. Clarity stops at {seconds} seconds.
+- `too_slow`: {name} took longer than {seconds} seconds to read. Attach a smaller file, or split it and attach the part you need.
+- `too_much_memory`: {name} took more than {memory} of memory to read. Attach a smaller file, or split it and attach the part you need.
+- `protected`: {name} is protected, even if it opens without a password. Export or print it to a new PDF and attach that.
+- `no_text`: {name} has no text Clarity can read. Its pages may be scanned images, which Clarity doesn't read. Use a PDF app's text recognition (OCR) to add the text, then attach that copy.
 - `no_room`: This chat has no room left for a file: its messages and max_tokens already fill the context. Lower max_tokens or start a new chat.
 - `no_framing`: No framing line ({origin}).
 - `origin_default`: Clarity's default

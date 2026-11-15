@@ -34,6 +34,7 @@ from clarity_chat.documents.reading import (
     checked_name,
     extract,
     read_path,
+    slow_read,
     too_big,
 )
 
@@ -58,6 +59,7 @@ __all__ = [
     "extract",
     "fit",
     "framing_of",
+    "slow_read",
     "free",
     "message_content",
     "more_than",
