@@ -67,15 +67,20 @@ jobs:
   # in Chrome only, and these engines are Safari's and Firefox's. Allowed to fail until its
   # failures are read: the counts and each failure go to the job summary, so they show
   # without opening the log. Failures in the attach screens are fixed in v0.3.1; others
-  # are listed for v0.4.0.
+  # are listed for v0.4.0. WebKit runs on macOS, closer to Safari and where Playwright's
+  # WebKit is best supported: on ubuntu-latest it closed at the first test (CI 43754075636).
   browser-others:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30  # an engine where many waits time out shouldn't run for six hours
     continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
-        engine: [webkit, firefox]
+        include:
+          - engine: webkit
+            os: macos-latest
+          - engine: firefox
+            os: ubuntu-latest
     env:
       HF_HUB_OFFLINE: "1"
     steps:
@@ -84,7 +89,8 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --locked --group browser
-      - run: uv run playwright install --with-deps ${{ matrix.engine }}
+      # The system libraries an engine needs: on Linux only; macOS has them.
+      - run: uv run playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} ${{ matrix.engine }}
       - run: uv run pytest -m browser --browser ${{ matrix.engine }} -v --junitxml=browser.xml
       - name: Counts and failures to the job summary
         if: ${{ !cancelled() }}
