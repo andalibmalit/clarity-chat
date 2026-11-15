@@ -658,7 +658,10 @@ def test_details_draws_when_its_probabilities_or_compare_are_refused(chat):
     fragment = details(client, second)
     assert 'Probabilities <span class="n">can’t be read</span>' in fragment
     # The page names no terminal command (sprint audit, as finding 20 did for "/set:").
-    assert "Can't read this conversation: a record lacks or mangles 'top'." in fragment
+    assert (
+        "Can't read this chat's records (KeyError: 'top'). A log another program wrote or "
+        "edited can cause this; if not, it's a bug in Clarity."
+    ) in fragment
     assert "/probs" not in fragment
     assert "Details · reply 2 of 2" in fragment and 'data-action="replay"' in fragment
     for call in (first, second):
@@ -668,7 +671,8 @@ def test_details_draws_when_its_probabilities_or_compare_are_refused(chat):
     compared = client.get(f"/view/compare?call={first}", headers={**AUTH, **SAME})
     assert (compared.status_code, compared.text) == (
         503,
-        "Can't read this conversation: a record lacks or mangles 'output_ids'.",
+        "Can't read this chat's records (KeyError: 'output_ids'). A log another program "
+        "wrote or edited can cause this; if not, it's a bug in Clarity.",
     )
     assert 'data-action="replay"' in fragment and "Request and response" in fragment
 
@@ -699,3 +703,29 @@ def test_a_cancelled_reply_s_details_says_why_it_cant_be_replayed(chat):
     assert 'data-action="replay"' not in section
     assert refused == f"Call {call} was cancelled, so its reply is incomplete."
     assert refused in section and "can’t be replayed" in section
+
+
+@pytest.mark.parametrize(("value", "kind"), [(None, "TypeError"), ("absent", "KeyError")])
+def test_a_read_that_cant_use_a_record_says_so_honestly_and_the_session_goes_on(chat, value, kind):
+    """Fix review, batch 6, item 3: the refusal blamed the log for any exception and read
+    badly ("a record lacks or mangles object of type 'NoneType' has no len()."). One honest
+    sentence, the exception's type and message in it; the terminal's starts with the
+    command. "output_ids": null is the TypeError case no test had."""
+    client, session = chat
+    session.backend.replies = [" Hello!", " Hello!"]
+    result(client, "set", "seed 7")
+    first = result(client, "say", "Hi")["call"]["call_id"]
+    result(client, "set", "temperature 0.3")
+    result(client, "regen", "same")
+    assert session.conversation is not None
+    for call in session.conversation.calls.values():
+        if value == "absent":
+            call.pop("output_ids")
+        else:
+            call["output_ids"] = value
+    answer = command(client, "compare", first).json()
+    assert not answer.get("stopped") and answer["type"] == "ConfigError", answer
+    lead = f"/compare: Can't read this chat's records ({kind}: "
+    tail = "). A log another program wrote or edited can cause this; if not, it's a bug in Clarity."
+    assert answer["error"].startswith(lead) and answer["error"].endswith(tail), answer["error"]
+    assert command(client, "state").json()["result"]["turns"]  # the session goes on

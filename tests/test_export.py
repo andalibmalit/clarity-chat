@@ -390,8 +390,12 @@ def test_a_log_with_a_call_missing_a_field_is_refused(make, tmp_path):
             del row["model"]
     edited = tmp_path / "edited.jsonl"
     edited.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    with pytest.raises(ConfigError, match="can't be exported"):
+    with pytest.raises(ConfigError) as refused:
         export_log(session, edited)
+    assert str(refused.value) == (  # fix review, batch 6, item 3
+        f"Can't read the records of {edited} (KeyError: 'model'). A log another program "
+        "wrote or edited can cause this; if not, it's a bug in Clarity."
+    )
 
 
 def test_a_turn_whose_parent_comes_later_is_refused_not_looped_on(make, tmp_path):

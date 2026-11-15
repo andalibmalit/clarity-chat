@@ -230,8 +230,13 @@ def test_a_log_that_cant_be_rebuilt_leaves_the_running_chat_alone(new_session, t
         if row["type"] == "call":
             del row["settings"]["seed"]  # a log Clarity didn't write
     path.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    with pytest.raises(ConfigError, match="can't be resumed: a record lacks or mangles 'seed'"):
+    with pytest.raises(ConfigError) as refused:
         session.resume(path)
+    # One honest sentence, as for every read (fix review, batch 6, item 3).
+    assert str(refused.value) == (
+        f"Can't read the records of {path} (KeyError: 'seed'). A log another program wrote "
+        "or edited can cause this; if not, it's a bug in Clarity."
+    )
     assert session.conversation is running and backend.ctx_sizes == [8192]  # not restarted
 
 
