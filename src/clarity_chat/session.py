@@ -1117,13 +1117,12 @@ class Session:
             conversation.calls[call_id] = record  # readable by its ID (/prompt CALL_ID)
             failed = {"call_id": call_id} if back_to is None else {}
             conversation.move_head(back_to or user_turn.parent_id, "failed", **failed)
-            if back_to is None:
+            if back_to is None:  # a message, sent and failed
                 conversation.last_call = record  # /prompt shows the failed message's call
                 conversation.unanswered = {"turn_id": user_turn.turn_id, "text": user_turn.text}
+                conversation.resume_differ = None  # it used the resumed one up
             elif user_turn.origin == "edit":  # as a resume reads it: the edit is the last turn
                 conversation.unanswered = None
-            if back_to is None:  # a message, sent and failed: it used the resumed one up
-                conversation.resume_differ = None
             raise
         fields, server_prompt = result_fields(result)
         record.update(fields)
