@@ -161,6 +161,15 @@ def checked_attachments(record: Mapping[str, Any]) -> dict[str, Any]:
     return fields
 
 
+def summaries(attachments: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attachment records without their text, numbered from 1: what results and /history
+    list (a SUMMARY)."""
+    return [
+        {**{k: v for k, v in a.items() if k != "text"}, "n": n}
+        for n, a in enumerate(attachments, 1)
+    ]
+
+
 def added_ranges(fields: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Where the framing line and each block sit in the message's content: half-open
     `chars`, for message_spans' `added`. Empty for a message without attachments."""

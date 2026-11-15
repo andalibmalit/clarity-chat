@@ -142,6 +142,8 @@ EVERY_COMMAND = [
     ("set", lambda s: "temperature 0.9"),
     ("regen", lambda s: ""),
     ("edit", lambda s: "Hi again"),
+    ("attach", lambda s: ""),  # alone: what's waiting, in any mode
+    ("detach", lambda s: ""),
     ("history", lambda s: ""),
     ("compare", lambda s: ""),
     ("branches", lambda s: ""),

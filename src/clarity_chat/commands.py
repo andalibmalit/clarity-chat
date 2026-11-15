@@ -20,10 +20,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from clarity_chat import documents
 from clarity_chat.backends import BackendError
+from clarity_chat.documents import DocumentRefused, summaries
 from clarity_chat.logs import LOG_NAME, list_chats, unreadable
 from clarity_chat.profiles import ConfigError, profile_path
-from clarity_chat.session import CallOutcome, CancelledBeforeReply, Session
+from clarity_chat.session import CallOutcome, CancelledBeforeReply, DoesntFit, Session
 
 Emit = Callable[[dict[str, Any]], None]
 MESSAGE_COMMANDS = {"say", "edit"}  # their args are message text, sent exactly
@@ -50,7 +52,10 @@ class Commands:
         self, session: Session, uploads: dict[str, tuple[bytes, str]] | None = None
     ) -> None:
         self.session = session
+        # The page's uploads, by ID: set only for the page, whose /attach takes upload IDs
+        # and never a path (decision 16). The terminal and --json read paths.
         self.uploads = uploads
+        self.reading: str | None = None  # the file /attach is reading, for /state
         self.busy = threading.Lock()  # held while a command runs: one at a time
         self.cancel_event: threading.Event | None = None  # the running command's
         self.running: str | None = None  # the running command's name
@@ -268,12 +273,81 @@ def _edit(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return c.call(emit, lambda **kw: c.session.edit(text, **kw))
 
 
+# The path (or upload ID) is everything before an optional range and `check` (decision 16).
+ATTACH_ARGS = re.compile(
+    r"(?P<source>.+?)(?:\s+(?P<unit>pages|lines)\s+(?P<first>[0-9]+)-(?P<last>[0-9]+))?"
+    r"(?:\s+(?P<check>check))?",
+    re.S,
+)
+UPLOAD_ID = re.compile(r"upload-[0-9a-f]{12}")
+
+
 def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    return {}
+    """A file, whole or a range of it, for your next message; `check` only counts it. With
+    nothing, what's waiting."""
+    conversation = c.session.conversation
+    assert conversation is not None
+    if not args:
+        return {"pending": summaries(conversation.pending)}
+    found = ATTACH_ARGS.fullmatch(args)
+    assert found is not None  # anything matches: the source takes what the rest doesn't
+    source, unit = found["source"], found["unit"]
+    first, last = int(found["first"] or 0), int(found["last"] or 0)
+    doc = read_document(c, source)
+    if found["check"]:
+        return {"check": c.session.check(doc, unit, first, last)}
+    try:
+        _, fit = c.session.attach(doc, unit, first, last)
+    except DoesntFit as e:
+        if unit is not None:
+            raise
+        if e.start is None:
+            raise DoesntFit(f"{e} Not even its first {doc.unit} fits.") from None
+        raise DoesntFit(
+            f"{e} The start that fits: /attach {source} {doc.unit}s 1-{e.start}.", e.start
+        ) from None
+    if c.uploads is not None:
+        c.uploads.pop(source, None)  # used: Add drops it
+    pending = summaries(conversation.pending)
+    return {"attached": pending[-1], "pending": pending, "free": fit.free, "left": fit.left}
+
+
+def read_document(c: Commands, source: str) -> documents.Document:
+    """The file `source` names, read and extracted. Any error is a refusal with a sentence,
+    never a stopped session (M5)."""
+    if c.uploads is not None:
+        if not UPLOAD_ID.fullmatch(source):
+            raise ConfigError("From the page, attach a file by choosing it.")
+        if source not in c.uploads:
+            raise ConfigError("That file isn't uploaded any more. Choose it again.")
+        data, name = c.uploads[source]
+    else:
+        data, name = documents.read_path(source)
+    with c.progress:
+        c.reading = name
+    try:
+        return documents.extract(data, name, c.cancel_event)
+    except ConfigError:
+        raise
+    except Exception as e:  # noqa: BLE001 - a bug or a file nobody foresaw: say which
+        raise DocumentRefused(f"Clarity couldn't read {name} ({type(e).__name__}: {e}).") from e
+    finally:
+        with c.progress:
+            c.reading = None
 
 
 def _detach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    return {}
+    """Remove waiting attachment N, or all of them."""
+    conversation = c.session.conversation
+    assert conversation is not None
+    listed = summaries(conversation.pending)
+    if not args:
+        conversation.pending = []
+        return {"detached": listed, "pending": []}
+    if not re.fullmatch(r"[0-9]+", args) or not 1 <= int(args) <= len(listed):
+        raise ConfigError(f"No attachment {args}. /attach lists them.")
+    del conversation.pending[int(args) - 1]
+    return {"detached": [listed[int(args) - 1]], "pending": summaries(conversation.pending)}
 
 
 def _cancel(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -611,14 +685,6 @@ def _start(c: Commands, profile: str, emit: Emit) -> dict[str, Any]:
     }
 
 
-def summaries(attachments: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Attachment records without their text, numbered from 1 (a SUMMARY)."""
-    return [
-        {**{k: v for k, v in a.items() if k != "text"}, "n": n}
-        for n, a in enumerate(attachments, 1)
-    ]
-
-
 def waiting(c: Commands) -> list[dict[str, Any]]:
     return list(c.session.conversation.pending) if c.session.conversation else []
 
@@ -658,6 +724,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         reply_so_far, reply_end = "".join(c.streamed), c.streamed_end
         written = c.written  # the reply's turn, once logged (it joins the turns soon after)
         model = model_state(c)
+        reading = {"name": c.reading} if c.reading is not None else None
     out: dict[str, Any] = {
         "running": running,
         "reply_so_far": reply_so_far,
@@ -676,6 +743,8 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "unanswered": None,
         "warnings": [],
         "resume_differ": None,
+        "pending": [],
+        "reading": reading,
     }
     if conversation is None:
         return out
@@ -698,6 +767,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
             *conversation.warnings,
         ],
         "resume_differ": conversation.resume_differ,
+        "pending": summaries(conversation.pending),
     }
 
 
@@ -810,8 +880,14 @@ COMMANDS: dict[str, Command] = {
         _edit,
         cancellable=True,
     ),
-    "attach": Command("/attach [PATH]", "attach a file", _attach, cancellable=True),
-    "detach": Command("/detach [N]", "remove an attachment", _detach),
+    "attach": Command(
+        "/attach [PATH [pages|lines A-B] [check]]",
+        "attach a file to your next message, whole or a range; check: count it, attach nothing; "
+        "alone: list what's waiting",
+        _attach,
+        cancellable=True,  # /cancel stops the reading
+    ),
+    "detach": Command("/detach [N]", "remove waiting attachment N, or all of them", _detach),
     "undo": Command(
         "/undo", "go back past the last exchange; your next message starts a branch", _undo
     ),

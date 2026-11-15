@@ -21,6 +21,7 @@ from clarity_chat.documents.insert import (
     piece,
     scan,
     start_that_fits,
+    summaries,
 )
 from clarity_chat.documents.reading import (
     Document,
@@ -53,4 +54,5 @@ __all__ = [
     "read_path",
     "scan",
     "start_that_fits",
+    "summaries",
 ]
