@@ -43,6 +43,7 @@ ROUTES = {
     ("GET", "/view/{name}"): True,
     ("POST", "/tab"): True,
     ("GET", "/export"): True,
+    ("POST", "/upload"): True,  # v0.3.1 B3
 }
 
 
@@ -104,6 +105,7 @@ def test_the_shell_and_static_files_need_no_secret_and_hold_no_data(server):
         ("GET", "/view/thread"),
         ("POST", "/tab"),
         ("GET", "/export"),
+        ("POST", "/upload"),
     ],
 )
 @pytest.mark.parametrize(
