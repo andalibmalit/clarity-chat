@@ -193,6 +193,11 @@ def check_clarity_args(root: Path, argv: list[str]) -> argparse.Namespace:
     return args
 
 
+def attach_problem(root: Path, value: str) -> str | None:
+    """Why an attachment's path may not be read; None when it may. (Stub: allows any.)"""
+    return None
+
+
 def inside(root: Path, value: str) -> bool:
     """A path inside the root, judged from the root, where Clarity runs."""
     path = Path(value) if Path(value).is_absolute() else root / value
@@ -202,7 +207,7 @@ def inside(root: Path, value: str) -> bool:
 # --- steps ---------------------------------------------------------------------------
 
 
-def parse_steps(path: Path, json_mode: bool) -> list[str]:
+def parse_steps(path: Path, json_mode: bool, root: Path | None = None) -> list[str]:
     """The steps, checked before anything starts, so a typo can't stop a session midway and
     no step names a file outside the root. No control characters: the line editor acts on
     them (Ctrl-A moves to the start of the line), so a step could become another command."""

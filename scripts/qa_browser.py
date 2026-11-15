@@ -124,7 +124,7 @@ def fill_parts(arg: str) -> tuple[str, str] | None:
     return selector, text[1:]
 
 
-def parse_steps(path: Path) -> list[tuple[str, str]]:
+def parse_steps(path: Path, root: Path | None = None) -> list[tuple[str, str]]:
     """The steps as (verb, argument), all checked before anything starts."""
     steps = []
     for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
@@ -166,7 +166,7 @@ def shot(page: Page, out: Path, stem: str) -> None:
     new_file(out / f"{stem}.aria.yml", page.locator("body").aria_snapshot())
 
 
-def run_step(page: Page, verb: str, arg: str, out: Path, n: int) -> None:
+def run_step(page: Page, verb: str, arg: str, out: Path, n: int, root: Path | None = None) -> None:
     if verb == "click":
         page.click(arg)
     elif verb == "fill":
