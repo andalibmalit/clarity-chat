@@ -211,3 +211,16 @@ def test_the_terminal_shows_a_name_s_control_characters_visibly():
     line = format_pending([a])
     assert "\x1b" not in line and "\x07" not in line and "\u202e" not in line
     assert "\\x1b]0;made-up\\x07notes\\u202e.md" in line
+
+
+def test_check_s_lines_come_from_the_one_table(loop, notes):
+    """Should 5: format_check writes no sentence of its own."""
+    from clarity_chat.documents import SENTENCES
+
+    chat, output, _ = loop
+    chat.handle(f"/attach {notes} lines 2-3 check")
+    text = "".join(output)
+    assert "notes.md: text, 3 lines." in text
+    assert SENTENCES["framing"].format(origin="Clarity's default", framing="") in text
+    assert "Lines 2 to 3: " in text
+    assert "The start that fits" not in text  # the whole fits: no start lines (could 14)

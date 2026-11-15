@@ -170,11 +170,11 @@ def test_a_refusal_comes_before_any_of_the_body_is_read(chat, change, status):
 def test_too_big_says_the_limit_and_is_checked_again_while_reading(chat):
     _, _, app = chat
     code, _, text = raw(app, {**GOOD, "Content-Length": str(64 * 1024 * 1024 + 1)}, [NOTES])
-    assert (code, text) == (413, "Too big: Clarity attaches files of at most 64 MB.")
+    assert (code, text) == (413, "Too big: Clarity attaches files up to 64 MB (67,108,864 bytes).")
     chunk = b"x" * (1024 * 1024)
     lying = {**GOOD, "Content-Length": "10"}
     code, taken, text = raw(app, lying, [chunk] * 70)
-    assert (code, text) == (413, "Too big: Clarity attaches files of at most 64 MB.")
+    assert (code, text) == (413, "Too big: Clarity attaches files up to 64 MB (67,108,864 bytes).")
     assert taken < 70  # it stopped reading
 
 
