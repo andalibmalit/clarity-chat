@@ -500,3 +500,25 @@ def test_the_backend_contract_on_transformers(tmp_path):
     finally:
         session.close()
     contract.check_or_write("transformers", shapes)
+
+
+def test_an_attachment_gives_the_same_prompt_ids_on_both_backends(tmp_path):
+    """v0.3.1: the attachment's block is in the content, which both backends get as IDs."""
+    from clarity_chat.documents import extract
+
+    session = Session(REPO, logs_dir=tmp_path)
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    notes = b"Made-up trail notes.\nThree cairns mark the ridge.\nNo water after the pass.\n"
+    records = {}
+    try:
+        for backend in ("llama.cpp", "transformers"):
+            session.new_conversation(profile(folder, "smol-chat", backend, temperature="0.0"))
+            session.attach(extract(notes, "trail-notes.md"), "lines", 1, 2)
+            records[backend] = session.say("What marks the ridge?").record
+            checks_ok(records[backend])
+    finally:
+        session.close()
+    llama, hf = records["llama.cpp"], records["transformers"]
+    assert "Excerpt: lines 1 to 2 of 3" in hf["prompt_text"]
+    assert llama["prompt_ids"] == hf["prompt_ids"]
