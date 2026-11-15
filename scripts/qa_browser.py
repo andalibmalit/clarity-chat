@@ -71,6 +71,7 @@ CLARITY = "http://127.0.0.1:8765/"  # web.PORT
 VERBS = {"click", "fill", "type", "press", "wait", "gone", "sleep", "shot", "reload", "width"}
 NAME = re.compile(r"[A-Za-z0-9_-]+")
 KEY = re.compile(r"(Shift\+)?[A-Za-z0-9]+")
+LINK_S = 90  # `clarity ui` prints its link once it listens, in seconds on SmolLM2
 WAIT_MS = 120_000  # SmolLM2 starts and replies in seconds; a wrong selector fails in time
 SLEEP_MAX_S = 60
 
@@ -244,8 +245,8 @@ def main() -> int:
     program = Path(sys.executable).parent / "clarity"
     # BROWSER=true: `clarity ui` opens its redirect file with a command that does nothing,
     # and the driver opens it in Playwright's browser instead. No downloads: SmolLM2 is
-    # fetched already.
-    env = {**os.environ, "BROWSER": "true", "HF_HUB_OFFLINE": "1"}
+    # fetched already. PYTHONUNBUFFERED: whatever Clarity prints reaches the transcript at once.
+    env = {**os.environ, "BROWSER": "true", "HF_HUB_OFFLINE": "1", "PYTHONUNBUFFERED": "1"}
     clarity = subprocess.Popen(
         [str(program), "--root", str(root), "ui"],
         cwd=root,
@@ -262,7 +263,10 @@ def main() -> int:
     )
     reader.start()
     try:
-        ready.wait()  # Clarity prints its link once it listens, or why it can't and exits
+        # Clarity prints its link once it listens, or why it can't and exits.
+        if not ready.wait(LINK_S):
+            log.write(f"[qa: clarity ui printed no link in {LINK_S} s]\n")
+            return 1
         if not linked.is_set():
             log.write("[qa: clarity ui didn't print its link]\n")
             return 1
