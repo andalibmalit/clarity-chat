@@ -12,7 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends import BackendError
-from clarity_chat.commands import SENTENCES, Commands, check_lines, read_files, summaries
+from clarity_chat.commands import (
+    SENTENCES,
+    Commands,
+    check_lines,
+    how_words,
+    read_files,
+    summaries,
+)
 from clarity_chat.logs import torn_message
 from clarity_chat.profiles import ConfigError, find_root, load_models, load_server_config
 from clarity_chat.replay import replay_notes
@@ -159,7 +166,7 @@ def format_pending(pending: list[dict[str, Any]]) -> str:
 
 def attachment_line(a: dict[str, Any]) -> str:
     """1. trail-notes.md, whole, 2,104 tokens (the number is /detach's)"""
-    return f"{a['n']}. {shown(a['name'])}, {how_attached(a)}, {a['tokens']:,} tokens"
+    return f"{a['n']}. {shown(a['name'])}, {how_words(a)}, {a['tokens']:,} tokens"
 
 
 def shown(text: str) -> str:
@@ -169,13 +176,9 @@ def shown(text: str) -> str:
     return text if text.isprintable() else repr(text)[1:-1]
 
 
-def how_attached(a: dict[str, Any]) -> str:
-    return "whole" if a["how"] == "whole" else f"{a['unit']}s {a['range'][0]}-{a['range'][1]}"
-
-
 def format_attached(result: dict[str, Any]) -> str:
     a = result["attached"]
-    return f"Attached {shown(a['name'])}, {how_attached(a)}, {a['tokens']:,} tokens. " + SENTENCES[
+    return f"Attached {shown(a['name'])}, {how_words(a)}, {a['tokens']:,} tokens. " + SENTENCES[
         "left"
     ].format(left=f"{result['left']:,}")
 
@@ -190,7 +193,22 @@ def format_check(check: dict[str, Any]) -> str:
 
 
 def not_kept(pending: list[dict[str, Any]]) -> str:
-    return SENTENCES["not_kept"].format(names=", ".join(shown(a["name"]) for a in pending))
+    return SENTENCES["not_kept"].format(names=names(pending))
+
+
+def names(attachments: list[dict[str, Any]]) -> str:
+    return ", ".join(shown(a["name"]) for a in attachments)
+
+
+def attached_lines(attachments: list[dict[str, Any]]) -> list[str]:
+    """Your message's line for each attachment, as the page's thread says it."""
+    return [
+        "  "
+        + SENTENCES["attached_line"].format(
+            name=shown(a["name"]), how=how_words(a), tokens=f"{a['tokens']:,}"
+        )
+        for a in attachments
+    ]
 
 
 def format_history(result: dict[str, Any]) -> str:
@@ -202,6 +220,7 @@ def format_history(result: dict[str, Any]) -> str:
     for turn in result["turns"]:
         who = "you" if turn["role"] == "user" else "model"
         lines.append(f"{who}: {turn['text'].strip()}")
+        lines += attached_lines(turn.get("attachments") or [])
         if turn["marks"]:
             lines.append("  marked: " + ", ".join(m["label"] for m in turn["marks"]))
         lines += [f"  note: {n['text']}" for n in turn["notes"]]
@@ -543,35 +562,48 @@ class ChatLoop:
             # The log file's name, which /resume takes (a copied log's differs from its ID).
             self.write(f"/resume {conversation.log.path.stem} starts it again.\n")
 
+    def give_back(self, name: str, args: str) -> str:
+        """A message that wasn't answered (stopped, too long, or a failed call) goes back in
+        the input, and the sentence says so; the page puts it back in its box. One that
+        starts with "/" comes back escaped, so sending the draft sends the message again,
+        never a command ("//quit", not "/quit")."""
+        if name not in ("say", "edit"):
+            return ""
+        self.draft = "/" + args if args.startswith("/") else args
+        return " Your message is back in the input to edit or send again."
+
+    def keeps(self) -> None:
+        """After /edit: the attachments the edited message keeps, as the page's Edit says."""
+        conversation = self.session.conversation
+        assert conversation is not None
+        users = [t for t in conversation.path_to(conversation.head) if t.role == "user"]
+        if users and users[-1].attachments:
+            self.write(SENTENCES["keeps"].format(names=names(users[-1].attachments)) + "\n")
+
     def command(self, name: str, args: str) -> bool:
         """Run a registry command and show its result. Returns False to quit."""
         try:
             result = self.run_cancellable(name, args)
         except CancelledBeforeReply as e:
-            offered = name in ("say", "edit")
-            self.write(
-                f"\n! {e} No reply was added."
-                + (
-                    " Your message is back in the input to edit or send again.\n"
-                    if offered
-                    else "\n"
-                )
-            )
-            # A message that starts with "/" comes back escaped, so sending the draft sends
-            # the message again, never a command ("//quit", not "/quit").
-            self.draft = ("/" + args if args.startswith("/") else args) if offered else ""
+            self.write(f"\n! {e} No reply was added.{self.give_back(name, args)}\n")
             return True
         except BackendError as e:
             calling = name in ("say", "regen", "edit")
-            self.write(f"\n! Call failed: {e}\n" if calling else f"! {e}\n")
+            told = f"\n! Call failed: {e}" if calling else f"! {e}"
+            self.write(f"{told}{self.give_back(name, args)}\n")
             self.resume_hint(e.server_stopped)
             return True
-        except (ContextError, ConfigError) as e:
+        except ContextError as e:  # too long: nothing was sent
+            self.write(f"! {e}{self.give_back(name, args)}\n")
+            return True
+        except ConfigError as e:
             self.write(f"! {e}\n")
             return True
         if name in ("say", "edit"):
             self.write("\n")
             self.show_call(result)
+            if name == "edit":
+                self.keeps()
         elif name == "regen":
             self.write("\n")
             replies = result["replies"]

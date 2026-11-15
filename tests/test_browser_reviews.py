@@ -99,7 +99,7 @@ def test_edit_shows_only_what_it_keeps(clarity, page):  # noqa: F811
     assert page.is_visible(".editbox .att")
 
 
-def test_empty_send_with_chips_is_a_quiet_line_and_text_mode_a_refusal(clarity, page):  # noqa: F811
+def test_empty_send_with_chips_is_a_quiet_line(clarity, page):  # noqa: F811
     """F12: forgetting to type isn't an error, so it's a quiet line beside Send."""
     redirect, _ = clarity
     chat(page, redirect)
@@ -148,7 +148,7 @@ def test_a_slow_read_says_how_long_it_may_take(clarity, page, monkeypatch):  # n
     stub(monkeypatch, "import time; time.sleep(30)")
     chat(page, redirect)
     choose(page, "slow.md", NOTES)
-    slow = "A long file can take a minute to read. Clarity stops at 120 seconds."
+    slow = "A long file can take a minute to read. Clarity stops reading at 120 seconds."
     page.wait_for_selector(f"#attach-sheet :text('{slow}')", timeout=10_000)
     page.keyboard.press("Escape")
 

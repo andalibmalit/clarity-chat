@@ -197,8 +197,10 @@ def test_json_attaches_after_its_start_and_goes_on_after_a_refusal(
         ("error", "attach"),
         ("result", "attach"),
         ("result", "attach"),
+        ("result", "quit"),  # the end of input, with notes.md waiting (the close's must A)
     ]
-    assert [a["name"] for a in events[-1]["result"]["pending"]] == ["notes.md"]
+    assert [a["name"] for a in events[-2]["result"]["pending"]] == ["notes.md"]
+    assert [a["name"] for a in events[-1]["result"]["dropped"]] == ["notes.md"]
 
 
 def test_check_says_more_than_when_only_the_bound_was_taken(loop, tmp_path):

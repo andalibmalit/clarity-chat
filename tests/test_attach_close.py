@@ -471,3 +471,25 @@ def test_a_web_page_s_extracted_text_opens_shown(make):
     preview = re.findall(r'id="attach-preview"[^>]*>', sheet(client, upload=upload_id))
     assert len(preview) == 1
     assert " hidden" not in preview[0]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        (
+            'mode = "chat"\nsystem = "Be brief."',
+            'mode = "text"\nuser_name = "U"\nassistant_name = "A"',
+        ),
+        ('model = "tiny"', 'model = "gone"'),
+    ],
+)
+def test_no_new_chat_is_offered_when_new_would_refuse_it(chat, fetched_root, tmp_path, change):
+    """Today's profile file is in text mode, or names a model that isn't there: /new can't
+    start a chat that takes the file, so the check offers none."""
+    session, _ = chat
+    path = fetched_root / "profiles" / "chat.toml"
+    path.write_text(path.read_text(encoding="utf-8").replace(*change), encoding="utf-8")
+    notes = tmp_path / "notes.md"
+    notes.write_bytes(NOTES)
+    check = Commands(session).run("attach", f"{notes} check", quiet)["check"]
+    assert (check["fits_new_chat"], check["free_new_chat"]) == (False, None)

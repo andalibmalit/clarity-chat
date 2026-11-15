@@ -76,10 +76,10 @@ def test_a_failed_preselect_read_shows_its_refusal(make, monkeypatch):
     client, session, _ = make(n_ctx=2000)
     real = session.check
 
-    def check(doc, unit=None, first=0, last=0, cancel=None):  # noqa: ANN001, ANN202
+    def check(doc, unit=None, first=0, last=0, cancel=None, new_profile=None):  # noqa: ANN001, ANN202
         if unit is not None:  # the second read, for the preselected part
             raise DocumentRefused("Stopped reading long.md.")
-        return real(doc, unit, first, last, cancel)
+        return real(doc, unit, first, last, cancel, new_profile)
 
     monkeypatch.setattr(session, "check", check)
     upload_id = upload(client, LONG, "long.md").json()["upload"]
@@ -255,7 +255,7 @@ def test_a_chip_draws_its_range_with_an_en_dash(make):
     upload_id = upload(client, LONG, "long.md").json()["upload"]
     command(client, "attach", f"{upload_id} lines 2-5")
     chips = html.unescape(re.sub(r"<[^>]+>", "", client.get("/view/pending", headers=GET).text))
-    assert "long.md · lines 2–5 ·" in chips
+    assert "long.md · lines 2–5 of 200 ·" in chips
 
 
 # --- could 13: the chips are a list

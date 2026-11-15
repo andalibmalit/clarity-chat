@@ -55,7 +55,8 @@ NEW = {
     "stop_advice": "Shorten your message, start a new chat, or lower max_tokens.",
     "remove_waiting": "Shorten your message, remove an attachment and attach a shorter part, "
     "start a new chat, or lower max_tokens.",
-    "slow_read": "A long file can take a minute to read. Clarity stops at {seconds} seconds.",
+    "slow_read": "A long file can take a minute to read. Clarity stops reading at {seconds} "
+    "seconds.",
     "too_slow": "{name} took longer than {seconds} seconds to read. Attach a smaller file, or "
     "split it and attach the part you need.",
     "too_much_memory": "{name} took more than {memory} of memory to read. Attach a smaller "
@@ -218,7 +219,8 @@ def test_the_reading_state_s_slow_line_comes_from_the_table(make):
     client, _, _ = make()
     shell = client.get("/", headers=GET).text
     assert (
-        'data-slow="A long file can take a minute to read. Clarity stops at 120 seconds."' in shell
+        'data-slow="A long file can take a minute to read. Clarity stops reading at 120 '
+        'seconds."' in shell
     )
 
 

@@ -91,6 +91,10 @@ SENTENCES = {
     "slow_read": SLOW_READ,
     # An empty /say, on the page and in the terminal (the whole-branch review's could 17).
     "empty_message": "Type a message to send.",
+    "empty_with_attachments": "Type a message to send with {names}.",
+    "stopped_counting": "Stopped counting {name}.",
+    # A range of a file with no text in it: refused, never sent empty (the records finder, 3).
+    "empty_excerpt": "{Units} {first} to {last} of {name} have no text Clarity can read.",
     # Refusals the reader and its child write: their texts live beside the code that raises
     # them (insert.py imports both), and are listed here so reference.md lists them too.
     "too_slow": TOO_SLOW,
@@ -119,6 +123,15 @@ def more_than(tokens: int | None, at_least: int | None) -> str:
 def counted(n: int, unit: str) -> str:
     """1 line, 3 lines, 1,200 pages."""
     return f"{n:,} {unit}" + ("" if n == 1 else "s")
+
+
+def how_words(attachment: Mapping[str, Any]) -> str:
+    """ "whole", or an excerpt's range: "pages 1–23 of 131". The chips, your message's line
+    and the terminal say an attachment this way (ruling 2: range ends take separators)."""
+    if attachment["how"] == "whole":
+        return "whole"
+    first, last = attachment["range"]
+    return f"{attachment['unit']}s {first:,}–{last:,} of {attachment['total']:,}"
 
 
 @dataclass(frozen=True)
@@ -189,6 +202,19 @@ def piece(
     return Attached(doc.name, doc.text_of(first, last), marker or None)
 
 
+def with_text(new: Attached, unit: str | None, first: int, last: int) -> Attached:
+    """A range you chose, refused if it holds no text (pages that are scanned images, or
+    blank lines): it would go in as an empty document under a marker naming its range. The
+    search for a start that fits counts such ranges; only a chosen one is refused."""
+    if unit is not None and new.marker is not None and not new.text.strip():
+        raise DocumentRefused(
+            SENTENCES["empty_excerpt"].format(
+                Units=unit.capitalize(), first=f"{first:,}", last=f"{last:,}", name=new.name
+            )
+        )
+    return new
+
+
 def covers_whole(doc: Document, unit: str | None, first: int, last: int) -> bool:
     """Whether a range is the whole document: no range, or one from the first unit to the
     last. piece's text and marker and the record's `how` follow this one rule."""
@@ -230,25 +256,64 @@ def attached_in(fields: Mapping[str, Any]) -> list[Attached]:
 
 # A turn record's attachment fields, and each attachment's (the plan's Shapes).
 TURN_FIELDS = ("attachments", "framing", "framing_origin", "placement")
-ATTACHMENT_FIELDS = frozenset(
-    {
-        "name", "kind", "bytes", "sha256", "extractor", "unit", "total", "how", "range",
-        "marker", "text", "extracted_sha256", "empty_units", "control_tokens",
-        "has_closing_tag", "tokens",
-    }
-)  # fmt: skip
+
+
+def _whole_number(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _strings(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(v, str) for v in value)
+
+
+# What each field must be, as Clarity writes it: the readers format and index these, so a
+# log someone else wrote can't crash a view or the terminal (the records finder, 2).
+ATTACHMENT_TYPES: dict[str, Callable[[Any], bool]] = {
+    "name": lambda v: isinstance(v, str),
+    "kind": lambda v: v in ("text", "html", "pdf"),
+    "bytes": _whole_number,
+    "sha256": lambda v: isinstance(v, str),
+    "extractor": lambda v: isinstance(v, dict),
+    "unit": lambda v: v in ("line", "page"),
+    "total": _whole_number,
+    "how": lambda v: v in ("whole", "excerpt"),
+    "range": lambda v: isinstance(v, list) and len(v) == 2 and all(map(_whole_number, v)),
+    "marker": lambda v: v is None or isinstance(v, str),
+    "text": lambda v: isinstance(v, str),
+    "extracted_sha256": lambda v: isinstance(v, str),
+    "empty_units": _whole_number,
+    "control_tokens": _strings,
+    "has_closing_tag": lambda v: isinstance(v, bool),
+    "tokens": _whole_number,
+}
+ATTACHMENT_FIELDS = frozenset(ATTACHMENT_TYPES)
+TURN_TYPES: dict[str, Callable[[Any], bool]] = {
+    "attachments": lambda v: isinstance(v, list) and all(isinstance(a, dict) for a in v),
+    "framing": lambda v: isinstance(v, str),
+    "framing_origin": lambda v: v in ("default", "profile"),
+    "placement": lambda v: v == "start",
+}
+
+
+def _typed(fields: Mapping[str, Any], types: Mapping[str, Callable[[Any], bool]]) -> None:
+    for key, ok in types.items():
+        if not ok(fields[key]):
+            raise TypeError(f"an attachment's {key} isn't one Clarity writes")
 
 
 def checked_attachments(record: Mapping[str, Any]) -> dict[str, Any]:
     """A turn record's attachment fields, checked whole: {} for a message without any. A
-    missing field raises KeyError, which every reader of a log refuses as unreadable, so
-    nothing read later (a regeneration's warnings, the stop's count) meets one."""
+    missing field raises KeyError, and a value Clarity doesn't write raises TypeError, which
+    every reader of a log refuses as unreadable, so nothing read later (a regeneration's
+    warnings, the stop's count, a view) meets one."""
     if not record.get("attachments"):
         return {}
     fields = {key: record[key] for key in TURN_FIELDS}
+    _typed(fields, TURN_TYPES)
     for attachment in fields["attachments"]:
         if missing := ATTACHMENT_FIELDS - set(attachment):
             raise KeyError(", ".join(sorted(missing)))
+        _typed(attachment, ATTACHMENT_TYPES)
         name = attachment["name"]
         try:  # as an upload's is: a log someone else wrote can't put one on screen
             checked_name(name)

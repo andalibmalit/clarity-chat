@@ -48,10 +48,10 @@ def limit_address_space(memory_cap: int) -> bool:
     return True
 
 
-def watch(memory_cap: int, seconds: float, interval: float = 0.02) -> None:
+def watch(memory_cap: int, seconds: float, interval: float = 0.02) -> bool:
     """End this process past `memory_cap` bytes or `seconds`. Polling lets memory overshoot by
     what's allocated between polls; on Linux, RLIMIT_AS stops the process at twice the cap
-    as well."""
+    as well. Returns whether that limit is set."""
     deadline = time.monotonic() + seconds
     limited = limit_address_space(memory_cap)
 
@@ -69,6 +69,7 @@ def watch(memory_cap: int, seconds: float, interval: float = 0.02) -> None:
         if limited:
             os._exit(MEMORY_EXIT)
         raise
+    return limited
 
 
 # Two refusals SENTENCES lists (insert.py imports them; the design walkthrough's F11, F25).
@@ -253,9 +254,11 @@ def lines(text: str) -> list[str]:
 
 def main() -> None:
     request = json.loads(sys.stdin.buffer.readline())
-    watch(request["memory_cap"], request["seconds"])
+    limited = watch(request["memory_cap"], request["seconds"])
     # On Linux the address-space limit turns going past twice the cap into a MemoryError,
     # wherever it happens: it's the memory refusal, as the watchdog's exit is (CI at a28f1c4).
+    # Without the limit (macOS, Windows), one impossible allocation isn't the process using
+    # its cap: it's the reader failing (the final fix review's could 10).
     try:
         data = sys.stdin.buffer.read()
         try:
@@ -263,11 +266,15 @@ def main() -> None:
         except Refused as e:
             answer = {"refused": str(e)}
         except MemoryError:
-            raise
+            if limited:
+                raise
+            answer = {"failed": "MemoryError"}
         except Exception as e:  # noqa: BLE001 - a hostile file: the parent says which error
             answer = {"failed": type(e).__name__}
         sys.stdout.buffer.write(json.dumps(answer).encode("ascii"))
     except MemoryError:
+        if not limited:
+            raise
         os._exit(MEMORY_EXIT)
 
 

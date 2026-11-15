@@ -19,12 +19,14 @@ from clarity_chat.documents.insert import (
     fit,
     framing_of,
     free,
+    how_words,
     message_content,
     more_than,
     piece,
     scan,
     start_that_fits,
     summaries,
+    with_text,
 )
 from clarity_chat.documents.reading import (
     MAX_BYTES,
@@ -61,6 +63,7 @@ __all__ = [
     "framing_of",
     "slow_read",
     "free",
+    "how_words",
     "message_content",
     "more_than",
     "piece",
@@ -68,5 +71,6 @@ __all__ = [
     "scan",
     "start_that_fits",
     "too_big",
+    "with_text",
     "summaries",
 ]

@@ -6,7 +6,7 @@
 {% endif %}{% for set, label in r.buttons %}<button type="button" class="btn" data-set="{{ set }}"{{ wait | safe }}>{{ label }}</button>{% endfor %}<p class="refused" role="alert" hidden></p><p class="gl note" hidden></p></div><!-- row -->
 {% endmacro %}<div class="head"><h2 class="t" id="panel-title" tabindex="-1">Settings for this chat</h2><button type="button" class="iconbtn" aria-label="Close" data-action="panel-close">{{ icon("close") }}</button></div>
 <div class="body">
-{% if waits %}<p class="waits" id="settings-waits">Changes wait until this reply is done.</p>
+{% if waits %}<p class="waits" id="settings-waits">{{ waits }}</p>
 {% endif %}<p class="from">Starts from profile {{ profile }}. Changes apply from the next reply and are logged with it.</p>
 {% if changed %}<button type="button" class="btn" data-action="reset-all" data-names="{{ changed | join(' ') }}"{{ wait | safe }}>Reset all</button>
 {% endif %}<h3 class="sh">Common</h3>

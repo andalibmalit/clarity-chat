@@ -56,6 +56,7 @@ from clarity_chat.documents import (
     DocumentRefused,
     checked_name,
     counted,
+    how_words,
     more_than,
     slow_read,
     too_big,
@@ -304,13 +305,18 @@ def make_app(
             raise Refused(409, "Clarity is open in another tab.")
 
     def shell(request: Request) -> Response:
-        # One substitution: the sheet's "Stopped reading NAME." from SENTENCES, for a Cancel
-        # before the server has answered (the lead's ruling on Checkpoint 3's point 2).
+        # Sentences from SENTENCES the page says before or without the server: the sheet's
+        # "Stopped reading NAME." for a Cancel before the server has answered (the lead's
+        # ruling on Checkpoint 3's point 2), the slow read's line, and "Not kept: NAMES."
+        # after New chat, a profile, a chat or Quit drops attachments (the close's must A).
         page = (STATIC / "index.html").read_text(encoding="utf-8")
-        stopped = html.escape(SENTENCES["stopped"])
-        slow = html.escape(slow_read())
-        page = page.replace('data-stopped=""', f'data-stopped="{stopped}"', 1)
-        return HTMLResponse(page.replace('data-slow=""', f'data-slow="{slow}"', 1))
+        for attribute, sentence in (
+            ("data-stopped", SENTENCES["stopped"]),
+            ("data-slow", slow_read()),
+            ("data-not-kept", SENTENCES["not_kept"]),
+        ):
+            page = page.replace(f'{attribute}=""', f'{attribute}="{html.escape(sentence)}"', 1)
+        return HTMLResponse(page)
 
     def static(request: Request) -> Response:
         name = request.path_params["file"]
@@ -1144,7 +1150,7 @@ def setting_row(name: str, setting: dict[str, Any], model: dict[str, Any]) -> di
     return row
 
 
-def settings_panel(settings: dict[str, Any], waits: bool) -> dict[str, Any]:
+def settings_panel(settings: dict[str, Any], waits: str | None) -> dict[str, Any]:
     """What the Settings panel draws, from /settings: Common, Steering, Probabilities (on
     Transformers), More settings, and the Transformers lines from `not_applied`."""
     values = settings["settings"]
@@ -1176,10 +1182,18 @@ def settings_panel(settings: dict[str, Any], waits: bool) -> dict[str, Any]:
 
 
 async def _settings(worker: Worker, params: dict[str, str | None]) -> str:
-    """The Settings panel. /settings answers during a reply; its controls then wait."""
+    """The Settings panel. /settings answers during a reply or a file's read; its controls
+    then wait, and say until when (the final fix review's should 5)."""
     state = await result_of(worker, "state")
     settings = await result_of(worker, "settings")
-    waits = (state["running"] or {}).get("command") in REPLY_COMMANDS
+    command = (state["running"] or {}).get("command")
+    waits = (
+        "Changes wait until this reply is done."
+        if command in REPLY_COMMANDS
+        else "Changes wait until the file is read."
+        if command == "attach"
+        else None
+    )
     return templates.get_template("settings.html").render(**settings_panel(settings, waits))
 
 
@@ -1232,14 +1246,6 @@ def prompt_pieces(call: dict[str, Any]) -> list[tuple[str, str | None]]:
     if at < len(text):
         pieces.append((text[at:], None))
     return pieces
-
-
-def how_words(attachment: dict[str, Any]) -> str:
-    """ "whole", or an excerpt's range: "pages 1–23 of 131"."""
-    if attachment["how"] == "whole":
-        return "whole"
-    first, last = attachment["range"]
-    return f"{attachment['unit']}s {first:,}–{last:,} of {attachment['total']:,}"
 
 
 def attachment_rows(call: dict[str, Any], turns: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -1815,8 +1821,7 @@ async def _pending(worker: Worker, params: dict[str, str | None]) -> str:
     state = await result_of(worker, "state")
     for a in state["pending"]:  # the cost when attached, as the thread's line says (F3)
         a["cost"] = SENTENCES["chip_tokens"].format(tokens=f"{a['tokens']:,}")
-        first, last = a["range"]
-        a["shown"] = "whole" if a["how"] == "whole" else f"{a['unit']}s {first:,}–{last:,}"
+        a["shown"] = how_words(a)  # as your sent message's line says it (surface could 6)
     return templates.get_template("pending.html").render(pending=state["pending"])
 
 

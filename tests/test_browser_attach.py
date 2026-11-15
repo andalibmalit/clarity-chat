@@ -259,7 +259,7 @@ def test_add_attaches_the_range_in_the_boxes_when_clicked_at_once(clarity, page)
     if not pending:
         page.click("[data-action=attach-add]")
     page.wait_for_selector("#chips .chip")
-    assert "long.md · lines 1–5 ·" in page.text_content("#chips")
+    assert "long.md · lines 1–5 of 200 ·" in page.text_content("#chips")
 
 
 def test_a_cleared_box_makes_add_wait(clarity, page):
