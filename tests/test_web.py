@@ -1064,7 +1064,7 @@ HOSTILE = '<script>alert(1)</script>"><img src=x onerror=alert(2)>{{ 7*7 }}\' on
 TAGS = {
     "a", "button", "code", "datalist", "dd", "details", "div", "dl", "dt", "form", "h2",
     "h3", "input", "label", "li", "mark", "ol", "option", "p", "pre", "span", "strong",
-    "summary", "svg", "textarea", "ul", "use",
+    "summary", "svg", "table", "tbody", "td", "textarea", "th", "thead", "tr", "ul", "use",
 }  # fmt: skip
 
 

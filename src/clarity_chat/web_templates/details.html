@@ -1,13 +1,18 @@
-{% macro icon(name) %}<svg class="icon sm" aria-hidden="true"><use href="#i-{{ name }}"></use></svg>{% endmacro %}<div class="head"><h2 class="t" id="panel-title" tabindex="-1">Details · {% if error %}failed call{% elif k %}reply {{ k }} of {{ n }}{% else %}this reply{% endif %}{% if earlier %} <span class="d2">An earlier reply</span>{% endif %}</h2><button type="button" class="iconbtn" aria-label="Close" data-action="panel-close">{{ icon("close") }}</button></div>
+{% macro marked(piece, kind) %}{% if kind == "template" %}<mark>{{ piece }}</mark>{% elif kind == "added" %}<mark class="added">{{ piece }}</mark>{% else %}{{ piece }}{% endif %}{% endmacro %}{% macro icon(name) %}<svg class="icon sm" aria-hidden="true"><use href="#i-{{ name }}"></use></svg>{% endmacro %}<div class="head"><h2 class="t" id="panel-title" tabindex="-1">Details · {% if error %}failed call{% elif k %}reply {{ k }} of {{ n }}{% else %}this reply{% endif %}{% if earlier %} <span class="d2">An earlier reply</span>{% endif %}</h2><button type="button" class="iconbtn" aria-label="Close" data-action="panel-close">{{ icon("close") }}</button></div>
 <div class="body" data-call="{{ call.call_id }}">
 <details class="sec" data-key="prompt" open><summary class="sh2">What the model got <span class="n">{{ call.n_prompt_client }} tokens{% if bos is not none %} · {% if bos %}starts with a start token (BOS){% else %}no start token (BOS){% endif %}{% endif %}</span></summary>
 <div class="seg" role="group" aria-label="Show the prompt as"><button type="button" aria-pressed="true" data-pane="text">Text</button><button type="button" aria-pressed="false" data-pane="whitespace">Whitespace</button><button type="button" aria-pressed="false" data-pane="ids">Token IDs</button></div>
-<pre class="pre" data-pane="text">{% for piece, marked in pieces %}{% if marked %}<mark>{{ piece }}</mark>{% else %}{{ piece }}{% endif %}{% endfor %}</pre>
-<pre class="pre" data-pane="whitespace" hidden>{% for piece, marked in pieces %}{% set shown = piece.replace("\t", "→\t").replace("\n", "↵\n") %}{% if marked %}<mark>{{ shown }}</mark>{% else %}{{ shown }}{% endif %}{% endfor %}</pre>
+<pre class="pre" data-pane="text">{% for piece, kind in pieces %}{{ marked(piece, kind) }}{% endfor %}</pre>
+<pre class="pre" data-pane="whitespace" hidden>{% for piece, kind in pieces %}{{ marked(piece.replace("\t", "→\t").replace("\n", "↵\n"), kind) }}{% endfor %}</pre>
 <pre class="pre" data-pane="ids" hidden>{{ call.prompt_ids | join(" ") }}</pre>
-<p class="d2" data-caption>{% if not_highlighted %}Not highlighted: {{ not_highlighted }}.{% else %}Highlighted: {% if text_mode %}the profile’s header, names and line ends.{% else %}text the chat template wrote.{% endif %}{% endif %}</p>
-</details>
-<details class="sec" data-key="summary" open><summary class="sh2">Summary <span class="n">{% if error %}failed{% elif failed %}{{ failed | length }} check{{ "s" if failed | length > 1 }} failed{% else %}{{ stopped.split(" · ")[0] }} · all checks passed{% endif %}</span></summary>
+<p class="d2 key" data-caption>{% if not_highlighted %}Not highlighted: {{ not_highlighted }}.{% else %}<span class="sw" aria-hidden="true"></span>Highlighted: {% if text_mode %}the profile’s header, names and line ends.{% else %}text the chat template wrote.{% endif %}{% endif %}</p>
+{% if attachments %}<p class="d2 key"><span class="sw added" aria-hidden="true"></span>{{ highlight_added }}</p>
+{% endif %}</details>
+{% if attachments or (attached and not_highlighted) %}<details class="sec" data-key="attachments" open><summary class="sh2">Attachments <span class="n">{% if attachments %}{{ attachments | length }} in this prompt{% else %}not listed{% endif %}</span></summary>
+{% if attachments %}<table class="tbl"><thead><tr><th>Attachment</th><th>Sent with</th><th>Tokens in the prompt</th></tr></thead><tbody>{% for row in attachments %}<tr><td>{{ row.what }}</td><td class="q">{{ row.with }}</td><td class="m">{{ row.tokens }}</td></tr>{% endfor %}</tbody></table>
+{% else %}<p class="d2">Not listed: {{ not_highlighted }}.</p>
+{% endif %}</details>
+{% endif %}<details class="sec" data-key="summary" open><summary class="sh2">Summary <span class="n">{% if error %}failed{% elif failed %}{{ failed | length }} check{{ "s" if failed | length > 1 }} failed{% else %}{{ stopped.split(" · ")[0] }} · all checks passed{% endif %}</span></summary>
 {% if error %}<p class="warn">! Failed: {{ error }}</p>
 {% endif %}{% if failed %}<p class="warn">! {{ failed | length }} check{{ "s" if failed | length > 1 }} failed: {{ failed | join(", ") }}. {% for name in failed %}{{ check_help.get(name, ("", ""))[1] }}{% if not loop.last %} {% endif %}{% endfor %}</p>
 {% endif %}{% for e in ignored %}<p class="warn">! 1 setting not applied: {{ e.name }}. Reason: {{ e.reason }}.</p>

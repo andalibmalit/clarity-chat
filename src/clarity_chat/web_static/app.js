@@ -954,6 +954,7 @@ async function showPanel(name, params, opener) {
     refused.hidden = false;
   }
   $("panel").hidden = false;
+  $("branches-button").setAttribute("aria-expanded", String(name === "branches"));
   docsLinks($("panel"));
   shade();
   if (name === "branches") markedOnly(Boolean(clarity.markedOnly));
@@ -976,6 +977,7 @@ function closePanel() {
   const opener = panelOf && panelOf.opener;
   panelOf = null;
   $("panel").hidden = true;
+  $("branches-button").setAttribute("aria-expanded", "false");
   shade(); // clears the shading
   let back = opener;
   if (opener && !opener.isConnected) {

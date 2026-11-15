@@ -158,7 +158,7 @@ In a chat-mode profile, `/attach notes.md` puts the file's text at the start of 
 
 `/attach notes.md check` counts the file without attaching it: what the whole takes, what it leaves for your message, and where it would fit. If the whole doesn't fit, the refusal names the largest start that still leaves `max_tokens` for your message, as a command to copy, such as `/attach notes.md lines 1-19`. Attach part of a file with `pages A-B` for a PDF or `lines A-B` for anything else: those go in complete, after a line saying they're an excerpt. A new chat (`/new`) has more room, and a lower `max_tokens` leaves more for the document. Clarity never trims a document to make it fit.
 
-In the web interface, the paperclip beside the message box opens your computer's file picker. The sheet that opens shows the same numbers as `check`: choose **Attach whole**, **Attach part of it** (a file that doesn't fit opens on the part that still leaves room for your message, and the range boxes take any other), or **New chat with this document** when only an empty chat has room. **Show extracted text** shows what will go in. The attachments waiting for your message show as chips above the box; × removes one.
+In the web interface, the paperclip beside the message box opens your computer's file picker. The sheet that opens shows the same numbers as `check`: choose **Attach whole**, **Attach part of it** (a file that doesn't fit opens on the part that still leaves room for your message, and the range boxes take any other), or **New chat with this document** when only an empty chat has room. **Show extracted text** shows what will go in. The attachments waiting for your message show as chips above the box; × removes one. Your sent message lists each one with what it cost when attached, and **Edit** keeps them. In **Details**, the framing line and documents Clarity put in your message have a highlight of their own, and **Attachments** lists each one with where its block sits in the prompt's tokens.
 
 The framing line comes from the profile. To change it, set `framing` in the profile's `[documents]` table; `framing = ""` sends none. `excerpt_marker` sets the excerpt's line the same way ([profile keys](reference.md#profile-keys)).
 
@@ -356,6 +356,6 @@ Clarity's errors say what to do. These entries add context where a message can't
 
 **`Tokenizer … is not in the Hugging Face cache.`** `clarity fetch` downloads a model's own tokenizer, but not a `template_repo`'s; see [Use another repo's chat template](#use-another-repos-chat-template).
 
-**`The prompt is N tokens; with max_tokens M it needs more than the context …`** Besides a new conversation or a lower `max_tokens`, you can raise the profile's `ctx_size` (or `ctx-size` in `server.toml`) and restart the chat.
+**`The prompt is N tokens; with max_tokens M it needs more than the context …`** Nothing was sent, and your text and any attachments for it are back. Besides removing one of those attachments, a new conversation or a lower `max_tokens`, you can raise the profile's `ctx_size` (or `ctx-size` in `server.toml`) and restart the chat.
 
 **`! flags: check_failed:…`** After the call, the server reported something other than what was sent. The reply is logged with the failed check; see [Call flags](reference.md#call-flags).

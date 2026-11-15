@@ -284,3 +284,29 @@
   --shade-line-1: underline solid 2px;
   --shade-line-2: underline dotted 2px;
 }
+
+/* v0.3.1 tokens (C2, the board's ruling 7). Added only. Details' second highlight, for the
+   framing line and documents Clarity put in your message: a fill in another hue than --you's,
+   with an underline so it differs by more than colour. tests/test_attach_c2.py checks every
+   theme and scheme: ink on the fill at least 4.5:1, the underline at least 3:1 on the fill
+   and on the prompt's ground (--sunken). */
+:root, .clarity {
+  --added: light-dark(oklch(90% 0.05 175), oklch(34% 0.05 175));
+  --added-line: light-dark(oklch(48% 0.08 175), oklch(74% 0.08 175));
+}
+.t-neutral {
+  --added: light-dark(oklch(91% 0.05 160), oklch(33% 0.05 160));
+  --added-line: light-dark(oklch(47% 0.09 160), oklch(74% 0.09 160));
+}
+.t-sky {
+  --added: light-dark(oklch(90% 0.06 140), oklch(36% 0.06 140));
+  --added-line: light-dark(oklch(46% 0.1 140), oklch(76% 0.1 140));
+}
+.t-space {
+  --added: light-dark(oklch(90% 0.05 175), oklch(30% 0.05 175));
+  --added-line: light-dark(oklch(47% 0.08 175), oklch(76% 0.08 175));
+}
+.t-hc {
+  --added: light-dark(oklch(90% 0.08 160), oklch(30% 0.07 160));
+  --added-line: light-dark(oklch(30% 0.1 160), oklch(88% 0.12 160));
+}
