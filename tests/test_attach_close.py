@@ -5,6 +5,7 @@ records, in notes/research/reviews/v031/). Made-up documents only."""
 from __future__ import annotations
 
 import asyncio
+import html
 import io
 import json
 import re
@@ -493,3 +494,92 @@ def test_no_new_chat_is_offered_when_new_would_refuse_it(chat, fetched_root, tmp
     notes.write_bytes(NOTES)
     check = Commands(session).run("attach", f"{notes} check", quiet)["check"]
     assert (check["fits_new_chat"], check["free_new_chat"]) == (False, None)
+
+
+# --- queue item 8: the fix reviewer's confirmation and QA's findings
+
+
+def test_an_empty_excerpt_is_refused_without_a_marker_too(fetched_root, chat_tokenizer, tmp_path):
+    """Confirmation should 1: with `excerpt_marker = ""` the excerpt has no marker; it's
+    still an excerpt, and empty."""
+    path = fetched_root / "profiles" / "chat.toml"
+    path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nexcerpt_marker = ""\n')
+    reading._last = None
+    session, _ = chat_session(fetched_root, chat_tokenizer)
+    scan = tmp_path / "scan.pdf"
+    scan.write_bytes(make_pdf(["Made-up one.", "", "Made-up three."]))
+    with pytest.raises(DocumentRefused, match="^Pages 2 to 2 of scan.pdf have no text"):
+        Commands(session).run("attach", f"{scan} pages 2-2", quiet)
+    assert session.conversation is not None and session.conversation.pending == []
+
+
+def test_a_failed_edit_comes_back_as_the_edit(fetched_root, chat_tokenizer):
+    """Confirmation should 2: Enter on what comes back edits again, with the edit's
+    attachments; it never sends a new message."""
+    loop, output, backend = chat_loop(fetched_root, chat_tokenizer)
+    loop.start()
+    loop.handle("Hi")
+    backend.fail_with = "made-up failure"
+    loop.handle("/edit Hello instead")
+    assert loop.draft == "/edit Hello instead"
+
+
+def text_pane(page: str) -> str:
+    (pane,) = re.findall(r'<pre class="pre" data-pane="text">(.*?)</pre>', page, re.S)
+    return html.unescape(pane)
+
+
+def test_a_text_direction_control_shows_as_a_marker_not_reversed(make):
+    """QA 1: Details' Text pane and the extracted-text preview showed "rtl: txet live"."""
+    client, _, _ = make()
+    odd = "rtl: ‮evil text\n".encode()
+    upload_id = upload(client, odd, "odd.md").json()["upload"]
+    preview = sheet(client, upload=upload_id)
+    preview = preview[preview.index('id="attach-preview"') :]
+    assert "‮" not in preview and "rtl: ⟨U+202E⟩evil text" in preview
+    command(client, "attach", upload_id)
+    command(client, "say", "What's in it?")
+    call = command(client, "prompt").json()["result"]["call"]["call_id"]
+    pane = text_pane(client.get("/view/details", params={"call": call}, headers=GET).text)
+    assert "‮" not in pane and "rtl: ⟨U+202E⟩evil text" in pane
+
+
+def test_the_terminal_says_a_file_is_already_in_the_chat(fetched_root, chat_tokenizer, tmp_path):
+    """QA 3: the page's note, in the terminal; a note, not a refusal."""
+    notes = tmp_path / "notes.md"
+    notes.write_bytes(NOTES)
+    loop, output, _ = chat_loop(fetched_root, chat_tokenizer)
+    loop.start()
+    output.clear()
+    loop.handle(f"/attach {notes}")
+    assert SENTENCES["already"] not in "".join(output)
+    output.clear()
+    loop.handle(f"/attach {notes}")
+    assert SENTENCES["already"] in "".join(output)
+    assert len(loop.session.conversation.pending) == 2
+
+
+def test_attach_alone_prints_the_waiting_line_once(fetched_root, chat_tokenizer, tmp_path):
+    """QA 4: its answer, and not again before the next prompt."""
+    notes = tmp_path / "notes.md"
+    notes.write_bytes(NOTES)
+    loop, output, _ = chat_loop(fetched_root, chat_tokenizer, reads=[f"/attach {notes}", "/attach"])
+    loop.run()
+    assert "".join(output).count("Waiting for your next message: 1. notes.md") == 2
+
+
+def test_undo_says_the_message_s_attachments_went_with_it(fetched_root, chat_tokenizer, tmp_path):
+    """QA 9."""
+    notes = tmp_path / "notes.md"
+    notes.write_bytes(NOTES)
+    loop, output, _ = chat_loop(fetched_root, chat_tokenizer)
+    loop.start()
+    loop.handle(f"/attach {notes}")
+    loop.handle("Summarize")
+    output.clear()
+    loop.handle("/undo")
+    assert "Its attachments went with it: notes.md." in "".join(output)
+    output.clear()
+    loop.handle("Hi")
+    loop.handle("/undo")
+    assert "attachments went" not in "".join(output)
