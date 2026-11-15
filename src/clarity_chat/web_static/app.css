@@ -521,3 +521,4 @@ dialog.sheet.attach { width: min(620px, calc(100vw - 32px)); max-height: calc(10
 .turn.user button.att { background: none; border: 0; padding: 0; font: inherit; font-size: 12.5px; cursor: pointer; }
 .turn.user button.att:hover { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
 #panel .att-caption { margin-top: 6px; }
+.reading-line { margin: 0 0 6px; font-size: 13px; color: var(--muted); }

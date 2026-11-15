@@ -306,7 +306,9 @@ def fit(
     text = content("", [*pending, new], framing)
     if room.token_bytes:
         written = room.frame_bytes + len(text.strip().encode("utf-8"))
-        at_least = max(-(-written // room.token_bytes) - before, 1)  # the wrapper alone costs
+        # Every shown fit runs after a check that at least one token is free, so a bound of
+        # zero or less never decides (the whole-branch review, 11: no clamp needed).
+        at_least = -(-written // room.token_bytes) - before
         if at_least > available:
             return Fit(tokens=None, free=available, left=None, fits=False, at_least=at_least)
     cost = room.tokens(text) - before

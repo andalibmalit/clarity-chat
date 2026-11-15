@@ -363,6 +363,7 @@ async function draw(number) {
   const waits = $("picker-button").getAttribute("aria-disabled") === "true";
   $("new-chat").setAttribute("aria-disabled", String(waits));
   showWriting(state.running);
+  readingLine(state);
   if (panelOf) showPanel(panelOf.name, panelOf.params);
   if (!$("drawer").hidden) await showDrawer();
   countBranches(chat);
@@ -784,12 +785,6 @@ function refused(name, type, sentence) {
 function send() {
   const text = $("message").value;
   // While a reply is written, Send is hidden (Stop is in its place) and Enter waits too.
-  if (!text && $("chips").hidden) {
-    // Nothing to send: said beside Send (E1, sent or said why), not a silent press.
-    $("send-waits").textContent = "Type a message to send.";
-    $("send-waits").classList.remove("vh");
-    return;
-  }
   if ($("send").getAttribute("aria-disabled") === "true") {
     // It waits (a model starting, from the picker too, which is still sending its start):
     // the reason shows beside Send, not only to a screen reader, and the text stays for
@@ -807,8 +802,8 @@ function send() {
   }
   if ($("send").disabled) return;
   if (!text) {
-    // Chips and no text: the command table says why (S6), and nothing is sent.
-    // Forgetting to type isn't an error: said beside Send, as its waits are (F12).
+    // No text: the command table says why ("Type a message to send.", or S6's with the
+    // chips), beside Send, as its waits are (E1, F12); one sentence, the server's (could 17).
     command("say", "")
       .catch(unanswered)
       .then((answer) => {
@@ -848,7 +843,12 @@ async function annotate(kind, call, text = "") {
   await refresh();
   const comparing = !$("compare").hidden;
   if (comparing) {
-    const html = await view("compare", { call: compareFor }).catch(() => null);
+    const html = await view("compare", { call: compareFor }).catch((error) => {
+      // Said in Compare, where you are (the notice line is under the hidden thread): could 14.
+      const lost = unanswered(error);
+      if (!lost.handled) compareProblem(lost.error);
+      return null;
+    });
     if (html !== null) swap($("compare"), html);
   }
   if (answer.error) notice("!", answer.error);
@@ -1187,7 +1187,34 @@ document.addEventListener("change", (event) => {
 // choice's command, and only once its count is the boxes' range (Checkpoint 3, must 1).
 
 // phase: uploading, reading, sheet or stopped; attempt numbers each file, asked each read.
-const attaching = { upload: null, name: "", phase: null, attempt: 0, asked: 0, abort: null, timer: null };
+const attaching = { upload: null, name: "", phase: null, attempt: 0, asked: 0, abort: null, timer: null, adding: false };
+
+function readingLine(state) {
+  // A file read that this page didn't start (a reload or another tab's, mid-read) still
+  // shows, with its Cancel (the whole-branch review's could 13; the plan's S1).
+  const running = state.running;
+  const on = Boolean(state.reading) && Boolean(running) && running.command === "attach" && !attaching.phase;
+  $("reading-line").hidden = !on;
+  if (!on) {
+    $("reading-line").replaceChildren();
+    return;
+  }
+  const cancel = sheetButton("Cancel", "reading-cancel", "linkbtn");
+  cancel.dataset.upload = (running.args || "").split(" ")[0];
+  $("reading-line").replaceChildren(`Reading ${state.reading.name}…`, " ", cancel);
+}
+
+function compareProblem(sentence) {
+  const line = document.createElement("p");
+  line.setAttribute("role", "alert");
+  const bold = document.createElement("strong");
+  bold.textContent = "!";
+  line.append(bold, " ", sentence);
+  const box = document.createElement("div");
+  box.className = "problem";
+  box.append(line);
+  $("compare").prepend(box);
+}
 
 function clipWhy(running) {
   // The paperclip waits while a model starts or anything that changes the chat runs (a
@@ -1201,19 +1228,24 @@ function waitsFor(running) {
   return running && WRITES.has(running.command) ? "Waits until the reply is done." : "Waits until the command is done.";
 }
 
-async function pickFile() {
-  // The session says first whether this chat can attach (text mode can't), so nothing is
-  // uploaded only to be refused (should 5); then the system's file picker opens.
+function pickFile() {
+  // In a chat-mode chat the picker opens in the press itself, so the browser keeps the
+  // press's permission to open it (the whole-branch review's should 6). In text mode
+  // nothing opens: the session's refusal says why, as a refusal (Checkpoint 3's should 5,
+  // the walkthrough's F12).
   const why = clipWhy(clarity.state.running); // a Replay this page sent, not yet drawn
   if (why) {
     $("clip-waits").textContent = why;
     return;
   }
-  const answer = await command("attach").catch(unanswered);
-  if (answer.handled) return;
   $("clip-waits").textContent = "";
-  if (answer.error) notice("!", answer.error); // a refusal, drawn as one (the walkthrough's F12)
-  else $("attach-file").click();
+  if (clarity.state.mode === "chat") {
+    $("attach-file").click();
+    return;
+  }
+  command("attach")
+    .catch(unanswered)
+    .then((answer) => answer.error && notice("!", answer.error));
 }
 
 function sheetHead(title, close) {
@@ -1333,21 +1365,26 @@ async function attachFile(file) {
 }
 
 async function cancelRead(draw = true) {
-  // Cancel stops only this file's read (must 2): an upload still sending is aborted, and a
-  // read is cancelled only while /state says this upload is the command running. Either
-  // way the sheet says it stopped, and a late answer is dropped.
+  // Cancel stops only this file's read (Checkpoint 3's must 2). An upload still sending is
+  // aborted: nothing reads it. Otherwise /cancel names the upload: its read stops if it
+  // runs, and is refused if it hasn't started (the whole-branch review's should 4). The
+  // sheet then says what the read's own answer says, once it has stopped.
   const { phase, upload, name } = attaching;
   if (phase !== "uploading" && phase !== "reading") return;
-  attaching.phase = "stopped";
-  if (draw) sheetEnded($("attach-sheet").dataset.stopped.replace("{name}", name), false); // SENTENCES
   if (phase === "uploading") {
+    attaching.phase = "stopped";
     attaching.abort.abort();
+    if (draw) sheetEnded($("attach-sheet").dataset.stopped.replace("{name}", name), false); // SENTENCES
     return;
   }
-  const answer = await command("state").catch(() => null);
-  const running = answer && answer.result && answer.result.running;
-  if (running && running.command === "attach" && (running.args || "").startsWith(`${upload} `)) {
-    await command("cancel").catch(() => null);
+  attaching.phase = "cancelling";
+  const cancel = $("attach-body").querySelector("[data-action=attach-cancel]");
+  if (cancel) cancel.setAttribute("aria-disabled", "true"); // pressed once: the answer comes
+  const answer = await command("cancel", upload).catch(unanswered);
+  if (answer.handled || attaching.phase !== "cancelling") return;
+  if (answer.error && draw) {
+    attaching.phase = "stopped";
+    sheetEnded(answer.error); // the cancel didn't reach Clarity: said, not swallowed
   }
 }
 
@@ -1364,6 +1401,7 @@ async function loadSheet(range, first = false) {
   const asked = attaching.asked;
   const attempt = attaching.attempt;
   const current = () => asked === attaching.asked && attempt === attaching.attempt && attaching.phase !== "stopped";
+  // A cancelled read's answer is its refusal (SENTENCES' "stopped"): drawn as it comes.
   let html;
   try {
     html = await view("attach", { upload: attaching.upload, ...range });
@@ -1465,7 +1503,18 @@ document.addEventListener("change", (event) => {
 
 async function addAttachment() {
   const choice = checkedChoice();
-  if (!choice || choice.dataset.ok !== "true") return;
+  if (!choice || choice.dataset.ok !== "true" || attaching.adding) return;
+  // One press: a second can't send a second /new or attach (the whole-branch review, 5).
+  attaching.adding = true;
+  $("attach-body").querySelector("[data-action=attach-add]").setAttribute("aria-disabled", "true");
+  try {
+    await adding(choice);
+  } finally {
+    attaching.adding = false;
+  }
+}
+
+async function adding(choice) {
   let answer;
   if (choice.dataset.choice === "new") {
     answer = await command("new").catch(unanswered);
@@ -1478,6 +1527,7 @@ async function addAttachment() {
     const line = $("attach-body").querySelector(".sheet-error");
     line.textContent = `! ${answer.error}`;
     line.hidden = false;
+    updateAdd();
     return;
   }
   $("attach-sheet").close();
@@ -1862,6 +1912,9 @@ const THREAD = {
   "export-close": () => $("export-sheet").close(),
   "attach-pick": () => pickFile(),
   "attach-choose": (element) => {
+    // A choice made while a range is counted stays: that count's answer is dropped (could 15).
+    clearTimeout(attaching.timer);
+    attaching.asked += 1;
     for (const radio of $("attach-body").querySelectorAll("[role=radio]")) {
       radio.setAttribute("aria-checked", String(radio === element));
     }
@@ -1870,12 +1923,24 @@ const THREAD = {
   },
   "attach-preview": () => showPreview($("attach-preview").hidden),
   "attach-add": () => addAttachment(),
-  "attach-cancel": () => cancelRead(), // only this read stops, and the sheet says so (ruling 8)
+  "attach-cancel": () => cancelRead(),
+  "reading-cancel": async (element) => {
+    element.setAttribute("aria-disabled", "true");
+    const answer = await command("cancel", element.dataset.upload).catch(unanswered);
+    if (answer.error) notice("!", answer.error);
+    await refresh();
+  }, // only this read stops, and the sheet says so (ruling 8)
   "attach-close": () => $("attach-sheet").close(),
   detach: async (element) => {
-    const answer = await command("detach", element.dataset.n).catch(unanswered);
-    if (answer.handled) return;
-    if (answer.error) notice("!", answer.error);
+    // By the chip's identity, its bytes and range, not the position it was drawn at; every
+    // × waits until this one's redraw lands (the whole-branch review's should 5).
+    for (const x of $("chips").querySelectorAll("[data-action=detach]")) x.setAttribute("aria-disabled", "true");
+    const at = clarity.state.pending.find((a) => `${a.sha256} ${a.range[0]}-${a.range[1]}` === element.dataset.key);
+    if (at) {
+      const answer = await command("detach", String(at.n)).catch(unanswered);
+      if (answer.handled) return;
+      if (answer.error) notice("!", answer.error);
+    }
     await refresh();
     $("message").focus();
   },
