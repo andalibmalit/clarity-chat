@@ -8,6 +8,7 @@ the fake backend; nothing reaches a model.
 
 from __future__ import annotations
 
+import html
 import http.server
 import re
 import socket
@@ -86,7 +87,18 @@ def clarity(fetched_root, tiny_tokenizer):
 
 
 def open_clarity(page, redirect: Path) -> None:
-    page.goto(redirect.as_uri())
+    browser = page.context.browser
+    if browser is not None and browser.browser_type.name == "webkit":
+        # Playwright's WebKit driver asserts in _WKPage._onTargetCreated on the redirect
+        # file's file:// to http:// hop and stops, taking every later test with it (CI
+        # 43754075636 on Linux, 43756769126 on macOS): Playwright's bug, not the page's. So
+        # WebKit opens the page by the link the file holds. The redirect file stays tested in
+        # Chrome and Firefox, and the job summary says so.
+        link = re.search(r'url=([^"]+)"', redirect.read_text(encoding="utf-8"))
+        assert link is not None, redirect
+        page.goto(html.unescape(link[1]))
+    else:
+        page.goto(redirect.as_uri())
     page.wait_for_selector("body[data-page=ready]")
 
 

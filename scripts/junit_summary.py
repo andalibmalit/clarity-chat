@@ -14,6 +14,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 DRIVER_GONE = "Playwright connection closed"  # every test after the driver died says it
+WEBKIT_OPENS_BY_LINK = (
+    "WebKit opens the page by its link; the redirect file isn't tested in WebKit."
+)
 
 
 def summary(path: Path, engine: str) -> str:
@@ -46,6 +49,8 @@ def summary(path: Path, engine: str) -> str:
         else:
             passed += 1
     head = f"{title}: {passed} passed, {failed} failed, {skipped} skipped"
+    if engine.lower() == "webkit":  # tests/test_browser.py's open_clarity says why
+        lines.insert(0, WEBKIT_OPENS_BY_LINK)
     if stopped_in is not None:
         lines.insert(
             0,
