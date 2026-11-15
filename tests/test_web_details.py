@@ -664,3 +664,17 @@ def test_details_draws_when_its_probabilities_or_compare_are_refused(chat):
     fragment = details(client, first)
     assert "Details · this reply" in fragment and "reply 1 of" not in fragment
     assert 'data-action="replay"' in fragment and "Request and response" in fragment
+
+
+def test_an_identical_replay_says_what_was_compared_and_no_first_difference(chat):
+    """QA 3: every Identical replay read "From output token . Compared: …": the record has
+    no first_different_token, and the template's `is not none` held for a missing key."""
+    client, session = chat
+    session.backend.replies = [" Hello!", " Hello!"]
+    call = result(client, "say", "Hi")["call"]["call_id"]
+    replay = result(client, "replay", call)["replay"]
+    assert replay["identical"] and "first_different_token" not in replay
+    fragment = details(client, call)
+    assert "From output token" not in fragment
+    assert "Identical" in fragment
+    assert f"Compared: {replay['compared']}." in fragment
