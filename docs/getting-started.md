@@ -146,7 +146,7 @@ ok    smollm2-135m-instruct: sha256 matches (0f049d7126689b64…)
 
 ## Chat in the browser
 
-The web interface runs the same chats in a page on your computer. Everything it does to a chat goes through the same commands as the terminal, and into the same log.
+The web interface runs the same chats in a page on your computer. Everything it does to a chat goes through the same commands as the terminal, and into the same log. The page has been checked in Chrome only.
 
 1. Start it:
 
