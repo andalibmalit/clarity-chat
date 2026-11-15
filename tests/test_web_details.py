@@ -678,3 +678,17 @@ def test_an_identical_replay_says_what_was_compared_and_no_first_difference(chat
     assert "From output token" not in fragment
     assert "Identical" in fragment
     assert f"Compared: {replay['compared']}." in fragment
+
+
+def test_a_cancelled_reply_s_details_says_why_it_cant_be_replayed(chat):
+    """QA 8 (runs 40, 41): a cancelled reply's Details offered Replay, which then refused.
+    It says why up front, with the refusal's own sentence, and offers no Replay."""
+    client, session = chat
+    session.backend.replies, session.backend.cancel_after = [" Hello there"], 4
+    call = result(client, "say", "Hi")["call"]["call_id"]
+    refused = command(client, "replay", call).json()["error"]
+    fragment = details(client, call)
+    section = fragment.split('data-key="replay"')[1].split("</details>")[0]
+    assert 'data-action="replay"' not in section
+    assert refused == f"Call {call} was cancelled, so its reply is incomplete."
+    assert refused in section and "can’t be replayed" in section
