@@ -152,6 +152,9 @@ def test_reading_shows_with_cancel_and_cancel_says_it_stopped(clarity, page, mon
     shot(page, "C1-sheet-reading", "v031")
     page.click("#attach-sheet [data-action=attach-cancel]")
     page.wait_for_selector("#attach-sheet :text('Stopped reading slow.md.')")  # ruling 8
+    until(  # the read itself stopped, not only the sentence (the whole-branch review, 16)
+        page, lambda: page.evaluate("clarity.command('state')")["result"]["running"] is None
+    )
 
 
 def test_new_chat_with_this_document(clarity, page):
@@ -305,7 +308,7 @@ def test_cancel_during_the_upload_stops_it_and_says_so(clarity, page):
         held[0].continue_()
     except Exception:  # the page aborted it: nothing to continue
         pass
-    page.wait_for_timeout(500)
+    page.wait_for_timeout(500)  # nothing to wait for: a read that went on shows now, if ever
     assert page.query_selector("#attach-sheet [role=radiogroup]") is None
     state = page.evaluate("clarity.command('state')")["result"]
     assert state["running"] is None and state["reading"] is None
