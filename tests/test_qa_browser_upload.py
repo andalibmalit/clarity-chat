@@ -57,7 +57,7 @@ def test_an_upload_inside_the_root_parses_and_gives_the_page_that_file(root):
 
 
 @pytest.mark.parametrize(
-    "path", ["../secret.txt", "docs/away.md", "~/.ssh/id_ed25519", "/etc/hosts", "docs/none.md"]
+    "path", ["../secret.txt", "docs/away.md", "~/made-up-qa-file.md", "/etc/hosts", "docs/none.md"]
 )
 def test_an_upload_outside_the_root_or_of_no_file_is_refused_when_read(root, path):
     with pytest.raises(qa.Refused, match="scratch root"):
@@ -77,3 +77,27 @@ def test_a_file_with_a_second_name_is_refused(root, tmp_path):
     os.link(tmp_path / "secret.txt", root / "docs" / "twin.md")
     with pytest.raises(qa.Refused, match="scratch root"):
         qa.parse_steps(steps(root, "upload #attach-file :: docs/twin.md"), root=root)
+
+
+# --- the Fable review (notes/research/reviews/v031-qa-driver-review.md) ------------------
+
+
+def test_a_link_whose_name_ends_in_a_space_is_refused_when_the_step_runs(root, tmp_path):
+    """Should 2: the page must get the very path that was judged, unstripped."""
+    (root / "docs" / "later.md ").symlink_to(tmp_path / "secret.txt")
+    page = FakePage()
+    try:
+        qa.run_step(page, "upload", "#attach-file :: docs/later.md ", root.parent, 1, root=root)
+    except qa.Refused:
+        pass
+    assert page.files == []
+
+
+@pytest.mark.parametrize("path", ["~nosuchuser-for-qa/x.md", "docs/notes.md/../notes.md"])
+def test_a_path_the_guard_cant_judge_or_with_dot_dot_is_refused(root, path):
+    """Could 1 (an unknown ~user crashed the driver) and should 4 (`..`)."""
+    try:
+        got = qa.parse_steps(steps(root, f"upload #attach-file :: {path}"), root=root)
+    except Exception as e:  # a crash is what the driver did, not what it should
+        got = e
+    assert isinstance(got, qa.Refused), got
