@@ -502,6 +502,7 @@ class ChatLoop:
         self.read = read
         self.write = write
         self.draft = ""  # prefilled in the next input
+        self.listed = False  # the waiting line was just printed: not again before the prompt
         self.commands = Commands(session)
         self.attach = attach or {}  # --attach's files, read before the start
 
@@ -528,7 +529,8 @@ class ChatLoop:
         while True:
             draft, self.draft = self.draft, ""
             conversation = self.session.conversation
-            if conversation is not None and conversation.pending:
+            listed, self.listed = self.listed, False  # the command just printed it (QA 4)
+            if conversation is not None and conversation.pending and not listed:
                 self.write(format_pending(summaries(conversation.pending)) + "\n")
             try:
                 line = self.read(draft)
@@ -569,7 +571,12 @@ class ChatLoop:
         never a command ("//quit", not "/quit")."""
         if name not in ("say", "edit"):
             return ""
-        self.draft = "/" + args if args.startswith("/") else args
+        # An edit comes back as the edit, so Enter edits again, with its attachments (the
+        # fix review's confirmation, should 2); "/edit /…" needs no escape.
+        if name == "edit":
+            self.draft = "/edit " + args
+        else:
+            self.draft = "/" + args if args.startswith("/") else args
         return " Your message is back in the input to edit or send again."
 
     def keeps(self) -> None:
@@ -641,7 +648,9 @@ class ChatLoop:
         elif name == "undo":
             text = result["head_text"]
             where = f"after: {text[:60]!r}" if result["head"] else "at the start"
-            self.write(f"Undone. The next message continues {where}.\n")
+            went = result["attachments"]
+            gone = f" {SENTENCES['undone_attachments'].format(names=names(went))}" if went else ""
+            self.write(f"Undone. The next message continues {where}.{gone}\n")
         elif name == "set":
             record = result["record"]
             now = result["setting"]
@@ -665,11 +674,15 @@ class ChatLoop:
             self.write(format_check(result["check"]) + "\n")
         elif name == "attach" and "attached" in result:
             self.write(format_attached(result) + "\n")
+            if result["already_in_chat"]:  # a note, as the sheet's: it's attached
+                self.write(SENTENCES["already"] + "\n")
         elif name == "attach":
             self.write(format_pending(result["pending"]) + "\n")
+            self.listed = True
         elif name == "detach":
-            names = ", ".join(shown(a["name"]) for a in result["detached"]) or "nothing"
-            self.write(f"Detached {names}. {format_pending(result['pending'])}\n")
+            detached = names(result["detached"]) or "nothing"
+            self.write(f"Detached {detached}. {format_pending(result['pending'])}\n")
+            self.listed = True
         elif name == "branches":
             show = format_branch_ends if "ends" in result else format_branches
             self.write(show(result) + "\n")

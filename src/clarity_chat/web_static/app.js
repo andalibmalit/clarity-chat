@@ -718,7 +718,7 @@ function showWriting(running) {
   $("clip").dataset.why = why;
   if (why) $("clip").setAttribute("aria-disabled", "true");
   else $("clip").removeAttribute("aria-disabled");
-  if (!why) $("clip-waits").textContent = "";
+  $("clip-waits").textContent = why; // shown while it waits, not only when pressed (QA 2)
   if (!on) {
     $("writing-status").textContent = ""; // the region stays in the page, empty
     $("writing-dots").replaceChildren();

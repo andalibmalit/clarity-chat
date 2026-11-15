@@ -61,6 +61,7 @@ def test_attach_adds_the_whole_file_and_gives_what_s_free_and_left(chat, notes):
         "pending": [summary(record, 1)],
         "free": result["free"],
         "left": result["free"] - record["tokens"],
+        "already_in_chat": False,
     }
     assert result["free"] > 0
 
