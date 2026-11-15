@@ -277,3 +277,28 @@ def test_one_seed_again_is_the_same_seed_singular(chat):
     assert re.findall(r'<p class="divider">(.*?)</p>', fragment) == [
         "You set temperature to 0.3, then chose “Again with the same seed”"
     ]
+
+
+# --- E3 (v0.3.1): the thread's bookmark on each Compare card (board V3Compare, K1)
+
+
+def test_each_compare_card_has_the_thread_s_bookmark(chat):
+    client, session = chat
+    session.backend.replies = [" Two."]
+    result(client, "regen")
+    compared = result(client, "compare")
+    first, second = compared["replies"]
+    result(client, "mark", first["call_id"])
+    raw = client.get(f"/view/compare?call={last_call(client)}", headers={**AUTH, **SAME}).text
+    fragment = html.unescape(raw)
+    marked = 'aria-label="Marked: interesting. Edit marks and note, reply 1 of 2"'
+    assert marked in fragment and 'aria-label="Mark reply 2 of 2"' in fragment
+    for reply in (first, second):
+        call = reply["call_id"]
+        assert f'aria-controls="cpop-{call}" data-action="marks"' in fragment
+        pop = re.search(rf'<div class="pop" id="cpop-{call}".*?</form>', fragment, re.S)
+        assert pop, call
+        assert ("Marked: interesting" if reply is first else "Mark as interesting") in pop.group(0)
+        assert f'for="cnote-{call}"' in pop.group(0)  # ids apart from the thread's own
+    card = re.search(rf'<div class="card" data-call="{second["call_id"]}">', fragment)
+    assert card, "each card names its reply's call"
