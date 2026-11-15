@@ -217,7 +217,8 @@ def test_the_memory_watchdog_ends_the_child(monkeypatch):
         "held = []\n"
         'for _ in range(60): held.append(b"x" * (10 * 1024 * 1024))',  # written: resident
     )
-    assert refused(b"Made-up.", "huge.pdf") == "huge.pdf took more than 1024 MB of memory to read."
+    # The board's ruling 5: "1 GB", not "1024 MB".
+    assert refused(b"Made-up.", "huge.pdf") == "huge.pdf took more than 1 GB of memory to read."
 
 
 def test_the_child_s_own_deadline_ends_it_with_no_parent_watching():
