@@ -557,7 +557,12 @@ def test_edit_your_message_then_step_through_its_versions(clarity, page, context
     assert page.text_content(".msgbar .n .vh") == "Version 2 of 2"
     page.click(".reply.last [data-action=copy]")
     page.wait_for_selector(".reply.last .copied:has-text('Copied')")
-    assert page.evaluate("navigator.clipboard.readText()") == page.text_content(".reply.last .msg")
+    # WebKit refuses the test's own clipboard read ("NotAllowedError ... not allowed by the
+    # user agent", CI 43757928341) and Playwright grants no clipboard permission there, so in
+    # WebKit the check ends at "Copied"; Chrome and Firefox read the text back.
+    if browser_name != "webkit":
+        copied = page.evaluate("navigator.clipboard.readText()")
+        assert copied == page.text_content(".reply.last .msg")
     shot(page, "D1-D3-counter-and-toolbar", "c2")
     page.click("[aria-label='Previous version of your message']")
     page.wait_for_selector(".msgbar .n [aria-hidden]:has-text('1 / 2')")
