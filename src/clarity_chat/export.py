@@ -11,7 +11,7 @@ from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
-from clarity_chat.documents import message_content
+from clarity_chat.documents import added_ranges, message_content
 from clarity_chat.files import write_text_atomic
 from clarity_chat.logs import LOG_NAME, client_git, read_records, unreadable
 from clarity_chat.profiles import ConfigError, load_profile
@@ -126,6 +126,8 @@ def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any
         "failed_calls_left_out": header["failed_calls_left_out"],
         "calls_without_a_turn_left_out": header["calls_without_a_turn_left_out"],
         "steered": steered_by_vector(rows),
+        # How many documents the file holds the text of (each attached message counts once).
+        "attachments": len({(a["turn_id"], a["name"]) for r in rows for a in r["attachments"]}),
     }
 
 
@@ -194,6 +196,7 @@ def export_call(
         "path": path,
         "cancelled": call.get("stop_type") == "cancelled",
         "message_spans": spans,
+        "attachments": attachments_on(path, turns, spans),
         "marks": [
             {k: m.get(k) for k in ("label", "origin", "time")} for m in annotations.get("marks", [])
         ],
@@ -205,6 +208,25 @@ def export_call(
         "steering": logged_steering(call),
         "facts": facts_from_call(call, server),
     }
+
+
+def attachments_on(
+    path: list[str], turns: dict[str, dict[str, Any]], spans: list[dict] | dict[str, str]
+) -> list[dict[str, Any]]:
+    """The documents attached on a call's path, each with its message's turn and its tokens
+    in the prompt (from the spans' `added`; null when the spans are unavailable)."""
+    added = {
+        (e.get("turn_id"), a["index"]): a["tokens"]
+        for e in (spans if isinstance(spans, list) else [])
+        for a in e.get("added", [])
+        if a["what"] == "attachment"
+    }
+    keys = ("name", "how", "range", "sha256", "extracted_sha256")
+    return [
+        {"turn_id": t, **{k: a[k] for k in keys}, "tokens": added.get((t, i))}
+        for t in path
+        for i, a in enumerate(turns[t].get("attachments") or [])
+    ]
 
 
 def path_to(turns: dict[str, dict[str, Any]], turn_id: str) -> list[str]:
@@ -247,6 +269,7 @@ def derive_spans(
             [t["turn_id"] for t in turns],
             prompt,
             template,
+            [added_ranges(t) for t in turns],
         )
     except Exception as e:  # a tokenizer not in the cache, a record Clarity didn't write
         return {"unavailable": f"{type(e).__name__}: {e}"}

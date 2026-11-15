@@ -138,6 +138,18 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 - A server restart mid-run stops the run, so no run mixes server processes.
 - Nothing goes to `logs/`, not even the server's output, so held-out openings never end up in a transcript export.
 
+## Attached documents
+
+**An attachment is part of its message.** Attaching a file puts its text in a block at the start of your message, after a framing line that tells the model it's reference material. One function builds every message's content: the prompt, its message spans, the render check, resume and the export all use it, and later search results will go through it too.
+- The turn record keeps your message as you wrote it, with the attachments beside it. So a regeneration reuses them without reading the file again, `/edit` keeps them, and a branch brings only its own.
+- A failed send puts the message and its attachments back, waiting for you to send again.
+- Nothing is trimmed. A chat that outgrows its context stops at the check every call goes through, and the sentence says how many of the prompt's tokens are in attached documents. There's no way to send anyway.
+- Privacy: a log and an export hold the text of the documents attached in them. The record keeps a file's name, never its path. Attachments still waiting aren't logged, so a resume drops them.
+
+**Extraction runs in a child process with limits.** `pypdf` has had advisories for unbounded memory use and infinite loops on crafted PDFs, and the web page's commands run on one worker thread, so a parser stuck in Clarity's own process would freeze it, Stop included. The child runs with `python -I` and an environment with nothing of Clarity's (no tokens, no paths). It gets 120 seconds, at most 1 GB of memory (its own watchdog polls every 20 ms, and on Linux `RLIMIT_AS` stops it at twice that) and 256 MB of output; files over 64 MB are refused before they're read. Each limit is a refusal with a sentence, never a stopped session.
+- Cost: memory can overshoot by what's allocated between two polls, and Windows has no memory guard until v0.7.0 (the time limit still holds there).
+- The same extractor version gives the same text from the same bytes. Each attachment logs the extractor's name and version, the file's sha256 and the whole extracted text's sha256.
+
 ## Determinism and replay
 
 **The same call on the same machine and build gives the same output,** at any temperature, because the seed is always fixed. Live tests check this back to back, after a longer call in between, and after a server restart, on SmolLM2 and OLMo 3. The Transformers backend passes the same checks (back to back and after a reload) on MPS for SmolLM2 and OLMo 3 Instruct, and on the CPU for SmolLM2. It holds because Clarity removes what usually varies: one request at a time, no prompt cache, and fixed batch sizes, so every GPU kernel sees the same shapes every time.

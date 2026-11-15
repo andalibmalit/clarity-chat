@@ -25,6 +25,7 @@ from clarity_chat.documents import (
     Document,
     DocumentRefused,
     Room,
+    added_ranges,
     fit,
     framing_of,
     message_content,
@@ -1110,6 +1111,7 @@ class Session:
             [t.turn_id for t in path],
             prompt,
             self.template_tokenizer,
+            [added_ranges(t.attached_fields()) for t in path],
         )
 
     @staticmethod
