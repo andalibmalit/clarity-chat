@@ -1737,3 +1737,59 @@ def test_the_picker_reads_the_profiles_again_when_it_opens(clarity, page):
     page.keyboard.press("Escape")
     assert page.is_hidden("#picker-menu")
     assert page.evaluate("document.activeElement.id") == "picker-button"
+
+
+# --- QA of v0.3.0 (batch 5)
+
+
+def test_enter_during_a_start_says_it_waits_and_enter_after_it_sends(clarity, page):
+    """QA 1 (runs 04, 05, 36, 37): Enter pressed while the model was still starting did
+    nothing and said nothing (Send's reason is for screen readers only), so it read as
+    "Enter doesn't send". QA's steps: pick a profile, click the box, type, press Enter.
+    Board B2 stays (the owner's call): Send waits during a start, now saying so on screen;
+    the text stays, and Enter once the model is ready sends it."""
+    _, redirect, backend = clarity
+    open_clarity(page, redirect)
+    hold_start(backend, 3)
+    page.click("[data-profile=text]")
+    page.wait_for_selector("#thread [role=status]")  # Starting text…
+    page.get_by_role("textbox", name="Message").click()
+    page.keyboard.type("Name one animal.")
+    page.keyboard.press("Enter")
+    page.wait_for_timeout(500)
+    assert page.text_content("#notice") == "Waits until the model has started."
+    assert page.input_value("#message") == "Name one animal."
+    page.wait_for_selector("#thread .intro")  # ready
+    assert page.query_selector("#notice :text('Waits until the model has started.')") is None
+    page.get_by_role("textbox", name="Message").click()
+    page.keyboard.press("Enter")
+    page.wait_for_selector(".turn.user .msg")
+    assert page.text_content(".turn.user .msg") == "Name one animal."
+
+
+def test_details_on_the_newest_reply_is_that_reply_s(clarity, page):
+    """QA 2 (run34, also 32, 33, 39, 46): after a second message, Details in the toolbar
+    "Actions for this reply" opened the first reply's Details ("An earlier reply"), and
+    Replay there replayed that call. QA's steps, three times over."""
+    _, redirect, backend = clarity
+    chat_on(page, redirect, "long")
+    backend.piece_delay = 0.05
+    for n in range(3):
+        backend.replies = [" A polar bear.", " A blue whale."]
+        page.get_by_role("textbox", name="Message").fill(f"Name one animal ({n}).")
+        page.get_by_role("button", name="Send").click()
+        page.get_by_role("button", name="Regenerate").wait_for()
+        page.get_by_role("textbox", name="Message").fill(f"Name another animal ({n}).")
+        page.get_by_role("button", name="Send").click()
+        page.wait_for_timeout(1000)
+        page.get_by_role("button", name="Regenerate").wait_for()
+        newest = page.evaluate("clarity.command('state')")["result"]["turns"][-1]["call_id"]
+        page.get_by_role("toolbar", name="Actions for this reply").get_by_role(
+            "button", name="Details"
+        ).click()
+        page.wait_for_selector("#panel:not([hidden]) #panel-title")
+        page.wait_for_timeout(500)
+        heading = page.text_content("#panel-title")
+        shown = page.get_attribute("#panel [data-call]", "data-call")
+        assert (n, shown, "An earlier reply" in heading) == (n, newest, False), heading
+        page.get_by_role("complementary").get_by_role("button", name="Close").click()
