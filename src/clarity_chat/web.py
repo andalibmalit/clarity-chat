@@ -1157,7 +1157,15 @@ def replay_result(replay: dict[str, Any]) -> dict[str, Any]:
     else:
         noun = "thing" if len(facts) == 1 else "things"
         label = f"Different · {len(facts)} {noun} changed since"
-    return {**replay, "label": label, "changed": changed, "notes": replay_notes(replay)}
+    return {
+        **replay,
+        # None when the replay matched: the record has no such key, which the template
+        # would read as present (Jinja's Undefined isn't None).
+        "first_different_token": replay.get("first_different_token"),
+        "label": label,
+        "changed": changed,
+        "notes": replay_notes(replay),
+    }
 
 
 def percent(chance: float) -> str:
