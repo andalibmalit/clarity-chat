@@ -56,6 +56,7 @@ class Commands:
         # and never a path (decision 16). The terminal and --json read paths.
         self.uploads = uploads
         self.reading: str | None = None  # the file /attach is reading, for /state
+        self.preread: dict[str, documents.Document] = {}  # --attach files, read before a start
         self.busy = threading.Lock()  # held while a command runs: one at a time
         self.cancel_event: threading.Event | None = None  # the running command's
         self.running: str | None = None  # the running command's name
@@ -334,6 +335,10 @@ def read_document(c: Commands, source: str) -> documents.Document:
     finally:
         with c.progress:
             c.reading = None
+
+
+def read_files(paths: list[str]) -> dict[str, documents.Document]:
+    return {}
 
 
 def _detach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:

@@ -25,7 +25,7 @@ import json
 import queue
 import threading
 import traceback
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import IO, Any
 
 from clarity_chat.backends import BackendError
@@ -57,7 +57,7 @@ class JsonChat:
         except (OSError, ValueError):  # a closed pipe or file
             self.closed = True
 
-    def run(self, first: list[dict[str, Any]]) -> None:
+    def run(self, first: list[dict[str, Any]], then: Sequence[dict[str, Any]] = ()) -> None:
         """Run the `first` commands (from --profile or --resume), then each input line. If a
         first command fails, the session ends there, as the terminal's does."""
         pending: queue.Queue[dict[str, Any] | None] = queue.Queue()
