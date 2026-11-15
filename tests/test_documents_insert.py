@@ -436,8 +436,9 @@ def test_the_sheet_s_words_are_all_in_the_one_table():
         "(your max_tokens)."
     )  # the walkthrough's F4
     assert SENTENCES["excerpt"] == (
-        "Only the {units} you choose are sent, after a line that says they're an excerpt."
-    )  # the walkthrough's F14
+        "Only the {units} you choose are sent, after a line that says they're an excerpt unless "
+        "the profile sets no marker."
+    )  # the walkthrough's F14, and the final fact-check's row 18
     assert SENTENCES["no_marker"] == "No excerpt marker (this profile)."
     assert SENTENCES["fits_up_to"] == "{Units} 1 to {last} fit."
     assert SENTENCES["none_fits"] == "Not even its first {unit} fits."

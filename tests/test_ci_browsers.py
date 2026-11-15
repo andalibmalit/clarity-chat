@@ -55,9 +55,16 @@ def test_the_job_runs_webkit_and_firefox_allowed_to_fail_with_its_summary():
     assert "scripts/junit_summary.py" in job and '>> "$GITHUB_STEP_SUMMARY"' in job
 
 
-def test_getting_started_says_the_page_has_been_checked_in_chrome_only():
+def test_getting_started_says_which_browsers_test_the_page():
+    """The final fact-check's getting-started row, in the main session's words: both other
+    engines' runs pass, but don't block a change."""
     text = (REPO / "docs/getting-started.md").read_text(encoding="utf-8")
-    assert "The page has been checked in Chrome only." in text
+    assert "The page has been checked in Chrome only." not in text
+    assert (
+        "The page is tested in Chrome on every change. Automated tests also run it in Firefox "
+        "and in WebKit, the engine Safari uses; those runs don't block a change yet, so a "
+        "problem there can slip through." in text
+    )
 
 
 # --- the whole-branch review's should 8 and 9
