@@ -10,6 +10,7 @@ when every test ran. pytest's own exit status covers failures.
 
 from __future__ import annotations
 
+import argparse
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -22,7 +23,7 @@ def counts(path: Path) -> tuple[int, list[str]]:
     return len(cases), [skip.get("message", "") for skip in skips]
 
 
-def problem(path: Path) -> str | None:
+def problem(path: Path, at_least: int = 1) -> str | None:
     """Why the run in `path` doesn't count; None when it does."""
     tests, skips = counts(path)
     if not tests:
@@ -34,9 +35,12 @@ def problem(path: Path) -> str | None:
 
 
 def main(argv: list[str]) -> int:
-    (name,) = argv
-    path = Path(name)
-    if (message := problem(path)) is not None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("path", type=Path)
+    parser.add_argument("--at-least", type=int, default=1)
+    args = parser.parse_args(argv)
+    path = args.path
+    if (message := problem(path, args.at_least)) is not None:
         print(message, file=sys.stderr)
         return 1
     print(f"{path}: {counts(path)[0]} tests ran, none skipped.")
