@@ -163,7 +163,11 @@ def test_a_page_on_another_port_can_neither_read_nor_act(clarity, page, tmp_path
     assert len(page.evaluate("clarity.command('state')")["result"]["turns"]) == turns
 
 
-def test_a_reply_reloaded_mid_way_joins_exactly_with_an_emoji(clarity, page):
+def test_a_reply_reloaded_mid_way_joins_exactly_with_an_emoji(clarity, page, monkeypatch):
+    import dataclasses
+
+    from clarity_chat import commands
+
     _, redirect, backend = clarity
     open_clarity(page, redirect)
     page.evaluate("clarity.command('profile', 'long')")
@@ -171,13 +175,20 @@ def test_a_reply_reloaded_mid_way_joins_exactly_with_an_emoji(clarity, page):
     backend.replies, backend.piece_delay = [reply], 0.25
     # A function returning nothing, so evaluate doesn't wait for the command's promise.
     page.evaluate("() => { clarity.command('say', 'Hi'); }")
-    page.wait_for_timeout(900)
+    # Part of the reply has arrived. "attached": the writing box shows only once a redraw
+    # has read /state, and this reply was sent without one.
+    page.wait_for_selector("#writing:has-text('two')", state="attached")
+    # The reloaded page's /state answers late, so pieces are buffered meanwhile, some at
+    # positions /state's reply_end already covers. Slowed in the server, not in a route
+    # handler, whose time.sleep would hold every request the page makes (the QA driver's
+    # stall).
+    real = commands.COMMANDS["state"]
 
-    def slow(route):  # the reloaded page's /state answers late, so pieces are buffered
-        time.sleep(0.6)  # meanwhile, some at positions /state's reply_end already covers
-        route.continue_()
+    def late(c, args, emit):
+        time.sleep(0.6)
+        return real.run(c, args, emit)
 
-    page.route("**/command", slow)
+    monkeypatch.setitem(commands.COMMANDS, "state", dataclasses.replace(real, run=late))
     page.reload()  # mid-reply: the new page reads /state, then joins the stream
     page.wait_for_selector("body[data-last-call]", timeout=20_000)
     assert page.text_content("#writing") == reply
@@ -577,7 +588,7 @@ def test_after_a_reload_mid_reply_the_page_learns_the_reply_ended(clarity, page)
     reply = " Slowly," * 12 + " done."
     backend.replies, backend.piece_delay = [reply], 0.3
     page.evaluate("() => { clarity.command('say', 'Hi'); }")
-    page.wait_for_timeout(600)
+    page.wait_for_selector("#writing:has-text('Slowly, Slowly,')", state="attached")
     page.reload()
     page.wait_for_selector("#stop", state="visible")
     page.wait_for_selector("#stop", state="hidden", timeout=20_000)
@@ -600,7 +611,8 @@ def test_a_tab_showing_another_tab_stays_there_when_the_live_one_goes(clarity, c
     second.goto(found.group(1))
     second.wait_for_selector("body[data-page=not-live]")
     first.close()
-    second.wait_for_timeout(4000)  # longer than the page's reconnect backoff
+    # Shows nothing happens: longer than the page's reconnect backoff, the tab stays put.
+    second.wait_for_timeout(4000)
     assert second.evaluate("document.body.dataset.page") == "not-live"
 
 
@@ -643,7 +655,7 @@ def test_after_a_reload_mid_reply_the_page_reads_only_state_until_it_ends(clarit
     reply = " Slowly," * 14 + " done."
     backend.replies, backend.piece_delay = [reply], 0.3
     page.evaluate("() => { clarity.command('say', 'Hi'); }")
-    page.wait_for_timeout(600)
+    page.wait_for_selector("#writing:has-text('Slowly, Slowly,')", state="attached")
     views: list[str] = []
     page.on("request", lambda r: views.append(r.url) if "/view/thread" in r.url else None)
     page.reload()
@@ -659,8 +671,7 @@ def test_a_start_warning_is_alerted_once_not_on_every_redraw(clarity, page):
     backend.start_warnings = ["A made-up warning."]
     chat_on(page, redirect)
     assert page.get_attribute("#thread .problem p", "role") == "alert"
-    page.evaluate("clarity.refresh()")
-    page.wait_for_timeout(500)
+    page.evaluate("clarity.refresh()")  # evaluate waits for the redraw's promise
     assert page.text_content("#thread .problem p") == "! A made-up warning."
     assert page.get_attribute("#thread .problem p", "role") is None
 
@@ -679,6 +690,17 @@ def test_a_second_message_is_written_from_its_own_start(clarity, page):
 
 
 # --- replies and Compare (C3)
+
+
+def until(page, check, timeout: float = 10.0, what: str = "") -> None:
+    """Wait until `check()` is true, polling in Playwright (which keeps the page's requests
+    flowing), up to `timeout` seconds. An order a test depends on is waited for, never a
+    fixed pause, which a slow runner can outlast (sprint audit, v0.3.0)."""
+    for _ in range(int(timeout / 0.05)):
+        if check():
+            return
+        page.wait_for_timeout(50)
+    raise AssertionError(f"not true after {timeout} s: {what or check}")
 
 
 def wait_for(page, selector: str, timeout: int = 30_000) -> None:
@@ -939,8 +961,7 @@ def test_details_on_a_reply_and_its_replay(clarity, page):
     page.click("#panel [data-action=replay-stop]")
     page.wait_for_selector("#panel .refused:not([hidden])", timeout=20_000)
     assert "Replay stopped" in page.text_content("#panel .refused")
-    page.wait_for_timeout(500)  # every redraw after the replay has landed
-    assert focused(page) == "replay"
+    until(page, lambda: focused(page) == "replay", what="focus back on Replay")
     page.keyboard.press("Escape")
     assert page.is_hidden("#panel")
 
@@ -1567,7 +1588,8 @@ def test_a_dropped_connection_keeps_trying_and_reloads_when_clarity_answers(clar
     page.evaluate("clarity.dropStream()")  # as if the connection had dropped
     page.wait_for_selector("body[data-page=lost]")
     assert page.text_content("[data-for=lost] h1") == "Clarity isn't answering. Trying again…"
-    page.wait_for_timeout(6000)  # longer than the old 3 tries
+    # Shows nothing happens: longer than the old 3 tries, the page is still trying.
+    page.wait_for_timeout(6000)
     assert page.get_attribute("body", "data-page") == "lost"
     shot(page, "A5-not-answering")
     page.unroute("**/events*")
@@ -1636,8 +1658,9 @@ def test_a_closed_panel_stays_closed_when_a_redraw_lands_late(clarity, page):
     assert held
     page.click("#panel [data-action=panel-close]")
     assert page.is_hidden("#panel")
-    held[0].continue_()
-    page.wait_for_timeout(3000)
+    with page.expect_event("requestfinished", lambda r: "/view/details" in r.url):
+        held[0].continue_()
+    page.wait_for_timeout(1000)  # shows nothing happens: the late view doesn't reopen it
     assert page.is_hidden("#panel")
 
 
@@ -1761,9 +1784,9 @@ def test_enter_during_a_start_says_it_waits_and_enter_after_it_sends(clarity, pa
 
     assert not shown()  # said to a screen reader only, until you send
     page.keyboard.press("Enter")
-    page.wait_for_timeout(500)
     # The lead's placement: the visible line is beside Send, not above the box.
-    assert shown() and page.text_content("#notice") == ""
+    until(page, shown, what="the wait beside Send")
+    assert page.text_content("#notice") == ""
     assert page.text_content("#send-waits") == "Waits until the model has started."
     assert page.input_value("#message") == "Name one animal."
     page.wait_for_selector("#thread .intro")  # ready
@@ -1788,14 +1811,15 @@ def test_details_on_the_newest_reply_is_that_reply_s(clarity, page):
         page.get_by_role("button", name="Regenerate").wait_for()
         page.get_by_role("textbox", name="Message").fill(f"Name another animal ({n}).")
         page.get_by_role("button", name="Send").click()
-        page.wait_for_timeout(1000)
+        page.wait_for_selector(f".turn.user .msg:has-text('Name another animal ({n}).')")
         page.get_by_role("button", name="Regenerate").wait_for()
         newest = page.evaluate("clarity.command('state')")["result"]["turns"][-1]["call_id"]
+        until(page, lambda last=newest: page.get_attribute(".reply.last", "data-call") == last)
         page.get_by_role("toolbar", name="Actions for this reply").get_by_role(
             "button", name="Details"
         ).click()
         page.wait_for_selector("#panel:not([hidden]) #panel-title")
-        page.wait_for_timeout(500)
+        page.wait_for_selector("#panel [data-call]")
         heading = page.text_content("#panel-title")
         shown = page.get_attribute("#panel [data-call]", "data-call")
         assert (n, shown, "An earlier reply" in heading) == (n, newest, False), heading
@@ -1812,8 +1836,7 @@ def test_a_profile_picked_by_keyboard_puts_focus_in_the_message_box(clarity, pag
     page.focus("#picker-menu [data-profile=text]")
     page.keyboard.press("Enter")
     page.wait_for_selector("#thread [role=status]")  # Starting text…
-    page.wait_for_timeout(300)
-    assert focused(page) == "message"
+    until(page, lambda: focused(page) == "message", what="focus in the message box")
     page.keyboard.type("Hi")
     assert page.input_value("#message") == "Hi"
     page.wait_for_selector("#thread .intro")
