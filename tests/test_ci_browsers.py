@@ -126,3 +126,14 @@ def test_a_driver_that_stopped_is_one_finding_not_one_per_test(tmp_path):
         "tests after it errored because of that, not because of the page." in text
     )
     assert "test_second" not in text and "test_third" not in text
+
+
+def test_the_webkit_summary_says_the_redirect_file_isn_t_tested_there(tmp_path):
+    """Playwright's WebKit driver stops on the redirect file's file:// to http:// hop (CI
+    43754075636 on Linux, 43756769126 on macOS), so in WebKit the tests open the page by its
+    link: the summary says what that leaves out. Other engines' summaries don't."""
+    xml = tmp_path / "browser.xml"
+    xml.write_text(JUNIT, encoding="utf-8")
+    line = "WebKit opens the page by its link; the redirect file isn't tested in WebKit."
+    assert line in summary_module().summary(xml, "webkit")
+    assert line not in summary_module().summary(xml, "firefox")
