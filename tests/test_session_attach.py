@@ -442,3 +442,22 @@ def test_a_long_chat_with_an_attachment_builds_its_prompt_quickly(chat):
     prompt = session.build_prompt(conversation.turns["turn-u399"])
     assert time.monotonic() - started < 10
     assert "Made-up line." in prompt.text and "Question 399?" in prompt.text
+
+
+@pytest.mark.parametrize("name", ["\x1b]0;made-up\x07notes.md", "notes\u202edm.txt", "a/b.md"])
+def test_a_log_s_attachment_name_clarity_wouldn_t_write_is_refused(chat, name):
+    """The security review's should 5: a name from a log someone else wrote is checked as an
+    upload's is, so it never reaches a prompt line or a chip."""
+    from clarity_chat.export import export_log
+
+    session, _ = chat
+    session.attach(doc())
+    session.say("a")
+    path = rewrite_turns(session, lambda r: r["attachments"][0].update(name=name))
+    session.new_conversation("chat")
+    for read in (lambda: session.resume(path), lambda: export_log(session, path)):
+        with pytest.raises(ConfigError) as e:
+            read()
+        assert str(e.value).startswith("Can't read the records of")
+        assert "a name Clarity wouldn't write" in str(e.value)
+        assert name not in str(e.value)
