@@ -17,35 +17,67 @@ guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
 
 
-def live_tests() -> dict[str, ast.FunctionDef]:
-    tree = ast.parse((REPO / "tests" / "test_live.py").read_text(encoding="utf-8"))
-    return {
+def gpu_problems(source: str) -> list[str]:
+    """What's wrong with the `gpu` marking in `source`, test_live.py's text. CI runs
+    `-m "live and not gpu"` on a CPU build: a check of where the model was placed can't pass
+    there, and nothing else may be deselected with it."""
+    tree = ast.parse(source)
+    tests = {
         node.name: node
         for node in tree.body
         if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
     }
-
-
-def marked_gpu(node: ast.FunctionDef) -> bool:
-    return any(ast.unparse(d) == "pytest.mark.gpu" for d in node.decorator_list)
-
-
-def test_the_placement_checks_and_only_they_carry_the_gpu_marker():
-    """CI runs `-m "live and not gpu"` on a CPU build: a check of where the model was placed
-    can't pass there, and nothing else may be deselected with it."""
-    tests = live_tests()
     reads_placement = {
         name
         for name, node in tests.items()
         if any("placement" in ast.unparse(s) for s in node.body)
     }
-    gpu = {name for name, node in tests.items() if marked_gpu(node)}
-    assert reads_placement and gpu == reads_placement, (gpu, reads_placement)
-    for name in gpu:  # nothing else rides along: every assert is about placement
+    gpu = {
+        name
+        for name, node in tests.items()
+        if any(ast.unparse(d) == "pytest.mark.gpu" for d in node.decorator_list)
+    }
+    problems = []
+    if not reads_placement or gpu != reads_placement:
+        problems.append(f"gpu marks {sorted(gpu)}; placement is read by {sorted(reads_placement)}")
+    for name in sorted(gpu):  # nothing else rides along: every assert is about placement
         asserts = [s for s in ast.walk(tests[name]) if isinstance(s, ast.Assert)]
-        assert asserts and all("placement" in ast.unparse(s) for s in asserts), name
+        if not asserts or not all("placement" in ast.unparse(s) for s in asserts):
+            problems.append(f"{name} checks more than placement")
+    return problems
+
+
+LIVE = (REPO / "tests" / "test_live.py").read_text(encoding="utf-8")
+GPU_TEST = (
+    "def test_server_start_puts_the_model_on_the_gpu(session):\n"
+    '    placement = session.backend.server_record["placement"]\n'
+)
+
+
+def test_the_placement_checks_and_only_they_carry_the_gpu_marker():
+    assert gpu_problems(LIVE) == []
     markers = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["tool"]
     assert any(m.startswith("gpu:") for m in markers["pytest"]["ini_options"]["markers"])
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        # The checks the CI review (S1, S2) found the marker test let through: each would
+        # deselect a check that a CPU build can run.
+        (
+            GPU_TEST,
+            GPU_TEST + '    assert session.backend.server_record["warnings"] == [], placement\n',
+        ),
+        (GPU_TEST, GPU_TEST + "    all_checks_ok(session.backend.server_record)\n"),
+        ("pytestmark = pytest.mark.live\n", "pytestmark = [pytest.mark.live, pytest.mark.gpu]\n"),
+    ],
+    ids=["assert-with-placement-message", "bare-call", "module-pytestmark"],
+)
+def test_a_gpu_test_that_checks_anything_else_is_caught(mutation):
+    old, new = mutation
+    assert LIVE.count(old) == 1
+    assert gpu_problems(LIVE.replace(old, new)) != []
 
 
 SUITE = """<?xml version="1.0" encoding="utf-8"?>
@@ -60,9 +92,17 @@ SKIPPED = (
 )
 
 
-def junit(tmp_path: Path, passed: int, skipped: int) -> Path:
+FAILED = (
+    '<testcase classname="tests.test_live" name="test_{n}" time="0.1">'
+    '<{element} message="assert 1 == 2">trace</{element}></testcase>'
+)
+
+
+def junit(tmp_path: Path, passed: int, skipped: int, failed: str = "") -> Path:
     cases = [PASSED.format(n=n) for n in range(passed)]
     cases += [SKIPPED.format(n=passed + n) for n in range(skipped)]
+    if failed:
+        cases.append(FAILED.format(n=passed + skipped, element=failed))
     path = tmp_path / "live.xml"
     text = SUITE.format(skipped=skipped, tests=passed + skipped, cases="".join(cases))
     path.write_text(text, encoding="utf-8")
@@ -80,8 +120,27 @@ def test_the_guard_fails_a_run_with_a_skip_or_no_test(tmp_path, passed, skipped,
     assert guard.main([str(path)]) == 1
 
 
+def test_the_guard_fails_a_run_with_fewer_tests_than_the_job_runs(tmp_path):
+    """The CI review's S2: a module marker that deselects test_live.py leaves one live test
+    elsewhere, which ran and didn't skip."""
+    path = junit(tmp_path, 1, 0)
+    message = guard.problem(path, at_least=20)
+    assert message is not None and "fewer than 20" in message, message
+    assert guard.main([str(path), "--at-least", "20"]) == 1
+
+
+@pytest.mark.parametrize("element", ["failure", "error"])
+def test_the_guard_fails_a_run_with_a_failure_or_an_error(tmp_path, element):
+    """The CI review's C3: in the job pytest's own status fails first, but the guard alone
+    must not call such a run good."""
+    path = junit(tmp_path, 20, 0, failed=element)
+    message = guard.problem(path)
+    assert message is not None and "1 failed or errored" in message, message
+    assert guard.main([str(path)]) == 1
+
+
 def test_the_guard_passes_a_run_where_every_test_ran(tmp_path, capsys):
-    path = junit(tmp_path, 19, 0)
-    assert guard.problem(path) is None
-    assert guard.main([str(path)]) == 0
-    assert "19 tests ran" in capsys.readouterr().out
+    path = junit(tmp_path, 20, 0)
+    assert guard.problem(path, at_least=20) is None
+    assert guard.main([str(path), "--at-least", "20"]) == 0
+    assert "20 tests ran" in capsys.readouterr().out
