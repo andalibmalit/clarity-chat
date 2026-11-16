@@ -39,6 +39,7 @@ from clarity_chat.documents.library import (
     checked_library_name,
     control_token_parts,
     default_name,
+    document_name,
 )
 from clarity_chat.documents.library import add as library_add
 from clarity_chat.documents.library import check as library_check
@@ -93,6 +94,7 @@ __all__ = [
     "checked_library_name",
     "control_token_parts",
     "default_name",
+    "document_name",
     "library_add",
     "library_check",
     "library_documents",

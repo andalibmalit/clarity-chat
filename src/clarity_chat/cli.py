@@ -18,6 +18,7 @@ from clarity_chat.commands import (
     Commands,
     OriginalChanged,
     check_lines,
+    counted,
     document_add,
     document_check,
     document_list,
@@ -26,7 +27,6 @@ from clarity_chat.commands import (
     format_added,
     format_rebuilt,
     how_words,
-    parts,
     read_files,
     summaries,
 )
@@ -1065,7 +1065,7 @@ def format_documents(listed: list[dict[str, Any]]) -> str:
             continue
         edited = ", text.md edited" if d["edited"] else ""
         lines.append(
-            f"{d['name']}  {d['kind']}  {d['bytes']:,} bytes  {parts(d['parts'])}, "
+            f"{d['name']}  {d['kind']}  {d['bytes']:,} bytes  {counted(d['parts'], 'part')}, "
             f"{d['titled']:,} titled{edited}  {d['state']}"
         )
     return "\n".join(lines)
@@ -1124,7 +1124,7 @@ def format_found(found: dict[str, Any]) -> str:
         lines.append("Nothing matched.")
         return "\n".join(lines)
     lines.append(
-        f"{found['matched']:,} matched; {parts(len(found['parts']))} added, "
+        f"{found['matched']:,} matched; {counted(len(found['parts']), 'part')} added, "
         f"{found['tokens']:,} tokens of the budget of {found['budget']:,}."
     )
     for p in found["parts"]:

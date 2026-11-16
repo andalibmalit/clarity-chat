@@ -57,7 +57,6 @@ from clarity_chat.commands import (
     Commands,
     format_added,
     format_rebuilt,
-    parts,
 )
 from clarity_chat.documents import (
     MAX_BYTES,
@@ -67,7 +66,7 @@ from clarity_chat.documents import (
     SearchRefused,
     checked_name,
     counted,
-    default_name,
+    document_name,
     how_words,
     more_than,
     problem_words,
@@ -145,6 +144,9 @@ class Worker:
         # for (by its file name: a copied log has the same conversation ID).
         self.exported: tuple[str, dict[str, Any]] | None = None
         self.probs: dict[str, dict[str, Any]] = {}  # /probs by call ID, for Details
+        # The last /documents add or rebuild's result, drawn once as the Documents… page's
+        # notice, so what it says is the command's result (the C1 tripwire review's S1).
+        self.documented: dict[str, Any] | None = None
         threading.Thread(target=self._loop, daemon=True, name="clarity-worker").start()
 
     def emit(self, event: dict[str, Any]) -> None:
@@ -223,6 +225,8 @@ class Worker:
         if name == "export":
             assert conversation is not None
             self.exported = (conversation.log.path.stem, {"result": result})
+        if name == "documents" and args.split(" ", 1)[0] in ("add", "rebuild"):
+            self.documented = result
         return {"result": result}
 
 
@@ -1932,7 +1936,6 @@ def json_response(content: dict[str, Any]) -> Response:
 
 
 MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
-TRY_LIMIT = 4000  # characters of a message to try: a query parameter, not a paste
 
 
 def date_words(added: str) -> str:
@@ -1948,19 +1951,12 @@ def joined(names: list[str], last: str = "and") -> str:
 
 
 def documents_params(query: Any) -> dict[str, str | None]:
-    """/view/documents' parameters: a message to try, an upload being added and its typed
-    name, and the notice to draw (a document just added, rebuilt, or searched here)."""
-    tried = query.get("try")
-    if tried is not None and len(tried) > TRY_LIMIT:
-        raise Refused(400, f"A message to try is at most {TRY_LIMIT:,} characters.")
-    upload = query.get("upload")
-    if upload is not None and not UPLOAD_ID.fullmatch(upload):
-        raise Refused(400, "That isn't an upload ID.")
-    named = {k: query.get(k) for k in ("added", "rebuilt", "searched")}
-    if any(v is not None and library_name_problem(v) for v in named.values()):
+    """/view/documents' parameters: a message to try, an upload being added, and a document
+    "Search it in this chat" just searched (its notice)."""
+    searched = query.get("searched")
+    if searched is not None and library_name_problem(searched):
         raise Refused(400, "That isn't a document's name.")
-    return {"try": tried, "upload": upload, "name": (query.get("name") or "")[:200], **named,
-            "dropped": "1" if query.get("dropped") == "1" else None}  # fmt: skip
+    return {"try": query.get("try"), "upload": query.get("upload"), "searched": searched}
 
 
 def document_row(doc: dict[str, Any]) -> dict[str, Any]:
@@ -1972,7 +1968,7 @@ def document_row(doc: dict[str, Any]) -> dict[str, Any]:
     return {
         **row,
         "sub": f"{doc['original']} · added {date_words(doc['added'])}{edited}; "
-        f"{parts(doc['parts'])}, {doc['titled']:,} with a title",
+        f"{counted(doc['parts'], 'part')}, {doc['titled']:,} with a title",
         "kind": KINDS[doc["kind"]],
         "size": size_words(doc["bytes"]),
         "parts": f"{doc['parts']:,}",
@@ -2018,12 +2014,11 @@ def found_view(found: dict[str, Any], searched: list[str]) -> dict[str, Any]:
     if unconsidered := counts.get("not considered", 0):
         view["notes"].append(SENTENCES["found_unconsidered"].format(
             n=f"{unconsidered:,}", considered=found["considered"]))  # fmt: skip
-    around = found["tokens"] - sum(p["tokens"] for p in found["parts"])
-    if found["parts"] and around > 0:
-        view["notes"].append(SENTENCES["found_around"].format(tokens=f"{around:,}"))
+    if found["parts"]:  # the fill's increments: the first holds the framing line
+        view["notes"].append(SENTENCES["found_first_count"])
     if found["parts"]:
         summary = SENTENCES["found_parts"].format(
-            parts=parts(len(found["parts"])), tokens=f"{found['tokens']:,}"
+            parts=counted(len(found["parts"]), "part"), tokens=f"{found['tokens']:,}"
         )
         if already:
             summary += " · " + SENTENCES["found_already_more"].format(n=f"{already:,}")
@@ -2066,42 +2061,33 @@ async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
     listed = await result_of(worker, "documents")
     state = await result_of(worker, "state")
     docs = {d["name"]: d for d in listed["documents"]}
-    in_chat = state["conversation_id"] is not None and state["mode"] == "chat"
+    chat_open = state["conversation_id"] is not None
+    in_chat = chat_open and state["mode"] == "chat"
     searching = [d["name"] for d in state["searching"]]
     notice = search_here = None
-    if (name := params["added"]) in docs and "kind" in docs[name]:
-        d = docs[name]
-        ext = {"text": "txt"}.get(d["kind"], d["kind"])
-        files = (f"original.{ext}", "text.md", "parts.jsonl", "manifest.json")
-        written = [f"local/documents/{name}/{f}" for f in files]
-        notice = f"Added {name}. " + format_added(
-            {"added": d, "written": written, "replaced": False}
-        )
+    done, worker.documented = worker.documented, None  # drawn once
+    if done is not None and "added" in done:
+        name = done["added"]["name"]
+        notice = f"Added {name}. " + format_added(done)
         search_here = name if in_chat and name not in searching else None
-    elif (name := params["rebuilt"]) in docs and "kind" in docs[name]:
-        d = docs[name]
-        written = [f"local/documents/{name}/parts.jsonl", f"local/documents/{name}/manifest.json"]
-        notice = format_rebuilt({"rebuilt": {**d, "name": name}, "written": written,
-                                 "pages_dropped": params["dropped"] == "1"})  # fmt: skip
+    elif done is not None:
+        notice = format_rebuilt(done)
     elif params["searched"]:
         notice = SENTENCES["searches_next"].format(name=params["searched"])
     add = None
     if (upload := params["upload"]) and upload in worker.uploads:
         data, filename = worker.uploads[upload]
-        typed = params["name"] or default_name(filename) or ""
-        add = {"upload": upload, "file": filename, "size": size_words(len(data)), "name": typed,
-               "why": None, "rule": None}  # fmt: skip
-        if not typed:
-            add.update(why=f"Clarity can't make a document name from {filename}. Give it one.",
-                       rule=NAME_RULE)  # fmt: skip
-        elif problem := library_name_problem(typed):
-            add.update(why=problem)
-        elif typed in docs:
-            add["why"] = f"There's already a document named {typed}. {SENTENCES['name_taken']}"
-        else:
-            add["keeps"] = SENTENCES["keeps_copy"].format(name=typed)
-    if not in_chat:
+        name, why = document_name(worker.commands.session.root, filename, None)
+        add = {"upload": upload, "file": filename, "size": size_words(len(data)), "name": name,
+               "why": why, "rule": None if name else NAME_RULE}  # fmt: skip
+        if name in docs:  # the page's way out (N8)
+            add["why"] = f"{why} {SENTENCES['name_taken']}"
+        elif why is None:
+            add["keeps"] = SENTENCES["keeps_copy"].format(name=name)
+    if not chat_open:
         sub = SENTENCES["try_no_chat"]
+    elif not in_chat:  # a chat that can't search (N71)
+        sub = SENTENCES["text_mode_search"].format(profile=state["profile"])
     elif not docs:
         sub = SENTENCES["try_no_documents"]
     elif not searching:
