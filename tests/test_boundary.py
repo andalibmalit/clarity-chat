@@ -1,6 +1,7 @@
 """A5 (v0.3.1): the documents code sits behind one boundary (decision 21).
 
-- `pypdf` and `html.parser` are imported only inside `clarity_chat.documents`.
+- `pypdf`, `html.parser` and `sqlite3` are imported only inside `clarity_chat.documents`
+  (`sqlite3`: v0.3.2's decision 18).
 - Modules outside import only `clarity_chat.documents`, never a submodule, and only from
   a fixed list.
 - The package imports from the rest of Clarity only `profiles`.
@@ -14,7 +15,7 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 PACKAGE = "clarity_chat.documents"
-PARSERS = ("pypdf", "html.parser")
+PARSERS = ("pypdf", "html.parser", "sqlite3")
 MAY_IMPORT_IT = {"session", "commands", "export", "web"}  # clarity_chat.<module>
 
 
