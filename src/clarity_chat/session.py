@@ -2097,10 +2097,15 @@ class Session:
                 None,
             ),
         )
+        text_mode = prepared.profile.mode != "chat"  # no documents (Checkpoint 2's S5)
+        if text_mode and state.searching:
+            raise TypeError("a text-mode chat's search record isn't one Clarity writes")
         for t in state.turns:
             call = state.calls.get(t.get("call_id") or "")
             seed = call["settings"]["seed"]["value"] if call else None
             attached = checked_attachments(t)  # a missing field: KeyError, refused
+            if text_mode and attached:
+                raise TypeError("a text-mode chat's turn with documents isn't one Clarity writes")
             conversation.turns[t["turn_id"]] = Turn(
                 t["turn_id"], t["parent_id"], t["role"], t["origin"], t["text"],
                 t.get("call_id"), seed, t.get("regen_of"), t.get("edit_of"), **attached,

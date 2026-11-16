@@ -234,10 +234,28 @@ def format_history(result: dict[str, Any]) -> str:
         who = "you" if turn["role"] == "user" else "model"
         lines.append(f"{who}: {turn['text'].strip()}")
         lines += attached_lines(turn.get("attachments") or [])
+        if found := turn.get("found"):
+            lines.append(searched_line(found))
         if turn["marks"]:
             lines.append("  marked: " + ", ".join(m["label"] for m in turn["marks"]))
         lines += [f"  note: {n['text']}" for n in turn["notes"]]
     return "\n".join(lines)
+
+
+def searched_line(found: dict[str, Any]) -> str:
+    """/history's line under a searched message: the words and what search added, or which
+    empty state it was (Checkpoint 2's S7)."""
+    if not found["words"]:
+        return "  searched: nothing to search for, only common words and single letters or digits"
+    words = f"  searched for {', '.join(found['words'])}"
+    if not found["matched"]:
+        return f"{words}: nothing matched"
+    if not found["parts"]:
+        return f"{words}: {found['matched']:,} matched, none added (none fit the budget)"
+    added = ", ".join(
+        p["id"] + (f' "{shown(p["title"])}"' if p["title"] else "") for p in found["parts"]
+    )
+    return f"{words}: added {added} ({found['tokens']:,} tokens)"
 
 
 def format_branches(result: dict[str, Any]) -> str:
@@ -1140,7 +1158,19 @@ def format_searching(result: dict[str, Any]) -> str:
             shown_.append(f"{d['name']} (unreadable: `clarity document check {d['name']}`)")
         else:
             shown_.append(f"{d['name']} (missing: /search without it)")
-    return f"Searching ({origin}): {', '.join(shown_)}."
+    lines = [f"Searching ({origin}): {', '.join(shown_)}."]
+    for d in result["searching"]:  # decision 12: said when you choose to search
+        if n := d.get("control_token_parts"):
+            held = "1 part holds" if n == 1 else f"{n:,} parts hold"
+            lines.append(  # the board's N13
+                f"  {d['name']}: {held} a control token for this model. A message that finds "
+                "one isn't sent."
+            )
+        if n := d.get("closing_tag_parts"):
+            held = "1 part holds" if n == 1 else f"{n:,} parts hold"
+            sent = "it's sent as it is" if n == 1 else "they're sent as they are"
+            lines.append(f"  {d['name']}: {held} </part> or </document>; {sent}.")
+    return "\n".join(lines)
 
 
 def format_rebuilt(result: dict[str, Any]) -> str:
