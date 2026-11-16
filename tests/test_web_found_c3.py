@@ -1,0 +1,205 @@
+"""C3 (v0.3.2): "From documents" above a reply and its list, Details' Documents section,
+the refusal box at Send with its buttons (W6), and "New chat with these documents", against
+the frozen board (② ③ ⑤, N29-N36, N44-N66) and its rulings. Made-up documents only."""
+
+from __future__ import annotations
+
+import re
+import shutil
+
+from clarity_chat.documents import library_add
+from tests.test_web import command
+from tests.test_web_search_c2 import GLOSSARY, get, make, root, text_of  # noqa: F401
+
+SEARCHES = 'search = ["glossary"]'
+
+
+def thread(client) -> str:
+    return get(client, "thread")
+
+
+def found_line(client) -> str:
+    """The last "From documents" line and its list, as text."""
+    lines = re.findall(r'<div class="found".*?<!-- /found -->', thread(client), re.S)
+    assert lines, "no From documents line"
+    return text_of(lines[-1])
+
+
+def last_call(client) -> str:
+    turns = command(client, "state").json()["result"]["turns"]
+    return next(t["call_id"] for t in reversed(turns) if t["role"] == "assistant")
+
+
+# --- the record behind the line: /history's found widens (no text)
+
+
+def test_history_s_found_gives_the_list_what_it_draws(root, make):  # noqa: F811
+    client, _ = make(SEARCHES)
+    command(client, "say", "Tell me about the wren")
+    command(client, "say", "And the wren again")
+    turns = command(client, "history").json()["result"]["turns"]
+    first, again = [t["found"] for t in turns if t["role"] == "user"]
+    assert first.get("considered") == 8 and first.get("framed") is True
+    assert [p.get("page") for p in first["parts"]] == [None]
+    assert again.get("already") == [{"id": "glossary:1", "rank": 1}]
+
+
+# --- "From documents" above a reply
+
+
+def test_the_line_says_what_was_added_and_opens_on_its_list(root, make):  # noqa: F811
+    client, _ = make(SEARCHES)
+    command(client, "say", "Tell me about the wren")
+    page = thread(client)
+    assert re.search(r'<button[^>]*data-action="found"[^>]*aria-expanded="false"', page)
+    said = found_line(client)
+    assert re.match(r"From documents · 1 part · [\d,]+ tokens Rank Part Tokens 1 glossary · "
+                    r'"Wren" [\d,]+ in its title: wren; in its text: wren', said)  # fmt: skip
+    assert "The first part's count includes the line Clarity puts before the parts." in said
+    ignored = "Ignored (common words and single letters or digits): tell, me, about, the."
+    assert f"Words searched: wren. {ignored}" in said
+    assert said.endswith(
+        "Found when you sent this message. Regenerating reuses these parts; it doesn't search "
+        "again. Show in Details"
+    )
+    call = last_call(client)
+    assert re.search(rf'data-action="attached" data-reply="{call}" data-section="documents"', page)
+
+
+def test_nothing_matched_says_so_and_teaches(root, make):  # noqa: F811
+    client, _ = make(SEARCHES)
+    command(client, "say", "Tell me about herons")
+    said = found_line(client)
+    assert said.startswith("From documents · nothing matched")
+    assert (
+        "No part of glossary has any of the words searched, so nothing was added. Search matches "
+        'words and close forms of them ("sing" finds "singing"), not meaning.' in said
+    )
+    assert "Searched when you sent this message. Regenerating doesn't search again." in said
+
+
+def test_nothing_to_search_for(root, make):  # noqa: F811
+    client, _ = make(SEARCHES)
+    command(client, "say", "Is it the one?")
+    said = found_line(client)
+    assert said.startswith("From documents · nothing to search for")
+    assert (
+        "Every word in your message is a common word or a single letter or digit, so nothing "
+        "was searched and nothing was added." in said
+    )
+
+
+def test_a_part_already_in_the_chat_is_a_row_of_its_own(root, make):  # noqa: F811
+    client, _ = make(SEARCHES)
+    command(client, "say", "Tell me about the wren")
+    command(client, "say", "And the wren again")
+    said = found_line(client)
+    assert said.startswith("From documents · nothing new · 1 already in the chat")
+    assert "1 glossary · part 1 already in the chat: not added again" in said
+
+
+def test_a_chat_that_searches_nothing_shows_no_line(root, make):  # noqa: F811
+    client, _ = make()
+    command(client, "say", "Tell me about the wren")
+    assert 'data-action="found"' not in thread(client)
+
+
+# --- Details' Documents section
+
+
+def test_prompt_gives_the_call_s_found(root, make):  # noqa: F811
+    client, _ = make(SEARCHES)
+    command(client, "say", "Tell me about the wren")
+    read = command(client, "prompt").json()["result"]
+    assert (read.get("found") or {}).get("searched_for") == "Tell me about the wren"
+
+
+def test_details_documents_section(root, make):  # noqa: F811
+    library_add(root, b"## Heron\nTall.\n", "herons.md")
+    client, _ = make('search = ["glossary", "herons"]')
+    command(client, "say", "Tell me about the wren")
+    call = command(client, "prompt").json()["result"]["call"]
+    added = [a for s in call["message_spans"] for a in s.get("added", [])]
+    framing = next(a["tokens"] for a in added if a["what"] == "framing")
+    part = next(a["tokens"] for a in added if a["what"] == "part")
+    details = get(client, "details", call=call["call_id"])
+    section = re.search(r'<details class="sec" data-key="documents".*?</details>', details, re.S)
+    assert section, "no Documents section"
+    said = text_of(section.group(0))
+    assert re.match(r"Documents 1 part · [\d,]+ of 1,500 tokens", said)
+    assert "Searched for “Tell me about the wren”" in said
+    assert "Words searched wren Ignored tell, me, about, the" in said
+    assert f"Where start of your message · tokens {framing[0]:,} to {part[1] - 1:,}" in said
+    assert (
+        f"Framing line tokens {framing[0]:,} to {framing[1] - 1:,} · "
+        f"{framing[1] - framing[0]:,} tokens, counted in the budget" in said
+    )
+    assert re.search(r"Search words, titles count double \(word rule 1 · common words 1 · "
+                     r"SQLite [\d.]+\)", said)  # fmt: skip
+    assert "Considered 1 part matched; Clarity considers the best 8 at most." in said
+    assert "Left out" not in said
+    assert (
+        f'Rank Part Why Tokens in the prompt 1 glossary · "Wren" in its title: wren; in its '
+        f"text: wren {part[0]:,} to {part[1] - 1:,} · {part[1] - part[0]:,} tokens" in said
+    )
+    assert re.search(
+        r"Rank 1 is the best match; a word in a title counts twice\. Searched: glossary "
+        r"[0-9a-f]{8}… · herons [0-9a-f]{8}… \(each document’s build\)\. Each part’s text and "
+        r"score are in this message’s log record\.",
+        said,
+    )
+
+
+def test_details_when_nothing_matched(root, make):  # noqa: F811
+    client, _ = make(SEARCHES)
+    command(client, "say", "Tell me about herons")
+    details = get(client, "details", call=last_call(client))
+    section = re.search(r'<details class="sec" data-key="documents".*?</details>', details, re.S)
+    assert section, "no Documents section"
+    said = text_of(section.group(0))
+    assert said.startswith("Documents nothing matched")
+    assert "Considered" not in said and "Where" not in said and "Rank Part" not in said
+
+
+def test_details_names_what_was_left_out(root, make):  # noqa: F811
+    client, _ = make(SEARCHES + "\nbudget = 1")
+    command(client, "say", "Tell me about the wren")
+    said = text_of(get(client, "details", call=last_call(client)))
+    assert "Documents nothing added" in said
+    assert "Left out rank 1, glossary part 1: the budget (1, this profile)" in said
+
+
+# --- the refusal box at Send (W6) and the ContextError box
+
+
+def test_a_refused_send_says_nothing_was_sent_with_a_line_and_buttons(root, make):  # noqa: F811
+    library_add(root, b"## Heron\nTall.\n", "herons.md")
+    client, _ = make('search = ["glossary", "herons"]')
+    (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
+    shutil.rmtree(root / "local/documents/herons")
+    assert command(client, "say", "Tell me about the wren").json()["type"] == "SearchRefused"
+    box = re.search(r'<div class="problem refused".*?<!-- /refused -->', thread(client), re.S)
+    assert box, "no refusal box"
+    said = text_of(box.group(0))
+    assert said.startswith("! Nothing was sent. Clarity can't search glossary: a file in its")
+    assert 'data-action="refused-rebuild" data-name="glossary"' in box.group(0)
+    assert 'data-action="refused-stop" data-name="herons"' in box.group(0)
+    assert "! Failed" not in said
+    command(client, "search", "glossary")  # what herons' Stop searching it sends
+    page = thread(client)
+    assert "herons" not in text_of(page) and "Clarity can't search glossary" in text_of(page)
+    command(client, "documents", "rebuild glossary")
+    after = text_of(thread(client))  # no line left: the box goes, and Send works
+    assert "Nothing was sent." not in after and "Failed" not in after
+
+
+def test_a_full_context_offers_a_new_chat_with_these_documents(root, make):  # noqa: F811
+    client, _ = make(SEARCHES, n_ctx=40)
+    command(client, "say", "Tell me about the wren " * 3)
+    page = thread(client)
+    assert 'data-action="new-with-documents"' in page
+    assert "New chat with these documents" in text_of(page)
+    assert (
+        "Starts a new chat on this profile that searches glossary. This chat stays in Chats."
+        in text_of(page)
+    )
