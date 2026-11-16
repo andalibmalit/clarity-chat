@@ -28,6 +28,13 @@ from clarity_chat.documents.insert import (
     summaries,
     with_text,
 )
+from clarity_chat.documents.parts import (
+    CHUNKER,
+    build_id,
+    closing_tag_parts,
+    cut_parts,
+    parts_jsonl,
+)
 from clarity_chat.documents.reading import (
     MAX_BYTES,
     SIZE_LIMIT,
@@ -42,6 +49,11 @@ from clarity_chat.documents.reading import (
 )
 
 __all__ = [
+    "CHUNKER",
+    "build_id",
+    "closing_tag_parts",
+    "cut_parts",
+    "parts_jsonl",
     "FRAMING",
     "MAX_BYTES",
     "SIZE_LIMIT",
