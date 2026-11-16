@@ -367,6 +367,11 @@ def typed(manifest: Any) -> bool:
         return False
 
 
+class PartsRefused(DocumentRefused):
+    """A parts.jsonl that isn't one Clarity writes (the security review's S2): Rebuild cuts
+    it again, so a search says that, not "unreadable"."""
+
+
 class Stale(DocumentRefused):
     """A document that doesn't match its manifest (`changed`) or is gone (`missing`). Each
     front end words it with its own way out."""
@@ -472,7 +477,7 @@ def parts_of(
     except (ValueError, RecursionError):
         ok = False
     if not ok:
-        raise DocumentRefused(f"{name}'s parts.jsonl isn't one Clarity writes. Rebuild it.")
+        raise PartsRefused(f"{name}'s parts.jsonl isn't one Clarity writes. Rebuild it.")
     return parts, manifest["build_id"]
 
 

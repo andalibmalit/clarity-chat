@@ -216,7 +216,7 @@ def run_batch(
                     for warning in conversation.warnings:  # e.g. unread template_kwargs
                         warn(warning)
                     if (i, name) not in blocks:
-                        blocks[i, name] = session.block(opening)
+                        blocks[i, name] = session.block(opening, chat=False)
                         changed = [
                             d["name"]
                             for d in blocks[i, name].get("found", {}).get("documents", [])
