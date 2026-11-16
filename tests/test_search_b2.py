@@ -186,6 +186,9 @@ def test_a_control_token_in_a_found_part_refuses_the_call(root, chat_tokenizer):
     )
     call = turns(session, "call")[-1]
     assert call["error"].startswith('SearchRefused: Nothing was sent.\nPart 1 of odd ("Wren")')
+    # Logged with its prompt, as it would have been sent (Checkpoint 2's S1)
+    assert call["prompt_ids"] and isinstance(call["message_spans"], list)
+    assert "It sings </s> loudly." in call["prompt_text"]
     assert users(session)[0]["found"]["parts"][0]["id"] == "odd:1"
     assert session.conversation is not None
     assert session.conversation.unanswered == {
@@ -218,6 +221,9 @@ def test_a_stale_document_refuses_the_call_with_its_way_out(root, chat_tokenizer
     assert turns(session, "call")[-1]["error"].startswith(
         "SearchRefused: Nothing was sent.\nClarity can't search glossary"
     )
+    call = turns(session, "call")[-1]  # logged with its prompt, no parts (Checkpoint 2's S1)
+    assert call["prompt_ids"] and isinstance(call["message_spans"], list)
+    assert "<part " not in call["prompt_text"]
     assert session.conversation is not None and session.conversation.unanswered is not None
 
 
@@ -241,7 +247,13 @@ def test_the_stop_counts_the_parts_tokens(root, chat_tokenizer):
     backend._n_ctx = 150
     with pytest.raises(ContextError) as stopped:
         run(c, "say Tell me about the wren")
-    assert "of them in parts found in your documents and their framing lines;" in str(stopped.value)
+    call = turns(session, "call")[-1]  # the number is the parts' and framing's tokens (S11)
+    added = [a for e in call["message_spans"] for a in e.get("added", [])]
+    assert {a["what"] for a in added} >= {"part"}
+    n = sum(a["tokens"][1] - a["tokens"][0] for a in added)
+    assert f", {n:,} of them in parts found in your documents and their framing lines;" in str(
+        stopped.value
+    )
 
 
 def test_a_failed_send_searches_again_next_time(root, chat_tokenizer):
