@@ -135,6 +135,11 @@ def check_run(
     return prepared
 
 
+def parts_differ(i: int, got: dict[str, list[str]], prepared: dict[str, Any]) -> str | None:
+    """A stub for part 1's whole-branch S2 (red first)."""
+    return None
+
+
 def builds(session: Session, prepared: list[Prepared]) -> dict[str, str]:
     """Each searched document's build ID before the run: the run stops if one changes."""
     names = list(dict.fromkeys(name for p in prepared for name in p.profile.search))

@@ -14,6 +14,7 @@ import pytest
 
 from clarity_chat.batch import run_batch
 from clarity_chat.cli import ChatLoop
+from clarity_chat.commands import Commands
 from clarity_chat.documents import library_add, reading
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.profiles import ConfigError
@@ -126,7 +127,6 @@ def test_json_gets_the_terminal_s_words_and_the_problems(root, chat_tokenizer, m
 
 def test_a_control_token_problem_holds_the_part(root, chat_tokenizer, monkeypatch):
     session = started(root, chat_tokenizer, "control")
-    Commands = __import__("clarity_chat.commands", fromlist=["Commands"]).Commands
     c = Commands(session)
     c.run("profile", "chat", quiet)
     with pytest.raises(SearchRefused) as refused:
@@ -179,4 +179,196 @@ def test_a_profile_s_missing_document_names_the_terminal_command(root, chat_toke
         "Profile chat searches birds, which isn't in your documents. Add it with `clarity "
         "document add FILE --name birds`, or take it out of search under [documents] in the "
         "profile's file."
+    )
+
+
+# --- PS1: /history's summary, wider, no text
+
+
+def history_found(c) -> list[dict]:
+    return [t["found"] for t in c.run("history", "", quiet)["turns"] if "found" in t]
+
+
+def test_history_s_summary_holds_the_budget_reasons_and_each_part_s_words(root, chat_tokenizer):
+    from clarity_chat.cli import format_history
+
+    session, c, _ = chat(root, chat_tokenizer, 'search = ["glossary"]')
+    c.run("say", "Tell me about the wren", quiet)
+    c.run("say", "The wren again", quiet)
+    first, again = history_found(c)
+    assert first.get("budget") == 1500
+    (part,) = first["parts"]
+    assert set(part) == {"id", "title", "rank", "title_words", "words", "tokens"}
+    assert part["title_words"] == ["wren"] and part["tokens"] > 0
+    assert first["left_out"] == {} and again["left_out"] == {"already in the chat": 1}
+    lines = format_history(c.run("history", "", quiet)).splitlines()
+    assert "  searched for wren: 1 matched, none added (already in the chat)" in lines
+
+
+def test_history_says_when_parts_didn_t_fit_the_budget(root, chat_tokenizer):
+    from clarity_chat.cli import format_history
+
+    session, c, _ = chat(root, chat_tokenizer, 'search = ["glossary"]\nbudget = 5')
+    c.run("say", "Tell me about the wren", quiet)
+    (found,) = history_found(c)
+    assert found["left_out"] == {"budget": 1}
+    lines = format_history(c.run("history", "", quiet)).splitlines()
+    assert "  searched for wren: 1 matched, none added (didn't fit the budget)" in lines
+
+
+# --- PS2: the run's different-parts notice names what differs
+
+
+def test_the_run_notice_names_what_differs():
+    from types import SimpleNamespace
+
+    from clarity_chat.batch import parts_differ
+
+    def p(repo="t", budget=None, placement="start"):
+        profile = SimpleNamespace(budget=budget, search=("glossary",), placement=placement)
+        return SimpleNamespace(profile=profile, model=SimpleNamespace(
+            tokenizer_repo=repo, tokenizer_revision="r"))  # fmt: skip
+
+    got = {"a": ["glossary:1"], "b": []}
+    said = "Opening 1: the profiles got different parts (a: glossary:1; b: none)."
+    assert parts_differ(1, got, {"a": p(), "b": p(budget=60)}) == (
+        f"{said} Their budgets differ, so the replies differ in what they were given too."
+    )
+    assert parts_differ(1, got, {"a": p(), "b": p(repo="u", placement="end")}) == (
+        f"{said} Their tokenizers and placements differ, so the replies differ in what they "
+        "were given too."
+    )
+    assert parts_differ(1, got, {"a": p(), "b": p()}) == (
+        f"{said} The replies differ in what they were given too."
+    )
+    assert parts_differ(1, {"a": ["g:1"], "b": ["g:1"]}, {"a": p(), "b": p()}) is None
+
+
+# --- PS4: /try says when a message would be refused
+
+
+def test_try_says_a_part_s_control_token_would_refuse_the_message(root, chat_tokenizer):
+    from clarity_chat.cli import format_found
+
+    session, c, _ = chat(root, chat_tokenizer, 'search = ["odd"]')
+    result = c.run("try", "Tell me about the wren", quiet)
+    assert set(result) == {"found", "refused"}
+    assert [p["id"] for p in result["found"]["parts"]] == ["odd:1"]
+    assert result["refused"] == TERMINAL["control"]
+    page = Commands(session, uploads={})
+    assert page.run("try", "Tell me about the wren", quiet)["refused"].endswith(
+        "Clarity then shows the document as Changed, with Rebuild. Or stop searching odd."
+    )
+    assert c.run("search", "glossary", quiet)
+    assert c.run("try", "Tell me about the wren", quiet)["refused"] is None
+    assert format_found(result["found"])
+
+
+def test_document_try_says_it_too(root, chat_tokenizer):
+    from clarity_chat.commands import document_try
+
+    session = Session(root, backend=FakeBackend([" R."], tokenizer=chat_tokenizer),
+                      tokenizer_loader=lambda r, v: chat_tokenizer)  # fmt: skip
+    monkey = document_try.__globals__
+    real = monkey["Session"]
+    monkey["Session"] = lambda r: session
+    try:
+        result = document_try(root, ["odd"], "chat", "Tell me about the wren")
+    finally:
+        monkey["Session"] = real
+    assert result.get("refused") == (
+        'Part 1 of odd ("Wren") holds </s>, which this model reads as a control token, not '
+        "text. Take it out of local/documents/odd/text.md; `clarity document rebuild odd` then "
+        "cuts its parts again. Or take odd out of the profile's search list."
+    )
+
+
+# --- PS5: document try needs a chat-mode profile
+
+
+def test_document_try_refuses_a_text_mode_profile(root, tiny_tokenizer):
+    session = Session(root, backend=FakeBackend([" R."], tokenizer=tiny_tokenizer),
+                      tokenizer_loader=lambda r, v: tiny_tokenizer)  # fmt: skip
+    assert refusal(lambda: session.try_documents(["odd"], "text", "the wren")) == (
+        "Searching needs a chat-mode profile; text is in text mode."
+    )
+
+
+# --- PC5: the stale-temp cleanup never takes another document's leftovers
+
+
+def test_adding_a_name_ending_in_old_keeps_another_document_s_leftovers(root):
+    library = root / "local/documents"
+    library_add(root, b"## A\nMade-up.\n", "a.md")
+    # a failed --replace of `a` left its old folder aside, under the aside prefix
+    aside = library / ".a.old-abcd1234"
+    aside.mkdir()
+    (aside / "mine.txt").write_text("Mine.\n", encoding="utf-8")
+    library_add(root, b"## B\nMade-up.\n", "a-old.md")
+    assert (aside / "mine.txt").is_file()
+
+
+def test_replace_puts_the_old_folder_aside_under_a_prefix_no_name_makes(root, monkeypatch):
+    from clarity_chat.documents import library as library_module
+
+    seen = []
+    real = library_module.os.replace
+
+    def watch(a, b):
+        seen.append(Path(b).name)
+        return real(a, b)
+
+    monkeypatch.setattr(library_module.os, "replace", watch)
+    library_add(root, b"## New\nNew.\n", "glossary.md", replace=True)
+    assert seen[0].startswith(".glossary.old-"), seen
+
+
+# --- PC7: a taken name's way out in the terminal
+
+
+def test_a_taken_name_says_how_to_replace_or_rename_in_the_terminal(root, tmp_path, capsys):
+    from clarity_chat import cli
+
+    path = tmp_path / "glossary.md"
+    path.write_bytes(b"## Wren\nAgain.\n")
+    assert cli.main(["--root", str(root), "document", "add", str(path)]) == 1
+    assert capsys.readouterr().err.strip().splitlines()[-1] == (
+        "clarity: There's already a document named glossary. `--replace` replaces it; "
+        "`--name NAME` gives this one another name."
+    )
+
+
+def test_in_a_chat_a_taken_name_says_how_to_rename(root, chat_tokenizer, tmp_path):
+    path = tmp_path / "glossary.md"
+    path.write_bytes(b"## Wren\nAgain.\n")
+    session, c, _ = chat(root, chat_tokenizer)
+    assert refusal(lambda: c.run("documents", f"add {path}", quiet)) == (
+        "There's already a document named glossary. /documents add PATH NAME gives this one "
+        "another name."
+    )
+
+
+# --- PC8, PC9: format_found's left-out lines and an empty parenthesis
+
+
+def test_format_found_groups_the_matches_not_considered():
+    from clarity_chat.cli import format_found
+
+    left = [{"id": f"g:{n}", "rank": n, "score": -1.0, "why": "not considered"}
+            for n in range(9, 31)]  # fmt: skip
+    found = {"words": ["wren"], "ignored": [], "matched": 30, "tokens": 0, "budget": 1500,
+             "parts": [], "left_out": [{"id": "g:2", "rank": 2, "score": -1.0, "why": "budget"},
+                                       *left]}  # fmt: skip
+    assert format_found(found).splitlines()[2:] == [
+        "  2. g:2: left out (budget)",
+        "  22 more matched and weren't considered: g:9 to g:30.",
+    ]
+
+
+def test_nothing_to_search_for_with_no_words_at_all():
+    from clarity_chat.cli import format_found
+
+    found = {"words": [], "ignored": [], "matched": 0}
+    assert format_found(found) == (
+        "Nothing to search for: your message holds only common words and single letters or digits."
     )

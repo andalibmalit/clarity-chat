@@ -494,3 +494,47 @@ def test_a_resumed_chat_with_an_excerpt_renders_identical(tmp_path):
         assert follow_up["prompt_ids"][: len(first["prompt_ids"])] == first["prompt_ids"]
     finally:
         session.close()
+
+
+# --- v0.3.2: search (the plan's live tiers; part 1's whole-branch S3)
+
+
+def scratch_library(tmp_path, monkeypatch) -> None:
+    """A library in a scratch folder, so the repo's local/documents/ is never read."""
+    from clarity_chat.documents import library as library_module
+    from clarity_chat.documents import library_add
+
+    scratch = tmp_path / "scratch"
+    library_add(scratch, b"## Ridge\n" + TRAIL_NOTES, "trail.md")
+    monkeypatch.setattr(library_module, "LIBRARY", scratch / "local" / "documents")
+
+
+def test_a_searched_call_replays_identical(session, tmp_path, monkeypatch):
+    scratch_library(tmp_path, monkeypatch)
+    session.new_conversation("smol-chat")
+    session.set_search(["trail"])
+    record = session.say("What marks the ridge?").record
+    all_checks_ok(record)
+    assert '<part document="trail" title="Ridge">' in record["prompt_text"]
+    replayed = session.replay_current()
+    assert replayed["identical"], replayed
+    assert replayed["differences"] == {}, replayed["differences"]
+
+
+def test_a_resumed_chat_with_found_parts_renders_identical(tmp_path, monkeypatch):
+    scratch_library(tmp_path, monkeypatch)
+    session = Session(REPO, logs_dir=tmp_path / "logs")
+    try:
+        session.new_conversation("smol-chat")
+        session.set_search(["trail"])
+        first = session.say("What marks the ridge?").record
+        all_checks_ok(first)
+        assert '<part document="trail"' in first["prompt_text"]
+        assert session.conversation is not None
+        resumed = session.resume(session.conversation.log.path)
+        assert resumed["render"]["identical"] is True, resumed["render"]
+        follow_up = session.say("And the pass?").record
+        all_checks_ok(follow_up)
+        assert follow_up["prompt_ids"][: len(first["prompt_ids"])] == first["prompt_ids"]
+    finally:
+        session.close()
