@@ -87,22 +87,25 @@ def test_a_pdf_name_without_pdf_bytes_is_read_as_text_and_refused_if_not_utf8():
 # --- HTML, version 1 of the rules
 
 
-def test_html_by_each_rule_of_version_1():
+def test_html_by_each_rule_of_version_2():
+    """Version 2 (v0.3.2's WB7): a block element ends a paragraph (a blank line), `br` a
+    line, and h1 to h6 become Markdown headings, so a saved web page gets paragraphs and
+    titled parts."""
     page = (
         "<html><head><title>Not shown</title><style>p {}</style></head><body>"
         "<script>alert(1)</script><template><p>no</p></template><noscript>no</noscript>"
         "<h1>The   ridge\n  path</h1><p>Three <b>cairns</b> &amp; a&nbsp;saddle.</p>"
         "<ul><li>water</li><li>map</li></ul>text after<br>a break"
-        "<pre>  kept   as\n    written</pre><div><div>nested</div></div></body></html>"
+        "<pre>  kept   as\n    written</pre><div><div>nested</div></div><h3>Last</h3></body></html>"
     )
     doc = extract(page.encode(), "page.html")
     assert doc.text == (
-        "The ridge path\nThree cairns & a\xa0saddle.\nwater\nmap\ntext after\na break\n"
-        "  kept   as\n    written\nnested\n"
+        "# The ridge path\n\nThree cairns & a\xa0saddle.\n\nwater\n\nmap\n\ntext after\n"
+        "a break\n\n  kept   as\n    written\n\nnested\n\n### Last\n"
     )
     assert doc.extractor == {
         "name": "clarity-html",
-        "version": 1,
+        "version": 2,
         "python": platform.python_version(),
     }
 

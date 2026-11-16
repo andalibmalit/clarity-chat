@@ -456,13 +456,10 @@ def test_the_terminal_s_unnamed_file_says_how_to_give_a_name(root, tmp_path, cap
     )
 
 
-# --- WB5: a check, reported before any change (the status file)
+# --- WB7 (WB5's finding, ruled): a web page gets paragraphs and titled parts
 
 
-def test_a_web_page_is_one_paragraph_to_the_chunker_today():
-    """WB5's finding, pinned until its ruling: html_text joins block elements with one
-    newline, so headings and paragraphs reach the chunker as one paragraph with no title.
-    A fix changes the text v0.3.1 attaches from an HTML file, so it waits for the owner."""
+def test_a_web_page_gets_paragraphs_and_titled_parts():
     from clarity_chat.documents import cut_parts
     from clarity_chat.documents.child import html_text
 
@@ -471,5 +468,40 @@ def test_a_web_page_is_one_paragraph_to_the_chunker_today():
         b"water.</p><h2>Herons</h2><p>Tall.</p></body></html>"
     )
     text = html_text(page, "p.html")
-    assert text == "Birds\nThe wren is small.\nThe dipper walks under water.\nHerons\nTall.\n"
-    assert [(p["title"], p["words"]) for p in cut_parts(text, "p.html")] == [(None, 12)]
+    assert text == (
+        "# Birds\n\nThe wren is small.\n\nThe dipper walks under water.\n\n## Herons\n\nTall.\n"
+    )
+    assert [(p["title"], p["words"]) for p in cut_parts(text, "p.html")] == [
+        ("Birds", 11),
+        ("Herons", 3),
+    ]
+
+
+# --- WB3's display, and the in-chat way to name a file
+
+
+def test_the_terminal_s_rebuilt_line_says_when_pages_were_dropped(root, capsys):
+    library_add(root, make_pdf(["One.", "Two."]), "guide.pdf")
+    text = root / "local/documents/guide/text.md"
+    text.write_text(text.read_text(encoding="utf-8") + "Edited.\n", encoding="utf-8")
+    assert cli.main(["--root", str(root), "document", "rebuild", "guide"]) == 0
+    assert (
+        capsys.readouterr()
+        .out.strip()
+        .endswith(
+            "Wrote parts.jsonl and manifest.json in local/documents/guide/. Its parts no longer "
+            "have page numbers."
+        )
+    )
+    text.write_text(text.read_text(encoding="utf-8") + "Again.\n", encoding="utf-8")
+    assert cli.main(["--root", str(root), "document", "rebuild", "guide"]) == 0
+    assert "page numbers" not in capsys.readouterr().out
+
+
+def test_in_a_chat_an_unnamable_file_says_how_to_name_it(root, chat_tokenizer, tmp_path):
+    path = tmp_path / "日本語.md"
+    path.write_bytes(b"Made-up.\n")
+    session, c, _ = chat(root, chat_tokenizer)
+    assert refusal(lambda: c.run("documents", f"add {path}", quiet)) == (
+        "Clarity can't make a document name from 日本語.md. Give it one: /documents add PATH NAME."
+    )
