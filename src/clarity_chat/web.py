@@ -1936,9 +1936,10 @@ TRY_LIMIT = 4000  # characters of a message to try: a query parameter, not a pas
 
 
 def date_words(added: str) -> str:
-    """A manifest's `added` time as the page says a date: 10 Nov 2026."""
-    year, month, day = (int(n) for n in added[:10].split("-"))
-    return f"{day} {MONTHS[month - 1]} {year}"
+    """A manifest's `added` time (UTC, checked by the library) as the page says a date, in
+    local time as a chat's row is: 10 Nov 2026."""
+    moment = datetime.fromisoformat(added).astimezone()
+    return f"{moment.day} {MONTHS[moment.month - 1]} {moment.year}"
 
 
 def joined(names: list[str], last: str = "and") -> str:
