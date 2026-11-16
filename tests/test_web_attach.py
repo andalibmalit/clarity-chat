@@ -188,7 +188,7 @@ def test_a_refusal_shows_in_the_sheet(make):
     upload_id = upload(client, b"\xff\xfe made-up", "old-notes.txt").json()["upload"]
     text = sheet(client, upload=upload_id)
     assert (
-        "! old-notes.txt isn't UTF-8 text. Save it as PDF or as UTF-8 text and attach that."
+        "! old-notes.txt isn't UTF-8 text. Save it as PDF or as UTF-8 text and use that copy."
         in re.sub(r"<[^>]+>", "", text)
     )
     assert 'data-choice="whole"' not in text

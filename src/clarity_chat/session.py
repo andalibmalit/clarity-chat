@@ -129,12 +129,15 @@ class SearchRefused(ConfigError):
     Logged as a failed call; the message is given back, with its way out."""
 
 
-STALE = {  # the way out of a stale document, in words every front end can show
-    "changed": "{name} has changed since it was built, so nothing was sent. Rebuild it, or stop "
-    "searching it.",
-    "missing": "{name} isn't in your documents any more, so nothing was sent. Stop searching it, "
-    "or add it again.",
+STALE = {  # a document a search can't read, and its way out (the board's N30, N31)
+    "changed": "Clarity can't search {name}: a file in its folder has changed since Clarity cut "
+    "it into parts. Rebuild cuts them again from its text.md.",
+    "missing": "Clarity can't search {name}: its folder in local/documents/ is gone. Stop "
+    "searching it, or add the file again in Documents….",
 }
+PAGES_LOST = "If you edited text.md, its parts will lose their page numbers."  # N24
+NOTHING_SENT = "Nothing was sent."  # N29: a refusal at Send's first line
+WITHOUT_SEARCH = "To send without searching, stop searching every document in this chat."
 
 
 class CancelledBeforeReply(BackendError):
@@ -790,7 +793,7 @@ class Session:
         block fields, already found (a batch run searches once per opening and profile)."""
         conversation = self._require_conversation()
         if block is None:
-            attached, refused = self._block(text, conversation.pending, conversation.head)
+            attached, refused = self._block(text, conversation.pending, conversation.head, True)
         else:
             attached, refused = block, None
         user = conversation.add_turn("user", "user", text, conversation.head, **attached)
@@ -798,12 +801,17 @@ class Session:
         return self.call(user, seed=seed, on_text=on_text, cancel=cancel, refused=refused)
 
     def _block(
-        self, text: str, attachments: list[dict[str, Any]], parent: str | None
+        self,
+        text: str,
+        attachments: list[dict[str, Any]],
+        parent: str | None,
+        at_send: bool = False,
     ) -> tuple[dict[str, Any], SearchRefused | None]:
         """A new message's block fields: its attachments and, when the chat searches, what
         its text found in the chat's documents (decisions 2, 3, 9), counted after the turns
         to `parent`. A stale document is a refusal the call logs as failed (decision 6),
-        returned rather than raised so the message is logged first."""
+        returned rather than raised so the message is logged first; `at_send` heads it
+        "Nothing was sent." (a message or an edit, not /try or a run)."""
         conversation = self._require_conversation()
         profile = conversation.profile
         if not attachments and not conversation.searching:
@@ -821,8 +829,9 @@ class Session:
             p["sha256"] for t in conversation.path_to(parent) for p in found_in(t.attached_fields())
         )
         try:
+            room = self.room(after=parent)
             found = self._found(
-                text, conversation.searching, self.room(after=parent), profile, fields, already
+                text, conversation.searching, room, profile, fields, already, at_send
             )
         except SearchRefused as e:
             return fields, e
@@ -836,26 +845,52 @@ class Session:
         profile: Profile,
         fields: dict[str, Any],
         already: frozenset[str] = frozenset(),
+        at_send: bool = False,
     ) -> dict[str, Any]:
         """What `text` finds in the documents `names`, filled to `profile`'s budget into a
         block holding `fields`' attachments: one function for a message, /try and a batch
-        run (SYS: "one object, three uses"). A stale document is refused."""
+        run (SYS: "one object, three uses"). Every document a search can't read is named in
+        one refusal, each with its way out (the board walk's point 6); `at_send` heads it
+        "Nothing was sent." """
+        lines = [line for name in names if (line := self._unsearchable(name)) is not None]
+        head = [NOTHING_SENT] if at_send else []
+        if lines:
+            raise SearchRefused("\n".join([*head, *lines]))
         try:
             docs = [load_document(self.root, name) for name in names]
-        except Stale as e:
-            raise SearchRefused(STALE[e.state].format(name=e.name)) from None
+        except Stale as e:  # it changed since the check just now
+            raise SearchRefused("\n".join([*head, STALE[e.state].format(name=e.name)])) from None
         budget, origin = budget_of(profile)
+        try:
+            found = search_documents(docs, text)
+        except DocumentRefused as e:  # no FTS5 in this Python: how to send without it
+            more = [f"{e} {WITHOUT_SEARCH}"] if at_send else [str(e)]
+            raise SearchRefused("\n".join([*head, *more])) from None
         return fill(
             room,
             text,
             attached_in(fields),
             fields["framing"],
-            search_documents(docs, text),
+            found,
             budget,
             origin,
             fields["placement"],
             already,
         )
+
+    def _unsearchable(self, name: str) -> str | None:
+        """Why a search can't read `name` and the way out (N30, N31, N32), or None."""
+        state = library_state(self.root, name)
+        if state == "ready":
+            return None
+        if state == "missing":
+            return STALE["missing"].format(name=name)
+        try:
+            manifest = library_manifest(self.root, name)
+        except DocumentRefused as e:  # unreadable: its own sentence, as its row says it
+            return f"Clarity can't search {name}: its {str(e).removeprefix(name + "'s ")}"
+        pdf = manifest["original"]["kind"] == "pdf" and manifest["text"]["page_starts"]
+        return STALE["changed"].format(name=name) + (f" {PAGES_LOST}" if pdf else "")
 
     def document_builds(self, names: list[str]) -> dict[str, str]:
         """Each document's build ID, as a search now would read it (a stale one refused)."""
@@ -1116,6 +1151,7 @@ class Session:
             "preselected": shown(counts.roomy),
             "max_tokens": room.max_tokens,  # what the numbers were counted with
             "aside": aside,  # a searching chat's budget, which the preselected start leaves too
+            "aside_origin": budget_of(conversation.profile)[1] if aside else None,
             "chosen": chosen,
             # null and false when today's profile file can't start a chat: /new would refuse
             "free_new_chat": new_chat and new_chat.free,
@@ -1324,7 +1360,7 @@ class Session:
         assert reply.parent_id is not None
         original = conversation.turns[reply.parent_id]
         # The attachments are kept; the new text is searched again (decision 2, Q6).
-        attached, refused = self._block(text, original.attachments, original.parent_id)
+        attached, refused = self._block(text, original.attachments, original.parent_id, True)
         if original.attachments and not conversation.searching:  # as it was logged
             attached = {**attached, **{k: getattr(original, k) for k in TURN_FIELDS}}
         user = conversation.add_turn(
@@ -1349,26 +1385,34 @@ class Session:
         is refused when a chat starts, naming the key (v0.3.2 B1)."""
         for name in profile.search:
             state = library_state(self.root, name)
-            if state == "missing":
+            if state == "missing":  # in the page's terms (the board walk's S18; N37)
                 raise ConfigError(
-                    f"Profile {profile.name}: [documents] search names {name}, which isn't in "
-                    "your documents. Add it, or take it out of the profile's search list."
+                    f"Profile {profile.name} searches {name}, which isn't in your documents. "
+                    "Add it in Documents…, or take it out of search under [documents] in the "
+                    "profile's file."
                 )
             if state == "unreadable":  # a link, or a manifest Clarity can't read: why
                 try:
                     library_manifest(self.root, name)
                 except DocumentRefused as e:
-                    raise ConfigError(
-                        f"Profile {profile.name}: [documents] search names {name}. {e}"
-                    ) from None
+                    raise ConfigError(f"Profile {profile.name} searches {name}. {e}") from None
 
     def set_search(self, names: list[str]) -> dict[str, Any]:
-        """The documents this chat searches, from now on: each must be in the library
-        (a missing one is refused); logged as a `search` record with the whole list."""
+        """The documents this chat searches, from now on; logged as a `search` record with
+        the whole list. A document being added must be in the library and readable; one
+        already in the list stays whatever its state, and Send refuses until it's stopped
+        (the board walk's W3: "Search it" can never write a copy and be refused for another
+        document)."""
         conversation = self._require_conversation()
-        self.attaching()  # a text-mode chat refuses, as attaching does
+        profile = conversation.profile
+        if profile.mode != "chat":  # N71
+            raise ConfigError(
+                f"Searching needs a chat-mode profile; {profile.name} is in text mode."
+            )
         for name in names:
             checked_library_name(name)
+            if name in conversation.searching:
+                continue
             state = library_state(self.root, name)
             if state == "missing":
                 raise DocumentRefused(f"{name} isn't in your documents.")
@@ -1768,15 +1812,27 @@ class Session:
         turn early. The refusal names the part and the way out."""
         assert self.tokenizer is not None
         for part in found_in(user_turn.attached_fields()):
-            tokens = self.tokenizer.special_tokens_in(part["text"])
-            if tokens:
-                held = ", ".join(dict.fromkeys(tokens))
-                one = "a control token" if len(set(tokens)) == 1 else "control tokens"
+            tokens = list(dict.fromkeys(self.tokenizer.special_tokens_in(part["text"])))
+            if tokens:  # the board's N33
+                held = (
+                    tokens[0] if len(tokens) == 1 else f"{', '.join(tokens[:-1])} and {tokens[-1]}"
+                )
+                one, it = (
+                    ("a control token", "it") if len(tokens) == 1 else ("control tokens", "them")
+                )
                 name = part["document"]
+                where = (
+                    f' ("{part["title"]}")'
+                    if part["title"]
+                    else f" (page {part['page']})"
+                    if part["page"]
+                    else ""
+                )
                 raise SearchRefused(
-                    f"Part {part['id']} holds {held}, which this model reads as {one}, so "
-                    f"nothing was sent. Fix that part in {name}'s text.md and rebuild it, or "
-                    f"stop searching {name}."
+                    f"{NOTHING_SENT}\nPart {part['ordinal']} of {name}{where} holds {held}, which "
+                    f"this model reads as {one}, not text. Take {it} out of "
+                    f"local/documents/{name}/text.md; Clarity then shows the document as "
+                    f"Changed, with Rebuild. Or stop searching {name}."
                 )
 
     def _check_output(
@@ -2253,7 +2309,7 @@ def attached_tokens(spans: Any, conversation: Conversation, user_turn: Turn) -> 
         kinds = {a["what"] for a in added}
         what = ", ".join(
             [*(["attached documents"] if "attachment" in kinds else []),
-             *(["found parts"] if "part" in kinds else [])]
+             *(["parts found in your documents"] if "part" in kinds else [])]  # N34
         )  # fmt: skip
         return f", {n:,} of them in {what or 'documents'} and their framing lines" if n else ""
     path = prompt_turns(conversation, user_turn)

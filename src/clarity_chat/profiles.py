@@ -118,7 +118,12 @@ def library_name_problem(name: object) -> str | None:
     if not isinstance(name, str) or not LIBRARY_NAME.fullmatch(name):
         return NAME_RULE
     if name in RESERVED_NAMES:
-        return f"{name} can't name a document: the system reserves it."
+        if name == "none":
+            return "none can't name a document: Clarity keeps it for turning search off."
+        return (
+            f"{name} can't name a document: Windows reserves it, and Clarity keeps names that "
+            "work everywhere."
+        )
     return None
 
 

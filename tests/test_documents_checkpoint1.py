@@ -95,8 +95,11 @@ def test_rebuild_refuses_when_the_original_is_missing_or_changed(root, tmp_path,
     else:
         original.write_bytes(b"Made-up, other bytes.\n")
     said = answer(lambda: document_rebuild(root, "notes"))
-    why = "missing" if how == "deleted" else "not the file it was built from"
-    assert said == f"notes's original.txt is {why}: add the file again to replace notes."
+    assert said == (  # one sentence for both (the board's N72)
+        "Clarity can't rebuild notes: its original file has changed or is gone, so its text.md "
+        "may no longer match it. Delete the folder local/documents/notes/, then add the file "
+        "again."
+    )
     assert library_state(root, "notes") == "changed"
 
 
@@ -147,7 +150,7 @@ def test_a_manifest_that_can_t_be_opened_says_why_without_a_path(root, tmp_path)
     (checked,) = document_check(root, ["notes"])["checked"]
     said = checked["problems"][0]
     assert said.startswith("notes's manifest.json can't be read"), said
-    assert str(root) not in said and "/" not in said.split("(")[1]
+    assert str(root) not in said and "/" not in said.split("(")[1].split(")")[0]
 
 
 # --- S5: a race can't replace, and a write that fails is a refusal
@@ -349,7 +352,7 @@ def test_replace_says_it_replaces_before_and_after(root, tmp_path, capsys):
         "Replacing notes in local/documents/notes/: a copy of the file, its text and its parts, "
         "in place of the ones there."
     )
-    assert out[-1].startswith("Replaced notes in local/documents/notes/: ")
+    assert out[-1].startswith("Clarity replaced local/documents/notes/: ")
 
 
 # --- "For B1 and B2": a turn at placement "end" reads back

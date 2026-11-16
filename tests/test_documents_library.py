@@ -298,7 +298,10 @@ def test_the_full_check_hashes_what_the_quick_one_can_t_see(root, tmp_path):
 
 @pytest.mark.parametrize(
     ("data", "starts"),
-    [(b"caf\xe9\n", "text.md isn't UTF-8 text."), (b"Made\x00up\n", "text.md isn't text")],
+    [
+        (b"caf\xe9\n", "notes: text.md isn't UTF-8 text."),
+        (b"Made\x00up\n", "notes: text.md isn't text"),
+    ],
 )
 def test_rebuild_reads_text_md_as_your_input(root, tmp_path, data, starts):
     document_add(root, file(tmp_path, "notes.md", "Made-up.\n"))
@@ -314,7 +317,7 @@ def test_rebuild_reads_text_md_as_your_input(root, tmp_path, data, starts):
 def test_rebuild_of_a_text_md_over_the_limit_is_refused(root, tmp_path, monkeypatch):
     document_add(root, file(tmp_path, "notes.md", "Made-up.\n"))
     monkeypatch.setattr(reading, "MAX_BYTES", 4)
-    with pytest.raises(DocumentRefused, match="^text.md is too big"):
+    with pytest.raises(DocumentRefused, match="^notes: text.md is too big"):
         document_rebuild(root, "notes")
 
 
@@ -360,8 +363,8 @@ def test_the_subcommands_say_what_they_write(root, tmp_path, capsys):
     assert out.splitlines() == [
         "Reading Glossary.md…",
         "Writing local/documents/glossary/: a copy of the file, its text and its parts.",
-        "Added glossary as local/documents/glossary/: original.txt, text.md, parts.jsonl, "
-        "manifest.json. 3 parts, 3 with a title.",
+        "Clarity wrote local/documents/glossary/: original.txt, text.md, parts.jsonl and "
+        "manifest.json (3 parts, 3 with a title).",
     ]
     assert cli.main(["--root", str(root), "document", "add", path]) == 1
     assert "There's already a document named glossary." in capsys.readouterr().err
@@ -373,7 +376,7 @@ def test_the_subcommands_say_what_they_write(root, tmp_path, capsys):
     assert cli.main(["--root", str(root), "document", "check"]) == 1
     out = capsys.readouterr().out
     assert out.startswith("glossary: changed (text.md has changed): ")
-    assert "`clarity document rebuild glossary` builds it again." in out
+    assert "`clarity document rebuild glossary` cuts them again." in out
     assert cli.main(["--root", str(root), "document", "rebuild", "glossary"]) == 0
     assert capsys.readouterr().out.strip() == (
         "Rebuilt glossary from its text.md: 1 part, 1 with a title. Wrote parts.jsonl and "

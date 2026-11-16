@@ -33,8 +33,15 @@ from clarity_chat.documents.parts import (
     cut_parts,
     parts_jsonl,
 )
-from clarity_chat.documents.reading import Document, DocumentRefused, extract, read_path
-from clarity_chat.profiles import NAME_RULE, library_name_problem
+from clarity_chat.documents.reading import (
+    SIZE_LIMIT,
+    Document,
+    DocumentRefused,
+    extract,
+    read_path,
+    too_big,
+)
+from clarity_chat.profiles import library_name_problem
 
 LIBRARY = Path("local") / "documents"
 SCHEMA = 1
@@ -159,7 +166,7 @@ def add(
         name = default_name(filename)
         if name is None:
             raise DocumentRefused(
-                f"Clarity can't make a document name from {filename}. Give it one: {NAME_RULE}"
+                f"Clarity can't make a document name from {filename}. Give it one."
             )
     target = folder(root, name)
     if target.exists() and not replace:
@@ -246,15 +253,19 @@ def read_manifest(root: Path, name: str) -> dict[str, Any]:
         if not typed(manifest):
             raise ValueError("it isn't a manifest Clarity writes")
     except OSError as e:  # the reason, never the path (str(e) holds it)
-        raise DocumentRefused(
-            f"{name}'s manifest.json can't be read ({e.strerror or type(e).__name__}). Add the "
-            "file again to build it anew."
-        ) from None
+        raise DocumentRefused(unreadable_manifest(name, e.strerror or type(e).__name__)) from None
     except ValueError as e:
-        raise DocumentRefused(
-            f"{name}'s manifest.json can't be read ({e}). Add the file again to build it anew."
-        ) from None
+        raise DocumentRefused(unreadable_manifest(name, str(e))) from None
     return manifest
+
+
+def unreadable_manifest(name: str, why: str) -> str:
+    """The way out of a manifest Clarity can't read (the board walk's W4): the folder goes,
+    then the file is added again."""
+    return (
+        f"{name}'s manifest.json can't be read ({why}). Delete the folder "
+        f"local/documents/{name}/, then add the file again."
+    )
 
 
 def _int(value: Any) -> bool:
@@ -407,11 +418,18 @@ def control_token_parts(
 
 class OriginalChanged(DocumentRefused):
     """A rebuild refused because the original isn't the file the text came from: the way
-    out is to add the file again, replacing the document (Checkpoint 1's S3)."""
+    out is to add the file again (Checkpoint 1's S3; N72). `said` is the reason, which the
+    terminal ends with its own command."""
 
-    def __init__(self, name: str, file: str, why: str) -> None:
+    def __init__(self, name: str) -> None:
         self.name = name
-        super().__init__(f"{name}'s {file} is {why}: add the file again to replace {name}.")
+        self.said = (
+            f"Clarity can't rebuild {name}: its original file has changed or is gone, so its "
+            "text.md may no longer match it."
+        )
+        super().__init__(
+            f"{self.said} Delete the folder local/documents/{name}/, then add the file again."
+        )
 
 
 def rebuild(root: Path, name: str) -> dict[str, Any]:
@@ -425,10 +443,10 @@ def rebuild(root: Path, name: str) -> dict[str, Any]:
     try:
         original = (path / original_file).read_bytes()
     except OSError:
-        raise OriginalChanged(name, original_file, "missing") from None
+        raise OriginalChanged(name) from None
     if sha256(original) != manifest["original"]["sha256"]:
-        raise OriginalChanged(name, original_file, "not the file it was built from")
-    data, _ = read_path(str(path / "text.md"))
+        raise OriginalChanged(name)
+    data = edited_text(name, path / "text.md")
     doc = extract(data, "text.md")
     unchanged = sha256(data) == manifest["text"]["sha256"]
     starts = manifest["text"]["page_starts"] if unchanged else None
@@ -444,7 +462,37 @@ def rebuild(root: Path, name: str) -> dict[str, Any]:
         rebuilt["files"] = stats(path, [original_file, "text.md", "parts.jsonl"])
         replace_file(path / "manifest.json", manifest_bytes(rebuilt))
     relative = path.relative_to(root).as_posix()
-    return {"rebuilt": rebuilt, "written": [f"{relative}/parts.jsonl", f"{relative}/manifest.json"]}
+    return {
+        "rebuilt": rebuilt,
+        "written": [f"{relative}/parts.jsonl", f"{relative}/manifest.json"],
+        # The board walk's W5: an edit of a PDF's text.md loses its page numbers, said once.
+        "pages_dropped": manifest["text"]["page_starts"] is not None and starts is None,
+    }
+
+
+def edited_text(name: str, path: Path) -> bytes:
+    """text.md's bytes, read as your input, with Rebuild's own sentences (the board walk's
+    S1): each names the document and text.md, and says to save it, then rebuild."""
+    try:
+        data, _ = read_path(str(path))
+    except DocumentRefused as e:
+        if str(e) == too_big("text.md"):
+            raise DocumentRefused(
+                f"{name}: text.md is too big: Clarity reads files up to {SIZE_LIMIT}. Shorten "
+                "it, then rebuild."
+            ) from None
+        raise
+    if b"\x00" in data:
+        raise DocumentRefused(
+            f"{name}: text.md isn't text Clarity can read. Save it as UTF-8 text, then rebuild."
+        )
+    try:
+        data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise DocumentRefused(
+            f"{name}: text.md isn't UTF-8 text. Save text.md as UTF-8 text, then rebuild."
+        ) from None
+    return data
 
 
 def replace_file(path: Path, data: bytes) -> None:

@@ -98,9 +98,17 @@ SENTENCES = {
     "stopped_counting": "Stopped counting {name}.",
     # A range of a file with no text in it: refused, never sent empty (the records finder, 3).
     "empty_excerpt": "{Units} {first} to {last} of {name} have no text Clarity can read.",
-    # A searching chat's suggested start leaves the budget free too (v0.3.2's S1).
-    "aside": "It also leaves {budget} tokens for the parts search adds to each message (the "
-    "profile's budget).",
+    # A searching chat's numbers: the suggested start leaves the budget free too (v0.3.2's
+    # S1, folded in by the board walk's S14; the board's N14, N15).
+    "left_search": "That leaves {left} tokens for your messages, the parts search adds, and "
+    "the replies.",
+    "filled_in_search": "Clarity filled in {units} 1 to {last}: the largest start it found that "
+    "leaves at least {max_tokens} for a reply and {budget} for the parts search can add to your "
+    "next message ({origin}).",
+    "preselected_search": "The largest start found that leaves at least {max_tokens} tokens for "
+    "a reply and {budget} for the parts search can add to your next message ({origin})",
+    "budget_profile": "the profile's budget",
+    "budget_default": "Clarity's default budget",
     # /undo of a message that had attachments (QA 9): they were part of it.
     "undone_attachments": "Its attachments went with it: {names}.",
     # Refusals the reader and its child write: their texts live beside the code that raises

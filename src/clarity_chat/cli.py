@@ -27,7 +27,13 @@ from clarity_chat.commands import (
     summaries,
 )
 from clarity_chat.logs import torn_message
-from clarity_chat.profiles import ConfigError, find_root, load_models, load_server_config
+from clarity_chat.profiles import (
+    NAME_RULE,
+    ConfigError,
+    find_root,
+    load_models,
+    load_server_config,
+)
 from clarity_chat.replay import replay_notes
 from clarity_chat.resume import render_line, what_differs
 from clarity_chat.session import (
@@ -968,19 +974,31 @@ def cmd_verify(root: Path, names: list[str]) -> int:
 def cmd_document(root: Path, args: argparse.Namespace) -> int:
     """`clarity document add|list|check|rebuild`: the library, with no model."""
     if args.action == "add":
-        result = document_add(
-            root,
-            args.file,
-            args.name,
-            args.replace,
-            on_read=lambda: print(f"Reading {shown(Path(args.file).name)}…", flush=True),
-            on_write=lambda folder, replacing: print(writing_words(folder, replacing), flush=True),
-        )
+        try:
+            result = document_add(
+                root,
+                args.file,
+                args.name,
+                args.replace,
+                on_read=lambda: print(f"Reading {shown(Path(args.file).name)}…", flush=True),
+                on_write=lambda folder, replacing: print(
+                    writing_words(folder, replacing), flush=True
+                ),
+            )
+        except ConfigError as e:  # the page shows the rule by its box; here, with --name
+            if str(e).endswith(" Give it one."):
+                said = str(e).removesuffix(" Give it one.")
+                raise ConfigError(f"{said} Give it one with `--name NAME`. {NAME_RULE}") from None
+            raise
         print(format_added(result))
         return 0
     if args.action == "list":
         listed = document_list(root)
-        print(json.dumps(listed) if args.json else format_documents(listed["documents"]))
+        if args.json:
+            print(json.dumps(listed))
+        else:  # the folder once, for finding it (the board's W10)
+            print(f"Your documents, in {listed['folder']}:")
+            print(format_documents(listed["documents"]))
         return 0
     if args.action == "check":
         tokenizer = None
@@ -997,9 +1015,9 @@ def cmd_document(root: Path, args: argparse.Namespace) -> int:
         return 0
     try:
         result = document_rebuild(root, args.name)
-    except OriginalChanged as e:  # the terminal's way out, by name
+    except OriginalChanged as e:  # the terminal's way out, by name (the page's deletes)
         raise ConfigError(
-            f"{e} `clarity document add FILE --name {e.name} --replace` does."
+            f"{e.said} `clarity document add FILE --name {e.name} --replace` adds the file again."
         ) from None
     print(format_rebuilt(result))
     return 0
@@ -1019,13 +1037,11 @@ def writing_words(folder: str, replacing: bool) -> str:
 def format_added(result: dict[str, Any]) -> str:
     manifest = result["added"]
     folder = result["written"][0].rsplit("/", 1)[0]
-    files = ", ".join(path.rsplit("/", 1)[1] for path in result["written"])
-    done = (
-        f"Replaced {manifest['name']} in" if result["replaced"] else f"Added {manifest['name']} as"
-    )
-    return (
-        f"{done} {folder}/: {files}. "
-        f"{parts(manifest['parts'])}, {manifest['titled']:,} with a title."
+    *rest, last = (path.rsplit("/", 1)[1] for path in result["written"])
+    done = "replaced" if result["replaced"] else "wrote"
+    return (  # the point first (the board walk's S17; N12)
+        f"Clarity {done} {folder}/: {', '.join(rest)} and {last} "
+        f"({parts(manifest['parts'])}, {manifest['titled']:,} with a title)."
     )
 
 
@@ -1068,8 +1084,9 @@ def format_checked(checked: list[dict[str, Any]]) -> str:
             )
         else:
             lines.append(
-                f"{name}: changed ({'; '.join(problems)}): its files have changed since it was "
-                f"built. `clarity document rebuild {name}` builds it again."
+                f"{name}: changed ({'; '.join(problems)}): A file in its folder has changed "
+                f"since Clarity cut it into parts. `clarity document rebuild {name}` cuts them "
+                "again."
             )
         for ordinal in c.get("closing_tag_parts", []):
             lines.append(f"  part {ordinal} holds </part> or </document>; it's sent as it is")
@@ -1083,7 +1100,10 @@ def format_found(found: dict[str, Any]) -> str:
     """A search's result in lines, without the parts' text: the words, what was added and
     why, and what was left out."""
     if not found["words"]:
-        return f"Nothing to search for: every word is a common one ({', '.join(found['ignored'])})."
+        return (
+            "Nothing to search for: your message holds only common words and single letters or "
+            f"digits ({', '.join(found['ignored'])})."
+        )
     ignored = f" (ignored: {', '.join(found['ignored'])})" if found["ignored"] else ""
     lines = [f"Searched for: {', '.join(found['words'])}{ignored}."]
     if not found["matched"]:

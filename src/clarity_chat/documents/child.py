@@ -75,11 +75,11 @@ def watch(memory_cap: int, seconds: float, interval: float = 0.02) -> bool:
 # Two refusals SENTENCES lists (insert.py imports them; the design walkthrough's F11, F25).
 PROTECTED = (
     "{name} is protected, even if it opens without a password. Export or print it to a new "
-    "PDF and attach that."
+    "PDF and use that."
 )
 NO_TEXT = (
     "{name} has no text Clarity can read. Its pages may be scanned images, which Clarity "
-    "doesn't read. Use a PDF app's text recognition (OCR) to add the text, then attach that "
+    "doesn't read. Use a PDF app's text recognition (OCR) to add the text, then use that "
     "copy."
 )
 
@@ -100,7 +100,7 @@ def utf8(data: bytes, name: str) -> tuple[str, bool]:
     return (text[1:] if bom else text), bom
 
 
-SAVE_AS = "Save it as PDF or as UTF-8 text and attach that."
+SAVE_AS = "Save it as PDF or as UTF-8 text and use that copy."
 
 
 # HTML, version 1 of Clarity's rules (listed in the plan; reference.md lists them with B1).
@@ -186,7 +186,7 @@ def pdf_pages(data: bytes, name: str) -> tuple[list[str], dict]:
     if encrypted and protection(reader.trailer["/Encrypt"]) == "aes":
         raise Refused(protected)
     if encrypted and not reader.decrypt(""):
-        raise Refused(f"{name} needs a password. Save a copy without one and attach that.")
+        raise Refused(f"{name} needs a password. Save a copy without one and use that.")
     try:
         pages = [page.extract_text(extraction_mode="plain") for page in reader.pages]
     except PdfReadError as e:

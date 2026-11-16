@@ -10,7 +10,7 @@ import shutil
 import pytest
 
 from clarity_chat.commands import Commands, check_lines
-from clarity_chat.documents import SENTENCES, DocumentRefused, library_add, reading
+from clarity_chat.documents import DocumentRefused, library_add, reading
 from clarity_chat.logs import read_records
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import Session
@@ -80,8 +80,8 @@ def test_a_profile_naming_a_document_not_in_the_library_is_refused_naming_the_ke
     with pytest.raises(ConfigError) as refused:
         chat(root, chat_tokenizer)
     assert str(refused.value) == (
-        "Profile chat: [documents] search names birds, which isn't in your documents. Add it, "
-        "or take it out of the profile's search list."
+        "Profile chat searches birds, which isn't in your documents. Add it in Documents…, or "
+        "take it out of search under [documents] in the profile's file."
     )
 
 
@@ -192,7 +192,7 @@ def test_a_text_mode_chat_can_t_search(root, tiny_tokenizer):
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
     c = Commands(session)
     c.run("profile", "text", quiet)
-    with pytest.raises(ConfigError, match="^Attaching needs a chat-mode profile"):
+    with pytest.raises(ConfigError, match="^Searching needs a chat-mode profile"):
         run(c, "search glossary")
 
 
@@ -233,7 +233,7 @@ def test_documents_add_from_the_page_takes_an_upload_and_gives_the_same_manifest
     for manifest in (from_page, from_terminal):
         manifest.pop("added"), manifest.pop("name"), manifest.pop("files")
     assert from_page == from_terminal
-    with pytest.raises(ConfigError, match="^That file is no longer uploaded"):
+    with pytest.raises(ConfigError, match="^That file isn't uploaded any more"):
         page.run("documents", "add u-2", quiet)
 
 
@@ -256,8 +256,8 @@ def test_a_searching_chat_s_check_sets_the_budget_aside(root, chat_tokenizer, tm
     assert run(c, f"attach {path} check")["check"]["aside"] == 0
     run(c, "search glossary")
     check = run(c, f"attach {path} check")["check"]
-    assert check["aside"] == 1500
-    assert SENTENCES["aside"].format(budget="1,500") in check_lines(check)
+    assert (check["aside"], check["aside_origin"]) == (1500, "default")
+    assert any("1,500 for the parts search can add" in line for line in check_lines(check))
 
 
 def test_state_has_searching_before_a_chat(root, chat_tokenizer):
@@ -286,7 +286,7 @@ def test_a_linked_document_is_refused_by_search_and_a_start(root, chat_tokenizer
         run(c, "search linked")
     assert run(c, "documents")["documents"][1]["state"] == "unreadable"
     profile(root, 'search = ["linked"]')
-    with pytest.raises(ConfigError, match=r"^Profile chat: \[documents\] search names linked\. "):
+    with pytest.raises(ConfigError, match=r"^Profile chat searches linked\. "):
         chat(root, chat_tokenizer)
     assert list(elsewhere.iterdir()) == []
 

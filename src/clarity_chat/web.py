@@ -1709,11 +1709,13 @@ def attach_sheet(
     if check["encrypted"]:
         facts += ", " + SENTENCES["encrypted"]
     facts += " · " + size_words(check["bytes"])
+    # A searching chat's numbers name the parts search adds (the board walk's S14).
+    left = SENTENCES["left_search" if check["aside"] else "left"]
     if check["fits"]:
         whole_note = (
             SENTENCES["whole"].format(tokens=f"{check['tokens_whole']:,}")
             + " "
-            + SENTENCES["left"].format(left=f"{check['left_whole']:,}")
+            + left.format(left=f"{check['left_whole']:,}")
         )
     else:
         whole_note = SENTENCES["doesnt_fit"].format(
@@ -1733,7 +1735,7 @@ def attach_sheet(
         if part["ok"]:
             part["count"] = f"{chosen['tokens']:,} tokens"
             part["notes"].append(
-                SENTENCES["left"].format(left=f"{chosen['left']:,}")
+                left.format(left=f"{chosen['left']:,}")
                 + " "
                 + SENTENCES["reply_share"].format(max_tokens=f"{max_tokens:,}")
             )
@@ -1754,6 +1756,14 @@ def attach_sheet(
                 filled = SENTENCES["filled_in"].format(
                     units=units, last=f"{pre['range'][1]:,}", max_tokens=f"{max_tokens:,}"
                 )
+                if check["aside"]:
+                    filled = SENTENCES["filled_in_search"].format(
+                        units=units,
+                        last=f"{pre['range'][1]:,}",
+                        max_tokens=f"{max_tokens:,}",
+                        budget=f"{check['aside']:,}",
+                        origin=SENTENCES[f"budget_{check['aside_origin']}"],
+                    )
                 part["notes"] += [
                     f"{filled} {at_most}",
                     SENTENCES["longer_chat"].format(units=units),
