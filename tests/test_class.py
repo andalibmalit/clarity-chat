@@ -341,6 +341,14 @@ TERMINAL_ONLY = {
         "the page sends a number it checked, or none"
     ),
     "Usage: /branches [all]": "the page sends none, or all",
+    "Usage: /edit TEXT": "the page's Edit sends no empty text",
+    "Usage: /try TEXT": "the try box runs no empty message",
+    "Usage: /set NAME [VALUE]": "the page's rows always name their setting",
+    "Usage: /title TEXT": "the page's Rename sends no empty title",
+    "Usage: /switch TURN_ID": "the page sends a branch's turn ID",
+    "Usage: /resume ID": "the page sends a log ID",
+    "Usage: /profile NAME": "the picker sends a profile's name",
+    "Usage: /note [CALL_ID] TEXT": "the page's note box sends no empty note",
     ": /documents add PATH NAME.": "the page sends an upload, named in its box",
     " /documents add PATH NAME gives this one another name.": (
         "the page offers another name in its box"
@@ -385,6 +393,15 @@ def refusals() -> list[tuple[str, int, str]]:
         if path.name in ("cli.py", "batch.py") and path.parent == SRC:
             continue  # the terminal's own output
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            # A command's usage line, raised by needs() (the C1 tripwire review's must 1):
+            # a view that sends an empty argument would show it.
+            if (
+                isinstance(node, ast.Call)
+                and getattr(node.func, "id", "") == "needs"
+                and len(node.args) == 2
+                and isinstance(node.args[1], ast.Constant)
+            ):
+                found.append((path.name, node.lineno, f"Usage: {node.args[1].value}"))
             if not (isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call)):
                 continue
             called = node.exc.func
