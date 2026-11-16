@@ -247,7 +247,7 @@ def test_t1_every_read_and_view_answers_when_a_found_field_is_missing(page_chat,
         if response.status_code not in (200, 503):
             stopped.append((view, response.status_code, response.text[:200]))
     assert stopped == []
-    assert command(client, "state").json().get("result"), "the session stopped"
+    assert not command(client, "state").json().get("stopped"), "the session stopped"
 
 
 # --- T2: no terminal command in a page sentence
