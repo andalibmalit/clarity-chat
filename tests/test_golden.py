@@ -52,6 +52,15 @@ def golden(request, tmp_path) -> Path:
     return Path(shutil.copy(request.param, tmp_path / request.param.name))
 
 
+@pytest.fixture
+def golden_tokenizer(golden, tiny_tokenizer, chat_tokenizer):
+    """The tokenizer the log was written with: v0.3.1's chat-mode log (attachments need
+    chat mode) used the tests' chat tokenizer, with the toy template; the others are in
+    text mode, on the plain one."""
+    first = json.loads(golden.read_text(encoding="utf-8").splitlines()[0])
+    return chat_tokenizer if 'mode = "chat"' in first["profile"]["toml"] else tiny_tokenizer
+
+
 def test_every_record_reads(golden):
     rows = list(read_records(golden))
     assert all(r["schema_version"] <= SCHEMA_VERSION for r in rows)
@@ -59,12 +68,12 @@ def test_every_record_reads(golden):
     assert {"turn", "call", "mark", "note", "replay"} <= {r["type"] for r in rows}
 
 
-def test_every_reply_replays_identically(golden, steerable, tiny_tokenizer):
+def test_every_reply_replays_identically(golden, steerable, golden_tokenizer):
     calls = [r for r in read_records(golden) if r["type"] == "call" and r.get("turn_id")]
     complete = [c for c in calls if c["stop_type"] != "cancelled"]
-    backend = FakeBackend([c["output_text"] for c in complete], tokenizer=tiny_tokenizer)
+    backend = FakeBackend([c["output_text"] for c in complete], tokenizer=golden_tokenizer)
     backend.before_v0_2_3 = golden.stem in BEFORE_V0_2_3  # the fake that wrote these logs
-    session = Session(steerable, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    session = Session(steerable, backend=backend, tokenizer_loader=lambda r, v: golden_tokenizer)
     for call in complete:
         record = session.replay(golden, call["call_id"])
         assert record["identical"], call["call_id"]
@@ -80,9 +89,9 @@ def test_a_reply_can_be_marked_after_the_fact(golden):
     assert last["type"] == "mark" and last["call_id"] == call["call_id"]
 
 
-def test_every_golden_log_resumes(golden, steerable, tiny_tokenizer):
-    backend = FakeBackend([" More."], tokenizer=tiny_tokenizer)
-    session = Session(steerable, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+def test_every_golden_log_resumes(golden, steerable, golden_tokenizer):
+    backend = FakeBackend([" More."], tokenizer=golden_tokenizer)
+    session = Session(steerable, backend=backend, tokenizer_loader=lambda r, v: golden_tokenizer)
     record = session.resume(golden)
     assert record["render"] is None or record["render"]["identical"], record["render"]
     turn = session.say("One more made-up message.").turn
@@ -143,7 +152,7 @@ def test_the_v0_3_0_golden_log_holds_a_rename_a_stop_and_a_resume_with_a_change(
     assert calls[-1]["client"]["commit"] == "1" * 40  # a reply after the resume
 
 
-def test_every_golden_log_answers_the_six_reads(golden, steerable, tiny_tokenizer):
+def test_every_golden_log_answers_the_six_reads(golden, steerable, golden_tokenizer):
     """Fix review, batch 6, item 4 (from the reviewer's scratch test): a resumed golden log
     through every read the web interface asks, for each of its calls. None says it can't
     read the chat's records; another refusal (a failed call has no reply to compare) is a
@@ -151,8 +160,8 @@ def test_every_golden_log_answers_the_six_reads(golden, steerable, tiny_tokenize
     from clarity_chat.commands import Commands
     from clarity_chat.profiles import ConfigError
 
-    backend = FakeBackend([" More."], tokenizer=tiny_tokenizer)
-    session = Session(steerable, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    backend = FakeBackend([" More."], tokenizer=golden_tokenizer)
+    session = Session(steerable, backend=backend, tokenizer_loader=lambda r, v: golden_tokenizer)
     c = Commands(session)
     c.run("resume", str(golden), lambda e: None, paths=True)
     calls = [r["call_id"] for r in read_records(golden) if r["type"] == "call"]
@@ -168,7 +177,7 @@ def test_every_golden_log_answers_the_six_reads(golden, steerable, tiny_tokenize
     assert unreadable == []
 
 
-def test_every_golden_log_draws_in_every_view(golden, steerable, tiny_tokenizer):
+def test_every_golden_log_draws_in_every_view(golden, steerable, golden_tokenizer):
     """Fix review, batch 6, item 4: a golden log opened by the web interface, then each view
     of the chat and of each of its calls, answers 200 and says nothing about records it
     can't read."""
@@ -180,8 +189,8 @@ def test_every_golden_log_draws_in_every_view(golden, steerable, tiny_tokenizer)
     logs = steerable / "logs"
     logs.mkdir(exist_ok=True)
     shutil.copy(golden, logs / golden.name)
-    backend = FakeBackend([" More."], tokenizer=tiny_tokenizer)
-    session = Session(steerable, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    backend = FakeBackend([" More."], tokenizer=golden_tokenizer)
+    session = Session(steerable, backend=backend, tokenizer_loader=lambda r, v: golden_tokenizer)
     calls = [r for r in read_records(golden) if r["type"] == "call"]
     views = [f"/view/{name}" for name in ("thread", "branches", "settings", "chats", "picker")]
     views += [f"/view/details?call={c['call_id']}" for c in calls]
@@ -196,3 +205,17 @@ def test_every_golden_log_draws_in_every_view(golden, steerable, tiny_tokenizer)
             if response.status_code != 200 or "Can't read" in response.text:
                 bad.append((path, response.status_code, response.text[:200]))
     assert bad == []
+
+
+def test_the_v0_3_1_golden_log_holds_a_whole_attachment_and_an_excerpt():
+    rows = list(read_records(GOLDEN / "v0.3.1.jsonl"))
+    sent = [r for r in rows if r["type"] == "turn" and r.get("attachments")]
+    assert [(t["attachments"][0]["how"], t["attachments"][0]["range"]) for t in sent] == [
+        ("whole", [1, 3]),
+        ("excerpt", [2, 3]),
+    ]
+    assert sent[0]["framing_origin"] == "default" and sent[0]["placement"] == "start"
+    assert sent[1]["attachments"][0]["marker"] == "Excerpt: lines 2 to 3 of 4"
+    calls = [r for r in rows if r["type"] == "call"]
+    assert all(any(s.get("added") for s in c["message_spans"]) for c in calls)
+    assert {"mark", "note", "replay"} <= {r["type"] for r in rows}
