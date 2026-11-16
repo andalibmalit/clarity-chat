@@ -98,6 +98,9 @@ SENTENCES = {
     "stopped_counting": "Stopped counting {name}.",
     # A range of a file with no text in it: refused, never sent empty (the records finder, 3).
     "empty_excerpt": "{Units} {first} to {last} of {name} have no text Clarity can read.",
+    # A searching chat's suggested start leaves the budget free too (v0.3.2's S1).
+    "aside": "It also leaves {budget} tokens for the parts search adds to each message (the "
+    "profile's budget).",
     # /undo of a message that had attachments (QA 9): they were part of it.
     "undone_attachments": "Its attachments went with it: {names}.",
     # Refusals the reader and its child write: their texts live beside the code that raises

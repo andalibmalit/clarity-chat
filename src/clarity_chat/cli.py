@@ -683,6 +683,14 @@ class ChatLoop:
         elif name == "attach":
             self.write(format_pending(result["pending"]) + "\n")
             self.listed = True
+        elif name == "search":
+            self.write(format_searching(result) + "\n")
+        elif name == "documents" and "added" in result:
+            self.write(format_added(result) + "\n")
+        elif name == "documents" and "rebuilt" in result:
+            self.write(format_rebuilt(result) + "\n")
+        elif name == "documents":
+            self.write(format_documents(result["documents"]) + "\n")
         elif name == "detach":
             detached = names(result["detached"]) or "nothing"
             self.write(f"Detached {detached}. {format_pending(result['pending'])}\n")
@@ -743,7 +751,9 @@ class ChatLoop:
             gap = "\n\n" if event["k"] > 1 else ""
             self.write(f"{gap}— reply {event['k']} of {event['n']}, seed {event['seed']} —\n")
         elif event["event"] == "reading":
-            self.write(f"Reading {event['name']}…\n")
+            self.write(f"Reading {shown(event['name'])}…\n")
+        elif event["event"] == "writing":
+            self.write(f"Writing {event['folder']}/: a copy of the file, its text and its parts.\n")
         elif event["event"] == "record" and event["record"]["type"] == "torn_line":
             self.write(f"\n! {torn_message(event['record'], "this conversation's log")}\n")
 
@@ -1033,6 +1043,22 @@ def format_checked(checked: list[dict[str, Any]]) -> str:
             tokens = ", ".join(found["tokens"])
             lines.append(f"  part {found['ordinal']} holds this model's control tokens: {tokens}")
     return "\n".join(lines)
+
+
+def format_searching(result: dict[str, Any]) -> str:
+    """/search's answer: each document this chat searches, with its state and its way out."""
+    if not result["searching"]:
+        return "This chat searches no documents. /search NAME searches one from /documents."
+    origin = "the profile's list" if result["origin"] == "profile" else "set in this chat"
+    shown_ = []
+    for d in result["searching"]:
+        if d["state"] == "ready":
+            shown_.append(d["name"])
+        elif d["state"] == "changed":
+            shown_.append(f"{d['name']} (changed: `clarity document rebuild {d['name']}`)")
+        else:
+            shown_.append(f"{d['name']} (missing: /search without it)")
+    return f"Searching ({origin}): {', '.join(shown_)}."
 
 
 def format_rebuilt(result: dict[str, Any]) -> str:

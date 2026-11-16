@@ -27,29 +27,19 @@ from typing import Any
 
 from clarity_chat.documents.parts import CHUNKER, build_id, cut_parts, parts_jsonl
 from clarity_chat.documents.reading import Document, DocumentRefused, extract, read_path
+from clarity_chat.profiles import NAME_RULE, library_name_problem
 
 LIBRARY = Path("local") / "documents"
 SCHEMA = 1
-NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
-RESERVED = frozenset(
-    ["none", "con", "prn", "aux", "nul"]
-    + [f"com{i}" for i in range(1, 10)]
-    + [f"lpt{i}" for i in range(1, 10)]
-)
 EXTENSIONS = {"pdf": "pdf", "html": "html", "text": "txt"}
-NAME_RULE = (
-    "A document's name is 1 to 64 characters: a to z, 0 to 9, - and _, starting with a letter "
-    "or a digit."
-)
 
 
 def checked_library_name(name: str) -> str:
-    """A library name, refused unless it's decision 20's: it only ever becomes one folder
-    under local/documents/."""
-    if not isinstance(name, str) or not NAME.fullmatch(name):
-        raise DocumentRefused(NAME_RULE)
-    if name in RESERVED:
-        raise DocumentRefused(f"{name} can't name a document: the system reserves it.")
+    """A library name, refused unless it's decision 20's (profiles' rule, which a profile's
+    `search` list uses too): it only ever becomes one folder under local/documents/."""
+    problem = library_name_problem(name)
+    if problem is not None:
+        raise DocumentRefused(problem)
     return name
 
 
@@ -60,7 +50,7 @@ def default_name(filename: str) -> str | None:
     stem = Path(filename).stem.lower()
     name = re.sub(r"[^a-z0-9_-]", "-", stem)
     name = re.sub(r"^[^a-z0-9]+", "", name)[:64]
-    return name if NAME.fullmatch(name) and name not in RESERVED else None
+    return name if library_name_problem(name) is None else None
 
 
 def folder(root: Path, name: str) -> Path:
@@ -258,7 +248,7 @@ def documents(root: Path) -> list[dict[str, Any]]:
         return []
     found = []
     for path in sorted(base.iterdir()):
-        if not path.is_dir() or not NAME.fullmatch(path.name) or path.name in RESERVED:
+        if not path.is_dir() or library_name_problem(path.name) is not None:
             continue
         try:
             manifest = read_manifest(root, path.name)

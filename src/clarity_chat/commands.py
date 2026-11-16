@@ -330,10 +330,11 @@ def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
             new = new_profile(c)
         except ConfigError:  # no profile file to start: the check offers no new chat
             new = ""
-        return {"check": c.session.check(doc, unit, first, last, c.cancel_event, new)}
+        aside = c.session.aside()
+        return {"check": c.session.check(doc, unit, first, last, c.cancel_event, new, aside)}
     already = c.session.already_in_chat(doc.sha256)  # a note, as the sheet's (QA 3)
     try:
-        _, fit = c.session.attach(doc, unit, first, last, c.cancel_event)
+        _, fit = c.session.attach(doc, unit, first, last, c.cancel_event, c.session.aside())
     except DoesntFit as e:
         if unit is not None:  # a start from 1 answers another question than lines 5-190
             raise
@@ -370,8 +371,10 @@ def suggestion(c: Commands, e: DoesntFit, doc: documents.Document, source: str) 
         else f"/attach {source} {doc.unit}s 1-{e.roomy}"
     )
     roomy = SENTENCES["preselected"].format(max_tokens=max_tokens).removesuffix(".")
+    aside = c.session.aside()
+    budget = f" {SENTENCES['aside'].format(budget=f'{aside:,}')}" if aside else ""
     pages = f" {SENTENCES['pdf_pages']}" if doc.kind == "pdf" else ""  # the walkthrough's F2
-    return f"{roomy}: {taken}. {fits}{pages}"
+    return f"{roomy}: {taken}.{budget} {fits}{pages}"
 
 
 def check_lines(check: dict[str, Any]) -> list[str]:
@@ -411,6 +414,8 @@ def check_lines(check: dict[str, Any]) -> list[str]:
             else:
                 reason = SENTENCES["preselected"].format(max_tokens=max_tokens).removesuffix(".")
                 lines.append(f"{reason}: {units} 1 to {preselected['range'][1]:,}.")
+                if check["aside"]:
+                    lines.append(SENTENCES["aside"].format(budget=f"{check['aside']:,}"))
         if check["fits_new_chat"]:
             lines.append(SENTENCES["new_chat"].format(free=f"{check['free_new_chat']:,}"))
     if chosen := check["chosen"]:
@@ -531,6 +536,53 @@ def document_rebuild(root: Path, name: str) -> dict[str, Any]:
 
 def document_list(root: Path) -> dict[str, Any]:
     return {"documents": documents.library_documents(root)}
+
+
+def _search(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    """/search: the documents this chat searches, with their state; /search NAME …: these
+    from now on; /search none: none (v0.3.2 B1)."""
+    conversation = c.session.conversation
+    assert conversation is not None
+    if args:
+        names = [] if args == "none" else args.split()
+        c.session.set_search(names)
+    return {"searching": c.session.searching(), "origin": conversation.searching_origin}
+
+
+def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    """/documents: the library; /documents add PATH [NAME] (the page sends an upload ID
+    for PATH); /documents rebuild NAME."""
+    root = c.session.root
+    action, _, rest = args.partition(" ")
+    rest = rest.strip()
+    if not args:
+        return document_list(root)
+    if action == "rebuild" and rest:
+        return document_rebuild(root, rest)
+    if action == "add" and rest:
+        # Said before and after (S11): reading the file, then where it's written.
+        def told(name: str) -> Callable[[], None]:
+            return lambda: emit({"event": "reading", "name": name})
+
+        def writing(folder: str) -> None:
+            emit({"event": "writing", "folder": folder})
+
+        source, name = rest, None
+        if c.uploads is not None:  # the page: an upload ID, and the name it chose
+            source, _, typed = rest.partition(" ")
+            uploaded = c.uploads.get(source)
+            if uploaded is None:
+                raise documents.DocumentRefused("That file is no longer uploaded: choose it again.")
+            data, filename = uploaded
+            name = documents.checked_library_name(typed.strip()) if typed.strip() else None
+            return documents.library_add(
+                root, data, filename, name, on_read=told(filename), on_write=writing
+            )
+        if not os.path.exists(os.path.expanduser(source)) and " " in rest:
+            source, name = rest.rsplit(" ", 1)  # a path, then the name
+        filename = os.path.basename(source)
+        return document_add(root, source, name, on_read=told(filename), on_write=writing)
+    raise ConfigError("Usage: /documents [add PATH [NAME] | rebuild NAME]")
 
 
 def read_files(
@@ -1008,6 +1060,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "resume_differ": None,
         "pending": [],
         "reading": reading,
+        "searching": [],
     }
     if conversation is None:
         return out
@@ -1023,6 +1076,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "title": chat_summary(conversation.log.path)["title"],
         "profile": conversation.profile.name,
         "mode": conversation.profile.mode,  # the paperclip opens the picker in the press
+        "searching": session.searching(),
         "head": conversation.head,
         "turns": turns,
         "unanswered": conversation.unanswered,
@@ -1153,6 +1207,19 @@ COMMANDS: dict[str, Command] = {
         cancellable=True,  # /cancel stops the reading
     ),
     "detach": Command("/detach [N]", "remove waiting attachment N, or all of them", _detach),
+    "search": Command(
+        "/search [NAME … | none]",
+        "the documents this chat searches for each message; names: search these from now on; "
+        "none: search nothing",
+        _search,
+    ),
+    "documents": Command(
+        "/documents [add PATH [NAME] | rebuild NAME]",
+        "the documents Clarity can search; add: add a file; rebuild: build a document's parts "
+        "again from its text.md",
+        _documents,
+        needs_conversation=False,
+    ),
     "undo": Command(
         "/undo", "go back past the last exchange; your next message starts a branch", _undo
     ),

@@ -31,10 +31,12 @@ from clarity_chat.documents import (
     added_ranges,
     attached_in,
     checked_attachments,
+    checked_library_name,
     content,
     covers_whole,
     fit,
     framing_of,
+    library_state,
     message_content,
     more_than,
     piece,
@@ -46,6 +48,7 @@ from clarity_chat.documents import (
 from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records, unreadable
 from clarity_chat.models import check_weights_quick, lock_entry, source_weights
 from clarity_chat.profiles import (
+    BUDGET,
     SEED_MAX,
     SETTING_NAMES,
     ConfigError,
@@ -219,6 +222,10 @@ class Conversation:
     # conversation, whose calls log today's models.lock.
     logged_recommended: dict[str, Any] | None = None
     pending: list[dict[str, Any]] = field(default_factory=list)  # attachments waiting
+    # The documents a message's search reads (v0.3.2): the profile's list until /search
+    # changes it ("chat"), logged as `search` records and resumed.
+    searching: list[str] = field(default_factory=list)
+    searching_origin: str = "profile"
 
     @property
     def settings(self) -> dict[str, Setting]:
@@ -638,6 +645,7 @@ class Session:
         # Everything that can fail on the profile alone is checked before the server or the
         # session changes, so a bad /new leaves the current conversation usable.
         prepared = profile if isinstance(profile, Prepared) else self.prepare(profile)
+        self._profile_documents(prepared.profile)
         model = prepared.model
         ctx_size = self.ctx_size_for(prepared.profile)
         started = self.start_model(prepared, ctx_size)
@@ -651,6 +659,7 @@ class Session:
             run=run,
             started_server=started,
             ctx_size=ctx_size,
+            searching=list(prepared.profile.search),
         )
         conversation.warnings += self._profile_warnings(prepared)
         log.append(
@@ -1205,6 +1214,58 @@ class Session:
         reply = conversation.current_reply("undo")
         assert reply.parent_id is not None
         return conversation.move_head(conversation.turns[reply.parent_id].parent_id, "undo")
+
+    def _profile_documents(self, profile: Profile) -> None:
+        """A profile's `search` list names documents in the library: one that isn't there
+        is refused when a chat starts, naming the key (v0.3.2 B1)."""
+        for name in profile.search:
+            if library_state(self.root, name) == "missing":
+                raise ConfigError(
+                    f"Profile {profile.name}: [documents] search names {name}, which isn't in "
+                    "your documents. Add it, or take it out of the profile's search list."
+                )
+
+    def set_search(self, names: list[str]) -> dict[str, Any]:
+        """The documents this chat searches, from now on: each must be in the library
+        (a missing one is refused); logged as a `search` record with the whole list."""
+        conversation = self._require_conversation()
+        self.attaching()  # a text-mode chat refuses, as attaching does
+        for name in names:
+            checked_library_name(name)
+            if library_state(self.root, name) == "missing":
+                raise DocumentRefused(f"{name} isn't in your documents.")
+        if len(set(names)) != len(names):
+            raise ConfigError("Name each document once.")
+        conversation.searching, conversation.searching_origin = list(names), "chat"
+        return conversation.log.append(
+            {
+                "type": "search",
+                "conversation_id": conversation.conversation_id,
+                "documents": list(names),
+            }
+        )
+
+    def budget(self) -> tuple[int, str]:
+        """Search's budget for a message, and where it comes from: the profile, or Clarity's
+        default."""
+        profile = self._require_conversation().profile
+        return (BUDGET, "default") if profile.budget is None else (profile.budget, "profile")
+
+    def aside(self) -> int:
+        """What a suggested start leaves free for search: the budget, when this chat searches
+        any document (v0.3.2's S1); else 0."""
+        conversation = self.conversation
+        return self.budget()[0] if conversation is not None and conversation.searching else 0
+
+    def searching(self) -> list[dict[str, Any]]:
+        """The documents this chat searches, each with its state: ready, changed or
+        missing."""
+        if self.conversation is None:
+            return []
+        return [
+            {"name": name, "state": library_state(self.root, name)}
+            for name in self.conversation.searching
+        ]
 
     def set_setting(self, name: str, text: str) -> dict[str, Any]:
         """Change a setting for this conversation (`text` empty: back to the profile's value).
@@ -1787,6 +1848,13 @@ class Session:
                 t.get("call_id"), seed, t.get("regen_of"), t.get("edit_of"), **attached,
             )  # fmt: skip
         conversation.head = state.head
+        if state.searching is not None:  # a `search` record: this chat's own list
+            conversation.searching = [
+                checked_library_name(name) for name in state.searching
+            ]  # a name that can't be one is refused, before it's ever a path (S14)
+            conversation.searching_origin = "chat"
+        else:
+            conversation.searching = list(prepared.profile.search)
         conversation.warnings += self._profile_warnings(prepared)
         head = conversation.turns.get(state.head) if state.head else None
         conversation.last_call = state.failed_call or (
