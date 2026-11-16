@@ -36,9 +36,7 @@ def root(fetched_root):
     profiles = fetched_root / "profiles"
     searching = CHAT_PROFILE + '\n[documents]\nsearch = ["glossary"]\n'
     (profiles / "chat.toml").write_text(searching, encoding="utf-8")
-    small = searching.replace("max_tokens = 16", "max_tokens = 16").replace(
-        'search = ["glossary"]', 'search = ["glossary"]\nbudget = 60'
-    )
+    small = searching.replace('search = ["glossary"]', 'search = ["glossary"]\nbudget = 60')
     (profiles / "small.toml").write_text(small, encoding="utf-8")
     (fetched_root / "openings.txt").write_text(OPENINGS, encoding="utf-8")
     return fetched_root
@@ -92,7 +90,7 @@ def test_document_try_equals_a_new_chat_s_first_message(root, chat_tokenizer):
         if r["type"] == "turn" and r["role"] == "user"
     )
     other = Session(root, tokenizer_loader=lambda r, v: chat_tokenizer)
-    assert other.try_documents(["glossary"], "chat", "What lives near water?") == first
+    assert other.try_documents(["glossary"], "chat", "What lives near water?") == (first, None)
 
 
 def test_the_terminal_prints_try_without_the_parts_text(root, chat_tokenizer):
@@ -125,7 +123,8 @@ def test_document_try_on_the_command_line(root, chat_tokenizer, monkeypatch, cap
     assert cli.main([*argv, "Tell me about the wren"]) == 0
     assert capsys.readouterr().out.startswith("Searched for: wren (ignored: tell, me, about, the).")
     assert cli.main([*argv, "Tell me about the wren", "--json"]) == 0
-    assert json.loads(capsys.readouterr().out)["parts"][0]["id"] == "glossary:1"
+    tried = json.loads(capsys.readouterr().out)  # {found, refused}: part 1's whole-branch S4
+    assert tried["found"]["parts"][0]["id"] == "glossary:1" and tried["refused"] is None
 
 
 # --- blind runs

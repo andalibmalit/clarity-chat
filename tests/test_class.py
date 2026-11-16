@@ -48,8 +48,9 @@ def quiet(event: dict) -> None:
 
 # The plan's Shapes table, as data: for each record kind, where each field sits. A path is
 # the keys and list indexes from the record to the field. v0.3.1's attachment fields are
-# the first rows (its 21-case sweep); v0.3.2's `found`, `search` record and `added` part
-# entries join as they're built.
+# the first rows (its 21-case sweep); v0.3.2's `found` and `search` record join them. A
+# call's `message_spans` `added` part entries have no row: resume doesn't read spans, and
+# export refuses a log missing one (part 1's whole-branch C11).
 SHAPES: dict[str, list[tuple[Any, ...]]] = {
     "turn": [  # `attachments` itself is optional: a turn without it had none (old logs)
         ("framing",),
@@ -337,6 +338,9 @@ TERMINAL_ONLY = {
     ),
     "Usage: /branches [all]": "the page sends none, or all",
     ": /documents add PATH NAME.": "the page sends an upload, named in its box",
+    " /documents add PATH NAME gives this one another name.": (
+        "the page offers another name in its box"
+    ),
     "Usage: /compare [CALL_ID]": "the page sends one call ID",
     "/resume takes a conversation ID from /chats, not a path.": "the page sends a log ID",
     "Usage: /prompt [CALL_ID]": "the page sends one call ID",

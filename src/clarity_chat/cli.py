@@ -14,6 +14,7 @@ from typing import Any
 from clarity_chat.backends import BackendError
 from clarity_chat.commands import (
     SENTENCES,
+    TAKEN,
     Commands,
     OriginalChanged,
     check_lines,
@@ -244,12 +245,9 @@ def searched_line(found: dict[str, Any]) -> str:
     words = f"  searched for {', '.join(found['words'])}"
     if not found["matched"]:
         return f"{words}: nothing matched"
-    if not found["parts"]:  # why, from what was left out (the fix review's S3)
-        whys = set(found["left_out_why"]) - {"not considered"}
-        reason = {
-            frozenset({"already in the chat"}): "already in the chat",
-            frozenset({"already in the chat", "budget"}): "already in the chat, or over the budget",
-        }.get(frozenset(whys), "none fit the budget")
+    if not found["parts"]:  # why, from what was left out (part 1's whole-branch S1)
+        said = {"already in the chat": "already in the chat", "budget": "didn't fit the budget"}
+        reason = ", or ".join(s for why, s in said.items() if found["left_out"].get(why))
         return f"{words}: {found['matched']:,} matched, none added ({reason})"
     added = ", ".join(
         p["id"] + (f' "{shown(p["title"])}"' if p["title"] else "") for p in found["parts"]
@@ -713,7 +711,7 @@ class ChatLoop:
         elif name == "search":
             self.write(format_searching(result) + "\n")
         elif name == "try":
-            self.write(format_found(result["found"]) + "\n")
+            self.write(format_tried(result) + "\n")
         elif name == "documents" and "added" in result:
             self.write(format_added(result) + "\n")
         elif name == "documents" and "rebuilt" in result:
@@ -1005,6 +1003,10 @@ def cmd_document(root: Path, args: argparse.Namespace) -> int:
             if str(e).endswith(" Give it one."):
                 said = str(e).removesuffix(" Give it one.")
                 raise ConfigError(f"{said} Give it one with `--name NAME`. {NAME_RULE}") from None
+            if str(e).startswith(TAKEN):  # the terminal's ways out (part 1's C7)
+                raise ConfigError(
+                    f"{e} `--replace` replaces it; `--name NAME` gives this one another name."
+                ) from None
             raise
         print(format_added(result))
         return 0
@@ -1026,8 +1028,8 @@ def cmd_document(root: Path, args: argparse.Namespace) -> int:
         print(format_checked(checked) if checked else "No documents yet.")
         return 0 if all(c["state"] == "ready" for c in checked) else 1
     if args.action == "try":
-        found = document_try(root, args.names, args.profile, args.text)["found"]
-        print(json.dumps(found) if args.json else format_found(found))
+        tried = document_try(root, args.names, args.profile, args.text)
+        print(json.dumps(tried) if args.json else format_tried(tried))
         return 0
     try:
         result = document_rebuild(root, args.name)
@@ -1112,13 +1114,21 @@ def format_checked(checked: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def format_tried(result: dict[str, Any]) -> str:
+    """/try's and `document try`'s answer: what was found, then the refusal a message that
+    found it would meet, if any."""
+    refused = f"\n! {result['refused']}" if result["refused"] else ""
+    return format_found(result["found"]) + refused
+
+
 def format_found(found: dict[str, Any]) -> str:
     """A search's result in lines, without the parts' text: the words, what was added and
     why, and what was left out."""
-    if not found["words"]:
+    if not found["words"]:  # no words at all (an emoji, say): no empty parenthesis
+        listed = f" ({', '.join(found['ignored'])})" if found["ignored"] else ""
         return (
             "Nothing to search for: your message holds only common words and single letters or "
-            f"digits ({', '.join(found['ignored'])})."
+            f"digits{listed}."
         )
     ignored = f" (ignored: {', '.join(found['ignored'])})" if found["ignored"] else ""
     lines = [f"Searched for: {', '.join(found['words'])}{ignored}."]
@@ -1136,8 +1146,17 @@ def format_found(found: dict[str, Any]) -> str:
         lines.append(
             f"  {p['rank']}. {p['id']}{title}: {'; '.join(reasons)} ({p['tokens']:,} tokens)"
         )
-    for o in found["left_out"]:
-        lines.append(f"  {o['rank']}. {o['id']}: left out ({o['why']})")
+    unconsidered = [o["id"] for o in found["left_out"] if o["why"] == "not considered"]
+    for o in found["left_out"]:  # by rank; those not considered in one line (part 1's C8)
+        if o["why"] != "not considered":
+            lines.append(f"  {o['rank']}. {o['id']}: left out ({o['why']})")
+    if len(unconsidered) == 1:
+        lines.append(f"  1 more matched and wasn't considered: {unconsidered[0]}.")
+    elif unconsidered:
+        lines.append(
+            f"  {len(unconsidered):,} more matched and weren't considered: {unconsidered[0]} to "
+            f"{unconsidered[-1]}."
+        )
     return "\n".join(lines)
 
 

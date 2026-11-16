@@ -13,6 +13,7 @@ import json
 import os
 import secrets
 import threading
+from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -907,15 +908,26 @@ class Session:
             raise refused
         return fields
 
-    def try_search(self, text: str) -> dict[str, Any]:
+    def try_search(self, text: str) -> tuple[dict[str, Any], dict[str, Any] | None]:
         """/try: what a message with `text` would find now, with no model call and nothing
-        logged: the same object a message's turn would hold (decision 14)."""
+        logged: the same object a message's turn would hold (decision 14), and the problem
+        Send would refuse it for, a found part's control token, or None (part 1's S4)."""
         conversation = self._require_conversation()
         if not conversation.searching:
             raise ConfigError("This chat searches no documents yet.")
-        return self.block(text)["found"]
+        found = self.block(text)["found"]
+        return found, self._control_token_problem(found, self.tokenizer)
 
-    def try_documents(self, names: list[str], profile_name: str, text: str) -> dict[str, Any]:
+    @staticmethod
+    def _control_token_problem(found: dict[str, Any], tokenizer: Any) -> dict[str, Any] | None:
+        """The first added part holding the tokenizer's control tokens, as Send's check
+        finds it, or None."""
+        problems = (control_token_problem(part, tokenizer) for part in found["parts"])
+        return next((p for p in problems if p is not None), None)
+
+    def try_documents(
+        self, names: list[str], profile_name: str, text: str
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         """`clarity document try`: what a first message with `text` would find in `names` in
         a new chat on `profile_name`, counted with its tokenizer, with no model."""
         for name in names:
@@ -923,14 +935,24 @@ class Session:
         if named_twice(names) is not None:
             raise ConfigError("Name each document once.")
         profile, model, _ = self.profile_for(profile_name)
+        if profile.mode != "chat":  # N71, as /search says it
+            raise ConfigError(
+                f"Searching needs a chat-mode profile; {profile.name} is in text mode."
+            )
         self._profile_documents(profile)
         tokenizer, template = self.tokenizers_for(profile, model)
         new = NewChat(profile, tokenizer, template, self.ctx_size_for(profile).value, "")
         framing, origin = framing_of(profile)
         fields = {"attachments": [], "framing": framing, "framing_origin": origin}
-        return self._found(
-            text, names, self.room(new), profile, {**fields, "placement": profile.placement}
+        found = self._found(
+            text,
+            names,
+            self.room(new),
+            profile,
+            {**fields, "placement": profile.placement},
+            chat=False,
         )
+        return found, self._control_token_problem(found, tokenizer)
 
     def room(
         self,
@@ -1822,10 +1844,10 @@ class Session:
         didn't choose that text for this message, and a stray end-of-turn token ends your
         turn early. The refusal names the part and the way out."""
         assert self.tokenizer is not None
-        for part in found_in(user_turn.attached_fields()):
-            problem = control_token_problem(part, self.tokenizer)
-            if problem is not None:  # the board's N33
-                raise SearchRefused([problem], at_send=True)
+        problem = self._control_token_problem({"parts": found_in(user_turn.attached_fields())},
+                                              self.tokenizer)  # fmt: skip
+        if problem is not None:  # the board's N33
+            raise SearchRefused([problem], at_send=True)
 
     def _check_output(
         self,
@@ -2336,17 +2358,19 @@ def budget_of(profile: Profile) -> tuple[int, str]:
 
 
 def found_summary(found: dict[str, Any]) -> dict[str, Any]:
-    """/history's view of a turn's `found`: counts, tokens, words and the parts' IDs and
-    titles, no text (the Shapes table's commands)."""
+    """/history's view of a turn's `found`, which /state's turns repeat: counts, tokens,
+    words, the budget, what was left out by why, and each part's ID, title and why it
+    matched, with no text (the Shapes table's commands; part 1's whole-branch S1)."""
+    keys = ("id", "title", "rank", "title_words", "words", "tokens")
     return {
         "words": found["words"],
         "ignored": found["ignored"],
         "documents": [d["name"] for d in found["documents"]],
         "matched": found["matched"],
         "tokens": found["tokens"],
-        "parts": [{"id": p["id"], "title": p["title"], "rank": p["rank"]} for p in found["parts"]],
-        "left_out": len(found["left_out"]),
-        "left_out_why": list(dict.fromkeys(o["why"] for o in found["left_out"])),
+        "budget": found["budget"],
+        "parts": [{k: p[k] for k in keys} for p in found["parts"]],
+        "left_out": dict(Counter(o["why"] for o in found["left_out"])),
     }
 
 

@@ -23,7 +23,7 @@ from typing import Any
 
 from clarity_chat import documents
 from clarity_chat.backends import BackendError
-from clarity_chat.documents import DocumentRefused, more_than, summaries
+from clarity_chat.documents import TAKEN, DocumentRefused, SearchRefused, more_than, summaries
 from clarity_chat.logs import LOG_NAME, list_chats, unreadable
 from clarity_chat.profiles import ConfigError, profile_path
 from clarity_chat.session import CallOutcome, CancelledBeforeReply, DoesntFit, Session
@@ -556,12 +556,17 @@ def document_list(root: Path) -> dict[str, Any]:
 
 def _try(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     """/try TEXT: what a message with TEXT would find now, with no model call (v0.3.2 B4)."""
-    return {"found": c.session.try_search(needs(args, "/try TEXT"))}
+    found, problem = c.session.try_search(needs(args, "/try TEXT"))
+    terminal = c.uploads is None  # the page words its own way out (part 1's M1)
+    refused = SearchRefused([problem]).words(terminal) if problem else None
+    return {"found": found, "refused": refused}
 
 
 def document_try(root: Path, names: list[str], profile: str, text: str) -> dict[str, Any]:
     """`clarity document try`: what a first message would find in a new chat on `profile`."""
-    return {"found": Session(root).try_documents(names, profile, text)}
+    found, problem = Session(root).try_documents(names, profile, text)
+    refused = SearchRefused([problem], chat=False).terminal if problem else None
+    return {"found": found, "refused": refused}
 
 
 def _search(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -617,6 +622,10 @@ def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
             if str(e).endswith(" Give it one."):
                 said = str(e).removesuffix(".")
                 raise documents.DocumentRefused(f"{said}: /documents add PATH NAME.") from None
+            if str(e).startswith(TAKEN):  # the chat's way out (part 1's C7)
+                raise documents.DocumentRefused(
+                    f"{e} /documents add PATH NAME gives this one another name."
+                ) from None
             raise
     raise ConfigError("Usage: /documents [add PATH [NAME] | rebuild NAME]")
 

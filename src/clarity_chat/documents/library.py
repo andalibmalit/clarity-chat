@@ -46,6 +46,7 @@ from clarity_chat.documents.reading import (
 from clarity_chat.profiles import library_name_problem
 
 LIBRARY = Path("local") / "documents"
+TAKEN = "There's already a document named"  # each front end adds its way out (S16)
 SCHEMA = 1
 EXTENSIONS = {"pdf": "pdf", "html": "html", "text": "txt"}
 MANIFEST_BYTES = 16 * 1024 * 1024  # far past any manifest Clarity writes; a bigger one is cut
@@ -174,7 +175,7 @@ def add(
             )
     target = folder(root, name)
     if target.exists() and not replace:
-        raise DocumentRefused(f"There's already a document named {name}.")
+        raise DocumentRefused(f"{TAKEN} {name}.")
     if target.exists() and not target.is_dir():  # never moved aside (the security review's S4)
         raise DocumentRefused(
             f"local/documents/{name} isn't a folder, so Clarity can't replace it. Move it away, "
@@ -192,7 +193,8 @@ def add(
     files = [original_name(doc.kind), "text.md", "parts.jsonl", "manifest.json"]
     with writing(name):
         target.parent.mkdir(parents=True, exist_ok=True)
-        stale = re.compile(rf"\.{re.escape(name)}-[a-z0-9_]{{8}}")  # mkdtemp's, never -old-
+        # mkdtemp's build folder; an aside is `.NAME.old-…`, which this never matches
+        stale = re.compile(rf"\.{re.escape(name)}-[a-z0-9_]{{8}}")
         for left in target.parent.iterdir():  # a build a hard crash left: its copy goes
             if stale.fullmatch(left.name) and left.is_dir() and not left.is_symlink():
                 shutil.rmtree(left)
@@ -236,10 +238,12 @@ def swap_in(building: Path, target: Path, replace: bool) -> None:
             os.rename(building, target)  # never over a folder: one there refuses it
         except OSError:
             if target.exists():
-                raise DocumentRefused(f"There's already a document named {target.name}.") from None
+                raise DocumentRefused(f"{TAKEN} {target.name}.") from None
             raise
         return
-    aside = Path(tempfile.mkdtemp(prefix=f".{target.name}-old-", dir=target.parent))
+    # A prefix no name makes (a name holds no "."), so another document's stale-build
+    # cleanup can never match it (part 1's whole-branch C5).
+    aside = Path(tempfile.mkdtemp(prefix=f".{target.name}.old-", dir=target.parent))
     os.rmdir(aside)
     os.replace(target, aside)
     try:
@@ -424,7 +428,7 @@ def documents(root: Path) -> list[dict[str, Any]]:
                 "parts": manifest["parts"],
                 "titled": manifest["titled"],
                 "edited": manifest["text"]["edited"],
-                "state": state(root, path.name),
+                "state": state(root, path.name, manifest),  # read once (part 1's C4)
             }
         )
     return found
