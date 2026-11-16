@@ -127,7 +127,17 @@ def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any
         "calls_without_a_turn_left_out": header["calls_without_a_turn_left_out"],
         "steered": steered_by_vector(rows),
         "attachments": any(row["attachments"] for row in rows),  # it holds documents' text
+        "found": any(row["found"] for row in rows),  # and the text of parts search added
     }
+
+
+def holds(result: dict[str, Any]) -> str | None:
+    """The export's statement of whose text it holds: the terminal's and the page's."""
+    whose = [
+        *(["the documents attached in this chat"] if result["attachments"] else []),
+        *(["the parts search added from your documents"] if result["found"] else []),
+    ]
+    return f"It holds the text of {' and of '.join(whose)}." if whose else None
 
 
 def steered_by_vector(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -196,6 +206,7 @@ def export_call(
         "cancelled": call.get("stop_type") == "cancelled",
         "message_spans": spans,
         "attachments": attachments_on(path, turns, spans),
+        "found": found_on(path, turns, spans),
         "marks": [
             {k: m.get(k) for k in ("label", "origin", "time")} for m in annotations.get("marks", [])
         ],
@@ -225,6 +236,35 @@ def attachments_on(
         {"turn_id": t, **{k: a[k] for k in keys}, "tokens": added.get((t, i))}
         for t in path
         for i, a in enumerate(turns[t].get("attachments") or [])
+    ]
+
+
+def found_on(
+    path: list[str], turns: dict[str, dict[str, Any]], spans: list[dict] | dict[str, str]
+) -> list[dict[str, Any]]:
+    """Each searched message on a call's path (v0.3.2 decision 16): its words, the
+    documents' builds, and each part added with its tokens in the prompt (from the spans'
+    `added`; null when the spans are unavailable)."""
+    added = {
+        (e.get("turn_id"), a["index"]): a["tokens"]
+        for e in (spans if isinstance(spans, list) else [])
+        for a in e.get("added", [])
+        if a["what"] == "part"
+    }
+    return [
+        {
+            "turn_id": t,
+            "words": found["words"],
+            "documents": [
+                {"name": d["name"], "build_id": d["build_id"]} for d in found["documents"]
+            ],
+            "parts": [
+                {"id": p["id"], "sha256": p["sha256"], "tokens": added.get((t, i))}
+                for i, p in enumerate(found["parts"])
+            ],
+        }
+        for t in path
+        if (found := turns[t].get("found")) is not None
     ]
 
 

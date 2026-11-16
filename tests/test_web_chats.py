@@ -236,6 +236,7 @@ def test_a_steered_export_names_the_vector_to_send():
                             {"file": "local/vectors/calm.gguf", "sha256": "a3", "call_ids": ["x"]}
                         ],
                         "attachments": False,
+                        "found": False,
                     }
                 }
             )
@@ -268,6 +269,7 @@ def test_a_vector_path_with_control_characters_shows_them_escaped_with_no_copy()
             "calls_without_a_turn_left_out": 0,
             "steered": vectors,
             "attachments": False,
+            "found": False,
         }
     }
     raw = web.templates.get_template("export.html").render(**web.export_sheet(answer))

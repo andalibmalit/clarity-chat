@@ -62,6 +62,7 @@ from clarity_chat.documents import (
     too_big,
     visible_bidi,
 )
+from clarity_chat.export import holds
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.logs import unreadable
 from clarity_chat.profiles import NEUTRAL, SETTING_HELP, SETTING_RANGES, ConfigError
@@ -1854,7 +1855,7 @@ def export_sheet(answer: dict[str, Any]) -> dict[str, Any]:
         "error": None,
         "path": result["path"],
         "replaced": result["replaced"],
-        "attachments": result["attachments"],
+        "holds": holds(result),
         "left_out": f"{n} call that produced no reply"
         if n == 1
         else f"{n} calls that produced no reply"
