@@ -1801,7 +1801,7 @@ async function documentsUpload(file) {
 function documentsAdd(form) {
   const name = $("documents-name").value.trim();
   const upload = form.dataset.upload;
-  documentsCommand("documents", `add ${upload} ${name}`, () => ({ added: name }));
+  documentsCommand("documents", `add ${upload} ${name}`, () => ({})); // the notice is its result
 }
 
 function documentsSearch(names, after) {
@@ -2048,10 +2048,9 @@ const THREAD = {
   "documents-add-cancel": () => openDocuments(),
   "documents-rebuild": (element) => {
     const name = element.dataset.name;
-    documentsCommand("documents", `rebuild ${name}`, (result) => ({
-      rebuilt: name,
-      ...(result.pages_dropped ? { dropped: "1" } : {}),
-    }));
+    // The notice is its result; a message being tried stays (the review's could 4).
+    const tried = $("documents-try").value;
+    documentsCommand("documents", `rebuild ${name}`, () => (tried.trim() ? { try: tried } : {}));
   },
   "documents-search-here": (element) => {
     const name = element.dataset.name;

@@ -211,12 +211,19 @@ def test_with_no_chat_open_added_s_notice_has_no_search_button(root, make):
 
 
 def test_added_s_notice_has_no_search_button_when_the_chat_searches_it(root, make):  # could 5
+    import shutil
+
     client, _ = make()
     upload_id = upload(client, b"## Heron\nTall.\n", "herons.md").json()["upload"]
     command(client, "documents", f"add {upload_id} herons")
     command(client, "search", "herons")
-    command(client, "documents", "rebuild herons")  # a fresh notice, for a searched document
-    assert "documents-search-here" not in page(client)
+    shutil.rmtree(root / "local/documents/herons")  # gone, and still in the chat's list
+    page(client)  # the first Added notice is drawn and spent
+    upload_id = upload(client, b"## Heron\nTall.\n", "herons.md").json()["upload"]
+    command(client, "documents", f"add {upload_id} herons")
+    fragment = page(client)
+    assert "Added herons." in text_of(fragment)
+    assert "documents-search-here" not in fragment
 
 
 # --- the try box

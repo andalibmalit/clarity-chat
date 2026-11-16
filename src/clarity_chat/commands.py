@@ -23,7 +23,14 @@ from typing import Any
 
 from clarity_chat import documents
 from clarity_chat.backends import BackendError
-from clarity_chat.documents import TAKEN, DocumentRefused, SearchRefused, more_than, summaries
+from clarity_chat.documents import (
+    TAKEN,
+    DocumentRefused,
+    SearchRefused,
+    counted,
+    more_than,
+    summaries,
+)
 from clarity_chat.logs import LOG_NAME, list_chats, unreadable
 from clarity_chat.profiles import ConfigError, profile_path
 from clarity_chat.session import CallOutcome, CancelledBeforeReply, DoesntFit, Session
@@ -1375,12 +1382,8 @@ def format_added(result: dict[str, Any]) -> str:
     done = "replaced" if result["replaced"] else "wrote"
     return (  # the point first (the board walk's S17; N12)
         f"Clarity {done} {folder}/: {', '.join(rest)} and {last} "
-        f"({parts(manifest['parts'])}, {manifest['titled']:,} with a title)."
+        f"({counted(manifest['parts'], 'part')}, {manifest['titled']:,} with a title)."
     )
-
-
-def parts(n: int) -> str:
-    return f"{n:,} part" + ("" if n == 1 else "s")
 
 
 def format_rebuilt(result: dict[str, Any]) -> str:
@@ -1389,6 +1392,6 @@ def format_rebuilt(result: dict[str, Any]) -> str:
     folder = result["written"][0].rsplit("/", 1)[0]
     dropped = " Its parts no longer have page numbers." if result["pages_dropped"] else ""
     return (
-        f"Rebuilt {manifest['name']} from its text.md: {parts(manifest['parts'])}, "
+        f"Rebuilt {manifest['name']} from its text.md: {counted(manifest['parts'], 'part')}, "
         f"{manifest['titled']:,} with a title. Wrote {files} in {folder}/.{dropped}"
     )

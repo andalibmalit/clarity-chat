@@ -937,9 +937,7 @@ class Session:
             raise ConfigError("Name each document once.")
         profile, model, _ = self.profile_for(profile_name)
         if profile.mode != "chat":  # N71, as /search says it
-            raise ConfigError(
-                f"Searching needs a chat-mode profile; {profile.name} is in text mode."
-            )
+            raise ConfigError(SENTENCES["text_mode_search"].format(profile=profile.name))
         self._profile_documents(profile)
         tokenizer, template = self.tokenizers_for(profile, model)
         new = NewChat(profile, tokenizer, template, self.ctx_size_for(profile).value, "")
@@ -1426,9 +1424,7 @@ class Session:
         conversation = self._require_conversation()
         profile = conversation.profile
         if profile.mode != "chat":  # N71
-            raise ConfigError(
-                f"Searching needs a chat-mode profile; {profile.name} is in text mode."
-            )
+            raise ConfigError(SENTENCES["text_mode_search"].format(profile=profile.name))
         for name in names:
             checked_library_name(name)
             if name in conversation.searching:

@@ -142,6 +142,7 @@ SENTENCES = {
     "name_taken": "Give this one a different name.",
     "searches_next": "This chat searches {name} from your next message.",
     "state_changed": "A file in its folder has changed since Clarity cut it into parts.",
+    "text_mode_search": "Searching needs a chat-mode profile; {profile} is in text mode.",
     "try_open": "Type a message. Clarity shows the parts it would add if you sent it next in "
     "this chat, which searches {names}. Token counts are for this chat's profile, {profile}. "
     "Nothing is sent to the model, and nothing is logged.",
@@ -166,8 +167,7 @@ SENTENCES = {
     "stops at the first that doesn't fit the budget of {budget} tokens.",
     "found_unconsidered": "{n} more matched but weren't considered: Clarity considers only the "
     "best {considered} matches.",
-    "found_around": "The total also counts what Clarity adds around the parts, such as the "
-    "framing line ({tokens} tokens).",
+    "found_first_count": "The first part's count includes the line Clarity puts before the parts.",
     "found_words": "Words searched: {words}.",
     "found_ignored": "Ignored (common words and single letters or digits): {words}.",
     "found_all_common": "Every word in your message is a common word or a single letter or "

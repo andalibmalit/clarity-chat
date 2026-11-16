@@ -71,6 +71,21 @@ def default_name(filename: str) -> str | None:
     return name if library_name_problem(name) is None else None
 
 
+def document_name(root: Path, filename: str, name: str | None) -> tuple[str, str | None]:
+    """The name a file is added under (`name`, or one made from `filename`) and why it
+    can't be, or None: one check for `add` and the page's name box (the C1 tripwire
+    review's should 5)."""
+    if name is None:
+        name = default_name(filename) or ""
+        if not name:
+            return "", f"Clarity can't make a document name from {filename}. Give it one."
+    if (problem := library_name_problem(name)) is not None:
+        return name, problem
+    if (root / LIBRARY / name).exists() or (root / LIBRARY / name).is_symlink():
+        return name, f"{TAKEN} {name}."
+    return name, None
+
+
 def folder(root: Path, name: str) -> Path:
     """A document's folder: one folder under local/documents/, never a link (Checkpoint 1's
     M1: replacing through a link would delete and move files outside the project)."""
@@ -167,15 +182,13 @@ def add(
     the four files. `on_write` gets the folder (relative to the project), and whether it
     replaces a document there, just before anything is written. Nothing is written on a
     refusal."""
-    if name is None:
-        name = default_name(filename)
-        if name is None:
-            raise DocumentRefused(
-                f"Clarity can't make a document name from {filename}. Give it one."
-            )
-    target = folder(root, name)
-    if target.exists() and not replace:
-        raise DocumentRefused(f"{TAKEN} {name}.")
+    name, why = document_name(root, filename, name)
+    taken = why is not None and why.startswith(TAKEN)
+    if why is not None and not taken:
+        raise DocumentRefused(why)
+    target = folder(root, name)  # a link is refused before a taken name is said
+    if taken and not replace:
+        raise DocumentRefused(why)
     if target.exists() and not target.is_dir():  # never moved aside (the security review's S4)
         raise DocumentRefused(
             f"local/documents/{name} isn't a folder, so Clarity can't replace it. Move it away, "
