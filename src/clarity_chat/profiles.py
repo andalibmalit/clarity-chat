@@ -112,6 +112,24 @@ NAME_RULE = (
 )
 
 
+def named_twice(names: list[str] | tuple[str, ...]) -> str | None:
+    """The first name a list of documents holds twice, or None: one rule for /search, a
+    profile's search list, a log's `search` record and `document try`."""
+    seen: set[str] = set()
+    for name in names:
+        if name in seen:
+            return name
+        seen.add(name)
+    return None
+
+
+def shown(text: str) -> str:
+    """A name as Clarity prints it: control and invisible characters written as Python
+    writes them (\\x1b, \\u202e), so whatever reached it can't send the terminal escape
+    sequences or show reversed."""
+    return text if text.isprintable() else repr(text)[1:-1]
+
+
 def library_name_problem(name: object) -> str | None:
     """Why `name` can't name a library document, or None: decision 20's rule, checked
     before a name ever becomes a path."""
@@ -589,7 +607,7 @@ def _documents(table: object, mode: str, where: str) -> DocumentsTable:
         problem = library_name_problem(name)
         if problem is not None:
             raise ConfigError(f"{where}: [documents] search: {problem}")
-    if len(set(search)) != len(search):
+    if named_twice(search) is not None:
         raise ConfigError(f"{where}: [documents] search names a document twice.")
     marker = table.get("excerpt_marker")
     if marker is not None:

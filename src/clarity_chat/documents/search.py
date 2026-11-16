@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -50,9 +51,12 @@ def words_of(message: str) -> tuple[list[str], list[str]]:
     and the words dropped, each in order, each once."""
     kept: list[str] = []
     dropped: list[str] = []
-    for word in RUN.findall(message.lower()):
-        if word in kept or word in dropped:
+    seen: set[str] = set()  # a long paste: each word looked up once (the review's C1)
+    # NFC first: a decomposed accent is one word, as FTS5's unicode61 reads it (its C2).
+    for word in RUN.findall(unicodedata.normalize("NFC", message).lower()):
+        if word in seen:
             continue
+        seen.add(word)
         (dropped if len(word) == 1 or word in COMMON_WORDS else kept).append(word)
     return kept, dropped
 

@@ -5,6 +5,7 @@ attachments and the profile: it reads no file and keeps no state. Counting is pa
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from html import escape
@@ -394,10 +395,15 @@ FOUND_TYPES: dict[str, Callable[[Any], bool]] = {
     "documents": _dicts(
         {k: (lambda v: isinstance(v, str)) for k in ("name", "build_id", "original_sha256")}
     ),
-    "engine": lambda v: (
+    "engine": lambda v: (  # each value too, before Details shows them (the review's C8)
         isinstance(v, dict)
         and set(v)
         == {"name", "sqlite", "tokenizer", "weights", "word_rule", "common_words", "query"}
+        and all(isinstance(v[k], str) for k in ("name", "sqlite", "tokenizer", "query"))
+        and _whole_number(v["word_rule"])
+        and _whole_number(v["common_words"])
+        and isinstance(v["weights"], dict)
+        and all(isinstance(k, str) and _number(w) for k, w in v["weights"].items())
     ),
     "considered": _whole_number,
     "budget": _whole_number,
@@ -438,6 +444,10 @@ def checked_attachments(record: Mapping[str, Any]) -> dict[str, Any]:
         if missing := set(FOUND_TYPES) - set(found):
             raise KeyError(", ".join(sorted(missing)))
         _typed(found, FOUND_TYPES)
+        for part in found["parts"]:  # `already` trusts it (Checkpoint 2's C5)
+            text = part["text"].encode("utf-8", "surrogatepass")  # a lone one: no match
+            if part["sha256"] != hashlib.sha256(text).hexdigest():
+                raise TypeError("a found part's sha256 isn't its text's")
         fields["found"] = found
     for attachment in fields["attachments"]:
         if missing := ATTACHMENT_FIELDS - set(attachment):
