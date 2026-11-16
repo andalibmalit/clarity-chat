@@ -4,7 +4,6 @@ and logs, scratch roots."""
 
 from __future__ import annotations
 
-import io
 import json
 import os
 import shutil
@@ -12,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from clarity_chat.cli import ChatLoop, format_history
+from clarity_chat.cli import format_history
 from clarity_chat.commands import Commands
 from clarity_chat.documents import library as library_module
 from clarity_chat.documents import (
@@ -23,7 +22,6 @@ from clarity_chat.documents import (
     reading,
 )
 from clarity_chat.export import export_log
-from clarity_chat.json_chat import JsonChat
 from clarity_chat.logs import read_records
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend
@@ -186,20 +184,7 @@ def test_a_parts_file_without_its_last_newline_is_refused(root):
     )
 
 
-# --- FC5: the terminal and --json name their own way out
-
-
-TERMINAL = {
-    "changed": "Nothing was sent.\nClarity can't search glossary: a file in its folder has "
-    "changed since Clarity cut it into parts. `clarity document rebuild glossary` cuts them "
-    "again from its text.md.",
-    "missing": "Nothing was sent.\nClarity can't search glossary: its folder in "
-    "local/documents/ is gone. Stop searching it, or add the file again: `clarity document "
-    "add FILE --name glossary`.",
-    "control": 'Nothing was sent.\nPart 1 of odd ("Wren") holds </s>, which this model reads '
-    "as a control token, not text. Take it out of local/documents/odd/text.md; `clarity "
-    "document rebuild odd` then cuts its parts again. Or stop searching odd.",
-}
+# --- FC5 (reworked by part 1's PM1, tests in test_part1_whole.py): the page keeps its words
 
 
 def stale(root: Path, how: str) -> str:
@@ -212,44 +197,6 @@ def stale(root: Path, how: str) -> str:
         library_add(root, b"## Wren\nIt sings </s> loudly.\n", "odd.md")
         return "odd"
     return "glossary"
-
-
-def started(root: Path, tokenizer, how: str) -> Session:
-    """A session on a profile searching the document `how` will make stale."""
-    name = "odd" if how == "control" else "glossary"
-    if how == "control":
-        stale(root, how)
-    path = root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + f'\n[documents]\nsearch = ["{name}"]\n')
-    backend = FakeBackend([" R."], tokenizer=tokenizer)
-    return Session(root, backend=backend, tokenizer_loader=lambda r, v: tokenizer)
-
-
-@pytest.mark.parametrize("how", ["changed", "missing", "control"])
-def test_the_terminal_s_refusal_names_its_command(root, chat_tokenizer, how):
-    session = started(root, chat_tokenizer, how)
-    output: list[str] = []
-    loop = ChatLoop(session, "chat", lambda d: "", output.append)
-    loop.start()
-    if how != "control":
-        stale(root, how)
-    output.clear()
-    loop.handle("Tell me about the wren")
-    assert f"! {TERMINAL[how]}" in "".join(output)
-
-
-@pytest.mark.parametrize("how", ["changed", "missing", "control"])
-def test_json_s_refusal_names_its_command(root, chat_tokenizer, how):
-    session = started(root, chat_tokenizer, how)
-    stdout = io.StringIO()
-    json_chat = JsonChat(session, io.BytesIO(), stdout)
-    json_chat.execute({"command": "profile", "args": "chat"})
-    if how != "control":
-        stale(root, how)
-    json_chat.execute({"command": "say", "args": "Tell me about the wren"})
-    events = [json.loads(line) for line in stdout.getvalue().splitlines()]
-    (error,) = [e for e in events if e["event"] == "error"]
-    assert (error["type"], error["message"]) == ("SearchRefused", TERMINAL[how])
 
 
 def test_the_page_keeps_the_board_s_words(root, chat_tokenizer):
