@@ -22,7 +22,7 @@ import shutil
 import stat
 import tempfile
 import threading
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Collection, Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -71,17 +71,20 @@ def default_name(filename: str) -> str | None:
     return name if library_name_problem(name) is None else None
 
 
-def document_name(root: Path, filename: str, name: str | None) -> tuple[str, str | None]:
+def document_name(
+    filename: str, name: str | None, taken: Collection[str]
+) -> tuple[str, str | None]:
     """The name a file is added under (`name`, or one made from `filename`) and why it
     can't be, or None: one check for `add` and the page's name box (the C1 tripwire
-    review's should 5)."""
+    review's should 5). `taken`: the names already in the library, as the caller reads
+    them (add from the disk, the page from /documents)."""
     if name is None:
         name = default_name(filename) or ""
         if not name:
             return "", f"Clarity can't make a document name from {filename}. Give it one."
     if (problem := library_name_problem(name)) is not None:
         return name, problem
-    if (root / LIBRARY / name).exists() or (root / LIBRARY / name).is_symlink():
+    if name in taken:
         return name, f"{TAKEN} {name}."
     return name, None
 
@@ -182,7 +185,9 @@ def add(
     the four files. `on_write` gets the folder (relative to the project), and whether it
     replaces a document there, just before anything is written. Nothing is written on a
     refusal."""
-    name, why = document_name(root, filename, name)
+    library = root / LIBRARY
+    on_disk = {p.name for p in library.iterdir()} if library.is_dir() else set()
+    name, why = document_name(filename, name, on_disk)
     taken = why is not None and why.startswith(TAKEN)
     if why is not None and not taken:
         raise DocumentRefused(why)

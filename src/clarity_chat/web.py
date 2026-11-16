@@ -27,7 +27,7 @@ import sys
 import threading
 import webbrowser
 from collections.abc import AsyncIterator, Callable
-from datetime import date, datetime
+from datetime import date, datetime, tzinfo
 from pathlib import Path
 from typing import Any
 
@@ -1938,10 +1938,10 @@ def json_response(content: dict[str, Any]) -> Response:
 MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
 
 
-def date_words(added: str) -> str:
+def date_words(added: str, zone: tzinfo | None = None) -> str:
     """A manifest's `added` time (UTC, checked by the library) as the page says a date, in
-    local time as a chat's row is: 10 Nov 2026."""
-    moment = datetime.fromisoformat(added).astimezone()
+    local time as a chat's row is (`zone`: another, for a test): 10 Nov 2026."""
+    moment = datetime.fromisoformat(added).astimezone(zone)
     return f"{moment.day} {MONTHS[moment.month - 1]} {moment.year}"
 
 
@@ -1977,7 +1977,7 @@ def document_row(doc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def found_view(found: dict[str, Any], searched: list[str]) -> dict[str, Any]:
+def found_view(found: dict[str, Any], searched: list[str], framed: bool) -> dict[str, Any]:
     """What a search found, as the try box (C1) and "From documents" (C3) show it: the
     count, each part with its rank and why, the notes on what was left out, the words."""
     counts = left_out_counts(found)
@@ -2014,7 +2014,7 @@ def found_view(found: dict[str, Any], searched: list[str]) -> dict[str, Any]:
     if unconsidered := counts.get("not considered", 0):
         view["notes"].append(SENTENCES["found_unconsidered"].format(
             n=f"{unconsidered:,}", considered=found["considered"]))  # fmt: skip
-    if found["parts"]:  # the fill's increments: the first holds the framing line
+    if found["parts"] and framed:  # the fill's increments: the first holds the framing line
         view["notes"].append(SENTENCES["found_first_count"])
     if found["parts"]:
         summary = SENTENCES["found_parts"].format(
@@ -2077,7 +2077,7 @@ async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
     add = None
     if (upload := params["upload"]) and upload in worker.uploads:
         data, filename = worker.uploads[upload]
-        name, why = document_name(worker.commands.session.root, filename, None)
+        name, why = document_name(filename, None, docs)
         add = {"upload": upload, "file": filename, "size": size_words(len(data)), "name": name,
                "why": why, "rule": None if name else NAME_RULE}  # fmt: skip
         if name in docs:  # the page's way out (N8)
@@ -2101,7 +2101,7 @@ async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
         if "error" in answer:
             refused = refusal_lines(answer)
         else:
-            tried = found_view(answer["result"]["found"], searching)
+            tried = found_view(answer["result"]["found"], searching, answer["result"]["framed"])
             if answer["result"]["refused"]:
                 refused = [{"text": answer["result"]["refused"]}]
     return templates.get_template("documents.html").render(
