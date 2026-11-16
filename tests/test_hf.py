@@ -522,3 +522,30 @@ def test_an_attachment_gives_the_same_prompt_ids_on_both_backends(tmp_path):
     llama, hf = records["llama.cpp"], records["transformers"]
     assert "Excerpt: lines 1 to 2 of 3" in hf["prompt_text"]
     assert llama["prompt_ids"] == hf["prompt_ids"]
+
+
+def test_a_searched_message_gives_the_same_prompt_ids_on_both_backends(tmp_path, monkeypatch):
+    """v0.3.2 (Checkpoint 2's S4): the found parts are in the content, which both backends
+    get as IDs. The library is a scratch one: the repo's local/documents/ is never read."""
+    from clarity_chat.documents import library as library_module
+    from clarity_chat.documents import library_add
+
+    scratch = tmp_path / "scratch"
+    trail = b"## Ridge\nThree cairns mark the ridge.\n\n## Pass\nNo water after the pass.\n"
+    library_add(scratch, trail, "trail.md")
+    monkeypatch.setattr(library_module, "LIBRARY", scratch / "local" / "documents")
+    session = Session(REPO, logs_dir=tmp_path / "logs")
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    records = {}
+    try:
+        for backend in ("llama.cpp", "transformers"):
+            session.new_conversation(profile(folder, "smol-chat", backend, temperature="0.0"))
+            session.set_search(["trail"])
+            records[backend] = session.say("What marks the ridge?").record
+            checks_ok(records[backend])
+    finally:
+        session.close()
+    llama, hf = records["llama.cpp"], records["transformers"]
+    assert '<part document="trail" title="Ridge">' in hf["prompt_text"]
+    assert llama["prompt_ids"] == hf["prompt_ids"]
