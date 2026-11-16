@@ -289,3 +289,14 @@ def test_a_control_token_s_refusal_shows_under_the_parts(root, make):
         'Part 1 of odd ("Wren") holds </s>, which this model reads as a control token, not '
         "text." in said
     )
+
+
+# --- the C1 tripwire review's musts
+
+
+@pytest.mark.parametrize("message", ["", "   "])
+def test_an_empty_try_runs_nothing_and_says_no_command(root, make, message):  # must 1
+    client, _ = make('search = ["glossary"]')
+    fragment = page(client, **{"try": message})
+    assert "Usage" not in fragment and "/try" not in fragment
+    assert 'class="parts"' not in fragment and 'role="alert">' not in fragment.split("try")[-1]
