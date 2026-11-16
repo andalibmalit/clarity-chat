@@ -285,3 +285,27 @@ def test_a_linked_document_is_refused_by_search_and_a_start(root, chat_tokenizer
     with pytest.raises(ConfigError, match=r"^Profile chat: \[documents\] search names linked\. "):
         chat(root, chat_tokenizer)
     assert list(elsewhere.iterdir()) == []
+
+
+# --- Checkpoint 1's S8: the refusal's suggested start, in a searching chat
+
+
+def test_a_searching_chat_s_refusal_suggests_a_start_that_leaves_the_budget(
+    root, chat_tokenizer, tmp_path
+):
+    backend = FakeBackend([" R."], tokenizer=chat_tokenizer, n_ctx=2000)
+    session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
+    c = Commands(session)
+    c.run("profile", "chat", lambda e: None)
+    path = tmp_path / "long.md"
+    path.write_text("".join(f"Made-up line {n}.\n" for n in range(400)), encoding="utf-8")
+
+    def suggested() -> int:
+        with pytest.raises(ConfigError) as refused:
+            c.run("attach", str(path), lambda e: None)
+        refusal = str(refused.value)
+        return int(refusal.split(f"/attach {path} lines 1-")[1].split(".")[0])
+
+    plain = suggested()
+    c.run("search", "glossary", lambda e: None)
+    assert suggested() < plain

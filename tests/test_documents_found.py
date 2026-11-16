@@ -152,7 +152,7 @@ def matches(n: int, size: int = 100) -> dict:
 
 def test_the_fill_considers_eight_adds_in_order_and_stops_at_the_first_that_doesn_t_fit():
     room, renders = counting_room()
-    # 128 characters a part in the block: four fit 520 with the framing line counted.
+    # 128 characters a part in the block, the framing line counted with the first: three fit 520.
     filled = fill(room, "Q", [], FRAMING, matches(12), 520, "profile")
     assert [p["id"] for p in filled["parts"]] == ["d:1", "d:2", "d:3"]
     assert [(o["id"], o["why"]) for o in filled["left_out"]] == [
@@ -174,6 +174,7 @@ def test_tokens_are_the_exact_cost_framing_and_wrappers_included():
     room, _ = counting_room()
     filled = fill(room, "Q", [], FRAMING, matches(3), 10**6, "default")
     added = filled["parts"]
+    assert len(added) == 3  # else an empty fill would pass the sums below
     expected = len(content("Q", [], FRAMING, added)) - len("Q")
     assert filled["tokens"] == expected  # the framing line counts: search is why it's there
     assert sum(p["tokens"] for p in added) == expected
@@ -183,6 +184,7 @@ def test_with_attachments_the_framing_line_counts_with_them():
     room, _ = counting_room()
     attached = [Attached("notes.md", "Line.\n", None)]
     filled = fill(room, "Q", attached, FRAMING, matches(1), 10**6, "default")
+    assert len(filled["parts"]) == 1
     without = len(content("Q", attached, FRAMING))
     assert filled["tokens"] == len(content("Q", attached, FRAMING, filled["parts"])) - without
     assert filled["tokens"] < len(FRAMING) + 100
