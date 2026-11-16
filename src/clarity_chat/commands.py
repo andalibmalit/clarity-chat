@@ -486,6 +486,53 @@ def extracted(
         raise DocumentRefused(f"Clarity couldn't read {name} ({type(e).__name__}: {e}).") from e
 
 
+def document_add(
+    root: Path,
+    path: str,
+    name: str | None = None,
+    replace: bool = False,
+    on_read: Callable[[], None] | None = None,
+    on_write: Callable[[str], None] | None = None,
+) -> dict[str, Any]:
+    """`clarity document add`: a file into the library (v0.3.2 A1). ~ is the home folder."""
+    data, filename = documents.read_path(os.path.expanduser(path))
+    if name is not None:
+        name = documents.checked_library_name(name)
+    return documents.library_add(
+        root, data, filename, name, replace, on_read=on_read, on_write=on_write
+    )
+
+
+def document_check(root: Path, names: list[str], tokenizer: Any = None) -> dict[str, Any]:
+    """`clarity document check`: each document's files hashed against its manifest; with a
+    profile's tokenizer, the parts holding its control tokens too."""
+    if not names:
+        names = [d["name"] for d in documents.library_documents(root)]
+    checked = []
+    for name in names:
+        try:
+            found = documents.library_check(root, documents.checked_library_name(name))
+        except documents.Stale as e:
+            checked.append({"name": name, "state": e.state, "problems": []})
+            continue
+        if tokenizer is not None and found["state"] == "ready":
+            parts = documents.library_parts(root, name)
+            found["control_token_parts"] = documents.control_token_parts(
+                parts, tokenizer.special_tokens_in
+            )
+        checked.append(found)
+    return {"checked": checked}
+
+
+def document_rebuild(root: Path, name: str) -> dict[str, Any]:
+    """`clarity document rebuild`: a document's parts again from its text.md."""
+    return documents.library_rebuild(root, documents.checked_library_name(name))
+
+
+def document_list(root: Path) -> dict[str, Any]:
+    return {"documents": documents.library_documents(root)}
+
+
 def read_files(
     paths: list[str], on_read: Callable[[str], None] | None = None
 ) -> dict[str, documents.Document]:
