@@ -107,6 +107,7 @@ SAVE_AS = "Save it as PDF or as UTF-8 text and use that copy."
 HTML_SPACE = " \t\n\r\f"  # HTML's whitespace: a no-break space is kept, as text
 # title, not head: a page may omit </head> (valid HTML5), and head holds no other text.
 HTML_SKIPPED = {"title", "script", "style", "template", "noscript"}
+HTML_HEADINGS = {"h1", "h2", "h3", "h4", "h5", "h6"}
 HTML_BLOCKS = {
     "address", "article", "aside", "blockquote", "br", "dd", "div", "dl", "dt", "figcaption",
     "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header", "hr", "li",
@@ -115,45 +116,51 @@ HTML_BLOCKS = {
 
 
 class HtmlText(HTMLParser):
-    """Text by Clarity's HTML rules: skipped elements leave nothing; each block element
-    starts and ends a line; whitespace collapses to one space inside a line, which is then
-    stripped, and empty lines are dropped; text inside `pre` is kept as written; entities
-    are decoded."""
+    """Text by Clarity's HTML rules, version 2: skipped elements leave nothing; each block
+    element ends a paragraph (a blank line), `br` a line; h1 to h6 become Markdown headings,
+    so a saved web page gets paragraphs and titled parts (v0.3.2's WB7); whitespace
+    collapses to one space inside a line, which is then stripped, and empty lines are
+    dropped; text inside `pre` is kept as written; entities are decoded."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
-        self.lines: list[str] = []
+        self.lines: list[str] = []  # "" between paragraphs
         self.line: list[str] = []
         self.skipping = 0
         self.pre = 0
+        self.heading = 0  # inside h1 to h6: its level
 
-    def end_line(self) -> None:
+    def end_line(self, paragraph: bool = False) -> None:
         text = "".join(self.line)
         self.line = []
-        if self.pre:
-            if text:
-                self.lines.append(text)
-            return
-        # Collapsed as a whole line, so whitespace on both sides of an inline tag is one.
-        text = re.sub(f"[{HTML_SPACE}]+", " ", text).strip(HTML_SPACE)
+        if not self.pre:  # collapsed as a whole line: whitespace around an inline tag is one
+            text = re.sub(f"[{HTML_SPACE}]+", " ", text).strip(HTML_SPACE)
+            if text and self.heading:
+                text = f"{'#' * self.heading} {text}"
         if text:
             self.lines.append(text)
+        if paragraph and self.lines and self.lines[-1]:
+            self.lines.append("")
 
     def handle_starttag(self, tag: str, attrs: list) -> None:
         if tag in HTML_SKIPPED:
             self.skipping += 1
         elif not self.skipping and tag in HTML_BLOCKS:
-            self.end_line()
+            self.end_line(paragraph=tag != "br")
             if tag == "pre":
                 self.pre += 1
+            if tag in HTML_HEADINGS:
+                self.heading = int(tag[1])
 
     def handle_endtag(self, tag: str) -> None:
         if tag in HTML_SKIPPED:
             self.skipping = max(0, self.skipping - 1)
         elif not self.skipping and tag in HTML_BLOCKS:
-            self.end_line()
+            self.end_line(paragraph=tag != "br")
             if tag == "pre":
                 self.pre = max(0, self.pre - 1)
+            if tag in HTML_HEADINGS:
+                self.heading = 0
 
     def handle_data(self, data: str) -> None:
         if self.skipping:
@@ -167,7 +174,8 @@ def html_text(data: bytes, name: str) -> str:
     parser.feed(text)
     parser.close()
     parser.end_line()
-    return "".join(line + "\n" for line in parser.lines)
+    lines = parser.lines[:-1] if parser.lines and not parser.lines[-1] else parser.lines
+    return "".join(line + "\n" for line in lines)
 
 
 def pdf_pages(data: bytes, name: str) -> tuple[list[str], dict]:
@@ -232,7 +240,7 @@ def extract(kind: str, data: bytes, name: str) -> dict:
     else:
         if kind == "html":
             # html.parser is Python's own, and has changed between releases: say which ran.
-            extractor = {"name": "clarity-html", "version": 1, "python": platform.python_version()}
+            extractor = {"name": "clarity-html", "version": 2, "python": platform.python_version()}
             text = html_text(data, name)
         else:
             text, bom = utf8(data, name)
