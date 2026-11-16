@@ -159,6 +159,8 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 - Parts are cut by Markdown headings and paragraphs, up to 250 words, so a glossary's headwords title their entries; a PDF has no titles until its `text.md` gets headings. 250 words fit the embedder planned for meaning search, so parts won't need cutting again.
 - Cost: a hand edit to `text.md` drops a PDF's page numbers, since Clarity can no longer say which page a line came from.
 
+**What a chat searches is part of the chat.** The profile's `search` list sets the start, and `/search` changes it for one chat, logged as a `search` record as `/set` logs a setting, so a resumed chat searches what you chose. A profile naming a document that isn't in the library doesn't start, and says which key to change, rather than starting with a gap you'd only notice in the replies. A document that goes missing later is listed as missing, and `/search` without it works.
+
 **Word search, and its limits.** Search uses SQLite's FTS5, from the standard library: no new dependency, and 20,000 parts are searched in about half a second. A part matches if it shares any one uncommon word with your message, so most messages match something, and only the best few are considered. The words come from the message you typed, never from earlier ones or from an attachment, so a follow-up like "tell me more" finds nothing. A paraphrase that shares no word is missed; meaning search is planned for that. The stemmer and the common words are English only. The order is the same for the same text, build and SQLite version; Clarity claims no more than that across systems.
 
 ## Determinism and replay

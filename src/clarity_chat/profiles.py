@@ -94,8 +94,34 @@ PROFILE_KEYS_COMMON = {
     "steering",
     "documents",
 }
-DOCUMENTS_KEYS = {"framing", "excerpt_marker"}
+DOCUMENTS_KEYS = {"framing", "excerpt_marker", "search", "budget", "placement"}
 MARKER_FIELDS = {"units", "first", "last", "total"}
+BUDGET = 1500  # tokens search may add to a message, by default (v0.3.2 decision 9)
+PLACEMENTS = ("start", "end")
+# A library document's name (v0.3.2 decision 20), here so a profile's `search` list and the
+# library check names by one rule: the documents package imports it.
+LIBRARY_NAME = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
+RESERVED_NAMES = frozenset(
+    ["none", "con", "prn", "aux", "nul"]
+    + [f"com{i}" for i in range(1, 10)]
+    + [f"lpt{i}" for i in range(1, 10)]
+)
+NAME_RULE = (
+    "A document's name is 1 to 64 characters: a to z, 0 to 9, - and _, starting with a letter "
+    "or a digit."
+)
+
+
+def library_name_problem(name: object) -> str | None:
+    """Why `name` can't name a library document, or None: decision 20's rule, checked
+    before a name ever becomes a path."""
+    if not isinstance(name, str) or not LIBRARY_NAME.fullmatch(name):
+        return NAME_RULE
+    if name in RESERVED_NAMES:
+        return f"{name} can't name a document: the system reserves it."
+    return None
+
+
 # apply_chat_template arguments that Clarity sets, or that would change what it renders or
 # returns behind the logged template (chat_template replaces the template's text).
 RESERVED_TEMPLATE_KWARGS = {
@@ -365,6 +391,9 @@ class Profile:
     # [documents]: None means Clarity's default; "" means none (no framing or marker line)
     framing: str | None = None
     excerpt_marker: str | None = None
+    search: tuple[str, ...] = ()  # the documents a chat on this profile searches at first
+    budget: int | None = None  # tokens search may add to a message; None: BUDGET
+    placement: str = "start"  # where a message's block goes: "start" or "end"
     vector: Vector | None = None  # its vector, loaded and checked by Session.prepare
     layers: list[int] | None = None  # the blocks it steers, from Session.prepare
     # chat mode
@@ -510,11 +539,23 @@ def _messages(value: object, where: str) -> list[dict[str, str]]:
     return messages
 
 
-def _documents(table: object, mode: str, where: str) -> tuple[str | None, str | None]:
-    """The [documents] table: the framing line and the excerpt marker, each a string (the
-    framing may span lines; empty means none). Chat mode only in v0.3.1."""
+@dataclass(frozen=True)
+class DocumentsTable:
+    """A profile's [documents] table: the framing line and the excerpt marker (None:
+    Clarity's default; "": none), the documents search starts with, search's budget (None:
+    BUDGET) and where the block goes."""
+
+    framing: str | None = None
+    excerpt_marker: str | None = None
+    search: tuple[str, ...] = ()
+    budget: int | None = None
+    placement: str = "start"
+
+
+def _documents(table: object, mode: str, where: str) -> DocumentsTable:
+    """The [documents] table, checked. Chat mode only."""
     if table is None:
-        return None, None
+        return DocumentsTable()
     if mode != "chat":
         raise ConfigError(f"{where}: [documents] is for chat mode only: attachments need it.")
     if not isinstance(table, dict):
@@ -524,9 +565,27 @@ def _documents(table: object, mode: str, where: str) -> tuple[str | None, str | 
         raise ConfigError(
             f"{where}: [documents] has unknown keys {unknown}. Allowed: {sorted(DOCUMENTS_KEYS)}."
         )
-    for key in DOCUMENTS_KEYS & set(table):
+    for key in {"framing", "excerpt_marker", "placement"} & set(table):
         if not isinstance(table[key], str):
             raise ConfigError(f"{where}: [documents] {key} must be a string.")
+    placement = table.get("placement", "start")
+    if placement not in PLACEMENTS:
+        raise ConfigError(f'{where}: [documents] placement must be "start" or "end".')
+    budget = table.get("budget")
+    if budget is not None and (_integer(budget) is None or budget <= 0):
+        raise ConfigError(
+            f"{where}: [documents] budget must be a positive whole number of tokens, "
+            f"got {budget!r}."
+        )
+    search = table.get("search", [])
+    if not isinstance(search, list):
+        raise ConfigError(f"{where}: [documents] search must be a list of document names.")
+    for name in search:
+        problem = library_name_problem(name)
+        if problem is not None:
+            raise ConfigError(f"{where}: [documents] search: {problem}")
+    if len(set(search)) != len(search):
+        raise ConfigError(f"{where}: [documents] search names a document twice.")
     marker = table.get("excerpt_marker")
     if marker is not None:
         try:
@@ -541,7 +600,7 @@ def _documents(table: object, mode: str, where: str) -> tuple[str | None, str | 
                     f"{where}: [documents] excerpt_marker can use {{units}}, {{first}}, {{last}} "
                     f"and {{total}}, with no format, got {{{field_name}}}."
                 )
-    return table.get("framing"), marker
+    return DocumentsTable(table.get("framing"), marker, tuple(search), budget, placement)
 
 
 def load_profile(
@@ -599,7 +658,7 @@ def load_profile(
             )
         steering = _steering(steering, root, where)
 
-    framing, excerpt_marker = _documents(data.get("documents"), mode, where)
+    documents_table = _documents(data.get("documents"), mode, where)
     raw_settings = check_settings_table(data.get("settings", {}), where)
     if steering is not None and "steering_scale" not in raw_settings:
         raise ConfigError(
@@ -633,8 +692,11 @@ def load_profile(
         device=device,
         ctx_size=ctx_size,
         steering=steering,
-        framing=framing,
-        excerpt_marker=excerpt_marker,
+        framing=documents_table.framing,
+        excerpt_marker=documents_table.excerpt_marker,
+        search=documents_table.search,
+        budget=documents_table.budget,
+        placement=documents_table.placement,
     )
 
     if mode == "chat":

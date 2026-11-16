@@ -23,6 +23,7 @@ class Rebuilt:
     head: str | None = None
     head_guessed: bool = False  # a log from before head records (v0.1.0)
     chat_settings: dict[str, Any] = field(default_factory=dict)
+    searching: list[str] | None = None  # the last `search` record's list (v0.3.2)
     servers: dict[str, dict[str, Any]] = field(default_factory=dict)  # server_start by ID
     last_call: dict[str, Any] | None = None  # the last call that has a reply
     unanswered: dict[str, Any] | None = None  # the last message, if it got no reply
@@ -67,6 +68,11 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
             failed[record["call_id"]] = out.calls[record["call_id"]] = record
         elif kind == "settings":
             out.chat_settings = record["chat_settings"]
+        elif kind == "search":
+            names = record["documents"]
+            if not isinstance(names, list):
+                raise TypeError(f"{where}: a search record's documents isn't a list")
+            out.searching = names
         elif kind == "server_start":
             out.servers.setdefault(record["server_id"], record)
     last = out.turns[-1] if out.turns else None

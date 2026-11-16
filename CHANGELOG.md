@@ -9,6 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Added
+- A chat-mode profile's `[documents]` table gains `search` (the documents a chat searches), `budget` (the tokens search may add to a message, default 1,500) and `placement` (`"start"` or `"end"`: where the block of documents goes in your message). In a chat, `/search` lists or changes the documents searched, logged as a `search` record and kept on resume; `/documents` lists, adds and rebuilds them; `/state` gains `searching`. A searching chat's suggested start for an attachment leaves the budget free too.
 - `clarity document add|list|check|rebuild`: the library of documents Clarity will search, in `local/documents/NAME/` (a copy of the file, its text as `text.md`, its parts and a manifest). Clarity says where it writes before and after, builds each document in a temporary folder and renames it into place, and refuses a document whose files have changed until you rebuild it.
 
 ## [0.3.1] - 2026-11-15
