@@ -1335,6 +1335,10 @@ class Session:
         conversation = self.conversation
         return self.budget()[0] if conversation is not None and conversation.searching else 0
 
+    def try_documents(self, names: list[str], profile_name: str, text: str) -> dict[str, Any]:
+        """A stub for B4's red: `clarity document try`, not built yet."""
+        return {}
+
     def searching(self) -> list[dict[str, Any]]:
         """The documents this chat searches, each with its state (ready, changed, missing or
         unreadable) and, when ready, how many of its parts hold this model's control tokens
