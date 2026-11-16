@@ -23,7 +23,10 @@ from clarity_chat.commands import (
     document_list,
     document_rebuild,
     document_try,
+    format_added,
+    format_rebuilt,
     how_words,
+    parts,
     read_files,
     summaries,
 )
@@ -1052,21 +1055,6 @@ def writing_words(folder: str, replacing: bool) -> str:
     return f"Writing {folder}/: a copy of the file, its text and its parts."
 
 
-def format_added(result: dict[str, Any]) -> str:
-    manifest = result["added"]
-    folder = result["written"][0].rsplit("/", 1)[0]
-    *rest, last = (path.rsplit("/", 1)[1] for path in result["written"])
-    done = "replaced" if result["replaced"] else "wrote"
-    return (  # the point first (the board walk's S17; N12)
-        f"Clarity {done} {folder}/: {', '.join(rest)} and {last} "
-        f"({parts(manifest['parts'])}, {manifest['titled']:,} with a title)."
-    )
-
-
-def parts(n: int) -> str:
-    return f"{n:,} part" + ("" if n == 1 else "s")
-
-
 def format_documents(listed: list[dict[str, Any]]) -> str:
     if not listed:
         return "No documents yet. `clarity document add FILE` adds one."
@@ -1190,17 +1178,6 @@ def format_searching(result: dict[str, Any]) -> str:
             sent = "it's sent as it is" if n == 1 else "they're sent as they are"
             lines.append(f"  {d['name']}: {held} </part> or </document>; {sent}.")
     return "\n".join(lines)
-
-
-def format_rebuilt(result: dict[str, Any]) -> str:
-    manifest = result["rebuilt"]
-    files = " and ".join(path.rsplit("/", 1)[1] for path in result["written"])
-    folder = result["written"][0].rsplit("/", 1)[0]
-    dropped = " Its parts no longer have page numbers." if result["pages_dropped"] else ""
-    return (
-        f"Rebuilt {manifest['name']} from its text.md: {parts(manifest['parts'])}, "
-        f"{manifest['titled']:,} with a title. Wrote {files} in {folder}/.{dropped}"
-    )
 
 
 def main(argv: list[str] | None = None) -> int:

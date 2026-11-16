@@ -127,7 +127,7 @@ def test_an_unreadable_row_says_why(root, make):
     (root / "local/documents/glossary/manifest.json").write_text('{"schema": 1}', "utf-8")
     client, _ = make()
     assert row(page(client), "glossary") == (
-        "glossary ! Can't be read glossary's manifest.json can't be read (it isn't a manifest "
+        "glossary ! Can’t be read glossary's manifest.json can't be read (it isn't a manifest "
         "Clarity writes). Delete the folder local/documents/glossary/, then add the file again."
     )
 
@@ -137,7 +137,7 @@ def test_rebuild_s_notice_says_when_pages_were_dropped(root, make):
     client, _ = make()
     said = text_of(page(client, rebuilt="guide", dropped="1"))
     assert (
-        "Rebuilt guide from its text.md: 2 parts, 0 with a title. Wrote parts.jsonl and "
+        "Rebuilt guide from its text.md: 1 part, 0 with a title. Wrote parts.jsonl and "
         "manifest.json in local/documents/guide/. Its parts no longer have page numbers." in said
     )
     assert "page numbers." not in text_of(page(client, rebuilt="guide")).split("Wrote")[1][:120]
@@ -220,7 +220,10 @@ def test_the_try_box_in_a_chat_that_searches_nothing(root, make):
     )
 
 
-def test_the_try_box_with_an_empty_library(make):
+def test_the_try_box_with_an_empty_library(root, make):
+    import shutil
+
+    shutil.rmtree(root / "local/documents/glossary")
     client, _ = make()
     assert (
         'No documents yet. Add a file, or press the paperclip in a chat and choose "Search it".'
@@ -241,11 +244,10 @@ def test_the_try_box_s_result_equals_try(root, make):
     tried = text_of(page(client, **{"try": "Tell me about the wren"}))
     assert f"1 part · {found['tokens']:,} tokens" in tried
     assert f'1 glossary · "Wren" {part["tokens"]:,} in its title: wren; in its text: wren' in tried
-    framing = found["tokens"] - part["tokens"]
-    assert (
-        "The total also counts what Clarity adds around the parts, such as the framing line "
-        f"({framing:,} tokens)." in tried
-    )
+    # The first part's tokens hold the framing line and its wrapper (the fill's increment),
+    # so the total equals the rows and N52's note isn't drawn (it shows only when they differ).
+    assert found["tokens"] == part["tokens"]
+    assert "The total also counts" not in tried
     assert (
         "Words searched: wren. Ignored (common words and single letters or digits): tell, me, "
         "about, the." in tried

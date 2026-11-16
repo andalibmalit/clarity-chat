@@ -174,6 +174,8 @@ Clarity reads the file as `/attach` does, then writes `local/documents/glossary/
 
 In a chat, `/search glossary` searches it from your next message, or set `search = ["glossary"]` under `[documents]` in a chat-mode profile to search it from the start. Each message you send is searched with the words you typed: common words and single letters or digits are dropped, and of the parts that share any of the rest, ranked by SQLite FTS5's `bm25` with titles counting double ([Word search](reference.md#word-search)), the best 8 go into your message, best first, until the next one would pass the budget (1,500 tokens by default; `budget` in the profile). A part already in the chat isn't added again. `/try TEXT` shows what a message would find, with no model call, and `/history` shows what each message found. The parts are logged with the message, so a regeneration sends them again without searching, and replay sends them exactly.
 
+In the web interface, **Documents…** in the Clarity menu lists your documents and where they're kept. **Add…** opens your computer's file picker and says where the copy will go; if the name is taken or Clarity can't make one from the file's, it asks for one. With a chat open, **Search it in this chat** after adding searches it from your next message. A changed document has **Rebuild**, and **Try a search** shows what a message would find in the open chat, as `/try` does.
+
 ### Fix a document's text, then rebuild
 
 Search reads the parts cut from `text.md`, which is yours to fix: add `## ` headings so its parts get titles, or take out text that shouldn't be searched. Then cut its parts again:

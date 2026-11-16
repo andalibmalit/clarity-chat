@@ -1,1 +1,25 @@
-<div class="hd"><h2 id="documents-title" tabindex="-1">Documents</h2><button type="button" class="iconbtn" aria-label="Close Documents" data-action="documents-close"><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button></div>
+<div class="hd"><h2 id="documents-title" tabindex="-1">Documents</h2><span class="row"><button type="button" class="btn sm" data-action="documents-add">Add…</button><button type="button" class="iconbtn" aria-label="Close Documents" data-action="documents-close"><svg class="icon" aria-hidden="true"><use href="#i-close"></use></svg></button></span></div>
+<p class="intro">{{ intro }}</p>
+<p class="intro">{{ folder }}</p>
+<p class="refused problem" role="alert" hidden></p>
+{% if add %}<form class="addp" id="documents-add-form" data-upload="{{ add.upload }}">
+<h3><svg class="icon sm" aria-hidden="true"><use href="#i-doc"></use></svg>{{ add.file }}</h3>
+<p class="d2">{{ add.size }}</p>
+{% if add.keeps %}<p>{{ add.keeps }}</p><input type="hidden" id="documents-name" value="{{ add.name }}">
+{% else %}<p class="warn">{{ add.why }}</p>
+<div class="in"><label for="documents-name">Name</label><input id="documents-name" type="text" autocomplete="off" spellcheck="false" value="{{ add.name }}" aria-invalid="true"{% if add.rule %} aria-describedby="documents-rule"{% endif %}></div>
+{% if add.rule %}<p class="d2" id="documents-rule">{{ add.rule }}</p>{% endif %}
+{% endif %}<div class="actions"><button type="button" class="btn" data-action="documents-add-cancel">Cancel</button><button type="submit" class="btn pri">Add</button></div>
+</form>
+{% endif %}{% if notice %}<div class="notice" role="status"><p>{{ notice }}</p>{% if search_here %}<button type="button" class="btn sm" data-action="documents-search-here" data-name="{{ search_here }}">Search it in this chat</button>{% endif %}</div>
+{% endif %}{% if rows %}<table class="tbl docs">
+<thead><tr><th>Document</th><th>Kind</th><th>Size</th><th>Parts</th><th>Status</th></tr></thead>
+<tbody>{% for d in rows %}<tr data-name="{{ d.name }}">{% if d.state == "unreadable" %}<td><span class="nm">{{ d.name }}</span></td><td colspan="3"></td><td><span class="bad">! Can’t be read</span><p class="d2">{{ d.note }}</p></td>{% else %}<td><span class="nm">{{ d.name }}</span><br><span class="d2">{{ d.sub }}</span></td><td>{{ d.kind }}</td><td class="n">{{ d.size }}</td><td class="n">{{ d.parts }}</td><td>{% if d.state == "changed" %}<span class="bad">! Changed</span><p class="d2">{{ d.note }}</p><button type="button" class="btn sm" data-action="documents-rebuild" data-name="{{ d.name }}">Rebuild</button>{% if d.pages %}<p class="d2">{{ d.pages }}</p>{% endif %}{% else %}Ready{% endif %}</td>{% endif %}</tr>{% endfor %}</tbody>
+</table>
+{% endif %}<p class="d2">{{ titles }}</p>
+<form class="try" id="documents-try-form"><p class="lbl">Try a search</p><p class="d2">{{ try_sub }}</p>
+<div class="in"><label class="vh" for="documents-try">A message to try</label><input id="documents-try" type="text" autocomplete="off" value="{{ try_text }}"{% if not try_enabled %} disabled{% endif %}><button type="submit" class="btn"{% if not try_enabled %} aria-disabled="true"{% endif %}>Try</button></div>
+{% if refused %}<div class="problem" role="alert">{% for r in refused %}<div class="ln"><p><strong>!</strong> {{ r.text }}</p>{% if r.rebuild %}<button type="button" class="btn sm" data-action="documents-rebuild" data-name="{{ r.rebuild }}">Rebuild</button>{% endif %}{% if r.stop %}<button type="button" class="btn sm" data-action="documents-stop" data-name="{{ r.stop }}">Stop searching it</button>{% endif %}</div>{% endfor %}</div>
+{% endif %}{% if tried %}<p class="m">{{ tried.summary }}</p>
+<div class="parts">{% if tried.empty %}<p class="empty">{{ tried.empty }}</p>{% endif %}{% if tried.rows %}<div class="phead" aria-hidden="true"><span>Rank</span><span>Part</span><span>Tokens</span></div>{% endif %}{% for r in tried.rows %}<div class="part{% if r.already %} already{% endif %}"><span class="rk">{{ r.rank }}</span><span class="pt">{{ r.label }}</span><span class="tk">{{ r.tokens }}</span><span class="why">{{ r.why }}</span></div>{% endfor %}{% for n in tried.notes %}<p class="pnote">{{ n }}</p>{% endfor %}{% if tried.words %}<p class="words">{{ tried.words }}</p>{% endif %}</div>
+{% endif %}</form>

@@ -49,15 +49,28 @@ from starlette.types import Message, Receive, Scope, Send
 
 from clarity_chat.backends import CHECK_HELP, BackendError
 from clarity_chat.backends.transformers_hf import FIXED_ORDER
-from clarity_chat.commands import CALL_ID, READS, REPLY_COMMANDS, UPLOAD_ID, Commands
+from clarity_chat.commands import (
+    CALL_ID,
+    READS,
+    REPLY_COMMANDS,
+    UPLOAD_ID,
+    Commands,
+    format_added,
+    format_rebuilt,
+    parts,
+)
 from clarity_chat.documents import (
     MAX_BYTES,
+    PAGES_LOST,
     SENTENCES,
     DocumentRefused,
+    SearchRefused,
     checked_name,
     counted,
+    default_name,
     how_words,
     more_than,
+    problem_words,
     slow_read,
     too_big,
     visible_bidi,
@@ -65,9 +78,16 @@ from clarity_chat.documents import (
 from clarity_chat.export import holds
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.logs import unreadable
-from clarity_chat.profiles import NEUTRAL, SETTING_HELP, SETTING_RANGES, ConfigError
+from clarity_chat.profiles import (
+    NAME_RULE,
+    NEUTRAL,
+    SETTING_HELP,
+    SETTING_RANGES,
+    ConfigError,
+    library_name_problem,
+)
 from clarity_chat.replay import CANNOT_CHANGE_OUTPUT, cancelled_refusal, replay_notes
-from clarity_chat.session import CONTEXT_WARN_FRACTION, ContextError, Session
+from clarity_chat.session import CONTEXT_WARN_FRACTION, ContextError, Session, left_out_counts
 
 PORT = 8765  # fixed, a constant: server.toml describes llama-server only
 STATIC = Path(__file__).parent / "web_static"
@@ -194,7 +214,8 @@ class Worker:
         except (ConfigError, ContextError, BackendError) as e:
             if name == "export" and conversation is not None:
                 self.exported = (conversation.log.path.stem, {"error": str(e)})
-            return {"error": str(e), "type": type(e).__name__}
+            problems = {"problems": e.problems} if isinstance(e, SearchRefused) else {}
+            return {"error": str(e), "type": type(e).__name__, **problems}
         except Exception as e:  # noqa: BLE001 - as in --json, it ends the session
             self.failed = f"Clarity stopped after an unexpected error: {type(e).__name__}: {e}"
             self.emit({"event": "stopped", "reason": self.failed})
@@ -463,6 +484,8 @@ def make_app(
             params: dict[str, str | None] = {"call": call}
             if request.path_params["name"] == "attach":
                 params.update(attach_params(request.query_params))
+            if request.path_params["name"] == "documents":
+                params.update(documents_params(request.query_params))
             try:
                 return HTMLResponse(await renderer(worker, params))
             except (KeyError, TypeError, AttributeError) as e:  # a record a read refuses too
@@ -1908,9 +1931,205 @@ def json_response(content: dict[str, Any]) -> Response:
     return Response(body, media_type="application/json")
 
 
+MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
+TRY_LIMIT = 4000  # characters of a message to try: a query parameter, not a paste
+
+
+def date_words(added: str) -> str:
+    """A manifest's `added` time as the page says a date: 10 Nov 2026."""
+    year, month, day = (int(n) for n in added[:10].split("-"))
+    return f"{day} {MONTHS[month - 1]} {year}"
+
+
+def joined(names: list[str], last: str = "and") -> str:
+    """Names in a sentence: "a", "a and b", "a, b and c"."""
+    return f"{', '.join(names[:-1])} {last} {names[-1]}" if len(names) > 1 else "".join(names)
+
+
+def documents_params(query: Any) -> dict[str, str | None]:
+    """/view/documents' parameters: a message to try, an upload being added and its typed
+    name, and the notice to draw (a document just added, rebuilt, or searched here)."""
+    tried = query.get("try")
+    if tried is not None and len(tried) > TRY_LIMIT:
+        raise Refused(400, f"A message to try is at most {TRY_LIMIT:,} characters.")
+    upload = query.get("upload")
+    if upload is not None and not UPLOAD_ID.fullmatch(upload):
+        raise Refused(400, "That isn't an upload ID.")
+    named = {k: query.get(k) for k in ("added", "rebuilt", "searched")}
+    if any(v is not None and library_name_problem(v) for v in named.values()):
+        raise Refused(400, "That isn't a document's name.")
+    return {"try": tried, "upload": upload, "name": (query.get("name") or "")[:200], **named,
+            "dropped": "1" if query.get("dropped") == "1" else None}  # fmt: skip
+
+
+def document_row(doc: dict[str, Any]) -> dict[str, Any]:
+    """A library row as the board draws it (C1)."""
+    row: dict[str, Any] = {"name": doc["name"], "state": doc["state"]}
+    if doc["state"] == "unreadable":
+        return {**row, "note": doc["why"]}
+    edited = ", text.md edited" if doc["edited"] else ""
+    return {
+        **row,
+        "sub": f"{doc['original']} · added {date_words(doc['added'])}{edited}; "
+        f"{parts(doc['parts'])}, {doc['titled']:,} with a title",
+        "kind": KINDS[doc["kind"]],
+        "size": size_words(doc["bytes"]),
+        "parts": f"{doc['parts']:,}",
+        "note": SENTENCES["state_changed"] if doc["state"] == "changed" else None,
+        "pages": PAGES_LOST if doc["state"] == "changed" and doc["kind"] == "pdf" else None,
+    }
+
+
+def found_view(found: dict[str, Any], searched: list[str]) -> dict[str, Any]:
+    """What a search found, as the try box (C1) and "From documents" (C3) show it: the
+    count, each part with its rank and why, the notes on what was left out, the words."""
+    counts = left_out_counts(found)
+    already, budget = counts.get("already in the chat", 0), counts.get("budget", 0)
+    words = SENTENCES["found_words"].format(words=", ".join(found["words"]))
+    if found["ignored"]:
+        words += " " + SENTENCES["found_ignored"].format(words=", ".join(found["ignored"]))
+    view: dict[str, Any] = {"rows": [], "notes": [], "words": words, "empty": None}
+    if not found["words"]:
+        key = "found_all_common" if found["ignored"] else "found_no_words"
+        return {**view, "summary": SENTENCES["found_nothing_words"], "empty": SENTENCES[key],
+                "words": None}  # fmt: skip
+    if not found["matched"]:
+        empty = SENTENCES["found_no_match"].format(documents=joined(searched, "or"))
+        return {**view, "summary": SENTENCES["found_nothing_matched"], "empty": empty}
+    for p in found["parts"]:
+        why = []
+        if p["title_words"]:
+            why.append(SENTENCES["found_in_title"].format(words=", ".join(p["title_words"])))
+        if p["words"]:
+            why.append(SENTENCES["found_in_text"].format(words=", ".join(p["words"])))
+        tokens = f"{p['tokens']:,}"
+        row = {"rank": p["rank"], "label": part_label(p), "tokens": tokens, "why": "; ".join(why)}
+        view["rows"].append(row)
+    for o in found["left_out"]:
+        if o["why"] == "already in the chat":
+            document, _, ordinal = o["id"].rpartition(":")
+            label = f"{document} · part {ordinal}"
+            view["rows"].append({"rank": o["rank"], "label": label, "tokens": "",
+                                 "why": SENTENCES["found_already"], "already": True})  # fmt: skip
+    if budget:
+        key = "found_left_budget" if found["parts"] else "found_left_budget_none"
+        view["notes"].append(SENTENCES[key].format(n=f"{budget:,}", budget=f"{found['budget']:,}"))
+    if unconsidered := counts.get("not considered", 0):
+        view["notes"].append(SENTENCES["found_unconsidered"].format(
+            n=f"{unconsidered:,}", considered=found["considered"]))  # fmt: skip
+    around = found["tokens"] - sum(p["tokens"] for p in found["parts"])
+    if found["parts"] and around > 0:
+        view["notes"].append(SENTENCES["found_around"].format(tokens=f"{around:,}"))
+    if found["parts"]:
+        summary = SENTENCES["found_parts"].format(
+            parts=parts(len(found["parts"])), tokens=f"{found['tokens']:,}"
+        )
+        if already:
+            summary += " · " + SENTENCES["found_already_more"].format(n=f"{already:,}")
+    elif already and not budget:
+        summary = SENTENCES["found_nothing_new"].format(n=f"{already:,}")
+    else:
+        summary = SENTENCES["found_nothing_fit"].format(n=f"{budget:,}")
+    return {**view, "summary": summary}
+
+
+def part_label(part: dict[str, Any]) -> str:
+    """A part as the lists name it (N47): its document and title (and page), else its page
+    and number."""
+    page = part["page"]
+    if part["title"]:
+        return f'{part["document"]} · "{part["title"]}"' + (f", page {page}" if page else "")
+    where = f"page {page} · " if page else ""
+    return f"{part['document']} · {where}part {part['ordinal']}"
+
+
+def refusal_lines(answer: dict[str, Any]) -> list[dict[str, Any]]:
+    """A search's refusal as the page draws it: each problem's line with its buttons (the
+    board's W6), or a refusal with no problems as one line."""
+    if not answer.get("problems"):
+        return [{"text": answer["error"]}]
+    lines = []
+    for p in answer["problems"]:
+        name = p.get("document")
+        lines.append({
+            "text": problem_words(p, terminal=False, where="chat", at_send=False),
+            "rebuild": name if p["state"] in ("changed", "parts") else None,
+            "stop": name,
+        })  # fmt: skip
+    return lines
+
+
 async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
-    """The Documents… page (v0.3.2 C1): a stub, red first."""
-    return templates.get_template("documents.html").render()
+    """The Documents… page (v0.3.2 C1): the library from /documents, Add (an upload, then
+    /documents add), each row's Rebuild, and the try box (/try with the open chat)."""
+    listed = await result_of(worker, "documents")
+    state = await result_of(worker, "state")
+    docs = {d["name"]: d for d in listed["documents"]}
+    in_chat = state["conversation_id"] is not None and state["mode"] == "chat"
+    searching = [d["name"] for d in state["searching"]]
+    notice = search_here = None
+    if (name := params["added"]) in docs and "kind" in docs[name]:
+        d = docs[name]
+        ext = {"text": "txt"}.get(d["kind"], d["kind"])
+        files = (f"original.{ext}", "text.md", "parts.jsonl", "manifest.json")
+        written = [f"local/documents/{name}/{f}" for f in files]
+        notice = f"Added {name}. " + format_added(
+            {"added": d, "written": written, "replaced": False}
+        )
+        search_here = name if in_chat and name not in searching else None
+    elif (name := params["rebuilt"]) in docs and "kind" in docs[name]:
+        d = docs[name]
+        written = [f"local/documents/{name}/parts.jsonl", f"local/documents/{name}/manifest.json"]
+        notice = format_rebuilt({"rebuilt": {**d, "name": name}, "written": written,
+                                 "pages_dropped": params["dropped"] == "1"})  # fmt: skip
+    elif params["searched"]:
+        notice = SENTENCES["searches_next"].format(name=params["searched"])
+    add = None
+    if (upload := params["upload"]) and upload in worker.uploads:
+        data, filename = worker.uploads[upload]
+        typed = params["name"] or default_name(filename) or ""
+        add = {"upload": upload, "file": filename, "size": size_words(len(data)), "name": typed,
+               "why": None, "rule": None}  # fmt: skip
+        if not typed:
+            add.update(why=f"Clarity can't make a document name from {filename}. Give it one.",
+                       rule=NAME_RULE)  # fmt: skip
+        elif problem := library_name_problem(typed):
+            add.update(why=problem)
+        elif typed in docs:
+            add["why"] = f"There's already a document named {typed}. {SENTENCES['name_taken']}"
+        else:
+            add["keeps"] = SENTENCES["keeps_copy"].format(name=typed)
+    if not in_chat:
+        sub = SENTENCES["try_no_chat"]
+    elif not docs:
+        sub = SENTENCES["try_no_documents"]
+    elif not searching:
+        sub = SENTENCES["try_none"]
+    else:
+        sub = SENTENCES["try_open"].format(names=joined(searching), profile=state["profile"])
+    tried = refused = None
+    if in_chat and searching and params["try"] is not None:
+        answer = await read_or_refusal(worker, "try", params["try"])
+        if "error" in answer:
+            refused = refusal_lines(answer)
+        else:
+            tried = found_view(answer["result"]["found"], searching)
+            if answer["result"]["refused"]:
+                refused = [{"text": answer["result"]["refused"]}]
+    return templates.get_template("documents.html").render(
+        intro=SENTENCES["documents_intro"],
+        folder=SENTENCES["documents_folder"].format(folder=listed["folder"]),
+        titles=SENTENCES["documents_titles"],
+        rows=[document_row(d) for d in listed["documents"]],
+        notice=notice,
+        search_here=search_here,
+        add=add,
+        try_sub=sub,
+        try_enabled=in_chat and bool(searching),
+        try_text=params["try"] or "",
+        tried=tried,
+        refused=refused,
+    )
 
 
 VIEW_RENDERERS = {

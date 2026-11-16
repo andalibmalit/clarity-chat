@@ -424,6 +424,7 @@ def documents(root: Path) -> list[dict[str, Any]]:
                 "name": path.name,
                 "kind": manifest["original"]["kind"],
                 "original": manifest["original"]["name"],
+                "added": manifest["added"],
                 "bytes": manifest["original"]["bytes"],
                 "parts": manifest["parts"],
                 "titled": manifest["titled"],
