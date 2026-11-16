@@ -36,6 +36,7 @@ from clarity_chat.documents import (
     covers_whole,
     fit,
     framing_of,
+    library_manifest,
     library_state,
     message_content,
     more_than,
@@ -1219,11 +1220,19 @@ class Session:
         """A profile's `search` list names documents in the library: one that isn't there
         is refused when a chat starts, naming the key (v0.3.2 B1)."""
         for name in profile.search:
-            if library_state(self.root, name) == "missing":
+            state = library_state(self.root, name)
+            if state == "missing":
                 raise ConfigError(
                     f"Profile {profile.name}: [documents] search names {name}, which isn't in "
                     "your documents. Add it, or take it out of the profile's search list."
                 )
+            if state == "unreadable":  # a link, or a manifest Clarity can't read: why
+                try:
+                    library_manifest(self.root, name)
+                except DocumentRefused as e:
+                    raise ConfigError(
+                        f"Profile {profile.name}: [documents] search names {name}. {e}"
+                    ) from None
 
     def set_search(self, names: list[str]) -> dict[str, Any]:
         """The documents this chat searches, from now on: each must be in the library
@@ -1232,8 +1241,11 @@ class Session:
         self.attaching()  # a text-mode chat refuses, as attaching does
         for name in names:
             checked_library_name(name)
-            if library_state(self.root, name) == "missing":
+            state = library_state(self.root, name)
+            if state == "missing":
                 raise DocumentRefused(f"{name} isn't in your documents.")
+            if state == "unreadable":
+                library_manifest(self.root, name)  # refused, saying why (a link, say)
         if len(set(names)) != len(names):
             raise ConfigError("Name each document once.")
         conversation.searching, conversation.searching_origin = list(names), "chat"

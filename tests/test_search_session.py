@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 
 import pytest
@@ -267,3 +268,20 @@ def test_the_search_record_reads_as_json(root, chat_tokenizer):
     assert session.conversation is not None
     last = json.loads(session.conversation.log.path.read_text().splitlines()[-1])
     assert (last["type"], last["documents"]) == ("search", ["glossary"])
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_a_linked_document_is_refused_by_search_and_a_start(root, chat_tokenizer, tmp_path):
+    """Checkpoint 1's M1, re-checked against B1 (rule 13): /search and a profile's list
+    meet the library's refusal of a linked folder, never the folder behind it."""
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (root / "local/documents/linked").symlink_to(elsewhere, target_is_directory=True)
+    session, c = chat(root, chat_tokenizer)
+    with pytest.raises(DocumentRefused, match="^linked's folder in local/documents/ is a link"):
+        run(c, "search linked")
+    assert run(c, "documents")["documents"][1]["state"] == "unreadable"
+    profile(root, 'search = ["linked"]')
+    with pytest.raises(ConfigError, match=r"^Profile chat: \[documents\] search names linked\. "):
+        chat(root, chat_tokenizer)
+    assert list(elsewhere.iterdir()) == []
