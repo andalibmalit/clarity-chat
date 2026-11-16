@@ -172,6 +172,7 @@ def test_the_export_sheet_says_it_holds_the_attached_documents_text(attachments)
         "calls_without_a_turn_left_out": 0,
         "steered": [],
         "attachments": attachments,
+        "found": False,  # v0.3.2: the parts search added
     }
     sheet = web.templates.get_template("export.html").render(**web.export_sheet({"result": answer}))
     said = "It holds the text of the documents attached in this chat." in sheet
