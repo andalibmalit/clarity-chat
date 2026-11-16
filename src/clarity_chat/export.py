@@ -268,7 +268,7 @@ def derive_spans(
             [t["turn_id"] for t in turns],
             prompt,
             template,
-            [added_ranges(t) for t in turns],
+            [added_ranges(t["text"], t) for t in turns],
         )
     except Exception as e:  # a tokenizer not in the cache, a record Clarity didn't write
         return {"unavailable": f"{type(e).__name__}: {e}"}

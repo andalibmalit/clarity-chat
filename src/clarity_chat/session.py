@@ -141,7 +141,8 @@ class Turn:
     def content(self) -> str:
         """The message as the model gets it: with its attachments' block, if any."""
         return message_content(
-            self.text, {"attachments": self.attachments, "framing": self.framing}
+            self.text,
+            {"attachments": self.attachments, "framing": self.framing, "placement": self.placement},
         )
 
     def attached_fields(self) -> dict[str, Any]:
@@ -835,10 +836,12 @@ class Session:
         first: int = 0,
         last: int = 0,
         cancel: threading.Event | None = None,
+        aside: int = 0,
     ) -> tuple[dict[str, Any], Fit]:
         """Add `doc`, whole or units `first` to `last`, to the attachments waiting for your
         next message, if it fits. Returns its record, as the turn will log it, and its fit:
-        the free context before it and what it leaves."""
+        the free context before it and what it leaves. A refusal's suggested start leaves
+        max_tokens and `aside` (a searching chat's budget, v0.3.2's S1)."""
         conversation, profile, framing = self.attaching()
         assert self.tokenizer is not None
         new = with_text(doc, piece(doc, profile, unit, first, last), unit, first, last)
@@ -853,7 +856,7 @@ class Session:
                 found = start_that_fits(room, pending, framing, doc, profile, checked=checked)
                 start = found[0] if found else None
                 found = start_that_fits(
-                    room, pending, framing, doc, profile, room.max_tokens, checked
+                    room, pending, framing, doc, profile, room.max_tokens + aside, checked
                 )
                 roomy = found[0] if found else None
             raise DoesntFit(
@@ -893,9 +896,10 @@ class Session:
         last: int = 0,
         cancel: threading.Event | None = None,
         new_profile: str | None = None,
+        aside: int = 0,
     ) -> dict[str, Any]:
         """What attaching `doc` would cost and leave, attaching nothing: the whole, the start
-        that fits, the preselected start (leaving max_tokens more), the range given, and
+        that fits, the preselected start (leaving max_tokens and `aside` more), the range given, and
         the whole in the chat /new would start (`new_profile`, the profile it starts, "" for
         none; by default this chat's profile file)."""
         conversation, profile, framing = self.attaching()
@@ -911,7 +915,7 @@ class Session:
             doc.sha256, doc.kind, doc.name, profile.name, conversation.conversation_id,
             conversation.head,
             tuple((a["sha256"], a["name"], tuple(a["range"])) for a in conversation.pending),
-            room.max_tokens, self.backend.n_ctx, new.key if new else None,
+            room.max_tokens, self.backend.n_ctx, new.key if new else None, aside,
         )  # fmt: skip
         if self._checked is None or self._checked[0] != key:
             before = self._room_for_a_file(room, pending, framing)
@@ -930,7 +934,9 @@ class Session:
                         framing_of(new.profile)[0],
                     ),
                     start_that_fits(room, pending, framing, doc, profile, checked=checked),
-                    start_that_fits(room, pending, framing, doc, profile, room.max_tokens, checked),
+                    start_that_fits(
+                        room, pending, framing, doc, profile, room.max_tokens + aside, checked
+                    ),
                 ),
             )
         counts = self._checked[1]
@@ -972,6 +978,7 @@ class Session:
             "start_that_fits": shown(counts.start),
             "preselected": shown(counts.roomy),
             "max_tokens": room.max_tokens,  # what the numbers were counted with
+            "aside": aside,  # a searching chat's budget, which the preselected start leaves too
             "chosen": chosen,
             # null and false when today's profile file can't start a chat: /new would refuse
             "free_new_chat": new_chat and new_chat.free,
@@ -1344,7 +1351,7 @@ class Session:
             [t.turn_id for t in path],
             prompt,
             self.template_tokenizer,
-            [added_ranges(t.attached_fields()) for t in path],
+            [added_ranges(t.text, t.attached_fields()) for t in path],
         )
 
     @staticmethod
