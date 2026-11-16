@@ -129,7 +129,13 @@ class HEAD:
 class SearchRefused(ConfigError):
     """A searched message's call refused before anything was sent (v0.3.2 decisions 6 and
     12): a found part holds a control token, or a searched document is changed or missing.
-    Logged as a failed call; the message is given back, with its way out."""
+    Logged as a failed call; the message is given back, with its way out. `terminal`: the
+    same refusal with the terminal's commands in place of the page's words (the fix
+    review's C5), which the terminal and --json show; the page and the log keep the board's."""
+
+    def __init__(self, said: str, terminal: str | None = None) -> None:
+        super().__init__(said)
+        self.terminal = said if terminal is None else terminal
 
 
 STALE = {  # a document a search can't read, and its way out (the board's N30, N31)
@@ -138,6 +144,17 @@ STALE = {  # a document a search can't read, and its way out (the board's N30, N
     "missing": "Clarity can't search {name}: its folder in local/documents/ is gone. Stop "
     "searching it, or add the file again in Documents….",
 }
+STALE_TERMINAL = {  # the same, with the terminal's commands
+    "changed": "Clarity can't search {name}: a file in its folder has changed since Clarity cut "
+    "it into parts. `clarity document rebuild {name}` cuts them again from its text.md.",
+    "missing": "Clarity can't search {name}: its folder in local/documents/ is gone. Stop "
+    "searching it, or add the file again: `clarity document add FILE --name {name}`.",
+}
+
+
+def stale(state: str, name: str) -> tuple[str, str]:
+    """A stale document's refusal line, for the page and for the terminal."""
+    return STALE[state].format(name=name), STALE_TERMINAL[state].format(name=name)
 
 
 def cant_search(name: str, refused: DocumentRefused) -> str:
@@ -863,7 +880,8 @@ class Session:
         run (SYS: "one object, three uses"). Every document a search can't read is named in
         one refusal, each with its way out (the board walk's point 6); `at_send` heads it
         "Nothing was sent." """
-        lines, docs = [], []
+        lines: list[tuple[str, str]] = []
+        docs = []
         for name in names:
             line = self._unsearchable(name)
             if line is None:
@@ -871,13 +889,17 @@ class Session:
                     docs.append(load_document(self.root, name))
                     continue
                 except Stale as e:  # it changed since the check just now
-                    line = STALE[e.state].format(name=name)
+                    line = stale(e.state, name)
                 except DocumentRefused as e:  # its parts.jsonl (the security review's S2)
-                    line = cant_search(name, e)
+                    said = cant_search(name, e)
+                    line = (said, said)
             lines.append(line)
         head = [NOTHING_SENT] if at_send else []
         if lines:
-            raise SearchRefused("\n".join([*head, *lines]))
+            raise SearchRefused(
+                "\n".join([*head, *(page for page, _ in lines)]),
+                "\n".join([*head, *(terminal for _, terminal in lines)]),
+            )
         budget, origin = budget_of(profile)
         try:
             found = search_documents(docs, text)
@@ -896,26 +918,30 @@ class Session:
             already,
         )
 
-    def _unsearchable(self, name: str) -> str | None:
-        """Why a search can't read `name` and the way out (N30, N31, N32), or None."""
+    def _unsearchable(self, name: str) -> tuple[str, str] | None:
+        """Why a search can't read `name` and the way out (N30, N31, N32), for the page and
+        for the terminal, or None."""
         state = library_state(self.root, name)
         if state == "ready":
             return None
         if state == "missing":
-            return STALE["missing"].format(name=name)
+            return stale("missing", name)
         try:
             manifest = library_manifest(self.root, name)
         except DocumentRefused as e:  # unreadable: its own sentence, as its row says it
-            return cant_search(name, e)
+            said = cant_search(name, e)
+            return said, said
         pdf = manifest["original"]["kind"] == "pdf" and manifest["text"]["page_starts"]
-        return STALE["changed"].format(name=name) + (f" {PAGES_LOST}" if pdf else "")
+        page, terminal = stale("changed", name)
+        lost = f" {PAGES_LOST}" if pdf else ""
+        return page + lost, terminal + lost
 
     def document_builds(self, names: list[str]) -> dict[str, str]:
         """Each document's build ID, as a search now would read it (a stale one refused)."""
         try:
             return {name: load_document(self.root, name).build_id for name in names}
         except Stale as e:
-            raise SearchRefused(STALE[e.state].format(name=e.name)) from None
+            raise SearchRefused(*stale(e.state, e.name)) from None
 
     def block(self, text: str) -> dict[str, Any]:
         """A next message's block fields, searched now, a refusal raised (a batch run)."""
@@ -1437,7 +1463,10 @@ class Session:
             if state == "unreadable":
                 library_manifest(self.root, name)  # refused, saying why (a link, say)
             if state == "ready":
-                library_parts(self.root, name)  # its parts read as untrusted (the review's S2)
+                try:
+                    library_parts(self.root, name)  # read as untrusted (the review's S2)
+                except Stale as e:  # changed under the quick check (the fix review's C6)
+                    raise DocumentRefused(STALE[e.state].format(name=name)) from None
         if named_twice(names) is not None:
             raise ConfigError("Name each document once.")
         conversation.searching, conversation.searching_origin = list(names), "chat"
@@ -1470,11 +1499,15 @@ class Session:
         for name in self.conversation.searching:
             state = library_state(self.root, name)
             entry: dict[str, Any] = {"name": name, "state": state}
-            if state == "ready":
-                try:
+            try:
+                if state == "ready":
                     entry.update(self._scanned(name))
-                except DocumentRefused:  # its parts.jsonl isn't Clarity's (the review's S2)
-                    entry["state"] = "unreadable"
+                elif state == "unreadable":  # why, as /documents says it (the review's C7)
+                    library_manifest(self.root, name)
+            except Stale as e:  # changed under the quick check: its state (the review's C6)
+                entry["state"] = e.state
+            except DocumentRefused as e:  # a manifest, or a parts.jsonl, not Clarity's
+                entry.update(state="unreadable", why=str(e))
             found.append(entry)
         return found
 
@@ -1847,17 +1880,22 @@ class Session:
                 )
                 name = part["document"]
                 where = (
-                    f' ("{part["title"]}")'
+                    f' ("{shown(part["title"])}")'  # a heading can hold ESC (the review's S2)
                     if part["title"]
                     else f" (page {part['page']})"
                     if part["page"]
                     else ""
                 )
-                raise SearchRefused(
+                said = (
                     f"{NOTHING_SENT}\nPart {part['ordinal']} of {name}{where} holds {held}, which "
                     f"this model reads as {one}, not text. Take {it} out of "
-                    f"local/documents/{name}/text.md; Clarity then shows the document as "
-                    f"Changed, with Rebuild. Or stop searching {name}."
+                    f"local/documents/{name}/text.md"
+                )
+                raise SearchRefused(
+                    f"{said}; Clarity then shows the document as Changed, with Rebuild. Or "
+                    f"stop searching {name}.",
+                    f"{said}; `clarity document rebuild {name}` then cuts its parts again. Or "
+                    f"stop searching {name}.",
                 )
 
     def _check_output(
@@ -2379,6 +2417,7 @@ def found_summary(found: dict[str, Any]) -> dict[str, Any]:
         "tokens": found["tokens"],
         "parts": [{"id": p["id"], "title": p["title"], "rank": p["rank"]} for p in found["parts"]],
         "left_out": len(found["left_out"]),
+        "left_out_why": list(dict.fromkeys(o["why"] for o in found["left_out"])),
     }
 
 

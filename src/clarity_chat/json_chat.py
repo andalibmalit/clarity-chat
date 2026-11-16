@@ -32,7 +32,7 @@ from typing import IO, Any
 from clarity_chat.backends import BackendError
 from clarity_chat.commands import Commands
 from clarity_chat.profiles import ConfigError
-from clarity_chat.session import ContextError, Session
+from clarity_chat.session import ContextError, SearchRefused, Session
 
 
 class JsonChat:
@@ -140,7 +140,8 @@ class JsonChat:
             args = command.get("args", "")
             result = self.commands.run(name, args, self.emit, paths=start, at_once=at_once)
         except (ConfigError, ContextError, BackendError) as e:
-            self.emit({"event": "error", **tag, "type": type(e).__name__, "message": str(e)})
+            said = e.terminal if isinstance(e, SearchRefused) else str(e)  # its commands
+            self.emit({"event": "error", **tag, "type": type(e).__name__, "message": said})
             if start:
                 self.failed = True
                 return False

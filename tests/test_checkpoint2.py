@@ -135,6 +135,7 @@ def test_history_shows_the_words_and_the_parts_added():
             {"id": "glossary:3", "title": None, "rank": 2},
         ],
         "left_out": 1,
+        "left_out_why": ["not considered"],
     }
     assert history_of(found) == [
         '  searched for wren, sing: added glossary:1 "Wren", glossary:3 (120 tokens)'
@@ -159,6 +160,7 @@ def test_history_says_when_search_added_nothing(words, matched, line):
         "tokens": 0,
         "parts": [],
         "left_out": matched,
+        "left_out_why": ["budget"] if matched else [],
     }
     assert history_of(found) == [line]
 
@@ -172,6 +174,7 @@ def test_history_prints_a_title_through_shown():
         "tokens": 9,
         "parts": [{"id": "odd:1", "title": "\x1b[31mred", "rank": 1}],
         "left_out": 0,
+        "left_out_why": [],
     }
     assert history_of(found) == ['  searched for wren: added odd:1 "\\x1b[31mred" (9 tokens)']
 

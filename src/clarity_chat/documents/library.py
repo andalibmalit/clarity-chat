@@ -245,7 +245,13 @@ def swap_in(building: Path, target: Path, replace: bool) -> None:
     try:
         os.replace(building, target)
     except OSError:  # Windows refusing a folder another program holds: the old one back
-        os.replace(aside, target)
+        try:
+            os.replace(aside, target)
+        except OSError as e:  # that failed too: say where it is (the fix review's C9)
+            raise DocumentRefused(
+                f"Clarity couldn't replace {target.name} or put it back "
+                f"({e.strerror or type(e).__name__}). It's in local/documents/{aside.name}/."
+            ) from None
         raise
     try:
         for item in aside.iterdir():

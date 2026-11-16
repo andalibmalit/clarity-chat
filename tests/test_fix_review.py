@@ -197,8 +197,8 @@ TERMINAL = {
     "local/documents/ is gone. Stop searching it, or add the file again: `clarity document "
     "add FILE --name glossary`.",
     "control": 'Nothing was sent.\nPart 1 of odd ("Wren") holds </s>, which this model reads '
-    "as a control token, not text. Take it out of local/documents/odd/text.md, then run "
-    "`clarity document rebuild odd`. Or stop searching odd.",
+    "as a control token, not text. Take it out of local/documents/odd/text.md; `clarity "
+    "document rebuild odd` then cuts its parts again. Or stop searching odd.",
 }
 
 

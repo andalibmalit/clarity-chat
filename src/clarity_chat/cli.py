@@ -244,8 +244,13 @@ def searched_line(found: dict[str, Any]) -> str:
     words = f"  searched for {', '.join(found['words'])}"
     if not found["matched"]:
         return f"{words}: nothing matched"
-    if not found["parts"]:
-        return f"{words}: {found['matched']:,} matched, none added (none fit the budget)"
+    if not found["parts"]:  # why, from what was left out (the fix review's S3)
+        whys = set(found["left_out_why"]) - {"not considered"}
+        reason = {
+            frozenset({"already in the chat"}): "already in the chat",
+            frozenset({"already in the chat", "budget"}): "already in the chat, or over the budget",
+        }.get(frozenset(whys), "none fit the budget")
+        return f"{words}: {found['matched']:,} matched, none added ({reason})"
     added = ", ".join(
         p["id"] + (f' "{shown(p["title"])}"' if p["title"] else "") for p in found["parts"]
     )
@@ -626,7 +631,8 @@ class ChatLoop:
             self.resume_hint(e.server_stopped)
             return True
         except (ContextError, SearchRefused) as e:  # too long, or refused: nothing was sent
-            self.write(f"! {e}{self.give_back(name, args)}\n")
+            said = e.terminal if isinstance(e, SearchRefused) else e  # the terminal's commands
+            self.write(f"! {said}{self.give_back(name, args)}\n")
             return True
         except ConfigError as e:
             self.write(f"! {e}\n")
@@ -1351,7 +1357,8 @@ def run_command(args: argparse.Namespace) -> int:
         if args.command == "document":
             return cmd_document(root, args)
     except (ConfigError, BackendError) as e:
-        print(f"clarity: {e}", file=sys.stderr)
+        said = e.terminal if isinstance(e, SearchRefused) else e  # the terminal's commands
+        print(f"clarity: {said}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         print("\nclarity: interrupted", file=sys.stderr)
