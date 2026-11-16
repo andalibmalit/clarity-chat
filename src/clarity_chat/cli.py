@@ -33,6 +33,7 @@ from clarity_chat.profiles import (
     find_root,
     load_models,
     load_server_config,
+    shown,
 )
 from clarity_chat.replay import replay_notes
 from clarity_chat.resume import render_line, what_differs
@@ -180,13 +181,6 @@ def format_pending(pending: list[dict[str, Any]]) -> str:
 def attachment_line(a: dict[str, Any]) -> str:
     """1. trail-notes.md, whole, 2,104 tokens (the number is /detach's)"""
     return f"{a['n']}. {shown(a['name'])}, {how_words(a)}, {a['tokens']:,} tokens"
-
-
-def shown(text: str) -> str:
-    """A file name as the terminal prints it: control and invisible characters written as
-    Python writes them (\\x1b, \\u202e), so whatever reached it can't send the terminal escape
-    sequences or show reversed."""
-    return text if text.isprintable() else repr(text)[1:-1]
 
 
 def format_attached(result: dict[str, Any]) -> str:

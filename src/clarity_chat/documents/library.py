@@ -73,9 +73,9 @@ def default_name(filename: str) -> str | None:
 def folder(root: Path, name: str) -> Path:
     """A document's folder: one folder under local/documents/, never a link (Checkpoint 1's
     M1: replacing through a link would delete and move files outside the project)."""
-    library = root / LIBRARY
+    library = root / LIBRARY  # itself may be a link: a library on another disk is followed
     path = library / checked_library_name(name)
-    if path.is_symlink() or path.resolve().parent != library.resolve():
+    if path.is_symlink() or path.is_junction() or path.resolve().parent != library.resolve():
         raise DocumentRefused(
             f"{name}'s folder in local/documents/ is a link, which Clarity doesn't follow. "
             "Put the folder itself there."
@@ -192,6 +192,10 @@ def add(
     files = [original_name(doc.kind), "text.md", "parts.jsonl", "manifest.json"]
     with writing(name):
         target.parent.mkdir(parents=True, exist_ok=True)
+        stale = re.compile(rf"\.{re.escape(name)}-[a-z0-9_]{{8}}")  # mkdtemp's, never -old-
+        for left in target.parent.iterdir():  # a build a hard crash left: its copy goes
+            if stale.fullmatch(left.name) and left.is_dir() and not left.is_symlink():
+                shutil.rmtree(left)
         building = Path(tempfile.mkdtemp(prefix=f".{name}-", dir=target.parent))
         try:
             write(building / files[0], data)

@@ -698,10 +698,10 @@ def steering_words(settings: dict[str, Any]) -> str | None:
 
 
 async def context_figure(worker: Worker, state: dict[str, Any]) -> dict[str, Any] | None:
-    """The last prompt's share of the context. A message refused for its size isn't counted
-    (nothing was sent); the reply at the head is."""
+    """The last prompt's share of the context. A message refused for its size or by search
+    isn't counted (nothing was sent); the reply at the head is."""
     call = (await result_of(worker, "prompt"))["call"]
-    if call and (call.get("error") or "").startswith("ContextError"):
+    if call and (call.get("error") or "").startswith(("ContextError", "SearchRefused")):
         replies = [
             t["call_id"]
             for t in state["turns"]

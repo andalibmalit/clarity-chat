@@ -603,9 +603,11 @@ def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
                 )
             data, filename = uploaded
             name = documents.checked_library_name(typed.strip()) if typed.strip() else None
-            return documents.library_add(
+            added = documents.library_add(
                 root, data, filename, name, on_read=told(filename), on_write=writing
             )
+            c.uploads.pop(source, None)  # used: dropped, as /attach drops one (a refusal keeps it)
+            return added
         if not os.path.exists(os.path.expanduser(source)) and " " in rest:
             source, name = rest.rsplit(" ", 1)  # a path, then the name
         filename = os.path.basename(source)

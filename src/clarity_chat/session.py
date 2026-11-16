@@ -70,13 +70,16 @@ from clarity_chat.profiles import (
     check_server_flags,
     check_setting,
     fetch_hint,
+    library_name_problem,
     load_defaults,
     load_models,
     load_profile,
     load_server_config,
+    named_twice,
     parse_setting,
     profile_path,
     resolve_settings,
+    shown,
     steering_path,
 )
 from clarity_chat.render import (
@@ -484,7 +487,8 @@ class Session:
         self.backend = backend or self.backend_for("llama.cpp", None)
         self.conversation: Conversation | None = None
         self._checked: tuple[tuple, Counts] | None = None  # the last check's counts
-        self._scans: dict[tuple[str, int], dict[str, int]] = {}  # /search's counts, by build
+        self._scans: dict[str, dict[str, int]] = {}  # /search's counts, by build ID,
+        self._scanned_with: Any = None  # for this tokenizer, held: an id() can be reused
         self.model: ModelEntry | None = None
         self.model_lock: dict[str, Any] = {}
         self.tokenizer: Tokenizer | None = None
@@ -934,6 +938,8 @@ class Session:
         a new chat on `profile_name`, counted with its tokenizer, with no model."""
         for name in names:
             checked_library_name(name)
+        if named_twice(names) is not None:
+            raise ConfigError("Name each document once.")
         profile, model, _ = self.profile_for(profile_name)
         self._profile_documents(profile)
         tokenizer, template = self.tokenizers_for(profile, model)
@@ -1375,8 +1381,6 @@ class Session:
         original = conversation.turns[reply.parent_id]
         # The attachments are kept; the new text is searched again (decision 2, Q6).
         attached, refused = self._block(text, original.attachments, original.parent_id, True)
-        if original.attachments and not conversation.searching:  # as it was logged
-            attached = {**attached, **{k: getattr(original, k) for k in TURN_FIELDS}}
         user = conversation.add_turn(
             "user", "edit", text, original.parent_id, edit_of=original.turn_id, **attached
         )
@@ -1434,7 +1438,7 @@ class Session:
                 library_manifest(self.root, name)  # refused, saying why (a link, say)
             if state == "ready":
                 library_parts(self.root, name)  # its parts read as untrusted (the review's S2)
-        if len(set(names)) != len(names):
+        if named_twice(names) is not None:
             raise ConfigError("Name each document once.")
         conversation.searching, conversation.searching_origin = list(names), "chat"
         return conversation.log.append(
@@ -1478,7 +1482,9 @@ class Session:
         """A ready document's counts for this tokenizer, kept by build ID: /state asks often."""
         assert self.tokenizer is not None
         manifest = library_manifest(self.root, name)
-        key = (manifest["build_id"], id(self.tokenizer))
+        if self._scanned_with is not self.tokenizer:  # another model: count again
+            self._scans, self._scanned_with = {}, self.tokenizer
+        key = manifest["build_id"]
         if key not in self._scans:
             parts, _ = library_parts(self.root, name, manifest)
             self._scans[key] = {
@@ -2112,9 +2118,17 @@ class Session:
             )  # fmt: skip
         conversation.head = state.head
         if state.searching is not None:  # a `search` record: this chat's own list
-            conversation.searching = [
-                checked_library_name(name) for name in state.searching
-            ]  # a name that can't be one is refused, before it's ever a path (S14)
+            for name in state.searching:  # refused before it's ever a path (S14), said
+                if (problem := library_name_problem(name)) is not None:  # with its record
+                    raise DocumentRefused(
+                        f"{path}: its search record names {shown(name)}, which can't name a "
+                        f"document. {problem}"
+                    )
+            if (twice := named_twice(state.searching)) is not None:
+                raise DocumentRefused(
+                    f"{path}: its search record names {twice} twice. Name each document once."
+                )
+            conversation.searching = list(state.searching)
             conversation.searching_origin = "chat"
         else:
             conversation.searching = list(prepared.profile.search)
@@ -2335,10 +2349,18 @@ def attached_tokens(spans: Any, conversation: Conversation, user_turn: Turn) -> 
             [*(["attached documents"] if "attachment" in kinds else []),
              *(["parts found in your documents"] if "part" in kinds else [])]  # N34
         )  # fmt: skip
-        return f", {n:,} of them in {what or 'documents'} and their framing lines" if n else ""
-    path = prompt_turns(conversation, user_turn)
-    n = sum(a["tokens"] for t in path for a in t.attachments)
-    return f", {n:,} of them for attached documents, counted when attached" if n else ""
+        return f", {n:,} of them in {what} and their framing lines" if n else ""
+    path = prompt_turns(conversation, user_turn)  # Checkpoint 2's C3: found parts too
+    attached = sum(a["tokens"] for t in path for a in t.attachments)
+    found = sum(t.found["tokens"] for t in path if t.found is not None)
+    n, what, when = attached + found, [], []
+    if attached:
+        what, when = ["attached documents"], ["attached"]
+    if found:
+        what, when = [*what, "parts found in your documents"], [*when, "found"]
+    return (
+        f", {n:,} of them for {' and '.join(what)}, counted when {' or '.join(when)}" if n else ""
+    )
 
 
 def budget_of(profile: Profile) -> tuple[int, str]:
