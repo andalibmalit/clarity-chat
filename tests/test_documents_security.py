@@ -243,7 +243,7 @@ def test_a_deeply_nested_parts_line_is_refused(root):
     manifest["files"]["parts.jsonl"] = {"bytes": info.st_size, "mtime_ns": info.st_mtime_ns}
     (folder(root) / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     assert outcome(lambda: library_parts(root, "notes")) == (
-        "DocumentRefused: notes's parts.jsonl isn't one Clarity writes. Rebuild it."
+        "PartsRefused: notes's parts.jsonl isn't one Clarity writes. Rebuild it."
     )
 
 

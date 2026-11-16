@@ -33,6 +33,7 @@ from clarity_chat.documents.insert import (
 from clarity_chat.documents.library import (
     LIBRARY,
     OriginalChanged,
+    PartsRefused,
     Stale,
     checked_library_name,
     control_token_parts,
@@ -64,6 +65,7 @@ from clarity_chat.documents.reading import (
     too_big,
     visible_bidi,
 )
+from clarity_chat.documents.refused import SearchRefused, control_token_problem
 from clarity_chat.documents.search import COMMON_WORDS, CONSIDERED, Loaded, words_of
 from clarity_chat.documents.search import load as load_document
 from clarity_chat.documents.search import search as search_documents
@@ -77,6 +79,9 @@ __all__ = [
     "words_of",
     "LIBRARY",
     "OriginalChanged",
+    "PartsRefused",
+    "SearchRefused",
+    "control_token_problem",
     "Stale",
     "checked_library_name",
     "control_token_parts",

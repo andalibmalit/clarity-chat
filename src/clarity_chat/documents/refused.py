@@ -1,0 +1,130 @@
+"""A search's refusal, carried as data and worded by each front end (v0.3.2 decision 6, M4;
+part 1's whole-branch PM1): "Each refusal names a way out that exists on that front end."
+The page says the board's sentences (N29-N33); the terminal and --json name their
+commands. The log keeps the page's words, the record every front end reads."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any
+
+from clarity_chat.documents.search import NO_FTS5
+from clarity_chat.profiles import ConfigError, shown
+
+PAGES_LOST = "If you edited text.md, its parts will lose their page numbers."  # N24
+NOTHING_SENT = "Nothing was sent."  # N29: a refusal at Send's first line
+WITHOUT_SEARCH = "To send without searching, stop searching every document in this chat."
+
+
+def problem_words(problem: dict[str, Any], terminal: bool, chat: bool, at_send: bool) -> str:
+    """One problem's sentence. `terminal`: the terminal's and --json's words, else the
+    page's; `chat`: said in a chat, where /search stops searching (else a run or a try,
+    where the profile's list does)."""
+    name = problem.get("document", "")
+    state = problem["state"]
+    if state == "no_fts5":
+        return f"{NO_FTS5} {WITHOUT_SEARCH}" if at_send else NO_FTS5
+    if state == "unreadable":  # N32: its own way out, the same everywhere
+        return f"Clarity can't search {name}: its {problem['why'].removeprefix(name + "'s ")}"
+    if state == "profile_missing":  # N37
+        way = (
+            f"Add it with `clarity document add FILE --name {name}`"
+            if terminal
+            else "Add it in Documents…"
+        )
+        return (
+            f"Profile {problem['profile']} searches {name}, which isn't in your documents. "
+            f"{way}, or take it out of search under [documents] in the profile's file."
+        )
+    if state == "changed":  # N30, N24
+        way = (
+            f"`clarity document rebuild {name}` cuts them again from its text.md."
+            if terminal
+            else "Rebuild cuts them again from its text.md."
+        )
+        lost = f" {PAGES_LOST}" if problem.get("pages_lost") else ""
+        return (
+            f"Clarity can't search {name}: a file in its folder has changed since Clarity cut "
+            f"it into parts. {way}{lost}"
+        )
+    if state == "parts":  # parts.jsonl isn't one Clarity writes (the security review's S2)
+        way = (
+            f"`clarity document rebuild {name}` cuts its parts again."
+            if terminal
+            else "Rebuild it."
+        )
+        return f"Clarity can't search {name}: its parts.jsonl isn't one Clarity writes. {way}"
+    stop = stopping(terminal, chat)
+    if state == "missing":  # N31
+        way = (
+            f"add the file again: `clarity document add FILE --name {name}`"
+            if terminal
+            else "add the file again in Documents…"
+        )
+        return (
+            f"Clarity can't search {name}: its folder in local/documents/ is gone. "
+            f"{stop.format(it='it').capitalize()}, or {way}."
+        )
+    assert state == "control_tokens"  # N33
+    tokens = problem["tokens"]
+    held = " and ".join([", ".join(tokens[:-1]), tokens[-1]] if tokens[1:] else tokens)
+    one, it = ("a control token", "it") if len(tokens) == 1 else ("control tokens", "them")
+    where = (
+        f' ("{shown(problem["title"])}")'  # a heading can hold ESC (the fix review's S2)
+        if problem["title"]
+        else f" (page {problem['page']})"
+        if problem["page"]
+        else ""
+    )
+    way = (
+        f"`clarity document rebuild {name}` then cuts its parts again"
+        if terminal
+        else "Clarity then shows the document as Changed, with Rebuild"
+    )
+    return (
+        f"Part {problem['ordinal']} of {name}{where} holds {held}, which this model reads as "
+        f"{one}, not text. Take {it} out of local/documents/{name}/text.md; {way}. Or "
+        f"{stop.format(it=name)}."
+    )
+
+
+def stopping(terminal: bool, chat: bool) -> str:
+    """How to stop searching a document, with `{it}` for what's stopped."""
+    if not terminal:
+        return "stop searching {it}"
+    return (
+        "stop searching {it} with /search" if chat else "take {it} out of the profile's search list"
+    )
+
+
+class SearchRefused(ConfigError):
+    """A searched message's call (or /try, or a run) refused before anything was sent:
+    `problems` says why, as data (each document and its state, the control-token part, or
+    no FTS5), and each front end words its way out. str() is the page's words, which the
+    log keeps; `terminal` the terminal's and --json's. `at_send` heads both with "Nothing
+    was sent."; `chat` says it's in a chat, where /search stops searching."""
+
+    def __init__(
+        self, problems: list[dict[str, Any]], at_send: bool = False, chat: bool = True
+    ) -> None:
+        self.problems, self.at_send, self.chat = problems, at_send, chat
+        super().__init__(self.words(terminal=False))
+
+    @property
+    def terminal(self) -> str:
+        return self.words(terminal=True)
+
+    def words(self, terminal: bool) -> str:
+        lines = [problem_words(p, terminal, self.chat, self.at_send) for p in self.problems]
+        return "\n".join([NOTHING_SENT, *lines] if self.at_send else lines)
+
+
+def control_token_problem(part: Mapping[str, Any], tokenizer: Any) -> dict[str, Any] | None:
+    """A found part holding this model's control tokens, as a problem, or None (decision
+    12): Send refuses it, and /try says it would."""
+    tokens = list(dict.fromkeys(tokenizer.special_tokens_in(part["text"])))
+    if not tokens:
+        return None
+    keys = ("ordinal", "title", "page")
+    return {"document": part["document"], "state": "control_tokens",
+            **{k: part[k] for k in keys}, "tokens": tokens}  # fmt: skip

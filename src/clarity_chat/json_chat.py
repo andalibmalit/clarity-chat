@@ -140,8 +140,10 @@ class JsonChat:
             args = command.get("args", "")
             result = self.commands.run(name, args, self.emit, paths=start, at_once=at_once)
         except (ConfigError, ContextError, BackendError) as e:
-            said = e.terminal if isinstance(e, SearchRefused) else str(e)  # its commands
-            self.emit({"event": "error", **tag, "type": type(e).__name__, "message": said})
+            error = {"event": "error", **tag, "type": type(e).__name__, "message": str(e)}
+            if isinstance(e, SearchRefused):  # its commands, and why as data (PM1)
+                error.update(message=e.terminal, problems=e.problems)
+            self.emit(error)
             if start:
                 self.failed = True
                 return False

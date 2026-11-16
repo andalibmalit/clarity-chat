@@ -186,7 +186,7 @@ def test_a_build_that_changes_mid_run_stops_it(root, chat_tokenizer):
         real = session.block
         calls = []
 
-        def block(text):
+        def block(text, chat=True):
             calls.append(text)
             if len(calls) == 2:  # the second opening: the document was rebuilt meanwhile
                 from clarity_chat.commands import document_rebuild
@@ -194,7 +194,7 @@ def test_a_build_that_changes_mid_run_stops_it(root, chat_tokenizer):
                 path = root / "local/documents/glossary/text.md"
                 path.write_text(path.read_text(encoding="utf-8") + "\n## Owl\nNew.\n")
                 document_rebuild(root, "glossary")
-            return real(text)
+            return real(text, chat)
 
         session.block = block
 
