@@ -437,3 +437,43 @@ def test_t3_a_chat_that_uses_it_resumes_exports_and_replays(
         again = FakeBackend([call["output_text"]], tokenizer=chat_tokenizer)
         fresh = Session(fetched_root, backend=again, tokenizer_loader=lambda r, v: chat_tokenizer)
         assert fresh.replay(log, call["call_id"])["identical"], (name, call["call_id"])
+
+
+# --- The Shapes table's `found` (Checkpoint 1's S9): what a search adds to a turn
+
+FOUND_SHAPE: dict[str, set[str]] = {
+    "found": {
+        "method", "searched_for", "scan_depth", "words", "ignored", "documents", "engine",
+        "considered", "budget", "budget_origin", "parts", "left_out", "matched", "tokens",
+    },
+    "documents": {"name", "build_id", "original_sha256"},
+    "engine": {
+        "name", "sqlite", "tokenizer", "weights", "word_rule", "common_words", "query",
+    },
+    "parts": {
+        "id", "document", "ordinal", "title", "page", "text", "sha256", "rank", "score",
+        "title_words", "words", "tokens",
+    },
+    "left_out": {"id", "rank", "score", "why"},
+}  # fmt: skip
+
+
+def test_found_has_the_shapes_table_s_keys():
+    import sqlite3
+
+    from clarity_chat.documents import FRAMING, Loaded, cut_parts, fill, search_documents
+    from tests.test_documents_found import counting_room
+
+    text = "\n\n".join(f"## Wren {i}\nA made-up wren, number {i}." for i in range(12))
+    docs = [Loaded("birds", "b", "s", cut_parts(text, "birds.md"))]
+    room, _ = counting_room()
+    found = fill(room, "wren", [], FRAMING, search_documents(docs, "wren"), 10**6, "default")
+    assert set(found) == FOUND_SHAPE["found"]
+    assert set(found["documents"][0]) == FOUND_SHAPE["documents"]
+    assert set(found["engine"]) == FOUND_SHAPE["engine"]
+    assert set(found["parts"][0]) == FOUND_SHAPE["parts"]
+    assert set(found["left_out"][0]) == FOUND_SHAPE["left_out"]
+    assert (found["engine"]["name"], found["engine"]["sqlite"]) == (
+        "sqlite-fts5",
+        sqlite3.sqlite_version,
+    )
