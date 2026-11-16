@@ -611,7 +611,13 @@ def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         if not os.path.exists(os.path.expanduser(source)) and " " in rest:
             source, name = rest.rsplit(" ", 1)  # a path, then the name
         filename = os.path.basename(source)
-        return document_add(root, source, name, on_read=told(filename), on_write=writing)
+        try:
+            return document_add(root, source, name, on_read=told(filename), on_write=writing)
+        except documents.DocumentRefused as e:  # a chat's way to name it (the page: its box)
+            if str(e).endswith(" Give it one."):
+                said = str(e).removesuffix(".")
+                raise documents.DocumentRefused(f"{said}: /documents add PATH NAME.") from None
+            raise
     raise ConfigError("Usage: /documents [add PATH [NAME] | rebuild NAME]")
 
 

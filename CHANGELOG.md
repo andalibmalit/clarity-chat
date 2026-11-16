@@ -14,6 +14,9 @@ Two headings are Clarity's own, used when they apply:
 - A chat-mode profile's `[documents]` table gains `search` (the documents a chat searches), `budget` (the tokens search may add to a message, default 1,500) and `placement` (`"start"` or `"end"`: where the block of documents goes in your message). In a chat, `/search` lists or changes the documents searched, and says how many of their parts hold this model's control tokens or `</part>`; it's logged as a `search` record and kept on resume; `/documents` lists, adds and rebuilds them; `/state` gains `searching`. A searching chat's suggested start for an attachment leaves the budget free too.
 - `clarity document add|list|check|rebuild`: the library of documents Clarity will search, in `local/documents/NAME/` (a copy of the file, its text as `text.md`, its parts and a manifest). Clarity says where it writes before and after, builds each document in a temporary folder and renames it into place, and refuses a document whose files have changed until you rebuild it.
 
+### Output may change
+- An HTML file's text (version 2 of Clarity's HTML rules) puts a blank line between block elements and turns `h1` to `h6` into `#` headings, so a saved web page gets paragraphs, and in your documents titled parts. Its tokens differ from v0.3.1's for the same file. Old logs and replay are unaffected: a call replays its logged IDs, and a resume reads the logged text.
+
 ### Changed
 - The refusals for a file Clarity can't read say "use that copy" rather than "attach that", since the same file can now go into your documents too.
 

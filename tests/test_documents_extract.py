@@ -625,7 +625,7 @@ def test_html_s_record_names_the_python_that_read_it():
     doc = extract(b"<p>Made-up.</p>", "notes.html")
     assert doc.extractor == {
         "name": "clarity-html",
-        "version": 1,
+        "version": 2,  # WB7's rules
         "python": platform.python_version(),
     }
 

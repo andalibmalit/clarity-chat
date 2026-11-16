@@ -336,6 +336,7 @@ TERMINAL_ONLY = {
         "the page sends a number it checked, or none"
     ),
     "Usage: /branches [all]": "the page sends none, or all",
+    ": /documents add PATH NAME.": "the page sends an upload, named in its box",
     "Usage: /compare [CALL_ID]": "the page sends one call ID",
     "/resume takes a conversation ID from /chats, not a path.": "the page sends a log ID",
     "Usage: /prompt [CALL_ID]": "the page sends one call ID",

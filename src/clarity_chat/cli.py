@@ -1171,9 +1171,10 @@ def format_rebuilt(result: dict[str, Any]) -> str:
     manifest = result["rebuilt"]
     files = " and ".join(path.rsplit("/", 1)[1] for path in result["written"])
     folder = result["written"][0].rsplit("/", 1)[0]
+    dropped = " Its parts no longer have page numbers." if result["pages_dropped"] else ""
     return (
         f"Rebuilt {manifest['name']} from its text.md: {parts(manifest['parts'])}, "
-        f"{manifest['titled']:,} with a title. Wrote {files} in {folder}/."
+        f"{manifest['titled']:,} with a title. Wrote {files} in {folder}/.{dropped}"
     )
 
 
