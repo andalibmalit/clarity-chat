@@ -1,0 +1,423 @@
+"""The class tests (sprint rule 13; v0.3.2's plan, "Class tests"): each guards a class of
+defect rather than one case, and each later item adds its rows.
+
+- T1, missing fields: a machine-readable copy of the plan's Shapes table. A log missing any
+  field in it is refused by resume and export with `logs.unreadable`'s sentence, and every
+  read and view of a chat holding such a turn answers rather than stopping the session.
+- T2, no terminal command in a page sentence: every sentence the page can show is scanned
+  for a slash command, `clarity …` or a `--flag`.
+- T3, accepted and logged means resumable, exportable, replayable: for each command that
+  writes a record, a scripted chat resumes with an identical render, exports, and replays
+  each completed call Identical.
+
+Made-up text only.
+"""
+
+from __future__ import annotations
+
+import ast
+import json
+import re
+from html.parser import HTMLParser
+from pathlib import Path
+from typing import Any
+
+import pytest
+from starlette.testclient import TestClient
+
+from clarity_chat import web
+from clarity_chat.backends import BackendError
+from clarity_chat.commands import Commands
+from clarity_chat.documents import SENTENCES
+from clarity_chat.export import export_log
+from clarity_chat.logs import read_records
+from clarity_chat.profiles import ConfigError
+from clarity_chat.session import Session
+from tests.fakes import FakeBackend
+from tests.test_session_attach import doc
+from tests.test_web import GET, ORIGIN, PORT, SECRET, command
+
+SRC = Path(__file__).parent.parent / "src" / "clarity_chat"
+
+
+def quiet(event: dict) -> None:
+    pass
+
+
+# --- T1: missing fields, from the Shapes table
+
+# The plan's Shapes table, as data: for each record kind, where each field sits. A path is
+# the keys and list indexes from the record to the field. v0.3.1's attachment fields are
+# the first rows (its 21-case sweep); v0.3.2's `found`, `search` record and `added` part
+# entries join as they're built.
+SHAPES: dict[str, list[tuple[Any, ...]]] = {
+    "turn": [  # `attachments` itself is optional: a turn without it had none (old logs)
+        ("framing",),
+        ("framing_origin",),
+        ("placement",),
+        *(
+            ("attachments", 0, field)
+            for field in (
+                "name",
+                "kind",
+                "bytes",
+                "sha256",
+                "extractor",
+                "unit",
+                "total",
+                "how",
+                "range",
+                "marker",
+                "text",
+                "extracted_sha256",
+                "empty_units",
+                "control_tokens",
+                "has_closing_tag",
+                "tokens",
+            )  # fmt: skip
+        ),
+    ],
+}
+ROWS = [(kind, path) for kind, paths in SHAPES.items() for path in paths]
+
+
+def holds(record: dict, path: tuple[Any, ...]) -> bool:
+    """Whether the record has the field's parent: a turn without attachments has none."""
+    node: Any = record
+    for key in path[:-1]:
+        try:
+            node = node[key]
+        except (KeyError, IndexError, TypeError):
+            return False
+    return isinstance(node, dict) and path[-1] in node
+
+
+def drop(record: dict, path: tuple[Any, ...]) -> None:
+    node: Any = record
+    for key in path[:-1]:
+        node = node[key]
+    del node[path[-1]]
+
+
+def scripted_chat(session: Session, tmp_path: Path) -> None:
+    """One chat that writes every record kind the Shapes table names, on two branches."""
+    session.new_conversation("chat")
+    session.attach(doc())
+    session.say("What's in it?")
+    session.regen()
+    session.undo()
+    session.attach(doc("Made-up other.\n", "other.md"), "lines", 1, 1)
+    session.say("And this one?")
+
+
+@pytest.fixture
+def chat_mode_session(fetched_root, chat_tokenizer):
+    backend = FakeBackend([f" R{i}." for i in range(20)], tokenizer=chat_tokenizer)
+    return Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
+
+
+@pytest.mark.parametrize(("kind", "path"), ROWS, ids=lambda v: str(v))
+def test_t1_a_log_missing_a_field_is_refused_by_resume_and_export(
+    chat_mode_session, tmp_path, kind, path
+):
+    session = chat_mode_session
+    scripted_chat(session, tmp_path)
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    dropped = 0
+    for row in rows:
+        if row.get("type") == kind and holds(row, path):
+            drop(row, path)
+            dropped += 1
+    assert dropped, f"the scripted chat writes no {kind} with {path}"
+    log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    session.new_conversation("chat")
+    for read in (lambda: session.resume(log), lambda: export_log(session, log)):
+        with pytest.raises(ConfigError) as refused:
+            read()
+        assert str(refused.value).startswith("Can't read the records of"), refused.value
+
+
+VIEWS = ["thread", "branches", "settings", "pending", "chats"]
+READS = ["history", "branches", "settings", "state"]
+READS_OF_A_CALL = ["compare", "prompt", "probs"]
+
+
+@pytest.fixture
+def page_chat(fetched_root, chat_tokenizer):
+    backend = FakeBackend([f" R{i}." for i in range(20)], tokenizer=chat_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
+    app = web.make_app(session, SECRET.encode(), port=PORT)
+    # A view that raises answers 500, as it would in a browser, rather than raising here.
+    with TestClient(app, base_url=ORIGIN, raise_server_exceptions=False) as client:
+        command(client, "profile", "chat")
+        yield client, session
+
+
+@pytest.mark.parametrize(("kind", "path"), ROWS, ids=lambda v: str(v))
+def test_t1_every_read_and_view_answers_when_a_field_is_missing(page_chat, kind, path):
+    """Taken out in memory, as a log resume would refuse: each read answers with a result or
+    a refusal, and each view with a page or a refusal; none stops the session."""
+    client, session = page_chat
+    session.attach(doc())
+    call = command(client, "say", "What's in it?").json()["result"]["call"]
+    command(client, "regen")
+    assert session.conversation is not None and kind == "turn"
+    turns = [t for t in session.conversation.turns.values() if holds(t.attached_fields(), path)]
+    assert turns
+    for turn in turns:  # a Turn's field can't be missing: a top-level one is set to None
+        if len(path) > 1:
+            drop({"attachments": turn.attachments}, path)
+        else:
+            setattr(turn, path[0], None)
+    stopped = []
+    asked = [(name, "") for name in READS] + [(n, call["call_id"]) for n in READS_OF_A_CALL]
+    for name, args in asked:
+        answer = command(client, name, args).json()
+        if answer.get("stopped") or not ("result" in answer or answer.get("type")):
+            stopped.append((name, answer))
+    views = [f"/view/{name}" for name in VIEWS]
+    views += [f"/view/{name}?call={call['call_id']}" for name in ("details", "compare")]
+    for view in views:
+        response = client.get(view, headers=GET)
+        if response.status_code not in (200, 503):
+            stopped.append((view, response.status_code, response.text[:200]))
+    assert command(client, "state").json().get("result"), "the session stopped"
+    assert stopped == []
+
+
+# --- T2: no terminal command in a page sentence
+
+COMMAND = re.compile(r"(?:^|[\s(\"'“‘`])(/[a-z][a-z_]*\b|clarity [a-z]+\b|--[a-z][a-z-]*)")
+
+
+class Text(HTMLParser):
+    """A template's text nodes and the attributes a person reads or hears."""
+
+    SPOKEN = ("aria-label", "title", "placeholder", "alt")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found: list[str] = []
+
+    def handle_data(self, data: str) -> None:
+        self.found.append(data)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        for name, value in attrs:
+            if value and (name in self.SPOKEN or (name.startswith("data-") and " " in value)):
+                self.found.append(value)
+
+
+def template_text(source: str) -> list[str]:
+    source = re.sub(r"\{#.*?#\}", "", source, flags=re.S)
+    source = re.sub(r"\{%.*?%\}|\{\{.*?\}\}", " ", source, flags=re.S)
+    parser = Text()
+    parser.feed(source)
+    return parser.found
+
+
+def js_strings(source: str) -> list[str]:
+    """app.js's string literals, comments and regular expressions skipped; a template
+    literal's `${…}` dropped."""
+    found, i, n = [], 0, len(source)
+    while i < n:
+        c = source[i]
+        if source.startswith("//", i):
+            i = source.find("\n", i)
+            i = n if i < 0 else i
+        elif source.startswith("/*", i):
+            i = source.index("*/", i) + 2
+        elif c == "/" and source[:i].rstrip()[-1:] in tuple("(,=:[!&|?{};"):
+            i += 1  # a regular expression: skip to its closing slash, past any [class]
+            in_class = False
+            while i < n and (source[i] != "/" or in_class):
+                if source[i] == "\\":
+                    i += 1
+                elif source[i] in "[]":
+                    in_class = source[i] == "["
+                i += 1
+            i += 1
+        elif c in "\"'`":
+            j, text, depth = i + 1, [], 0
+            while j < n:
+                if source[j] == "\\":
+                    text.append(source[j : j + 2])
+                    j += 2
+                elif c == "`" and source.startswith("${", j):
+                    depth, j = 1, j + 2
+                    while j < n and depth:
+                        depth += {"{": 1, "}": -1}.get(source[j], 0)
+                        j += 1
+                    text.append("\0")  # not text: a string that's all paths stays one
+                elif source[j] == c:
+                    break
+                else:
+                    text.append(source[j])
+                    j += 1
+            found.append("".join(text))
+            i = j + 1
+        else:
+            i += 1
+    return found
+
+
+ERRORS = {"ConfigError", "ContextError", "DocumentRefused", "DoesntFit", "Refused", "BackendError"}
+
+# Refusals that name a terminal command but can't reach the page: the page never sends the
+# command, or never sends it in that form. Each is said here, with why.
+TERMINAL_ONLY = {
+    "llama-server's /props failed after startup: ": "a llama-server endpoint, not a command",
+    "Usage: /regen [N], where N is a whole number of replies, 1 or more; or /regen same.": (
+        "the page sends a number it checked, or none"
+    ),
+    "Usage: /branches [all]": "the page sends none, or all",
+    "Usage: /compare [CALL_ID]": "the page sends one call ID",
+    "/resume takes a conversation ID from /chats, not a path.": "the page sends a log ID",
+    "Usage: /prompt [CALL_ID]": "the page sends one call ID",
+    "Usage: /probs [CALL_ID]": "the page sends one call ID",
+    "/export takes no path: it writes to logs/exports/ID.jsonl.": "the page sends none",
+    "Usage: /replay [CALL_ID]": "the page sends one call ID",
+    "/profile takes a profile name from profiles/ or local/profiles/, not a path.": (
+        "the page sends a name from /profiles"
+    ),
+    "Unknown command /. /help lists them.": "the page sends only commands in the table",
+    "--attach names  twice. Name each file once.": "clarity chat --attach only",
+    "Usage: /cancel": "the page sends none, or an upload ID",
+    " isn't a log name Clarity writes, so it can't name the export. Pass --out PATH.": (
+        "the page exports the open chat, a log Clarity wrote"
+    ),
+    "/set: unknown setting . Known: .": "the page sends names from /settings",
+    "No conversation or log file . `clarity chats` or /chats lists them.": (
+        "the page exports the open chat, and opens chats it listed"
+    ),
+    "This conversation has no turn . /branches lists them.": (
+        "the page switches to turns it drew from /branches; a stale one needs another tab, "
+        "which the page refuses"
+    ),
+    "The Transformers backend needs torch: run `uv sync --extra hf`.": (
+        "a setup step outside Clarity, not a terminal equivalent of a page control"
+    ),
+    " isn't set in this chat. Usage: /set NAME VALUE": "the page resets only a changed row",
+}
+
+
+def refusals() -> list[tuple[str, int, str]]:
+    """Each refusal's constant text, by file and line: the strings in `raise ERROR(…)`."""
+    found = []
+    for path in sorted(SRC.rglob("*.py")):
+        if path.name in ("cli.py", "batch.py") and path.parent == SRC:
+            continue  # the terminal's own output
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not (isinstance(node, ast.Raise) and isinstance(node.exc, ast.Call)):
+                continue
+            called = node.exc.func
+            name = called.id if isinstance(called, ast.Name) else getattr(called, "attr", "")
+            if name in ERRORS:
+                parts = [
+                    n.value
+                    for n in ast.walk(node.exc)
+                    if isinstance(n, ast.Constant) and isinstance(n.value, str)
+                ]
+                found.append((path.name, node.lineno, "".join(parts)))
+    return found
+
+
+def page_sentences() -> list[tuple[str, str]]:
+    sentences = []
+    for path in [
+        *sorted((SRC / "web_templates").glob("*.html")),
+        SRC / "web_static" / "index.html",
+    ]:
+        sentences += [(path.name, t) for t in template_text(path.read_text(encoding="utf-8"))]
+    js = (SRC / "web_static" / "app.js").read_text(encoding="utf-8")
+    sentences += [("app.js", s) for s in js_strings(js) if " " in s]
+    sentences += [(f"SENTENCES[{k!r}]", v) for k, v in SENTENCES.items()]
+    sentences += [
+        (f"{name}:{line}", text) for name, line, text in refusals() if text not in TERMINAL_ONLY
+    ]
+    return sentences
+
+
+def test_t2_the_scan_sees_the_page_s_sentences():
+    """The scanner reads each source: an empty one would pass every check below."""
+    seen = {where.split(":")[0].split("[")[0] for where, _ in page_sentences()}
+    assert {"index.html", "thread.html", "attach.html", "app.js", "SENTENCES"} <= seen
+    assert any(text == "Choose another file" for _, text in page_sentences())
+    assert any("No attachment" in text for _, text in page_sentences())
+
+
+def test_t2_no_page_sentence_names_a_terminal_command():
+    named = [
+        (where, COMMAND.findall(text), text.strip()[:100])
+        for where, text in page_sentences()
+        if COMMAND.search(text)
+    ]
+    assert named == []
+
+
+def test_t2_each_terminal_only_refusal_is_still_raised():
+    """An entry whose sentence has changed would hide nothing and should go."""
+    raised = {text for _, _, text in refusals()}
+    assert sorted(set(TERMINAL_ONLY) - raised) == []
+
+
+# --- T3: accepted and logged means resumable, exportable, replayable
+
+
+def write_chat(name: str, c: Commands, backend: FakeBackend, tmp_path: Path) -> None:
+    """A chat that uses `name`, the command that writes the record."""
+    path = tmp_path / "notes.md"
+    path.write_text("Made-up line one.\nMade-up line two.\n", encoding="utf-8")
+    run = lambda line: c.run(*line.partition(" ")[::2], quiet)  # noqa: E731
+    run("profile chat")
+    first = run("say Hello there")["call"]["call_id"]
+    if name == "regen":
+        run("regen")
+    elif name == "edit":
+        run("edit Hello again")
+    elif name == "set":
+        run("set temperature 0.3")
+        run("say And now?")
+    elif name == "title":
+        run("title A made-up title")
+    elif name == "mark":
+        run(f"mark {first} landed")
+    elif name == "note":
+        run(f"note {first} A made-up note.")
+    elif name == "attach":
+        run(f"attach {path}")
+        run("say What's in it?")
+        run(f"attach {path} lines 2-2")
+        run("say And the second line?")
+    elif name == "failed call":
+        backend.fail_with = "made-up failure"
+        with pytest.raises(BackendError):
+            run("say Are you there?")
+        backend.fail_with = None
+        run("say Again?")
+
+
+WRITERS = ["say", "regen", "edit", "set", "title", "mark", "note", "attach", "failed call"]
+
+
+@pytest.mark.parametrize("name", WRITERS)
+def test_t3_a_chat_that_uses_it_resumes_exports_and_replays(
+    fetched_root, chat_tokenizer, tmp_path, name
+):
+    backend = FakeBackend([f" R{i}." for i in range(20)], tokenizer=chat_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
+    write_chat(name, Commands(session), backend, tmp_path)
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    session.new_conversation("chat")
+    record = session.resume(log)
+    assert record["render"] is None or record["render"]["identical"], record["render"]
+    assert export_log(session, log)["path"]
+    calls = [r for r in read_records(log) if r["type"] == "call" and r.get("turn_id")]
+    assert calls
+    for call in calls:  # with no chat open, as `clarity replay` does
+        again = FakeBackend([call["output_text"]], tokenizer=chat_tokenizer)
+        fresh = Session(fetched_root, backend=again, tokenizer_loader=lambda r, v: chat_tokenizer)
+        assert fresh.replay(log, call["call_id"])["identical"], (name, call["call_id"])
