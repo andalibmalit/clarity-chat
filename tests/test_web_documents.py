@@ -134,15 +134,21 @@ def test_an_unreadable_row_says_why(root, make):
     )
 
 
-def test_rebuild_s_notice_says_when_pages_were_dropped(root, make):
+def test_rebuild_s_notice_is_its_result_and_says_when_pages_were_dropped(root, make):
+    """The notice is drawn from the command's result (the C1 tripwire review's should 1),
+    once: the next drawing has none."""
+    from clarity_chat.commands import format_rebuilt
+
     library_add(root, make_pdf(["The wren.", "The dipper."]), "guide.pdf")
+    text = root / "local/documents/guide/text.md"
+    text.write_text(text.read_text(encoding="utf-8") + "Edited.\n", encoding="utf-8")
     client, _ = make()
-    said = text_of(page(client, rebuilt="guide", dropped="1"))
-    assert (
-        "Rebuilt guide from its text.md: 1 part, 0 with a title. Wrote parts.jsonl and "
-        "manifest.json in local/documents/guide/. Its parts no longer have page numbers." in said
-    )
-    assert "page numbers." not in text_of(page(client, rebuilt="guide")).split("Wrote")[1][:120]
+    result = command(client, "documents", "rebuild guide").json()["result"]
+    assert result["pages_dropped"] is True
+    said = text_of(page(client))
+    assert format_rebuilt(result) in said
+    assert said.count("Its parts no longer have page numbers.") == 1
+    assert "Rebuilt guide" not in text_of(page(client))
 
 
 # --- Add
@@ -185,7 +191,7 @@ def test_added_s_notice_offers_search_it_in_this_chat(root, make):
         "upload"
     ]
     command(client, "documents", f"add {upload_id} herons")
-    fragment = page(client, added="herons")
+    fragment = page(client)
     assert (
         "Added herons. Clarity wrote local/documents/herons/: original.txt, text.md, parts.jsonl "
         "and manifest.json (2 parts, 2 with a title)." in text_of(fragment)
@@ -197,12 +203,29 @@ def test_added_s_notice_offers_search_it_in_this_chat(root, make):
 
 def test_with_no_chat_open_added_s_notice_has_no_search_button(root, make):
     client, _ = make(chat=False)
-    fragment = page(client, added="glossary")
-    assert "Added glossary." in text_of(fragment)
+    upload_id = upload(client, b"## Heron\nTall.\n", "herons.md").json()["upload"]
+    command(client, "documents", f"add {upload_id} herons")
+    fragment = page(client)
+    assert "Added herons." in text_of(fragment)
     assert "documents-search-here" not in fragment
 
 
+def test_added_s_notice_has_no_search_button_when_the_chat_searches_it(root, make):  # could 5
+    client, _ = make()
+    upload_id = upload(client, b"## Heron\nTall.\n", "herons.md").json()["upload"]
+    command(client, "documents", f"add {upload_id} herons")
+    command(client, "search", "herons")
+    command(client, "documents", "rebuild herons")  # a fresh notice, for a searched document
+    assert "documents-search-here" not in page(client)
+
+
 # --- the try box
+
+
+def test_the_try_box_in_a_text_mode_chat(root, make):  # should 6
+    client, _ = make()
+    command(client, "profile", "text")
+    assert "Searching needs a chat-mode profile; text is in text mode." in text_of(page(client))
 
 
 def test_the_try_box_with_no_chat_open(root, make):
@@ -246,9 +269,10 @@ def test_the_try_box_s_result_equals_try(root, make):
     tried = text_of(page(client, **{"try": "Tell me about the wren"}))
     assert f"1 part · {found['tokens']:,} tokens" in tried
     assert f'1 glossary · "Wren" {part["tokens"]:,} in its title: wren; in its text: wren' in tried
-    # The first part's tokens hold the framing line and its wrapper (the fill's increment),
-    # so the total equals the rows and N52's note isn't drawn (it shows only when they differ).
+    # The first part's count holds the framing line (the fill's increment): said once under
+    # the list (the C1 tripwire review's should 3), with no separate framing note.
     assert found["tokens"] == part["tokens"]
+    assert "The first part's count includes the line Clarity puts before the parts." in tried
     assert "The total also counts" not in tried
     assert (
         "Words searched: wren. Ignored (common words and single letters or digits): tell, me, "
@@ -320,3 +344,63 @@ def test_a_manifest_with_a_bad_date_is_one_unreadable_row(root, make, added):  #
     assert answer.status_code == 200, answer.text
     assert row(answer.text, "herons").startswith("herons ! Can’t be read herons's manifest.json")
     assert row(answer.text, "glossary").endswith("Ready")
+
+
+# --- the C1 tripwire review's shoulds and coulds: found_view's branches, the refusal's buttons
+
+
+def made_up_part(rank: int, **extra) -> dict:
+    return {"id": f"g:{rank}", "document": "g", "ordinal": rank, "title": None, "page": None,
+            "rank": rank, "title_words": [], "words": ["wren"], "tokens": 50, **extra}  # fmt: skip
+
+
+def made_up_found(parts: list[dict], left: list[tuple[int, str]], matched: int) -> dict:
+    return {"words": ["wren"], "ignored": [], "matched": matched, "considered": 8,
+            "budget": 1500, "tokens": sum(p["tokens"] for p in parts), "parts": parts,
+            "left_out": [{"id": f"g:{r}", "rank": r, "score": -1.0, "why": why}
+                         for r, why in left]}  # fmt: skip
+
+
+def test_found_view_s_notes_and_already_rows():  # should 2
+    found = made_up_found([made_up_part(1)], [(2, "already in the chat"), (3, "budget"),
+                          (4, "budget")], 12)  # fmt: skip
+    view = web.found_view(found, ["g"])
+    assert view["summary"] == "1 part · 50 tokens · 1 more already in the chat"
+    assert [(r["rank"], r["label"], r["why"]) for r in view["rows"]] == [
+        (1, "g · part 1", "in its text: wren"),
+        (2, "g · part 2", "already in the chat: not added again"),
+    ]
+    assert view["notes"] == [
+        "2 more matched but were left out: Clarity adds parts in order and stops at the first "
+        "that doesn't fit the budget of 1,500 tokens.",
+        "4 more matched but weren't considered: Clarity considers only the best 8 matches.",
+        "The first part's count includes the line Clarity puts before the parts.",
+    ]
+
+
+def test_found_view_s_nothing_new_and_nothing_fit():  # should 2
+    new = web.found_view(made_up_found([], [(1, "already in the chat")], 1), ["g"])
+    assert new["summary"] == "nothing new · 1 already in the chat"
+    fit = web.found_view(made_up_found([], [(1, "budget"), (2, "budget")], 2), ["g"])
+    assert fit["summary"] == "nothing added · 2 didn't fit the budget"
+    assert fit["notes"][0].startswith("2 matched but were left out:")
+
+
+def test_a_part_s_label_names_its_page():  # should 2
+    assert web.part_label(made_up_part(5, page=3)) == "g · page 3 · part 5"
+    assert web.part_label(made_up_part(5, page=3, title="Wren")) == 'g · "Wren", page 3'
+
+
+def test_a_refusal_s_buttons_follow_its_problem():  # could 5
+    lines = web.refusal_lines({"error": "x", "problems": [
+        {"document": "a", "state": "missing"},
+        {"document": "b", "state": "changed", "pages_lost": False},
+        {"document": "c", "state": "parts"},
+        {"state": "no_fts5"},
+    ]})  # fmt: skip
+    assert [(line["rebuild"], line["stop"]) for line in lines] == [
+        (None, "a"),
+        ("b", "b"),
+        ("c", "c"),
+        (None, None),
+    ]
