@@ -26,6 +26,9 @@ command; each step is judged alone, see check_command) must name a file in the r
 path as given and as Clarity's own attach_args reads it, with `~` expanded, resolved from
 the root with links followed, with no `..` and not a file with a second name. Otherwise
 Clarity, outside the sandbox, could read a file the sandbox denies into the transcript.
+The document library's reads (v0.3.2: `clarity document add FILE`, `/documents add PATH
+[NAME]` typed, inside a message or in `--json`) are judged by the same rule; `/documents
+add` is judged both whole and with its last word taken as the name, as Clarity may read it.
 Each step is checked again, and the root scanned for links again, just before it's typed;
 a step over 1,000 bytes is refused.
 `--init` also resets server.toml. Arguments are parsed with Clarity's own parser and
@@ -51,7 +54,7 @@ from typing import BinaryIO
 
 REPO = Path(__file__).resolve().parents[1]
 QA_DIR = REPO / "notes" / "qa"  # local-only; scratch roots, steps and transcripts
-QA_COMMANDS = {"chat", "chats", "replay", "export"}
+QA_COMMANDS = {"chat", "chats", "replay", "export", "document"}
 QA_MODEL = "smollm2-135m-instruct"
 QA_PROFILES = ("smol-chat", "smol-text")
 QA_VECTOR = Path("tests") / "fixtures" / "steering" / "smollm2-repeng.gguf"  # made by repeng
@@ -204,6 +207,9 @@ def check_clarity_args(root: Path, argv: list[str]) -> argparse.Namespace:
     for value in [attach] if isinstance(attach, (str, Path)) else attach or []:
         if (problem := attach_problem(root, str(value))) is not None:
             raise Refused(f"--attach {problem}")
+    if args.command == "document" and args.action == "add":  # v0.3.2: it reads FILE
+        if problem := path_problem(root, args.file, {args.file, args.file.strip()}):
+            raise Refused(f"document add {problem}")
     return args
 
 
@@ -220,17 +226,40 @@ def attach_problem(root: Path, value: str) -> str | None:
     from clarity_chat.commands import attach_args
     from clarity_chat.profiles import ConfigError
 
+    readings = {value, value.strip(), RANGE.sub("", value.strip())}
+    try:
+        readings |= {attach_args(value)[0], attach_args(value.strip())[0]}
+    except ConfigError as e:  # Clarity refuses the command too
+        return f"{value!r}: {e}"
+    except (ValueError, UnicodeError):  # path_problem says why
+        pass
+    return path_problem(root, value, readings)
+
+
+def documents_problem(root: Path, args: str) -> str | None:
+    """Why `/documents ARGS` may not run here; None when it may. `/documents add PATH [NAME]`
+    reads PATH (v0.3.2): Clarity takes the rest whole when that exists, and otherwise splits
+    off the last word as the name, so both readings are judged."""
+    action, _, rest = args.strip().partition(" ")
+    if not (action and "add".startswith(action)):  # list and rebuild NAME read no path
+        return None
+    rest = rest.strip()
+    readings = {rest, rest.rsplit(" ", 1)[0], *rest.rsplit(None, 1)[:1]}
+    return path_problem(root, rest, readings)
+
+
+def path_problem(root: Path, value: str, readings: set[str]) -> str | None:
+    """Why Clarity may not read the file `value` names, judged in each of `readings`; None
+    when it may. Each reading, as is and with `~` expanded, resolved from the root with links
+    followed, must stay in the root. Refused too: a `..` (resolve() drops it by name after a
+    file, where the system refuses the path), a file with a second name (a hard link may be
+    a file outside), and a path the guard can't judge."""
     try:  # a lone surrogate: POSIX can't encode it, Windows' UTF-16 names take it
         value.encode("utf-8", "surrogateescape")
     except UnicodeEncodeError:
         return f"{value!r} can't be judged (a lone surrogate); use a plain path in the root"
     if "\x00" in value:  # POSIX's resolve raises on a NUL; Windows' doesn't
         return f"{value!r} can't be judged (a NUL); use a plain path in the root"
-    readings = {value, value.strip(), RANGE.sub("", value.strip())}
-    try:
-        readings |= {attach_args(value)[0], attach_args(value.strip())[0]}
-    except ConfigError as e:  # Clarity refuses the command too
-        return f"{value!r}: {e}"
     base = root.resolve()
     try:
         for reading in readings:
@@ -241,7 +270,7 @@ def attach_problem(root: Path, value: str) -> str | None:
                 if not resolved.is_relative_to(base):
                     return f"{value!r} is outside the scratch root {root}"
                 if resolved.is_file() and resolved.stat().st_nlink > 1:
-                    return f"{value!r} has a second name (a hard link); attach a plain file"
+                    return f"{value!r} has a second name (a hard link); use a plain file"
     except RuntimeError:  # ~name of no such user
         return f"{value!r}: a ~ path that can't be judged; use a path in the scratch root"
     except (ValueError, OSError) as e:  # a NUL, a lone surrogate, a name too long
@@ -252,6 +281,11 @@ def attach_problem(root: Path, value: str) -> str | None:
 def attaches(name: str) -> bool:
     """Whether a command named `name` (perhaps a prefix of it) is attach."""
     return bool(name) and "attach".startswith(name)
+
+
+def adds_documents(name: str) -> bool:
+    """Whether a command named `name` (perhaps a prefix of it) is documents."""
+    return bool(name) and "documents".startswith(name)
 
 
 def inside(root: Path, value: str) -> bool:
@@ -312,6 +346,8 @@ def check_command(where: str, line: str, root: Path | None) -> None:
             raise Refused(f"{where}: /{name} takes a name or ID here, not {arg!r}")
         if attaches(name):
             check_attach_step(where, arg, root)
+        if adds_documents(name):
+            check_documents_step(where, arg, root)
         if line.startswith("//"):
             line = line[1:]
         elif name in ("say", "edit") and arg.startswith("/"):
@@ -324,6 +360,13 @@ def check_attach_step(where: str, arg: str, root: Path | None) -> None:
     if root is None:
         raise Refused(f"{where}: an attach step needs the scratch root to judge its path")
     if (problem := attach_problem(root, arg)) is not None:
+        raise Refused(f"{where}: {problem}")
+
+
+def check_documents_step(where: str, arg: str, root: Path | None) -> None:
+    if root is None:
+        raise Refused(f"{where}: a documents step needs the scratch root to judge its path")
+    if (problem := documents_problem(root, arg)) is not None:
         raise Refused(f"{where}: {problem}")
 
 
@@ -341,6 +384,12 @@ def check_json_step(where: str, line: str, root: Path | None = None) -> None:
         if not isinstance(arg, str):
             raise Refused(f"{where}: attach takes a path, not {arg!r}")
         check_attach_step(where, arg, root)
+        return
+    if adds_documents(step["command"]):
+        arg = step.get("args", "")
+        if not isinstance(arg, str):
+            raise Refused(f"{where}: documents takes text, not {arg!r}")
+        check_documents_step(where, arg, root)
         return
     if step["command"] not in NAMED:
         return
