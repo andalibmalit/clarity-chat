@@ -231,8 +231,8 @@ def attach_problem(root: Path, value: str) -> str | None:
         readings |= {attach_args(value)[0], attach_args(value.strip())[0]}
     except ConfigError as e:  # Clarity refuses the command too
         return f"{value!r}: {e}"
-    except (ValueError, UnicodeError):  # path_problem says why
-        pass
+    except (ValueError, UnicodeError) as e:  # never judge on fewer readings than Clarity's
+        return f"{value!r} can't be judged ({type(e).__name__}); use a plain path in the root"
     return path_problem(root, value, readings)
 
 
