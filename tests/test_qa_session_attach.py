@@ -282,3 +282,15 @@ def test_a_file_gone_between_the_listing_and_its_check_is_skipped(root, monkeypa
 
     monkeypatch.setattr(qa.os, "walk", walk)
     assert refusal(lambda: qa.no_links(root)) is None
+
+
+def test_attach_args_failing_for_another_reason_is_refused_not_skipped(root, monkeypatch):
+    """The v0.3.2 review's could 2: if Clarity's attach_args ever raised a ValueError, the
+    guard dropped its readings and went on judging the rest."""
+    from clarity_chat import commands
+
+    def raises(args):
+        raise ValueError("made up")
+
+    monkeypatch.setattr(commands, "attach_args", raises)
+    assert qa.attach_problem(root, "docs/notes.md") is not None
