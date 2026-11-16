@@ -884,6 +884,13 @@ function editing(item, on) {
   item.querySelector(".msgbar").hidden = on;
   for (const line of item.querySelectorAll(":scope > .att")) line.hidden = on; // "Keeps" says it (F9)
   item.querySelector("[data-edit]").hidden = !on;
+  const keeps = item.querySelector("[data-edit] .keeps");
+  if (keeps && !on) {
+    // Cancel brings every chip back (the board's ⑥).
+    for (const chip of keeps.querySelectorAll(".chip")) chip.hidden = false;
+    keeps.querySelector(".lead").textContent = keeps.dataset.lead;
+    keeps.querySelector(".att:not(.lead)").hidden = false;
+  }
   if (on) item.querySelector("[data-edit] textarea").focus();
   else item.querySelector('[data-action="edit"]').focus();
 }
@@ -2206,6 +2213,15 @@ const THREAD = {
   },
   edit: (element) => editing(element.closest("li"), true),
   "edit-cancel": (element) => editing(element.closest("li"), false),
+  "edit-drop": (element) => {
+    // Q2's ×: the chip leaves this edit only; Send names it with --drop (the board's ⑥).
+    const keeps = element.closest(".keeps");
+    element.closest(".chip").hidden = true;
+    const left = keeps.querySelectorAll(".chip:not([hidden])").length;
+    keeps.querySelector(".lead").textContent = left ? keeps.dataset.lead : keeps.dataset.none;
+    keeps.querySelector(".att:not(.lead)").hidden = !left;
+    (keeps.querySelector(".chip:not([hidden]) .x") || keeps.closest("form").querySelector("textarea")).focus();
+  },
   marks: (element) => (openPop && openPop.id === element.getAttribute("aria-controls") ? hidePop(true) : showPop(element)),
   "pop-close": () => hidePop(true),
   mark: (element, call) => annotate("mark", call),
@@ -2222,7 +2238,8 @@ document.addEventListener("submit", (event) => {
     rename();
   } else if (form.matches("[data-edit]")) {
     const text = form.querySelector("textarea").value;
-    if (text) write("edit", text, text);
+    const dropped = [...form.querySelectorAll(".keeps .chip[hidden] .x")].flatMap((x) => ["--drop", x.dataset.n]);
+    if (text) write("edit", [...dropped, text].join(" "), text);
   } else if (form.matches("[data-more]")) {
     const n = form.querySelector("input").value;
     closeReplies(false);

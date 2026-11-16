@@ -13,6 +13,7 @@ from typing import Any
 
 from clarity_chat.backends import BackendError
 from clarity_chat.commands import (
+    DROP,
     SENTENCES,
     TAKEN,
     Commands,
@@ -794,8 +795,12 @@ class ChatLoop:
             self.write(f"\n! {torn_message(event['record'], "this conversation's log")}\n")
 
     def edit(self, arg: str) -> bool:
-        """/edit with no text prefills your last message to edit, then runs the command."""
+        """/edit with no text prefills your last message to edit, then runs the command;
+        `--drop N` before it is kept (Q2)."""
         conversation = self.session.conversation
+        drops = ""
+        while (found := DROP.match(arg)) is not None:
+            drops, arg = f"{drops}--drop {found[1]} ", arg[found.end() :]
         if not arg and conversation is not None:
             try:
                 reply = conversation.current_reply("edit the message of")
@@ -810,7 +815,7 @@ class ChatLoop:
         if conversation is not None and not arg.strip():
             self.write("Edit cancelled.\n")
             return True
-        return self.command("edit", arg)
+        return self.command("edit", drops + arg)
 
 
 def prompt_reader() -> Callable[[str], str]:

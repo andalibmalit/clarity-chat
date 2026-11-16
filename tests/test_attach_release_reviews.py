@@ -43,7 +43,7 @@ NEW = {
     "control_tokens": "Holds text the tokenizer reads as control tokens ({tokens}); it's sent "
     "as it is, and the call is flagged. The model may read them as its own markers, such as "
     "the end of a message.",
-    "keeps": "Keeps: {names}. An edit can't add or remove attachments.",
+    "keeps": "Keeps: {names}. An edit can't add attachments.",  # Q2's × (v0.3.2, N73)
     "stays_waiting": "{names} stays waiting for your next message.",
     "stay_waiting": "{names} stay waiting for your next message.",
     "chip_tokens": "{tokens} tokens when attached",
@@ -282,7 +282,8 @@ def test_edit_says_it_can_t_change_attachments_and_which_stay_waiting(make):
     form = re.search(r'<form class="editbox".*?</form>', thread, re.S)
     assert form
     words = text_of(form.group(0))
-    assert "Keeps: notes.md. An edit can't add or remove attachments." in words
+    # Q2 (v0.3.2): the names are chips with an ×, around which the sentence reads (N73).
+    assert "Keeps:notes.md" in words and "An edit can't add attachments." in words
     assert "guide.md stays waiting for your next message." in words
 
 

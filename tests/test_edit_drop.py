@@ -90,7 +90,7 @@ def test_the_keeps_sentence_says_an_edit_can_t_add():  # N73
 
 
 def test_edit_s_kept_attachments_are_chips_with_an_x(make):  # noqa: F811
-    from tests.test_attach_c2 import text_of
+    from tests.test_web_search_c2 import text_of  # tags read as spaces
 
     client, _, _ = make()
     attach(client, OTHER, "other.md")

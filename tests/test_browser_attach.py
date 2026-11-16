@@ -486,8 +486,9 @@ def test_edit_shows_what_it_keeps(clarity, page):
     page.wait_for_selector(".reply.last .tb")
     page.click(".turn.user [data-action=edit]")
     page.wait_for_selector(".editbox:not([hidden])")
-    keeps = "Keeps: trail-notes.md. An edit can't add or remove attachments."
-    assert page.text_content(".editbox .att").strip() == keeps
+    keeps = " ".join(page.inner_text(".editbox .keeps").split())  # Q2's chips (v0.3.2)
+    assert keeps.startswith("Keeps: trail-notes.md · whole · ")
+    assert keeps.endswith("tokens when attached An edit can't add attachments.")
     shot(page, "C2-edit-keeps", "v031")
 
 
@@ -517,7 +518,7 @@ def test_edit_s_x_takes_an_attachment_out(clarity, page):  # Q2, the board's ⑥
     page.wait_for_selector(".turn.user .msg:has-text('And without the notes?')")
     page.wait_for_selector(".reply.last .tb")
     assert len(backend.calls) == calls + 1
-    assert "Attached:" not in page.inner_text(".turn.user:last-of-type")
+    assert "Attached:" not in page.locator(".turn.user").last.inner_text()
 
 
 def test_a_failed_send_brings_the_chips_back_and_offers_removing_one(clarity, page):

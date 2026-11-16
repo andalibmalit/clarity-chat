@@ -858,11 +858,24 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
             )
             for a in attached
         ]
-        turn["keeps"] = (
-            SENTENCES["keeps"].format(names=", ".join(a["name"] for a in attached))
-            if attached
-            else None
-        )
+        # Edit keeps them as chips, each with an × that leaves it out (Q2, the board's ⑥):
+        # the Keeps sentence around the chips, its place for `/edit --drop N`.
+        lead, rule = SENTENCES["keeps"].split(" {names}. ")
+        turn["keeps"] = {
+            "lead": lead,
+            "rule": rule,
+            "none": SENTENCES["keeps_none"],
+            "group": SENTENCES["keeps_group"],
+            "chips": [
+                {
+                    "n": n,
+                    "name": a["name"],
+                    "meta": f"· {how_words(a)} · {a['tokens']:,} tokens when attached",
+                    "drop": SENTENCES["keeps_drop"].format(name=a["name"]),
+                }
+                for n, a in enumerate(attached, 1)
+            ],
+        } if attached else None  # fmt: skip
     # Edit can't take waiting chips along: its box says which stay (the walkthrough's F10).
     waiting = [a["name"] for a in state["pending"]]
     stays = (

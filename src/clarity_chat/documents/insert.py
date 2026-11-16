@@ -78,7 +78,10 @@ SENTENCES = {
     # of Details' tokens in the prompt (the fact-check's rows 50-52).
     "attached_line": "Attached: {name} · {how} · {tokens} tokens when attached",
     "chip_tokens": "{tokens} tokens when attached",
-    "keeps": "Keeps: {names}. An edit can't add or remove attachments.",
+    "keeps": "Keeps: {names}. An edit can't add attachments.",  # N73: Edit's × removes one
+    "keeps_none": "Keeps no attachments.",  # N74
+    "keeps_drop": "Remove {name} from the edited message",  # N75: a chip's ×
+    "keeps_group": "Attachments this edit keeps",  # N76
     "stays_waiting": "{names} stays waiting for your next message.",
     "stay_waiting": "{names} stay waiting for your next message.",
     "highlight_added": "Highlighted: the framing line and documents Clarity put in your messages.",
