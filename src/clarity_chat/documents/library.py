@@ -54,7 +54,16 @@ def default_name(filename: str) -> str | None:
 
 
 def folder(root: Path, name: str) -> Path:
-    return root / LIBRARY / checked_library_name(name)
+    """A document's folder: one folder under local/documents/, never a link (Checkpoint 1's
+    M1: replacing through a link would delete and move files outside the project)."""
+    library = root / LIBRARY
+    path = library / checked_library_name(name)
+    if path.is_symlink() or path.resolve().parent != library.resolve():
+        raise DocumentRefused(
+            f"{name}'s folder in local/documents/ is a link, which Clarity doesn't follow. "
+            "Put the folder itself there."
+        )
+    return path
 
 
 def original_name(kind: str) -> str:
@@ -226,12 +235,15 @@ class Stale(DocumentRefused):
 
 
 def state(root: Path, name: str) -> str:
-    """`ready`, `changed` (a file's size or time differs from the manifest) or `missing`:
-    the quick check before each search."""
+    """`ready`, `changed` (a file's size or time differs from the manifest), `missing`, or
+    `unreadable` (a manifest Clarity can't read, or a folder that's a link): the quick check
+    before each search."""
     try:
         manifest = read_manifest(root, name)
     except Stale as e:
         return e.state
+    except DocumentRefused:
+        return "unreadable"
     path = folder(root, name)
     try:
         now = stats(path, list(manifest["files"]))
@@ -249,7 +261,7 @@ def documents(root: Path) -> list[dict[str, Any]]:
     found = []
     for path in sorted(base.iterdir()):
         if not path.is_dir() or library_name_problem(path.name) is not None:
-            continue
+            continue  # a link to a folder is listed, as unreadable, below
         try:
             manifest = read_manifest(root, path.name)
         except DocumentRefused as e:

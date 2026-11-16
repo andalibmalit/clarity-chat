@@ -74,10 +74,10 @@ class Loaded:
 def load(root: Path, name: str) -> Loaded:
     """A document ready to search: refused as `changed` or `missing` (Stale) when its files
     don't match its manifest, and its parts read and checked against its build ID."""
+    manifest = read_manifest(root, name)  # missing, or a refusal that says why
     now = state(root, name)
     if now != "ready":
         raise Stale(name, now)
-    manifest = read_manifest(root, name)
     return Loaded(name, manifest["build_id"], manifest["original"]["sha256"], parts_of(root, name))
 
 
