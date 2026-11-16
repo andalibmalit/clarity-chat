@@ -16,6 +16,10 @@ from clarity_chat.commands import (
     SENTENCES,
     Commands,
     check_lines,
+    document_add,
+    document_check,
+    document_list,
+    document_rebuild,
     how_words,
     read_files,
     summaries,
@@ -946,6 +950,101 @@ def cmd_verify(root: Path, names: list[str]) -> int:
     return 0 if ok_all else 1
 
 
+def cmd_document(root: Path, args: argparse.Namespace) -> int:
+    """`clarity document add|list|check|rebuild`: the library, with no model."""
+    if args.action == "add":
+        result = document_add(
+            root,
+            args.file,
+            args.name,
+            args.replace,
+            on_read=lambda: print(f"Reading {shown(Path(args.file).name)}…", flush=True),
+            on_write=lambda folder: print(
+                f"Writing {folder}/: a copy of the file, its text and its parts.", flush=True
+            ),
+        )
+        print(format_added(result))
+        return 0
+    if args.action == "list":
+        listed = document_list(root)
+        print(json.dumps(listed) if args.json else format_documents(listed["documents"]))
+        return 0
+    if args.action == "check":
+        tokenizer = None
+        if args.profile:
+            session = Session(root)
+            profile, model, _ = session.profile_for(args.profile)
+            tokenizer = session.tokenizers_for(profile, model)[0]
+        checked = document_check(root, args.names, tokenizer)["checked"]
+        print(format_checked(checked) if checked else "No documents yet.")
+        return 0 if all(c["state"] == "ready" for c in checked) else 1
+    result = document_rebuild(root, args.name)
+    print(format_rebuilt(result))
+    return 0
+
+
+def format_added(result: dict[str, Any]) -> str:
+    manifest = result["added"]
+    folder = result["written"][0].rsplit("/", 1)[0]
+    files = ", ".join(path.rsplit("/", 1)[1] for path in result["written"])
+    return (
+        f"Added {manifest['name']} as {folder}/: {files}. "
+        f"{parts(manifest['parts'])}, {manifest['titled']:,} with a title."
+    )
+
+
+def parts(n: int) -> str:
+    return f"{n:,} part" + ("" if n == 1 else "s")
+
+
+def format_documents(listed: list[dict[str, Any]]) -> str:
+    if not listed:
+        return "No documents yet. `clarity document add FILE` adds one."
+    lines = []
+    for d in listed:
+        if d["state"] == "unreadable":
+            lines.append(f"{d['name']}: {d['why']}")
+            continue
+        edited = ", text.md edited" if d["edited"] else ""
+        lines.append(
+            f"{d['name']}  {d['kind']}  {d['bytes']:,} bytes  {parts(d['parts'])}, "
+            f"{d['titled']:,} titled{edited}  {d['state']}"
+        )
+    return "\n".join(lines)
+
+
+STATE_WORDS = {
+    "changed": "its files have changed since it was built. `clarity document rebuild {name}` "
+    "builds it again.",
+    "missing": "its folder in local/documents/ is gone.",
+}
+
+
+def format_checked(checked: list[dict[str, Any]]) -> str:
+    lines = []
+    for c in checked:
+        if c["state"] == "ready":
+            lines.append(f"{c['name']}: ready.")
+        else:
+            why = "; ".join(c["problems"])
+            told = STATE_WORDS[c["state"]].format(name=c["name"])
+            lines.append(f"{c['name']}: {c['state']}{f' ({why})' if why else ''}: {told}")
+        for found in c.get("control_token_parts", []):
+            tokens = ", ".join(found["tokens"])
+            lines.append(f"  part {found['ordinal']} holds this model's control tokens: {tokens}")
+    return "\n".join(lines)
+
+
+def format_rebuilt(result: dict[str, Any]) -> str:
+    manifest = result["rebuilt"]
+    files = " and ".join(path.rsplit("/", 1)[1] for path in result["written"])
+    folder = result["written"][0].rsplit("/", 1)[0]
+    return (
+        f"Rebuilt {manifest['name']} from its text.md: {parts(manifest['parts'])}, "
+        f"{manifest['titled']:,} with a title. Wrote {files} in {folder}/."
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     # Windows writes pipes and files in its ANSI code page, which can't hold every title or
     # reply; consoles are UTF-8 already. PowerShell 5.1 may still show the bytes wrongly.
@@ -1035,6 +1134,20 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     fetch.add_argument("name")
     verify = commands.add_parser("verify", help="re-hash fetched models against models.lock")
     verify.add_argument("names", nargs="*")
+    document = commands.add_parser(
+        "document", help="the documents Clarity searches (local/documents/)"
+    ).add_subparsers(dest="action", required=True)
+    add = document.add_parser("add", help="add a file: its copy, text and parts")
+    add.add_argument("file")
+    add.add_argument("--name", help="the document's name (default: from the file's name)")
+    add.add_argument("--replace", action="store_true", help="replace a document of that name")
+    listed = document.add_parser("list", help="the documents, with their state")
+    listed.add_argument("--json", action="store_true", help="as JSON, for scripts")
+    checked = document.add_parser("check", help="hash each document's files")
+    checked.add_argument("names", nargs="*", metavar="NAME", help="default: every document")
+    checked.add_argument("--profile", help="also list the parts holding its model's control tokens")
+    rebuilt = document.add_parser("rebuild", help="build a document's parts again from text.md")
+    rebuilt.add_argument("name")
     return parser, chat
 
 
@@ -1097,6 +1210,8 @@ def run_command(args: argparse.Namespace) -> int:
             return cmd_fetch(root, args.name)
         if args.command == "verify":
             return cmd_verify(root, args.names)
+        if args.command == "document":
+            return cmd_document(root, args)
     except (ConfigError, BackendError) as e:
         print(f"clarity: {e}", file=sys.stderr)
         return 1

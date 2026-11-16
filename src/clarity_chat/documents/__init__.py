@@ -28,6 +28,19 @@ from clarity_chat.documents.insert import (
     summaries,
     with_text,
 )
+from clarity_chat.documents.library import (
+    LIBRARY,
+    Stale,
+    checked_library_name,
+    control_token_parts,
+    default_name,
+)
+from clarity_chat.documents.library import add as library_add
+from clarity_chat.documents.library import check as library_check
+from clarity_chat.documents.library import documents as library_documents
+from clarity_chat.documents.library import parts_of as library_parts
+from clarity_chat.documents.library import rebuild as library_rebuild
+from clarity_chat.documents.library import state as library_state
 from clarity_chat.documents.parts import (
     CHUNKER,
     build_id,
@@ -49,6 +62,17 @@ from clarity_chat.documents.reading import (
 )
 
 __all__ = [
+    "LIBRARY",
+    "Stale",
+    "checked_library_name",
+    "control_token_parts",
+    "default_name",
+    "library_add",
+    "library_check",
+    "library_documents",
+    "library_parts",
+    "library_rebuild",
+    "library_state",
     "CHUNKER",
     "build_id",
     "closing_tag_parts",
