@@ -28,7 +28,7 @@ from starlette.testclient import TestClient
 from clarity_chat import web
 from clarity_chat.backends import BackendError
 from clarity_chat.commands import Commands
-from clarity_chat.documents import SENTENCES
+from clarity_chat.documents import SENTENCES, library_add, reading
 from clarity_chat.export import export_log
 from clarity_chat.logs import read_records
 from clarity_chat.profiles import ConfigError
@@ -77,8 +77,10 @@ SHAPES: dict[str, list[tuple[Any, ...]]] = {
             )  # fmt: skip
         ),
     ],
+    "search": [("documents",)],  # v0.3.2 B1
 }
 ROWS = [(kind, path) for kind, paths in SHAPES.items() for path in paths]
+TURN_ROWS = [("turn", path) for path in SHAPES["turn"]]
 
 
 def holds(record: dict, path: tuple[Any, ...]) -> bool:
@@ -101,7 +103,10 @@ def drop(record: dict, path: tuple[Any, ...]) -> None:
 
 def scripted_chat(session: Session, tmp_path: Path) -> None:
     """One chat that writes every record kind the Shapes table names, on two branches."""
+    reading._last = None
+    library_add(session.root, b"## Wren\nA made-up bird.\n", "birds.md")
     session.new_conversation("chat")
+    session.set_search(["birds"])
     session.attach(doc())
     session.say("What's in it?")
     session.regen()
@@ -155,7 +160,7 @@ def page_chat(fetched_root, chat_tokenizer):
         yield client, session
 
 
-@pytest.mark.parametrize(("kind", "path"), ROWS, ids=lambda v: str(v))
+@pytest.mark.parametrize(("kind", "path"), TURN_ROWS, ids=lambda v: str(v))
 def test_t1_every_read_and_view_answers_when_a_field_is_missing(page_chat, kind, path):
     """Taken out in memory, as a log resume would refuse: each read answers with a result or
     a refusal, and each view with a page or a refusal; none stops the session."""
@@ -296,6 +301,9 @@ TERMINAL_ONLY = {
         "the page switches to turns it drew from /branches; a stale one needs another tab, "
         "which the page refuses"
     ),
+    "Usage: /documents [add PATH [NAME] | rebuild NAME]": (
+        "the page sends /documents, add with an upload ID, or rebuild with a listed name"
+    ),
     "The Transformers backend needs torch: run `uv sync --extra hf`.": (
         "a setup step outside Clarity, not a terminal equivalent of a page control"
     ),
@@ -391,6 +399,12 @@ def write_chat(name: str, c: Commands, backend: FakeBackend, tmp_path: Path) -> 
         run("say What's in it?")
         run(f"attach {path} lines 2-2")
         run("say And the second line?")
+    elif name == "search":  # v0.3.2 B1
+        run(f"documents add {path} notes")
+        run("search notes")
+        run("say And now?")
+        run("search none")
+        run("say Without it?")
     elif name == "failed call":
         backend.fail_with = "made-up failure"
         with pytest.raises(BackendError):
@@ -399,7 +413,9 @@ def write_chat(name: str, c: Commands, backend: FakeBackend, tmp_path: Path) -> 
         run("say Again?")
 
 
-WRITERS = ["say", "regen", "edit", "set", "title", "mark", "note", "attach", "failed call"]
+WRITERS = [
+    "say", "regen", "edit", "set", "title", "mark", "note", "attach", "failed call", "search",
+]  # fmt: skip
 
 
 @pytest.mark.parametrize("name", WRITERS)

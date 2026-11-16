@@ -76,10 +76,10 @@ def test_a_failed_preselect_read_shows_its_refusal(make, monkeypatch):
     client, session, _ = make(n_ctx=2000)
     real = session.check
 
-    def check(doc, unit=None, first=0, last=0, cancel=None, new_profile=None):  # noqa: ANN001, ANN202
+    def check(doc, unit=None, first=0, last=0, cancel=None, new_profile=None, aside=0):  # noqa: ANN001, ANN202
         if unit is not None:  # the second read, for the preselected part
             raise DocumentRefused("Stopped reading long.md.")
-        return real(doc, unit, first, last, cancel, new_profile)
+        return real(doc, unit, first, last, cancel, new_profile, aside)
 
     monkeypatch.setattr(session, "check", check)
     upload_id = upload(client, LONG, "long.md").json()["upload"]
