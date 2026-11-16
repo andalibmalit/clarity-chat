@@ -222,7 +222,7 @@ A **line** is text split on `\n` only, each keeping its `\n`, so excerpts join b
 The page, the terminal and this list share these sentences and phrases, from one table in the code. The braces are filled in: `{tokens}`, `{free}`, `{left}`, `{max_tokens}`, `{first}` and `{last}` with numbers, `{unit}` with `page` or `line`, `{units}` and `{Units}` with its plural, `{count}` with how many units, lines or characters, `{name}` and `{names}` with file names, `{origin}` with the origin phrases below, `{framing}` with the framing line, `{how}` with `whole` or an excerpt's range ("pages 1–23 of 131"), `{over}` with how many tokens a prompt is over, and `{seconds}` and `{memory}` with the reader's time limit (120) and memory cap ("1 GB").
 
 - `whole`: It takes up {tokens} tokens in every later prompt of this chat.
-- `excerpt`: Only the {units} you choose are sent, after a line that says they're an excerpt.
+- `excerpt`: Only the {units} you choose are sent, after a line that says they're an excerpt unless the profile sets no marker.
 - `no_marker`: No excerpt marker (this profile).
 - `free`: {free} tokens free in this chat, after setting aside {max_tokens} for the reply (your max_tokens).
 - `left`: That leaves {left} tokens for your messages and the replies.
@@ -244,7 +244,7 @@ The page, the terminal and this list share these sentences and phrases, from one
 - `closing_tag`: Holds </document>, which ends Clarity's wrapper early; it's sent as it is.
 - `framing`: Framing line ({origin}): {framing}
 - `framing_label`: Clarity introduces the document to the model with this line ({origin}):
-- `marker_label`: The excerpt starts with this line, so the model knows it's partial ({origin}):
+- `marker_label`: The excerpt starts with this line, which says it's partial ({origin}):
 - `new_chat_does`: Starts a new chat on this profile with the whole file attached, waiting for your first message. This chat stays in Chats.
 - `not_kept`: Not kept: {names}, waiting for your next message. An attachment is logged only with the message it's sent with.
 - `more_lines`: … and {count} more lines, ending with:
@@ -257,7 +257,7 @@ The page, the terminal and this list share these sentences and phrases, from one
 - `stays_waiting`: {names} stays waiting for your next message.
 - `stay_waiting`: {names} stay waiting for your next message.
 - `highlight_added`: Highlighted: the framing line and documents Clarity put in your messages.
-- `attachments_caption`: Your message's line counts each attachment as it cost when it was attached: its block, the blank lines Clarity puts around it (not highlighted here) and, for a message's first, the framing line.
+- `attachments_caption`: Your message's line counts each attachment as it cost when it was attached: its block and the blank line after it (not highlighted here). The first attachment in a message also counts the framing line and its blank line, when the profile has one.
 - `too_long`: It's {over} tokens too long.
 - `stop_advice`: Shorten your message, start a new chat, or lower max_tokens.
 - `remove_waiting`: Shorten your message, remove an attachment and attach a shorter part, start a new chat, or lower max_tokens.
