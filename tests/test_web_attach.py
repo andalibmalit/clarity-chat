@@ -173,7 +173,8 @@ def test_the_framing_line_shows_its_source_and_how_to_change_it(make):
     upload_id = upload(client, NOTES).json()["upload"]
     text = sheet(client, upload=upload_id)
     assert SENTENCES["framing_label"].format(origin=SENTENCES["origin_default"]) in text
-    assert FRAMING in text and 'data-docs="guides.md#attach-a-document"' in text
+    # v0.3.2 C4: an Edit in place of the guide's link (the board's ⑦).
+    assert FRAMING in text and 'data-action="framing-edit"' in text
 
 
 def test_a_profile_without_a_framing_line_says_so(make):

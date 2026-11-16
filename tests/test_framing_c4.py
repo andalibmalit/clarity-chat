@@ -156,9 +156,10 @@ def test_the_sheet_s_framing_line_has_an_edit(root, make):  # noqa: F811
     assert 'data-action="framing-back"' not in frame  # the profile's line: nothing to go back to
     command(client, "framing", OURS)
     frame = sheet_frame(client, upload_id)
+    said = text_of(frame)  # the label, its Edit, then the line (the board's ⑦)
     assert (
-        f"Clarity introduces the document to the model with this line (this chat): {OURS}"
-        in text_of(frame)
+        f"Clarity introduces the document to the model with this line (this chat): Edit {OURS}"
+        in said
     )
     assert "Back to the profile's line" in text_of(frame)
     command(client, "framing", "none")

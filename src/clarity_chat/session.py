@@ -1588,6 +1588,12 @@ class Session:
                 "regen_of": t.regen_of,
                 "edit_of": t.edit_of,
                 **({"attachments": summaries(t.attachments)} if t.attachments else {}),
+                # The line its block went with, and where it came from (C4: `chat` too).
+                **(
+                    {"framing": t.framing, "framing_origin": t.framing_origin}
+                    if t.attachments or t.found is not None
+                    else {}
+                ),
                 **(
                     {
                         "found": found_summary(
