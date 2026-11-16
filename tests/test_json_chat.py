@@ -147,6 +147,8 @@ EVERY_COMMAND = [
     ("edit", lambda s: "Hi again"),
     ("attach", lambda s: ""),  # alone: what's waiting; in text mode, refused (REFUSED)
     ("detach", lambda s: ""),
+    ("search", lambda s: ""),
+    ("documents", lambda s: ""),
     ("history", lambda s: ""),
     ("compare", lambda s: ""),
     ("branches", lambda s: ""),

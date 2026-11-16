@@ -202,8 +202,8 @@ def test_a_documents_table_in_a_text_mode_profile_is_refused_at_load(root):
 
 def test_an_unknown_documents_key_is_refused(root):
     with pytest.raises(ConfigError) as e:
-        profile(root, '\n[documents]\nplacement = "end"\n')
-    assert "[documents]" in str(e.value) and "placement" in str(e.value)
+        profile(root, '\n[documents]\nframing_line = "x"\n')  # placement is known since v0.3.2
+    assert "[documents]" in str(e.value) and "framing_line" in str(e.value)
 
 
 # --- cost, free, what's left, and the ranges that fit
