@@ -142,7 +142,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 ## Attached documents
 
 **An attachment is part of its message.** Attaching a file puts its text in a block at the start of your message, after a framing line (unless the profile sets none) that says it's reference material. One function builds every message's content: the prompt, its message spans, the render check, resume and the export all use it, and it is built so that later sources of text can use it.
-- The turn record keeps your message as you wrote it, with the attachments beside it. So a regeneration reuses them without reading the file again, `/edit` keeps them, and a branch brings only its own.
+- The turn record keeps your message as you wrote it, with the attachments beside it. So a regeneration reuses them without reading the file again, `/edit` keeps them (or leaves out those you drop), and a branch brings only its own.
 - A failed send puts the message and its attachments back, waiting for you to send again.
 - Nothing is trimmed. A chat that outgrows its context stops at the check every call goes through, and the sentence says how many of the prompt's tokens the attached documents and their framing lines take, counted from the call's own message spans (when a template keeps those from being found, it gives each attachment's cost when it was attached, and says so). There's no way to send anyway.
 - Privacy: a log and an export hold the text of the documents attached in them. The record keeps a file's name, never its path. Attachments still waiting aren't logged, so a resume drops them, except a failed message's, which come back with it.

@@ -282,8 +282,17 @@ def regen_replies(c: Commands, emit: Emit, seeds: list[int | None]) -> dict[str,
 
 
 def _edit(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    text = needs(args, "/edit TEXT")
-    return c.call(emit, lambda **kw: c.session.edit(text, **kw))
+    """The message again with new text, keeping its attachments but those `--drop N` names
+    (N its place in the message, from 1: the owner's Q2, Edit's ×)."""
+    drop = []
+    while (found := DROP.match(args)) is not None:
+        drop.append(int(found[1]))
+        args = args[found.end() :]
+    text = needs(args, "/edit [--drop N]... TEXT")
+    return c.call(emit, lambda **kw: c.session.edit(text, drop=drop, **kw))
+
+
+DROP = re.compile(r"--drop ([0-9]{1,9}) +")
 
 
 UPLOAD_ID = re.compile(r"upload-[0-9a-f]{12}")
