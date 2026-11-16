@@ -98,3 +98,68 @@ def test_the_terminal_says_the_chat_s_line(root, chat_tokenizer):  # noqa: F811
     output.clear()
     loop.handle("/framing none")
     assert "No framing line (this chat).\n" in "".join(output)
+
+
+# --- the main session's record checks, and the sheet's Edit (the board's ⑦, N77-N81)
+
+
+def test_an_old_log_without_a_framing_record_reads_as_before(root, make):  # noqa: F811
+    client, _ = make(SEARCHES)
+    command(client, "say", "Tell me about the wren")
+    log_id = command(client, "state").json()["result"]["log_id"]
+    command(client, "new", "")
+    command(client, "resume", log_id)
+    state = command(client, "state").json()["result"]
+    assert (state.get("framing"), state.get("framing_origin")) == (FRAMING, "default")
+
+
+def test_a_call_made_under_this_chat_s_line_replays_exactly(root, make):  # noqa: F811
+    client, _ = make(SEARCHES)
+    command(client, "framing", OURS)
+    command(client, "say", "Tell me about the wren")
+    command(client, "framing", "none")  # a later change doesn't touch the logged call
+    replay = command(client, "replay", "").json()["result"]["replay"]
+    assert replay["identical"] is True, replay
+
+
+def test_history_shows_each_message_s_line_and_origin(root, make):  # noqa: F811
+    client, _ = make(SEARCHES)
+    command(client, "framing", OURS)
+    command(client, "say", "Tell me about the wren")
+    turn = last_message(client)
+    assert (turn.get("framing"), turn.get("framing_origin")) == (OURS, "chat")
+
+
+def sheet_frame(client, upload_id: str) -> str:
+    import re
+
+    from tests.test_web_search_c2 import get
+
+    sheet = get(client, "attach", upload=upload_id)
+    frame = re.search(r'<div class="frame".*?<!-- /frame -->', sheet, re.S)
+    assert frame, "no framing box"
+    return frame.group(0)
+
+
+def test_the_sheet_s_framing_line_has_an_edit(root, make):  # noqa: F811
+    from tests.test_web_search_c2 import text_of
+
+    client, _ = make()
+    upload_id = upload(client, b"Line one.\n", "notes.md").json()["upload"]
+    frame = sheet_frame(client, upload_id)
+    assert 'data-action="framing-edit"' in frame and "How to change it" not in frame
+    assert '<label class="vh" for="framing-line">Framing line</label>' in frame
+    assert (
+        "For this chat's messages from now on; the profile keeps its own line. Leave it empty "
+        "to send no framing line." in text_of(frame)
+    )
+    assert 'data-action="framing-back"' not in frame  # the profile's line: nothing to go back to
+    command(client, "framing", OURS)
+    frame = sheet_frame(client, upload_id)
+    assert (
+        f"Clarity introduces the document to the model with this line (this chat): {OURS}"
+        in text_of(frame)
+    )
+    assert "Back to the profile's line" in text_of(frame)
+    command(client, "framing", "none")
+    assert text_of(sheet_frame(client, upload_id)).startswith("No framing line (this chat).")

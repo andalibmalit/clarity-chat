@@ -521,6 +521,25 @@ def test_edit_s_x_takes_an_attachment_out(clarity, page):  # Q2, the board's ⑥
     assert "Attached:" not in page.locator(".turn.user").last.inner_text()
 
 
+def test_the_framing_line_s_edit_saves_this_chat_s_line(clarity, page):  # C4, the board's ⑦
+    redirect, _ = clarity
+    chat(page, redirect)
+    choose(page, "trail-notes.md", NOTES)
+    ready(page)
+    whole = page.inner_text("#attach-whole-note")
+    page.click("[data-action=framing-edit]")
+    page.wait_for_selector("#framing-line:visible")
+    page.fill("#framing-line", "")
+    shot(page, "framing-edit", "v032-c4")
+    page.click("#framing-form [type=submit]")
+    page.wait_for_selector(".frame:has-text('No framing line (this chat).')")
+    assert page.inner_text("#attach-whole-note") != whole  # counted with no line
+    page.click("[data-action=framing-edit]")
+    page.click("[data-action=framing-back]")
+    page.wait_for_selector('.frame:has-text("(Clarity\'s default):")')
+    assert page.inner_text("#attach-whole-note") == whole
+
+
 def test_a_failed_send_brings_the_chips_back_and_offers_removing_one(clarity, page):
     redirect, backend = clarity
     backend._n_ctx = 2000
