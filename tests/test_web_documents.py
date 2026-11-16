@@ -176,6 +176,28 @@ def test_a_taken_name_asks_for_another(root, make):
     assert "There's already a document named glossary. Give this one a different name." in said
 
 
+def test_a_taken_name_offers_replace(root, make):  # Q12 on Add (the board's ⑧)
+    client, _ = make()
+    upload_id = upload(client, b"## Wren\nAgain.\n", "glossary.md").json()["upload"]
+    fragment = page(client, upload=upload_id)
+    assert re.search(
+        r'<button[^>]*data-action="documents-replace"[^>]*aria-expanded="false"', fragment
+    )
+    said = text_of(fragment)
+    assert "Replace glossary with this file" in said
+    assert re.search(r'<p[^>]*id="documents-replace-note"[^>]*hidden', fragment)
+    assert (
+        "Replacing writes this file's copy, text and parts over glossary's in "
+        "local/documents/glossary/. Anything else you put in that folder stays." in said
+    )
+
+
+def test_a_name_clarity_can_t_make_offers_no_replace(root, make):
+    client, _ = make()
+    upload_id = upload(client, b"Made-up.\n", "日本語.md").json()["upload"]
+    assert "documents-replace" not in page(client, upload=upload_id)
+
+
 def test_a_file_clarity_can_t_name_asks_for_one_with_the_rule(root, make):
     client, _ = make()
     upload_id = upload(client, b"Made-up.\n", "日本語.md").json()["upload"]
