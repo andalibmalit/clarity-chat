@@ -219,6 +219,37 @@ def test_t1_every_read_and_view_answers_when_a_field_is_missing(page_chat, kind,
     assert stopped == []
 
 
+@pytest.mark.parametrize(("kind", "path"), FOUND_ROWS, ids=lambda v: str(v))
+def test_t1_every_read_and_view_answers_when_a_found_field_is_missing(page_chat, kind, path):
+    """The same sweep over a searched turn's `found` (Checkpoint 2's S9), before C3's views
+    read it: taken out in memory, each read and view answers or refuses."""
+    client, session = page_chat
+    reading._last = None
+    library_add(session.root, b"## Wren\nA made-up bird.\n", "birds.md")
+    session.set_search(["birds"])
+    command(client, "say", "Tell me about the wren")
+    call = command(client, "say", "The wren again").json()["result"]["call"]  # left out
+    assert session.conversation is not None and kind == "turn"
+    turns = [t for t in session.conversation.turns.values() if holds({"found": t.found}, path)]
+    assert turns
+    for turn in turns:
+        drop({"found": turn.found}, path)
+    stopped = []
+    asked = [(name, "") for name in READS] + [(n, call["call_id"]) for n in READS_OF_A_CALL]
+    for name, args in asked:
+        answer = command(client, name, args).json()
+        if answer.get("stopped") or not ("result" in answer or answer.get("type")):
+            stopped.append((name, answer))
+    views = [f"/view/{name}" for name in VIEWS]
+    views += [f"/view/{name}?call={call['call_id']}" for name in ("details", "compare")]
+    for view in views:
+        response = client.get(view, headers=GET)
+        if response.status_code not in (200, 503):
+            stopped.append((view, response.status_code, response.text[:200]))
+    assert stopped == []
+    assert command(client, "state").json().get("result"), "the session stopped"
+
+
 # --- T2: no terminal command in a page sentence
 
 COMMAND = re.compile(r"(?:^|[\s(\"'“‘`])(/[a-z][a-z_]*\b|clarity [a-z]+\b|--[a-z][a-z-]*)")
