@@ -133,7 +133,10 @@ def test_a_closed_output_stops_writing_and_the_log_stays_whole(make):
 # Every command in the table, in an order that gives each one something to act on. Those in
 # REFUSED answer the text profile with their refusal: /attach alone asks whether the chat
 # can attach before the page's file picker opens (Checkpoint 3, should 5).
-REFUSED = {"attach": "Attaching needs a chat-mode profile; text is in text mode."}
+REFUSED = {
+    "attach": "Attaching needs a chat-mode profile; text is in text mode.",
+    "try": "This chat searches no documents yet.",
+}
 EVERY_COMMAND = [
     ("help", lambda s: ""),
     ("chats", lambda s: ""),
@@ -148,6 +151,7 @@ EVERY_COMMAND = [
     ("attach", lambda s: ""),  # alone: what's waiting; in text mode, refused (REFUSED)
     ("detach", lambda s: ""),
     ("search", lambda s: ""),
+    ("try", lambda s: "made-up words"),
     ("documents", lambda s: ""),
     ("history", lambda s: ""),
     ("compare", lambda s: ""),

@@ -1072,6 +1072,11 @@ def format_checked(checked: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def format_found(found: dict[str, Any]) -> str:
+    """A stub for B4's red: a search's result in lines, not built yet."""
+    return ""
+
+
 def format_searching(result: dict[str, Any]) -> str:
     """/search's answer: each document this chat searches, with its state and its way out."""
     if not result["searching"]:
