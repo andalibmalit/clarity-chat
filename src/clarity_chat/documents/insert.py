@@ -174,6 +174,23 @@ SENTENCES = {
     "edit_searched": "The new text will be searched again. The parts found before stay with the "
     "old version.",
     "text_mode_search": "Searching needs a chat-mode profile; {profile} is in text mode.",
+    # "From documents" above a reply, and Details' Documents section (C3)
+    "found_footer": "Found when you sent this message. Regenerating reuses these parts; it "
+    "doesn't search again.",  # N54
+    "searched_footer": "Searched when you sent this message. Regenerating doesn't search "
+    "again.",  # N55
+    "new_with_documents": "New chat with these documents",  # N35
+    "new_with_documents_does": "Starts a new chat on this profile that searches {names}. This "
+    "chat stays in Chats.",  # N36
+    "details_where": "{placement} of your message · tokens {first} to {last}",
+    "details_framing": "tokens {first} to {last} · {n} tokens, counted in the budget",
+    "details_search": "words, titles count double (word rule {rule} · common words {common} · "
+    "SQLite {sqlite})",
+    "details_considered": "{parts} matched; Clarity considers the best {considered} at most.",
+    "details_budget": "the budget ({budget}, {origin})",
+    "details_caption": "Rank 1 is the best match; a word in a title counts twice. Searched: "
+    "{builds} (each document’s build). Each part’s text and score are in this message’s log "
+    "record.",  # N66
     "try_open": "Type a message. Clarity shows the parts it would add if you sent it next in "
     "this chat, which searches {names}. Token counts are for this chat's profile, {profile}. "
     "Nothing is sent to the model, and nothing is logged.",

@@ -44,6 +44,7 @@ from clarity_chat.documents import (
     fill,
     fit,
     found_in,
+    framing_in_first_part,
     framing_of,
     library_manifest,
     library_parts,
@@ -1547,7 +1548,15 @@ class Session:
                 "regen_of": t.regen_of,
                 "edit_of": t.edit_of,
                 **({"attachments": summaries(t.attachments)} if t.attachments else {}),
-                **({"found": found_summary(t.found)} if t.found is not None else {}),
+                **(
+                    {
+                        "found": found_summary(
+                            t.found, framing_in_first_part(t.framing or "", bool(t.attachments))
+                        )
+                    }
+                    if t.found is not None
+                    else {}
+                ),
                 "marks": [
                     {"mark_id": m.get("mark_id"), "label": m["label"]}
                     for m in notes.get(t.turn_id, {}).get("marks", [])
@@ -2364,11 +2373,14 @@ def left_out_counts(found: dict[str, Any]) -> dict[str, int]:
     return {**counts, **({"not considered": unconsidered} if unconsidered else {})}
 
 
-def found_summary(found: dict[str, Any]) -> dict[str, Any]:
+def found_summary(found: dict[str, Any], framed: bool) -> dict[str, Any]:
     """/history's view of a turn's `found`, which /state's turns repeat: counts, tokens,
-    words, the budget, what was left out by why, and each part's ID, title and why it
-    matched, with no text (the Shapes table's commands; part 1's whole-branch S1)."""
-    keys = ("id", "title", "rank", "title_words", "words", "tokens")
+    words, the budget, what was left out by why, and each part's ID, title, page and why it
+    matched, with no text (the Shapes table's commands; part 1's whole-branch S1); the
+    parts already in the chat, and whether the first part's count holds the framing line
+    (`framed`, insert.framing_in_first_part), for "From documents" (C3)."""
+    keys = ("id", "title", "page", "rank", "title_words", "words", "tokens")
+    already = [o for o in found["left_out"] if o["why"] == "already in the chat"]
     return {
         "words": found["words"],
         "ignored": found["ignored"],
@@ -2378,6 +2390,9 @@ def found_summary(found: dict[str, Any]) -> dict[str, Any]:
         "budget": found["budget"],
         "parts": [{k: p[k] for k in keys} for p in found["parts"]],
         "left_out": left_out_counts(found),
+        "already": [{"id": o["id"], "rank": o["rank"]} for o in already],
+        "considered": found["considered"],
+        "framed": framed,
     }
 
 

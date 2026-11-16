@@ -176,6 +176,8 @@ In a chat, `/search glossary` searches it from your next message, or set `search
 
 In the web interface, **Search it** on the paperclip's sheet, beside Attach whole, adds the file to your documents and searches it in this chat from your next message, and if the name is taken you can give another or replace that document. **Searching** beside Settings lists what the chat searches, ticked, with the rest of your library: tick or untick a document to change the list. **Documents…** in the Clarity menu lists your documents and where they're kept. **Add…** opens your computer's file picker and says where the copy will go; if the name is taken or Clarity can't make one from the file's, it asks for one. With a chat open, **Search it in this chat** after adding searches it from your next message. A changed document has **Rebuild**, and **Try a search** shows what a message would find in the open chat, as `/try` does.
 
+A reply to a searched message opens with **From documents**: how many parts search added and their tokens. Press it for each part's rank and the words it matched, what was left out and why, and the words searched and ignored; **Show in Details** opens the reply's Documents section, with where each part sits in the prompt. Regenerating reuses the parts found when you sent the message. If Send is refused, the box says why for each document, with **Rebuild** or **Stop searching it**; once each is fixed, send again.
+
 ### Fix a document's text, then rebuild
 
 Search reads the parts cut from `text.md`, which is yours to fix: add `## ` headings so its parts get titles, or take out text that shouldn't be searched. Then cut its parts again:

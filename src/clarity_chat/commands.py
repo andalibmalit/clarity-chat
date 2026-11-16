@@ -832,7 +832,15 @@ def _prompt(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "call": call,
         "replays": replays_of(conversation.log.path, call) if call else [],
         "prompt_attachments": prompt_attachments(conversation, call) if call else [],
+        "found": message_found(conversation, call) if call else None,
     }
+
+
+def message_found(conversation: Any, call: dict[str, Any]) -> dict[str, Any] | None:
+    """What search found for the message a call answered, as its turn logged it (Details'
+    Documents section, v0.3.2 C3), or None for a message that wasn't searched."""
+    turn = conversation.turns.get(call.get("parent_id"))
+    return turn.found if turn is not None else None
 
 
 def prompt_attachments(conversation: Any, call: dict[str, Any]) -> list[dict[str, Any]]:

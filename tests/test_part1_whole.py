@@ -198,7 +198,7 @@ def test_history_s_summary_holds_the_budget_reasons_and_each_part_s_words(root, 
     first, again = history_found(c)
     assert first.get("budget") == 1500
     (part,) = first["parts"]
-    assert set(part) == {"id", "title", "rank", "title_words", "words", "tokens"}
+    assert set(part) == {"id", "title", "page", "rank", "title_words", "words", "tokens"}  # C3
     assert part["title_words"] == ["wren"] and part["tokens"] > 0
     assert first["left_out"] == {} and again["left_out"] == {"already in the chat": 1}
     lines = format_history(c.run("history", "", quiet)).splitlines()

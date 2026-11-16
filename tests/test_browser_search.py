@@ -79,3 +79,49 @@ def test_unticking_a_missing_document_lets_send_go(clarity, page, fetched_root):
     page.click("#send")
     page.wait_for_selector("#thread .turn.assistant")
     assert backend.calls
+
+
+def searching_chat(page, redirect, fetched_root) -> None:
+    library_add(fetched_root, GLOSSARY, "glossary.md")
+    path = fetched_root / "profiles" / "chat.toml"
+    path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nsearch = ["glossary"]\n')
+    chat(page, redirect)
+
+
+def test_from_documents_opens_its_list_and_details(clarity, page, fetched_root):  # noqa: F811
+    redirect, backend = clarity  # C3
+    searching_chat(page, redirect, fetched_root)
+    backend.replies, backend.piece_delay = [" Slowly," * 8], 0.3
+    page.fill("#message", "Tell me about the wren")
+    page.click("#send")
+    # The parts are found before the call: the line shows while the reply is written.
+    page.wait_for_selector(".writing-found [data-action=found]")
+    page.click(".writing-found [data-action=found]")  # opened while written, kept open after
+    reply = "#thread .turn.assistant:not(.writing-found)"
+    page.wait_for_selector(f"{reply} .found .parts:not([hidden])")
+    line = page.locator(f"{reply} [data-action=found]")
+    # A flex row: innerText puts its items on lines of their own.
+    assert " ".join(line.inner_text().split()).startswith("From documents · 1 part · ")
+    assert 'glossary · "Wren"' in page.inner_text("#thread .found .parts")
+    shot(page, "from-documents", "v032-c3")
+    page.click("#thread .found [data-section=documents]")
+    page.wait_for_selector("#panel details[data-key=documents][open]")
+    assert "Words searched" in page.inner_text("#panel details[data-key=documents]")
+    shot(page, "details-documents", "v032-c3")
+
+
+def test_a_refused_send_s_stop_searching_it_lets_send_go(clarity, page, fetched_root):  # noqa: F811
+    redirect, backend = clarity  # C3, W6
+    searching_chat(page, redirect, fetched_root)
+    shutil.rmtree(fetched_root / "local/documents/glossary")
+    page.fill("#message", "Tell me about the wren")
+    page.click("#send")
+    page.wait_for_selector("#thread .problem.refused")
+    assert page.inner_text("#thread .problem.refused").startswith("! Nothing was sent.")
+    shot(page, "refused", "v032-c3")
+    page.click("#thread .problem.refused [data-action=refused-stop]")
+    page.wait_for_selector("#thread .problem.refused", state="detached")
+    page.fill("#message", "Tell me again")
+    page.click("#send")
+    page.wait_for_selector("#thread .turn.assistant")
+    assert backend.calls
