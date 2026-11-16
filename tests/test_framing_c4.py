@@ -1,0 +1,87 @@
+"""C4 (v0.3.2, Q1 answered (b)): the framing line as a chat value, like /set. `/framing TEXT`
+sets this chat's line, `/framing none` sends none, `/framing` goes back to the profile's;
+each is logged as a `framing` record and read back on resume, and every later message,
+and the attach sheet's counts, use it (the board's ⑦). Made-up documents only."""
+
+from __future__ import annotations
+
+from clarity_chat.documents import FRAMING
+from tests.test_web import command
+from tests.test_web_search_c2 import make, root  # noqa: F401
+from tests.test_web_upload import upload
+
+SEARCHES = 'search = ["glossary"]'
+OURS = "Notes from my own hikes. Use them for facts; answer in your own words."
+
+
+def last_message(client) -> dict:
+    turns = command(client, "history").json()["result"]["turns"]
+    return [t for t in turns if t["role"] == "user"][-1]
+
+
+def prompt(client) -> str:
+    return command(client, "prompt").json()["result"]["call"]["prompt_text"]
+
+
+def test_framing_sets_this_chat_s_line_for_every_later_message(root, make):  # noqa: F811
+    client, session = make(SEARCHES)
+    answer = command(client, "framing", OURS).json()
+    assert "error" not in answer, answer
+    command(client, "say", "Tell me about the wren")
+    assert OURS in prompt(client) and FRAMING not in prompt(client)
+    turn = session.conversation.turns[last_message(client)["turn_id"]]
+    assert (turn.framing, turn.framing_origin) == (OURS, "chat")
+    state = command(client, "state").json()["result"]
+    assert (state.get("framing"), state.get("framing_origin")) == (OURS, "chat")
+
+
+def test_framing_none_sends_no_line(root, make):  # noqa: F811
+    client, session = make(SEARCHES)
+    command(client, "framing", "none")
+    command(client, "say", "Tell me about the wren")
+    assert FRAMING not in prompt(client)
+    turn = session.conversation.turns[last_message(client)["turn_id"]]
+    assert (turn.framing, turn.framing_origin) == ("", "chat")
+
+
+def test_framing_alone_goes_back_to_the_profile_s_line(root, make):  # noqa: F811
+    client, session = make(SEARCHES)
+    command(client, "framing", OURS)
+    command(client, "framing", "")
+    command(client, "say", "Tell me about the wren")
+    turn = session.conversation.turns[last_message(client)["turn_id"]]
+    assert (turn.framing, turn.framing_origin) == (FRAMING, "default")
+    state = command(client, "state").json()["result"]
+    assert state.get("framing_origin") == "default"
+
+
+def test_framing_is_logged_and_kept_on_resume(root, make):  # noqa: F811
+    client, _ = make(SEARCHES)
+    command(client, "framing", OURS)
+    command(client, "say", "Tell me about the wren")
+    log_id = command(client, "state").json()["result"]["log_id"]
+    command(client, "new", "")
+    answer = command(client, "resume", log_id).json()
+    assert "error" not in answer, answer
+    state = command(client, "state").json()["result"]
+    assert (state.get("framing"), state.get("framing_origin")) == (OURS, "chat")
+    command(client, "say", "And the dipper?")
+    assert OURS in prompt(client)
+
+
+def test_the_attach_check_counts_with_this_chat_s_line(root, make):  # noqa: F811
+    client, _ = make()
+    upload_id = upload(client, b"Line one.\n", "notes.md").json()["upload"]
+    before = command(client, "attach", f"{upload_id} check").json()["result"]
+    command(client, "framing", "none")
+    after = command(client, "attach", f"{upload_id} check").json()["result"]
+    assert (after.get("framing"), after.get("framing_origin")) == ("", "chat")
+    assert after["whole"]["tokens"] < before["whole"]["tokens"]
+
+
+def test_a_text_mode_chat_has_no_framing_line(root, make):  # noqa: F811
+    client, _ = make(profile="text")
+    answer = command(client, "framing", OURS).json()
+    assert (
+        answer.get("error") == "The framing line needs a chat-mode profile; text is in text mode."
+    )
