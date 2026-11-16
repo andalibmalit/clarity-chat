@@ -79,6 +79,7 @@ SHAPES: dict[str, list[tuple[Any, ...]]] = {
         ),
     ],
     "search": [("documents",)],  # v0.3.2 B1
+    "framing": [("framing",)],  # v0.3.2 C4 (the part 2 whole-branch review's S3)
 }
 FOUND_KEYS: dict[str, set[str]] = {  # the Shapes table's `found` (Checkpoint 1's S9)
     "found": {
@@ -135,6 +136,7 @@ def scripted_chat(session: Session, tmp_path: Path) -> None:
     session.set_search(["birds"])
     session.say("Tell me about the wren")  # found: a part added
     session.say("The wren again")  # found: that part left out, already in the chat
+    session.set_framing("A made-up framing line.")  # a `framing` record (C4)
     session.attach(doc())
     session.say("What's in it?")
     session.regen()
@@ -494,6 +496,13 @@ def write_chat(name: str, c: Commands, backend: FakeBackend, tmp_path: Path) -> 
         assert '<part document="notes">' in sent["prompt_text"]
         run("search none")
         run("say Without it?")
+    elif name == "framing":  # v0.3.2 C4 (the part 2 whole-branch review's S3)
+        run("framing A made-up line.")
+        run(f"attach {path}")
+        run("say What's in it?")
+        run("framing none")
+        run(f"attach {path} lines 2-2")
+        run("say And now?")
     elif name == "failed call":
         backend.fail_with = "made-up failure"
         with pytest.raises(BackendError):
@@ -504,6 +513,7 @@ def write_chat(name: str, c: Commands, backend: FakeBackend, tmp_path: Path) -> 
 
 WRITERS = [
     "say", "regen", "edit", "set", "title", "mark", "note", "attach", "failed call", "search",
+    "framing",
 ]  # fmt: skip
 
 
