@@ -72,6 +72,24 @@ def test_a_taken_name_asks_for_another_and_adds_under_it(clarity, page, fetched_
     assert sorted(d["name"] for d in library_documents(fetched_root)) == ["glossary", "owls"]
 
 
+def test_a_taken_name_s_replace_writes_over_it(clarity, page, fetched_root):  # noqa: F811
+    library_add(fetched_root, GLOSSARY, "glossary.md")  # Q12 on Add (the board's ⑧)
+    redirect, _ = clarity
+    documents(page, redirect)
+    with page.expect_file_chooser() as chooser:
+        page.click("[data-action=documents-add]")
+    chooser.value.set_files({"name": "glossary.md", "mimeType": "text/markdown",
+                             "buffer": b"## Owl\nMade-up.\n"})  # fmt: skip
+    page.wait_for_selector("[data-action=documents-replace]")
+    page.click("[data-action=documents-replace]")
+    assert page.is_visible("#documents-replace-note")
+    page.click("#documents-add-form button[type=submit]")
+    page.wait_for_selector("#documents-body .notice")
+    assert "Clarity replaced" in page.inner_text("#documents-body .notice")
+    (doc,) = library_documents(fetched_root)
+    assert (doc["name"], doc["parts"]) == ("glossary", 1)
+
+
 def test_rebuild_on_a_changed_row(clarity, page, fetched_root):  # noqa: F811
     library_add(fetched_root, GLOSSARY, "glossary.md")
     text = fetched_root / "local/documents/glossary/text.md"
