@@ -292,7 +292,7 @@ def _edit(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return c.call(emit, lambda **kw: c.session.edit(text, drop=drop, **kw))
 
 
-DROP = re.compile(r"--drop ([0-9]{1,9}) +")
+DROP = re.compile(r"--drop ([0-9]{1,9})(?: +|$)")  # then the text, or none (prefill)
 
 
 UPLOAD_ID = re.compile(r"upload-[0-9a-f]{12}")

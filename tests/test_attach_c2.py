@@ -22,7 +22,7 @@ __all__ = ["make"]  # the fixture, used by name
 
 # The table's new sentences, as the fact-check's rows 50-52, 53b and 56 word them.
 ATTACHED = "Attached: {name} · {how} · {tokens} tokens when attached"
-KEEPS = "Keeps: {names}. An edit can't add or remove attachments."
+KEEPS = "Keeps: {names}. An edit can't add attachments."  # Q2's × (v0.3.2, N73)
 HIGHLIGHT = "Highlighted: the framing line and documents Clarity put in your messages."
 REMOVE = (
     "Shorten your message, remove an attachment and attach a shorter part, start a new chat, "
@@ -86,7 +86,9 @@ def test_edit_shows_what_it_keeps_and_the_edited_call_holds_the_block(make):
     client, session, _ = make()
     sent(client)
     form = re.search(r"<form class=\"editbox\".*?</form>", shown(client, "thread"), re.S)
-    assert form and KEEPS.format(names="notes.md") in text_of(form.group(0))
+    # Q2 (v0.3.2): the names are chips with an ×, around which the sentence reads.
+    assert form and "Keeps:notes.md" in text_of(form.group(0))
+    assert "An edit can't add attachments." in text_of(form.group(0))
     assert "error" not in command(client, "edit", "What does it say?").json()
     call = command(client, "prompt").json()["result"]["call"]
     assert "Line one.\nLine two.\nLine three.\n" in call["prompt_text"]
@@ -273,4 +275,4 @@ def test_hostile_names_and_text_stay_text_in_the_thread_and_details(make):
         parser = Unsafe()
         parser.feed(page)
         assert parser.found == []
-    assert KEEPS.format(names=name) in text_of(pages[0])
+    assert f"Keeps:{name}·" in text_of(pages[0])  # a chip with an × (Q2, v0.3.2)

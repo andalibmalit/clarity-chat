@@ -598,3 +598,6 @@ dialog.sheet.documents { width: min(760px, calc(100vw - 32px)); max-height: calc
 .problem.refused { flex-direction: column; align-items: stretch; gap: 8px; }
 .problem.refused .ln p { flex: 1 1 100%; margin: 0; }
 .problem .newwith { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+/* Edit's kept attachments as chips with an × (v0.3.2, Q2; the board's ⑥) */
+.editbox .keeps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
