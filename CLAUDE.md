@@ -64,7 +64,7 @@ Clarity writes files only visibly. Shipped files stay read-only; the user's own 
 - Reviews check the diff against the plan and look for bloat: code no item asked for, abstractions with one user, unrequested options, tests for cases that can't happen. Skip style. Prefer findings that delete code.
 - Keep the docs current as you go: update the docs in the same commit as a change to a choice, tradeoff, scope or usage: `docs/design.md` for choices and tradeoffs, `docs/reference.md` for keys, commands and record fields, `docs/guides.md` and `docs/getting-started.md` for usage, and the README. `tests/test_docs.py` catches some drift, not all. Write for human readers, in Google developer-docs style: lead with the point, use short sentences and plain words, and use lists only for parallel items. Say each thing once. Keep caveats and sources; cut padding.
 - Use the same names everywhere: profile, conversation, turn, call, mark and note mean the same thing in code, profiles, logs and commands.
-- Never open files in `logs/` or `runs/` unless I ask; they hold private conversations. Tests use made-up text.
+- Never open files in `logs/`, `runs/` or `local/documents/` unless I ask; they hold private conversations and your documents. Tests use made-up text.
 
 ## Python style
 - Follow PEP 8 and the Zen of Python as defaults, not hard rules. Readability is the goal.
