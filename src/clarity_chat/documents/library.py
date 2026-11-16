@@ -358,6 +358,7 @@ def typed(manifest: Any) -> bool:
             and _int(manifest["titled"])
             and isinstance(manifest["extractor"], dict)
             and isinstance(manifest["added"], str)
+            and datetime.fromisoformat(manifest["added"]).tzinfo is not None  # a page shows it
             and isinstance(files, dict)
             and set(files) == {original_name(original["kind"]), "text.md", "parts.jsonl"}
             and all(
@@ -367,7 +368,7 @@ def typed(manifest: Any) -> bool:
                 for f in files.values()
             )
         )
-    except (KeyError, TypeError, AttributeError):
+    except (KeyError, TypeError, AttributeError, ValueError):  # ValueError: a bad date
         return False
 
 

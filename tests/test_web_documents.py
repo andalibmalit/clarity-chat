@@ -83,11 +83,13 @@ def test_the_rows_equal_documents(root, make):
     fragment = page(client)
     assert "added" in doc  # the row's date (C1)
     said = row(fragment, "glossary")
-    added = re.sub(r"T.*", "", doc["added"])
-    year, month, day = (int(n) for n in added.split("-"))
+    from datetime import datetime
+
+    local = datetime.fromisoformat(doc["added"]).astimezone()  # the local date (could 7)
     months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
     assert said == (
-        f"glossary glossary.md · added {day} {months[month - 1]} {year}; 2 parts, 2 with a title "
+        f"glossary glossary.md · added {local.day} {months[local.month - 1]} {local.year}; 2 "
+        "parts, 2 with a title "
         f"Text {doc['bytes']} bytes 2 Ready"
     )
     words = text_of(fragment)
