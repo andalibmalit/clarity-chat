@@ -16,7 +16,7 @@ import threading
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from clarity_chat import steering
 from clarity_chat.backends import Backend, BackendError, Result
@@ -28,6 +28,7 @@ from clarity_chat.documents import (
     DocumentRefused,
     Fit,
     Room,
+    Stale,
     added_ranges,
     attached_in,
     checked_attachments,
@@ -36,15 +37,19 @@ from clarity_chat.documents import (
     content,
     control_token_parts,
     covers_whole,
+    fill,
     fit,
+    found_in,
     framing_of,
     library_manifest,
     library_parts,
     library_state,
+    load_document,
     message_content,
     more_than,
     piece,
     scan,
+    search_documents,
     start_that_fits,
     summaries,
     with_text,
@@ -114,6 +119,24 @@ class DoesntFit(DocumentRefused):
         self.roomy = roomy  # the largest start that still leaves max_tokens: the sheet's
 
 
+class HEAD:
+    """Room's default: count after the conversation's head."""
+
+
+class SearchRefused(ConfigError):
+    """A searched message's call refused before anything was sent (v0.3.2 decisions 6 and
+    12): a found part holds a control token, or a searched document is changed or missing.
+    Logged as a failed call; the message is given back, with its way out."""
+
+
+STALE = {  # the way out of a stale document, in words every front end can show
+    "changed": "{name} has changed since it was built, so nothing was sent. Rebuild it, or stop "
+    "searching it.",
+    "missing": "{name} isn't in your documents any more, so nothing was sent. Stop searching it, "
+    "or add it again.",
+}
+
+
 class CancelledBeforeReply(BackendError):
     """The call was cancelled before its first token: logged like a failed call, no reply."""
 
@@ -143,20 +166,19 @@ class Turn:
     framing: str | None = None
     framing_origin: str | None = None
     placement: str | None = None
+    found: dict[str, Any] | None = None  # a searched message's (v0.3.2)
 
     @property
     def content(self) -> str:
-        """The message as the model gets it: with its attachments' block, if any."""
-        return message_content(
-            self.text,
-            {"attachments": self.attachments, "framing": self.framing, "placement": self.placement},
-        )
+        """The message as the model gets it: with its block, if any."""
+        return message_content(self.text, self.attached_fields())
 
     def attached_fields(self) -> dict[str, Any]:
-        """The turn record's attachment fields: only for a turn that has attachments."""
-        if not self.attachments:
+        """The turn record's block fields: only for a turn with attachments or a search."""
+        if not self.attachments and self.found is None:
             return {}
-        return {name: getattr(self, name) for name in TURN_FIELDS}
+        fields = {name: getattr(self, name) for name in TURN_FIELDS}
+        return {**fields, "found": self.found} if self.found is not None else fields
 
 
 @dataclass(frozen=True)
@@ -765,31 +787,70 @@ class Session:
         profile's seed for this call (a batch run's seeds). `cancel`: an event the caller
         makes for this call and may set from any thread to stop it."""
         conversation = self._require_conversation()
-        attached: dict[str, Any] = {}
-        if conversation.pending:
-            framing, origin = framing_of(conversation.profile)
-            attached = {
-                "attachments": conversation.pending,
-                "framing": framing,
-                "framing_origin": origin,
-                "placement": "start",
-            }
+        attached, refused = self._block(text, conversation.pending, conversation.head)
         user = conversation.add_turn("user", "user", text, conversation.head, **attached)
         conversation.head, conversation.pending = user.turn_id, []
-        return self.call(user, seed=seed, on_text=on_text, cancel=cancel)
+        return self.call(user, seed=seed, on_text=on_text, cancel=cancel, refused=refused)
+
+    def _block(
+        self, text: str, attachments: list[dict[str, Any]], parent: str | None
+    ) -> tuple[dict[str, Any], SearchRefused | None]:
+        """A new message's block fields: its attachments and, when the chat searches, what
+        its text found in the chat's documents (decisions 2, 3, 9), counted after the turns
+        to `parent`. A stale document is a refusal the call logs as failed (decision 6),
+        returned rather than raised so the message is logged first."""
+        conversation = self._require_conversation()
+        profile = conversation.profile
+        if not attachments and not conversation.searching:
+            return {}, None
+        framing, origin = framing_of(profile)
+        fields: dict[str, Any] = {
+            "attachments": attachments,
+            "framing": framing,
+            "framing_origin": origin,
+            "placement": profile.placement,
+        }
+        if not conversation.searching:
+            return fields, None
+        try:
+            docs = [load_document(self.root, name) for name in conversation.searching]
+        except Stale as e:
+            return fields, SearchRefused(STALE[e.state].format(name=e.name))
+        already = frozenset(
+            p["sha256"] for t in conversation.path_to(parent) for p in found_in(t.attached_fields())
+        )
+        budget, budget_origin = self.budget()
+        found = fill(
+            self.room(after=parent),
+            text,
+            attached_in(fields),
+            framing,
+            search_documents(docs, text),
+            budget,
+            budget_origin,
+            profile.placement,
+            already,
+        )
+        return {**fields, "found": found}, None
 
     def room(
-        self, new: NewChat | None = None, cancel: threading.Event | None = None, name: str = ""
+        self,
+        new: NewChat | None = None,
+        cancel: threading.Event | None = None,
+        name: str = "",
+        after: str | None | type[HEAD] = HEAD,
     ) -> Room:
         """How to count for the next message: its prompt's tokens for a given content, after
-        the chat so far (or, with `new`, in the chat /new would start), and the free context
-        a prompt of that many tokens leaves. With `cancel`, each count first checks it, and a
-        set one stops counting `name`."""
+        the chat so far (to `after`, default the head: an edit counts from before the
+        message it replaces; or, with `new`, in the chat /new would start), and the free
+        context a prompt of that many tokens leaves. With `cancel`, each count first checks
+        it, and a set one stops counting `name`."""
         conversation = self._require_conversation()
         assert self.tokenizer is not None
         if new is None:
             tokenizer, template = self.tokenizer, self.template_tokenizer
-            profile, turns = conversation.profile, conversation.path_to(conversation.head)
+            parent = conversation.head if after is HEAD else cast("str | None", after)
+            profile, turns = conversation.profile, conversation.path_to(parent)
             settings, n_ctx = conversation.settings, self.backend.n_ctx
         else:  # a new chat starts from its profile's settings, not this chat's /set values
             tokenizer, template, profile, turns = new.tokenizer, new.template, new.profile, []
@@ -1200,17 +1261,18 @@ class Session:
         reply = conversation.current_reply("edit the message of")
         assert reply.parent_id is not None
         original = conversation.turns[reply.parent_id]
+        # The attachments are kept; the new text is searched again (decision 2, Q6).
+        attached, refused = self._block(text, original.attachments, original.parent_id)
+        if original.attachments and not conversation.searching:  # as it was logged
+            attached = {**attached, **{k: getattr(original, k) for k in TURN_FIELDS}}
         user = conversation.add_turn(
-            "user",
-            "edit",
-            text,
-            original.parent_id,
-            edit_of=original.turn_id,
-            **original.attached_fields(),
+            "user", "edit", text, original.parent_id, edit_of=original.turn_id, **attached
         )
         conversation.head = user.turn_id
         # A failed edit leaves you where you were.
-        return self.call(user, on_text=on_text, cancel=cancel, back_to=reply.turn_id)
+        return self.call(
+            user, on_text=on_text, cancel=cancel, back_to=reply.turn_id, refused=refused
+        )
 
     def undo(self) -> Turn | None:
         """Move back past the last exchange. Returns the new head (None at the start). The
@@ -1348,6 +1410,7 @@ class Session:
                 "regen_of": t.regen_of,
                 "edit_of": t.edit_of,
                 **({"attachments": summaries(t.attachments)} if t.attachments else {}),
+                **({"found": found_summary(t.found)} if t.found is not None else {}),
                 "marks": [
                     {"mark_id": m.get("mark_id"), "label": m["label"]}
                     for m in notes.get(t.turn_id, {}).get("marks", [])
@@ -1473,9 +1536,11 @@ class Session:
         on_text: Callable[[str], None] | None = None,
         cancel: threading.Event | None = None,
         back_to: str | None = None,
+        refused: SearchRefused | None = None,
     ) -> CallOutcome:
         """Get the reply to `user_turn`. If the call fails, `head` goes to `back_to`
-        (default: before the message, which becomes a dead branch)."""
+        (default: before the message, which becomes a dead branch). `refused`: a search's
+        refusal, logged as this call's failure."""
         conversation = self._require_conversation()
         profile = conversation.profile
         assert self.model is not None and self.tokenizer is not None
@@ -1529,6 +1594,10 @@ class Session:
                 special_tokens_in_content=prompt.special_in_content,
                 message_spans=self.message_spans(user_turn, prompt),
             )
+            # Refused with the prompt recorded, as a ContextError is: nothing is sent.
+            if refused is not None:
+                raise refused
+            self._control_tokens_in_found(user_turn)
             new_message = self.tokenizer.special_tokens_in(user_turn.text)
             if new_message:
                 warnings.append(
@@ -1631,6 +1700,23 @@ class Session:
         conversation.unanswered = conversation.resume_differ = None
         conversation.last_call = conversation.calls[call_id] = record
         return CallOutcome(record, result, reply, warnings)
+
+    def _control_tokens_in_found(self, user_turn: Turn) -> None:
+        """A found part holding this model's control token stops the call (decision 12): you
+        didn't choose that text for this message, and a stray end-of-turn token ends your
+        turn early. The refusal names the part and the way out."""
+        assert self.tokenizer is not None
+        for part in found_in(user_turn.attached_fields()):
+            tokens = self.tokenizer.special_tokens_in(part["text"])
+            if tokens:
+                held = ", ".join(dict.fromkeys(tokens))
+                one = "a control token" if len(set(tokens)) == 1 else "control tokens"
+                name = part["document"]
+                raise SearchRefused(
+                    f"Part {part['id']} holds {held}, which this model reads as {one}, so "
+                    f"nothing was sent. Fix that part in {name}'s text.md and rebuild it, or "
+                    f"stop searching {name}."
+                )
 
     def _check_output(
         self,
@@ -2101,11 +2187,31 @@ def attached_tokens(spans: Any, conversation: Conversation, user_turn: Turn) -> 
     the call's spans (each document's block and the framing line); without them, each
     attachment's cost when it was attached, said as such."""
     if isinstance(spans, list):
-        n = sum(a["tokens"][1] - a["tokens"][0] for e in spans for a in e.get("added", []))
-        return f", {n:,} of them in attached documents and their framing lines" if n else ""
+        added = [a for e in spans for a in e.get("added", [])]
+        n = sum(a["tokens"][1] - a["tokens"][0] for a in added)
+        kinds = {a["what"] for a in added}
+        what = ", ".join(
+            [*(["attached documents"] if "attachment" in kinds else []),
+             *(["found parts"] if "part" in kinds else [])]
+        )  # fmt: skip
+        return f", {n:,} of them in {what or 'documents'} and their framing lines" if n else ""
     path = prompt_turns(conversation, user_turn)
     n = sum(a["tokens"] for t in path for a in t.attachments)
     return f", {n:,} of them for attached documents, counted when attached" if n else ""
+
+
+def found_summary(found: dict[str, Any]) -> dict[str, Any]:
+    """/history's view of a turn's `found`: counts, tokens, words and the parts' IDs and
+    titles, no text (the Shapes table's commands)."""
+    return {
+        "words": found["words"],
+        "ignored": found["ignored"],
+        "documents": [d["name"] for d in found["documents"]],
+        "matched": found["matched"],
+        "tokens": found["tokens"],
+        "parts": [{"id": p["id"], "title": p["title"], "rank": p["rank"]} for p in found["parts"]],
+        "left_out": len(found["left_out"]),
+    }
 
 
 def prompt_turns(conversation: Conversation, user_turn: Turn) -> list[Turn]:

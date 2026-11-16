@@ -32,6 +32,7 @@ from clarity_chat.resume import render_line, what_differs
 from clarity_chat.session import (
     CancelledBeforeReply,
     ContextError,
+    SearchRefused,
     Session,
 )
 
@@ -605,7 +606,7 @@ class ChatLoop:
             self.write(f"{told}{self.give_back(name, args)}\n")
             self.resume_hint(e.server_stopped)
             return True
-        except ContextError as e:  # too long: nothing was sent
+        except (ContextError, SearchRefused) as e:  # too long, or refused: nothing was sent
             self.write(f"! {e}{self.give_back(name, args)}\n")
             return True
         except ConfigError as e:

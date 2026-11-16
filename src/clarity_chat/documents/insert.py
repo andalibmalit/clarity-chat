@@ -338,6 +338,76 @@ TURN_TYPES: dict[str, Callable[[Any], bool]] = {
 }
 
 
+def _number(value: Any) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _maybe(kind: type) -> Callable[[Any], bool]:
+    return lambda v: v is None or (isinstance(v, kind) and not isinstance(v, bool))
+
+
+def _dicts(types: Mapping[str, Callable[[Any], bool]]) -> Callable[[Any], bool]:
+    """A list of records, each with exactly these fields of these types."""
+
+    def check(value: Any) -> bool:
+        return isinstance(value, list) and all(
+            isinstance(v, dict)
+            and set(v) == set(types)
+            and all(ok(v[k]) for k, ok in types.items())
+            for v in value
+        )
+
+    return check
+
+
+# The turn's `found` (v0.3.2 B2), as the Shapes table gives it: a log someone else wrote is
+# read as untrusted, so each field a reader uses is of the type Clarity writes. A part's page
+# goes into the block, so it's an int or null before any render.
+FOUND_PART_TYPES: dict[str, Callable[[Any], bool]] = {
+    "id": lambda v: isinstance(v, str),
+    "document": lambda v: isinstance(v, str),
+    "ordinal": _whole_number,
+    "title": _maybe(str),
+    "page": _maybe(int),
+    "text": lambda v: isinstance(v, str),
+    "sha256": lambda v: isinstance(v, str),
+    "rank": _whole_number,
+    "score": _number,
+    "title_words": _strings,
+    "words": _strings,
+    "tokens": _whole_number,
+}
+FOUND_TYPES: dict[str, Callable[[Any], bool]] = {
+    "method": lambda v: v == "words",
+    "searched_for": lambda v: isinstance(v, str),
+    "scan_depth": _whole_number,
+    "words": _strings,
+    "ignored": _strings,
+    "documents": _dicts(
+        {k: (lambda v: isinstance(v, str)) for k in ("name", "build_id", "original_sha256")}
+    ),
+    "engine": lambda v: (
+        isinstance(v, dict)
+        and set(v)
+        == {"name", "sqlite", "tokenizer", "weights", "word_rule", "common_words", "query"}
+    ),
+    "considered": _whole_number,
+    "budget": _whole_number,
+    "budget_origin": lambda v: v in ("default", "profile"),
+    "parts": _dicts(FOUND_PART_TYPES),
+    "left_out": _dicts(
+        {
+            "id": lambda v: isinstance(v, str),
+            "rank": _whole_number,
+            "score": _number,
+            "why": lambda v: v in ("budget", "already in the chat", "not considered"),
+        }
+    ),
+    "matched": _whole_number,
+    "tokens": _whole_number,
+}
+
+
 def _typed(fields: Mapping[str, Any], types: Mapping[str, Callable[[Any], bool]]) -> None:
     for key, ok in types.items():
         if not ok(fields[key]):
@@ -349,10 +419,18 @@ def checked_attachments(record: Mapping[str, Any]) -> dict[str, Any]:
     missing field raises KeyError, and a value Clarity doesn't write raises TypeError, which
     every reader of a log refuses as unreadable, so nothing read later (a regeneration's
     warnings, the stop's count, a view) meets one."""
-    if not record.get("attachments"):
+    if not record.get("attachments") and "found" not in record:
         return {}
     fields = {key: record[key] for key in TURN_FIELDS}
     _typed(fields, TURN_TYPES)
+    if "found" in record:  # v0.3.2: a searched message, with or without attachments
+        found = record["found"]
+        if not isinstance(found, dict):
+            raise TypeError("a turn's found isn't one Clarity writes")
+        if missing := set(FOUND_TYPES) - set(found):
+            raise KeyError(", ".join(sorted(missing)))
+        _typed(found, FOUND_TYPES)
+        fields["found"] = found
     for attachment in fields["attachments"]:
         if missing := ATTACHMENT_FIELDS - set(attachment):
             raise KeyError(", ".join(sorted(missing)))
