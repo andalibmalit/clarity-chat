@@ -124,7 +124,8 @@ def test_regen_reuses_the_message_s_parts_and_never_searches_again(
         "clarity_chat.session.search_documents", lambda *a: searches.append(1) or real(*a)
     )
     run(c, "search none")  # Searching changed: the message's parts are still its own
-    for args in ("", "3", "same"):
+    run(c, "set temperature 0.3")  # so /regen same has seeds to use again
+    for args in ("same", "", "3"):
         run(c, f"regen {args}".strip())
     calls = turns(session, "call")[1:]
     assert [call["prompt_ids"] for call in calls] == [first] * 5
@@ -236,9 +237,7 @@ def test_the_stop_counts_the_parts_tokens(root, chat_tokenizer):
     backend._n_ctx = 150
     with pytest.raises(ContextError) as stopped:
         run(c, "say Tell me about the wren")
-    assert "of them in attached documents, found parts and their framing lines" in str(
-        stopped.value
-    )
+    assert "of them in found parts and their framing lines" in str(stopped.value)
 
 
 def test_a_failed_send_searches_again_next_time(root, chat_tokenizer):
