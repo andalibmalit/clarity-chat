@@ -15,6 +15,7 @@ from clarity_chat.backends import BackendError
 from clarity_chat.commands import (
     SENTENCES,
     Commands,
+    OriginalChanged,
     check_lines,
     document_add,
     document_check,
@@ -753,7 +754,7 @@ class ChatLoop:
         elif event["event"] == "reading":
             self.write(f"Reading {shown(event['name'])}…\n")
         elif event["event"] == "writing":
-            self.write(f"Writing {event['folder']}/: a copy of the file, its text and its parts.\n")
+            self.write(writing_words(event["folder"], event["replacing"]) + "\n")
         elif event["event"] == "record" and event["record"]["type"] == "torn_line":
             self.write(f"\n! {torn_message(event['record'], "this conversation's log")}\n")
 
@@ -969,9 +970,7 @@ def cmd_document(root: Path, args: argparse.Namespace) -> int:
             args.name,
             args.replace,
             on_read=lambda: print(f"Reading {shown(Path(args.file).name)}…", flush=True),
-            on_write=lambda folder: print(
-                f"Writing {folder}/: a copy of the file, its text and its parts.", flush=True
-            ),
+            on_write=lambda folder, replacing: print(writing_words(folder, replacing), flush=True),
         )
         print(format_added(result))
         return 0
@@ -988,17 +987,36 @@ def cmd_document(root: Path, args: argparse.Namespace) -> int:
         checked = document_check(root, args.names, tokenizer)["checked"]
         print(format_checked(checked) if checked else "No documents yet.")
         return 0 if all(c["state"] == "ready" for c in checked) else 1
-    result = document_rebuild(root, args.name)
+    try:
+        result = document_rebuild(root, args.name)
+    except OriginalChanged as e:  # the terminal's way out, by name
+        raise ConfigError(
+            f"{e} `clarity document add FILE --name {e.name} --replace` does."
+        ) from None
     print(format_rebuilt(result))
     return 0
+
+
+def writing_words(folder: str, replacing: bool) -> str:
+    """Said before a document is written (decision 5: before and after)."""
+    if replacing:
+        name = folder.rsplit("/", 1)[1]
+        return (
+            f"Replacing {name} in {folder}/: a copy of the file, its text and its parts, in "
+            "place of the ones there."
+        )
+    return f"Writing {folder}/: a copy of the file, its text and its parts."
 
 
 def format_added(result: dict[str, Any]) -> str:
     manifest = result["added"]
     folder = result["written"][0].rsplit("/", 1)[0]
     files = ", ".join(path.rsplit("/", 1)[1] for path in result["written"])
+    done = (
+        f"Replaced {manifest['name']} in" if result["replaced"] else f"Added {manifest['name']} as"
+    )
     return (
-        f"Added {manifest['name']} as {folder}/: {files}. "
+        f"{done} {folder}/: {files}. "
         f"{parts(manifest['parts'])}, {manifest['titled']:,} with a title."
     )
 
@@ -1023,22 +1041,30 @@ def format_documents(listed: list[dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-STATE_WORDS = {
-    "changed": "its files have changed since it was built. `clarity document rebuild {name}` "
-    "builds it again.",
-    "missing": "its folder in local/documents/ is gone.",
-}
-
-
 def format_checked(checked: list[dict[str, Any]]) -> str:
+    """`clarity document check`: each document's state, and the way out that works: rebuild
+    for its text or parts, adding it again for its original (Checkpoint 1's S3)."""
     lines = []
     for c in checked:
+        name, problems = c["name"], c["problems"]
         if c["state"] == "ready":
-            lines.append(f"{c['name']}: ready.")
+            lines.append(f"{name}: ready.")
+        elif c["state"] == "missing":
+            lines.append(f"{name}: isn't in your documents.")
+        elif c["state"] == "unreadable":
+            lines.append(f"{name}: {'; '.join(problems)}")
+        elif any(p.startswith("original.") for p in problems):
+            lines.append(
+                f"{name}: changed ({'; '.join(problems)}): its original isn't the file its text "
+                f"came from. `clarity document add FILE --name {name} --replace` adds it again."
+            )
         else:
-            why = "; ".join(c["problems"])
-            told = STATE_WORDS[c["state"]].format(name=c["name"])
-            lines.append(f"{c['name']}: {c['state']}{f' ({why})' if why else ''}: {told}")
+            lines.append(
+                f"{name}: changed ({'; '.join(problems)}): its files have changed since it was "
+                f"built. `clarity document rebuild {name}` builds it again."
+            )
+        for ordinal in c.get("closing_tag_parts", []):
+            lines.append(f"  part {ordinal} holds </part> or </document>; it's sent as it is")
         for found in c.get("control_token_parts", []):
             tokens = ", ".join(found["tokens"])
             lines.append(f"  part {found['ordinal']} holds this model's control tokens: {tokens}")
@@ -1055,7 +1081,9 @@ def format_searching(result: dict[str, Any]) -> str:
         if d["state"] == "ready":
             shown_.append(d["name"])
         elif d["state"] == "changed":
-            shown_.append(f"{d['name']} (changed: `clarity document rebuild {d['name']}`)")
+            shown_.append(f"{d['name']} (changed: `clarity document check {d['name']}` says why)")
+        elif d["state"] == "unreadable":
+            shown_.append(f"{d['name']} (unreadable: `clarity document check {d['name']}`)")
         else:
             shown_.append(f"{d['name']} (missing: /search without it)")
     return f"Searching ({origin}): {', '.join(shown_)}."

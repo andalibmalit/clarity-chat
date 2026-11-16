@@ -1269,8 +1269,10 @@ def attachment_rows(call: dict[str, Any], turns: list[dict[str, Any]]) -> list[d
             if added["what"] == "attachment":
                 attachment = turn["attachments"][added["index"]]
                 what = f"{attachment['name']} · {how_words(attachment)}"
-            else:
+            elif added["what"] == "framing":
                 what = "Framing line"
+            else:  # a found part: Details draws those in their own section (C3)
+                continue
             start, end = added["tokens"]
             said = turn["text"] if len(turn["text"]) <= 40 else turn["text"][:40].rstrip() + "…"
             rows.append(

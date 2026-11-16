@@ -305,6 +305,7 @@ def attach_args(args: str) -> tuple[str, str | None, int, int, bool]:
 # The sheet's sentences and range words, for the terminal: only these modules import the
 # documents package.
 SENTENCES, how_words = documents.SENTENCES, documents.how_words
+OriginalChanged = documents.OriginalChanged
 
 
 def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -497,7 +498,7 @@ def document_add(
     name: str | None = None,
     replace: bool = False,
     on_read: Callable[[], None] | None = None,
-    on_write: Callable[[str], None] | None = None,
+    on_write: Callable[[str, bool], None] | None = None,
 ) -> dict[str, Any]:
     """`clarity document add`: a file into the library (v0.3.2 A1). ~ is the home folder."""
     data, filename = documents.read_path(os.path.expanduser(path))
@@ -520,8 +521,11 @@ def document_check(root: Path, names: list[str], tokenizer: Any = None) -> dict[
         except documents.Stale as e:
             checked.append({"name": name, "state": e.state, "problems": []})
             continue
+        except documents.DocumentRefused as e:  # one unreadable document stops no other
+            checked.append({"name": name, "state": "unreadable", "problems": [str(e)]})
+            continue
         if tokenizer is not None and found["state"] == "ready":
-            parts = documents.library_parts(root, name)
+            parts = documents.library_parts(root, name)[0]
             found["control_token_parts"] = documents.control_token_parts(
                 parts, tokenizer.special_tokens_in
             )
@@ -564,8 +568,8 @@ def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         def told(name: str) -> Callable[[], None]:
             return lambda: emit({"event": "reading", "name": name})
 
-        def writing(folder: str) -> None:
-            emit({"event": "writing", "folder": folder})
+        def writing(folder: str, replacing: bool) -> None:
+            emit({"event": "writing", "folder": folder, "replacing": replacing})
 
         source, name = rest, None
         if c.uploads is not None:  # the page: an upload ID, and the name it chose

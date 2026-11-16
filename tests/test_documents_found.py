@@ -10,15 +10,14 @@ from hypothesis import strategies as st
 from clarity_chat.documents import (
     FRAMING,
     Attached,
-    Loaded,
     Room,
     added_ranges,
     content,
-    cut_parts,
     fill,
     message_content,
     search_documents,
 )
+from tests.test_documents_search import loaded
 from tests.test_session_attach import chat_session, doc
 
 PART = {"document": "birds", "title": "Winter wren: song", "page": 41, "text": "It sings."}
@@ -210,7 +209,7 @@ def test_nothing_found_adds_nothing():
 
 def test_the_fill_with_a_real_search_puts_the_best_first():
     text = "## Wren\nA small bird.\n\n## Lake\nCold water.\n\n" + "## Stone\nClay.\n\n" * 6
-    docs = [Loaded("birds", "b", "s", cut_parts(text, "birds.md"))]
+    docs = [loaded("birds", text)]
     room, _ = counting_room()
     filled = fill(room, "wren", [], FRAMING, search_documents(docs, "wren"), 1500, "default")
     assert [p["id"] for p in filled["parts"]] == ["birds:1"]
