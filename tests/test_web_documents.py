@@ -13,7 +13,7 @@ from starlette.testclient import TestClient
 
 from clarity_chat import web
 from clarity_chat.documents import library_add, reading
-from clarity_chat.session import Session
+from clarity_chat.session import Session, found_summary
 from tests.fakes import FakeBackend
 from tests.pdfs import make_pdf
 from tests.test_web import GET, ORIGIN, PORT, SECRET, command
@@ -365,16 +365,18 @@ def made_up_part(rank: int, **extra) -> dict:
 
 
 def made_up_found(parts: list[dict], left: list[tuple[int, str]], matched: int) -> dict:
-    return {"words": ["wren"], "ignored": [], "matched": matched, "considered": 8,
-            "budget": 1500, "tokens": sum(p["tokens"] for p in parts), "parts": parts,
+    """/history's summary (found_view's input since C3) of a made-up `found`."""
+    return found_summary({"words": ["wren"], "ignored": [], "matched": matched,
+            "considered": 8, "budget": 1500, "tokens": sum(p["tokens"] for p in parts),
+            "parts": parts, "documents": [{"name": "g"}],
             "left_out": [{"id": f"g:{r}", "rank": r, "score": -1.0, "why": why}
-                         for r, why in left]}  # fmt: skip
+                         for r, why in left]}, framed=True)  # fmt: skip
 
 
 def test_found_view_s_notes_and_already_rows():  # should 2
     found = made_up_found([made_up_part(1)], [(2, "already in the chat"), (3, "budget"),
                           (4, "budget")], 12)  # fmt: skip
-    view = web.found_view(found, ["g"], True)
+    view = web.found_view(found)
     assert view["summary"] == "1 part · 50 tokens · 1 more already in the chat"
     assert [(r["rank"], r["label"], r["why"]) for r in view["rows"]] == [
         (1, "g · part 1", "in its text: wren"),
@@ -389,9 +391,9 @@ def test_found_view_s_notes_and_already_rows():  # should 2
 
 
 def test_found_view_s_nothing_new_and_nothing_fit():  # should 2
-    new = web.found_view(made_up_found([], [(1, "already in the chat")], 1), ["g"], True)
+    new = web.found_view(made_up_found([], [(1, "already in the chat")], 1))
     assert new["summary"] == "nothing new · 1 already in the chat"
-    fit = web.found_view(made_up_found([], [(1, "budget"), (2, "budget")], 2), ["g"], True)
+    fit = web.found_view(made_up_found([], [(1, "budget"), (2, "budget")], 2))
     assert fit["summary"] == "nothing added · 2 didn't fit the budget"
     assert fit["notes"][0].startswith("2 matched but were left out:")
 

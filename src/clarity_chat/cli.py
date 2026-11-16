@@ -1129,8 +1129,9 @@ def format_found(found: dict[str, Any]) -> str:
     )
     for p in found["parts"]:
         title = f' "{shown(p["title"])}"' if p["title"] else ""  # a heading can hold ESC
-        reasons = [f"title matches {', '.join(p['title_words'])}"] if p["title_words"] else []
-        reasons += [f"shares words: {', '.join(p['words'])}"] if p["words"] else []
+        # N48, as the page says it: "title matches" read as the whole title matching (S19).
+        reasons = [f"in its title: {', '.join(p['title_words'])}"] if p["title_words"] else []
+        reasons += [f"in its text: {', '.join(p['words'])}"] if p["words"] else []
         lines.append(
             f"  {p['rank']}. {p['id']}{title}: {'; '.join(reasons)} ({p['tokens']:,} tokens)"
         )

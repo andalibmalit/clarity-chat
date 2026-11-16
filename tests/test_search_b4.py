@@ -100,7 +100,7 @@ def test_the_terminal_prints_try_without_the_parts_text(root, chat_tokenizer):
     found = c.run("try", "Why does the wren sing?", quiet)["found"]
     text = format_found(found)
     assert text.splitlines()[0] == "Searched for: wren, sing (ignored: why, does, the)."
-    assert '  1. glossary:1 "Wren": title matches wren; shares words: wren (' in text  # song
+    assert '  1. glossary:1 "Wren": in its title: wren; in its text: wren (' in text  # song
     assert "small brown bird" not in text
     nothing = format_found(c.run("try", "what is it?", quiet)["found"])
     assert nothing == (

@@ -6,12 +6,17 @@
 <pre class="pre" data-pane="whitespace" hidden>{% for piece, kind in pieces %}{{ marked((piece | bidi).replace("\t", "→\t").replace("\n", "↵\n"), kind) }}{% endfor %}</pre>
 <pre class="pre" data-pane="ids" hidden>{{ call.prompt_ids | join(" ") }}</pre>
 <p class="d2 key" data-caption>{% if not_highlighted %}Not highlighted: {{ not_highlighted }}.{% else %}<span class="sw" aria-hidden="true"></span>Highlighted: {% if text_mode %}the profile’s header, names and line ends.{% else %}text the chat template wrote.{% endif %}{% endif %}</p>
-{% if attachments %}<p class="d2 key"><span class="sw added" aria-hidden="true"></span>{{ highlight_added }}</p>
+{% if attachments or (documents and documents.table) %}<p class="d2 key"><span class="sw added" aria-hidden="true"></span>{{ highlight_added }}</p>
 {% endif %}</details>
 {% if attachments or (attached and not_highlighted) %}{% set documents = attachments | selectattr("kind", "equalto", "attachment") | list %}<details class="sec" data-key="attachments" open><summary class="sh2">Attachments <span class="n">{% if attachments %}{{ documents | length }} in this prompt{% else %}not listed{% endif %}</span></summary>
 {% if attachments %}<table class="tbl"><thead><tr><th>Attachment</th><th>Sent with</th><th>Tokens in the prompt</th></tr></thead><tbody>{% for row in attachments %}<tr><td>{{ row.what }}</td><td class="q">{{ row.with }}</td><td class="m">{{ row.tokens }}</td></tr>{% endfor %}</tbody></table>
 <p class="d2 att-caption">{{ attachments_caption }}</p>
 {% else %}<p class="d2">Not listed: {{ not_highlighted }}.</p>
+{% endif %}</details>
+{% endif %}{% if documents %}<details class="sec" data-key="documents" open><summary class="sh2">Documents <span class="n">{{ documents.head }}</span></summary>
+<dl class="kv">{% for label, value in documents.rows %}<dt>{{ label }}</dt><dd>{{ value }}</dd>{% endfor %}</dl>
+{% if documents.table %}<table class="tbl"><thead><tr><th>Rank</th><th>Part</th><th>Why</th><th>Tokens in the prompt</th></tr></thead><tbody>{% for row in documents.table %}<tr><td>{{ row.rank }}</td><td>{{ row.label }}</td><td>{{ row.why }}</td><td class="m">{{ row.tokens }}</td></tr>{% endfor %}</tbody></table>
+{% endif %}{% if documents.caption %}<p class="d2">{{ documents.caption }}</p>
 {% endif %}</details>
 {% endif %}<details class="sec" data-key="summary" open><summary class="sh2">Summary <span class="n">{% if error %}failed{% elif failed %}{{ failed | length }} check{{ "s" if failed | length > 1 }} failed{% else %}{{ stopped.split(" · ")[0] }} · all checks passed{% endif %}</span></summary>
 {% if error %}<p class="warn">! Failed: {{ error }}</p>

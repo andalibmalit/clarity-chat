@@ -62,6 +62,7 @@ from clarity_chat.commands import (
 from clarity_chat.documents import (
     CONSIDERED,
     MAX_BYTES,
+    NOTHING_SENT,
     PAGES_LOST,
     SENTENCES,
     DocumentRefused,
@@ -88,7 +89,7 @@ from clarity_chat.profiles import (
     library_name_problem,
 )
 from clarity_chat.replay import CANNOT_CHANGE_OUTPUT, cancelled_refusal, replay_notes
-from clarity_chat.session import CONTEXT_WARN_FRACTION, ContextError, Session, left_out_counts
+from clarity_chat.session import CONTEXT_WARN_FRACTION, ContextError, Session, found_summary
 
 PORT = 8765  # fixed, a constant: server.toml describes llama-server only
 STATIC = Path(__file__).parent / "web_static"
@@ -149,6 +150,9 @@ class Worker:
         # The last /documents add or rebuild's result, drawn once as the Documents… page's
         # notice, so what it says is the command's result (the C1 tripwire review's S1).
         self.documented: dict[str, Any] | None = None
+        # The last refused send's sentence and problems: the failed box's lines and buttons
+        # (W6), which a call record's error, a sentence, doesn't carry.
+        self.refused: tuple[str, list[dict[str, Any]]] | None = None
         threading.Thread(target=self._loop, daemon=True, name="clarity-worker").start()
 
     def emit(self, event: dict[str, Any]) -> None:
@@ -219,6 +223,8 @@ class Worker:
             if name == "export" and conversation is not None:
                 self.exported = (conversation.log.path.stem, {"error": str(e)})
             problems = {"problems": e.problems} if isinstance(e, SearchRefused) else {}
+            if isinstance(e, SearchRefused) and e.at_send:
+                self.refused = (str(e), e.problems)
             return {"error": str(e), "type": type(e).__name__, **problems}
         except Exception as e:  # noqa: BLE001 - as in --json, it ends the session
             self.failed = f"Clarity stopped after an unexpected error: {type(e).__name__}: {e}"
@@ -895,8 +901,29 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
             facts = facts_line(call, steerable=settings["steering"] is not None)
         if not back_in_box:
             failed = failed_line((await result_of(worker, "prompt"))["call"], state)
+    for turn, after in zip(turns, turns[1:], strict=False):  # "From documents" (C3)
+        if turn["role"] == "user" and turn.get("found") is not None:
+            # Keyed by the message: a list opened while the reply is written stays open.
+            after["found_line"] = {**found_line(turn["found"]), "key": turn["turn_id"]}
+    writing = None  # the line above a reply being written: its message is the last turn
+    if turns and turns[-1]["role"] == "user" and turns[-1].get("found") is not None:
+        if (changing(state) or {}).get("command") in REPLY_COMMANDS:
+            writing = {**found_line(turns[-1]["found"]), "key": turns[-1]["turn_id"]}
+    refused = None
+    if failed and failed["kind"] == "SearchRefused":
+        refused = refused_lines(worker.refused, failed["message"], state["searching"])
     users = [i for i, turn in enumerate(turns) if turn["role"] == "user"]
     return templates.get_template("thread.html").render(
+        writing=writing,
+        refused=refused,
+        nothing_sent=NOTHING_SENT,
+        new_with_documents=SENTENCES["new_with_documents"],
+        new_with=SENTENCES["new_with_documents_does"].format(
+            names=joined([d["name"] for d in state["searching"]])
+        )
+        if state["searching"]
+        else None,
+        searched_names=" ".join(d["name"] for d in state["searching"]),
         state=state,
         turns=turns,
         idle=idle,
@@ -1368,8 +1395,10 @@ def attachment_rows(call: dict[str, Any], turns: list[dict[str, Any]]) -> list[d
     spans = call.get("message_spans")
     rows = []
     for entry in spans if isinstance(spans, list) else []:
+        turn = by_id.get(entry.get("turn_id"))
+        if turn is None:  # no attachments: its framing line and parts are search's (C3)
+            continue
         for added in entry.get("added", []):
-            turn = by_id[entry["turn_id"]]
             if added["what"] == "attachment":
                 attachment = turn["attachments"][added["index"]]
                 what = f"{attachment['name']} · {how_words(attachment)}"
@@ -1574,6 +1603,7 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
         not_highlighted=unhighlighted(call),
         highlight_added=SENTENCES["highlight_added"],
         attachments=attachment_rows(call, read["prompt_attachments"]),
+        documents=documents_section(call, read["found"]),
         attachments_caption=SENTENCES["attachments_caption"],
         attached=bool(read["prompt_attachments"]),  # a message in this prompt had some
         text_mode=(call.get("bos") or {}).get("mode") == "text",
@@ -2104,10 +2134,11 @@ def document_row(doc: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def found_view(found: dict[str, Any], searched: list[str], framed: bool) -> dict[str, Any]:
-    """What a search found, as the try box (C1) and "From documents" (C3) show it: the
-    count, each part with its rank and why, the notes on what was left out, the words."""
-    counts = left_out_counts(found)
+def found_view(found: dict[str, Any]) -> dict[str, Any]:
+    """What a search found, from /history's summary of it (session.found_summary), as the
+    try box (C1) and "From documents" (C3) show it: the count, each part with its rank and
+    why, the notes on what was left out, the words."""
+    counts = found["left_out"]
     already, budget = counts.get("already in the chat", 0), counts.get("budget", 0)
     words = SENTENCES["found_words"].format(words=", ".join(found["words"]))
     if found["ignored"]:
@@ -2118,30 +2149,23 @@ def found_view(found: dict[str, Any], searched: list[str], framed: bool) -> dict
         return {**view, "summary": SENTENCES["found_nothing_words"], "empty": SENTENCES[key],
                 "words": None}  # fmt: skip
     if not found["matched"]:
-        empty = SENTENCES["found_no_match"].format(documents=joined(searched, "or"))
+        documents = joined(found["documents"], "or")
+        empty = SENTENCES["found_no_match"].format(documents=documents)
         return {**view, "summary": SENTENCES["found_nothing_matched"], "empty": empty}
     for p in found["parts"]:
-        why = []
-        if p["title_words"]:
-            why.append(SENTENCES["found_in_title"].format(words=", ".join(p["title_words"])))
-        if p["words"]:
-            why.append(SENTENCES["found_in_text"].format(words=", ".join(p["words"])))
-        tokens = f"{p['tokens']:,}"
-        row = {"rank": p["rank"], "label": part_label(p), "tokens": tokens, "why": "; ".join(why)}
+        row = {"rank": p["rank"], "label": part_label(p), "tokens": f"{p['tokens']:,}",
+               "why": match_words(p)}  # fmt: skip
         view["rows"].append(row)
-    for o in found["left_out"]:
-        if o["why"] == "already in the chat":
-            document, _, ordinal = o["id"].rpartition(":")
-            label = f"{document} · part {ordinal}"
-            view["rows"].append({"rank": o["rank"], "label": label, "tokens": "",
-                                 "why": SENTENCES["found_already"], "already": True})  # fmt: skip
+    for o in found["already"]:
+        view["rows"].append({"rank": o["rank"], "label": part_label(o), "tokens": "",
+                             "why": SENTENCES["found_already"], "already": True})  # fmt: skip
     if budget:
         key = "found_left_budget" if found["parts"] else "found_left_budget_none"
         view["notes"].append(SENTENCES[key].format(n=f"{budget:,}", budget=f"{found['budget']:,}"))
     if unconsidered := counts.get("not considered", 0):
         view["notes"].append(SENTENCES["found_unconsidered"].format(
             n=f"{unconsidered:,}", considered=found["considered"]))  # fmt: skip
-    if found["parts"] and framed:  # the fill's increments: the first holds the framing line
+    if found["parts"] and found["framed"]:  # the fill's increments: the first holds the line
         view["notes"].append(SENTENCES["found_first_count"])
     if found["parts"]:
         summary = SENTENCES["found_parts"].format(
@@ -2156,14 +2180,130 @@ def found_view(found: dict[str, Any], searched: list[str], framed: bool) -> dict
     return {**view, "summary": summary}
 
 
+def found_line(found: dict[str, Any]) -> dict[str, Any]:
+    """ "From documents" above a reply (C3): found_view, and what Regenerate does with it."""
+    footer = SENTENCES["found_footer" if found["parts"] else "searched_footer"]
+    return {**found_view(found), "footer": footer}
+
+
+def match_words(part: dict[str, Any]) -> str:
+    """Why a part matched (N48): the words found in its title, then in its text."""
+    why = []
+    if part["title_words"]:
+        why.append(SENTENCES["found_in_title"].format(words=", ".join(part["title_words"])))
+    if part["words"]:
+        why.append(SENTENCES["found_in_text"].format(words=", ".join(part["words"])))
+    return "; ".join(why)
+
+
 def part_label(part: dict[str, Any]) -> str:
     """A part as the lists name it (N47): its document and title (and page), else its page
-    and number."""
-    page = part["page"]
-    if part["title"]:
-        return f'{part["document"]} · "{part["title"]}"' + (f", page {page}" if page else "")
+    and number; a part named only by its ID (one left out) by its document and number."""
+    document, _, ordinal = part["id"].rpartition(":")
+    page = part.get("page")
+    if part.get("title"):
+        return f'{document} · "{part["title"]}"' + (f", page {page}" if page else "")
     where = f"page {page} · " if page else ""
-    return f"{part['document']} · {where}part {part['ordinal']}"
+    return f"{document} · {where}part {ordinal}"
+
+
+def documents_section(call: dict[str, Any], found: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Details' Documents section (C3, N61-N66): what search found for this call's message,
+    as its turn logged it (/prompt's `found`), and where its framing line and parts sit in
+    the prompt (the spans' `added`)."""
+    if found is None:
+        return None
+    spans = call.get("message_spans")
+    spans = spans if isinstance(spans, list) else []
+    entry = next((s for s in spans if s.get("turn_id") == call.get("parent_id")), {})
+    added = entry.get("added", [])
+    at = {a["index"]: a["tokens"] for a in added if a["what"] == "part"}
+    framing = next((a["tokens"] for a in added if a["what"] == "framing"), None)
+    if any(a["what"] == "attachment" for a in added):
+        framing = None  # an attachment brought it: Details' Attachments lists it
+    parts, budget, words = found["parts"], found["budget"], found["words"]
+
+    def span(first: int, end: int) -> dict[str, str]:
+        return {"first": f"{first:,}", "last": f"{end - 1:,}", "n": f"{end - first:,}"}
+
+    if parts:
+        head = f"{counted(len(parts), 'part')} · {found['tokens']:,} of {budget:,} tokens"
+    elif not words:
+        head = SENTENCES["found_nothing_words"]
+    else:
+        head = "nothing added" if found["matched"] else SENTENCES["found_nothing_matched"]
+    rows = [("Searched for", f"“{found['searched_for']}”")]
+    if words:
+        rows.append(("Words searched", ", ".join(words)))
+    if found["ignored"]:
+        rows.append(("Ignored", ", ".join(found["ignored"])))
+    if at:
+        ranges = [*([framing] if framing else []), *at.values()]
+        where = span(min(a for a, _ in ranges), max(b for _, b in ranges))
+        where["placement"] = "end" if added[0]["chars"][0] > entry["chars"][0] else "start"
+        rows.append(("Where", SENTENCES["details_where"].format(**where)))
+        if framing is not None:
+            rows.append(("Framing line", SENTENCES["details_framing"].format(**span(*framing))))
+    if words:
+        engine = found["engine"]
+        search = SENTENCES["details_search"].format(
+            rule=engine["word_rule"], common=engine["common_words"], sqlite=engine["sqlite"]
+        )
+        rows.append(("Search", search))
+    if words and found["matched"]:
+        considered = SENTENCES["details_considered"].format(
+            parts=counted(found["matched"], "part"), considered=found["considered"]
+        )
+        rows.append(("Considered", considered))
+        origin = "Clarity's default" if found["budget_origin"] == "default" else "this profile"
+        reasons = {
+            "budget": SENTENCES["details_budget"].format(budget=f"{budget:,}", origin=origin),
+            "already in the chat": "already in the chat",
+            "not considered": "not considered",
+        }
+        groups = []
+        for why, reason in reasons.items():
+            ids = [
+                (o["rank"], o["id"].rpartition(":")) for o in found["left_out"] if o["why"] == why
+            ]
+            if ids:
+                named = " · ".join(f"rank {r}, {doc} part {n}" for r, (doc, _, n) in ids)
+                groups.append(f"{named}: {reason}")
+        if groups:
+            rows.append(("Left out", "; ".join(groups)))
+    table = []
+    for i, p in enumerate(parts):
+        tokens = "{first} to {last} · {n} tokens".format(**span(*at[i])) if i in at else ""
+        table.append(
+            {"rank": p["rank"], "label": part_label(p), "why": match_words(p), "tokens": tokens}
+        )
+    builds = " · ".join(f"{d['name']} {d['build_id'][:8]}…" for d in found["documents"])
+    caption = SENTENCES["details_caption"].format(builds=builds) if words else None
+    return {"head": head, "rows": rows, "table": table, "caption": caption}
+
+
+def refused_lines(
+    refused: tuple[str, list[dict[str, Any]]] | None, message: str, searching: list[dict[str, Any]]
+) -> list[dict[str, Any]] | None:
+    """A refused Send's box (W6): a line for each problem the chat still has, with its
+    buttons, from the Worker's last refusal when it is this failed message's; a line goes
+    once its document is ready, no longer searched, or clear of control tokens. Without
+    that refusal (another start), the call's sentence as one line."""
+    if refused is None or refused[0] != message:
+        return [{"text": message.removeprefix(NOTHING_SENT).strip()}]
+    states = {d["name"]: d for d in searching}
+    lines = []
+    for p in refused[1]:
+        doc = states.get(p.get("document", ""))
+        if p["state"] == "no_fts5":
+            still = bool(searching)
+        elif p["state"] == "control_tokens":
+            still = doc is not None and doc.get("control_token_parts", 0) > 0
+        else:
+            still = doc is not None and doc["state"] != "ready"
+        if still:
+            lines.append(refusal_line(p, at_send=True))
+    return lines
 
 
 def refusal_lines(answer: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2171,15 +2311,18 @@ def refusal_lines(answer: dict[str, Any]) -> list[dict[str, Any]]:
     board's W6), or a refusal with no problems as one line."""
     if not answer.get("problems"):
         return [{"text": answer["error"]}]
-    lines = []
-    for p in answer["problems"]:
-        name = p.get("document")
-        lines.append({
-            "text": problem_words(p, terminal=False, where="chat", at_send=False),
-            "rebuild": name if p["state"] in ("changed", "parts") else None,
-            "stop": name,
-        })  # fmt: skip
-    return lines
+    return [refusal_line(p, at_send=False) for p in answer["problems"]]
+
+
+def refusal_line(problem: dict[str, Any], at_send: bool) -> dict[str, Any]:
+    """One problem's line and its buttons: Rebuild for a changed document, Stop searching
+    it for any document (the board's W6)."""
+    name = problem.get("document")
+    return {
+        "text": problem_words(problem, terminal=False, where="chat", at_send=at_send),
+        "rebuild": name if problem["state"] in ("changed", "parts") else None,
+        "stop": name,
+    }
 
 
 async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
@@ -2228,7 +2371,8 @@ async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
         if "error" in answer:
             refused = refusal_lines(answer)
         else:
-            tried = found_view(answer["result"]["found"], searching, answer["result"]["framed"])
+            result = answer["result"]
+            tried = found_view(found_summary(result["found"], result["framed"]))
             if answer["result"]["refused"]:
                 refused = [{"text": answer["result"]["refused"]}]
     return templates.get_template("documents.html").render(

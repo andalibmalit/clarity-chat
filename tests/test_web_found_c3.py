@@ -80,7 +80,7 @@ def test_nothing_matched_says_so_and_teaches(root, make):  # noqa: F811
 
 def test_nothing_to_search_for(root, make):  # noqa: F811
     client, _ = make(SEARCHES)
-    command(client, "say", "Is it the one?")
+    command(client, "say", "Is it the?")
     said = found_line(client)
     assert said.startswith("From documents · nothing to search for")
     assert (

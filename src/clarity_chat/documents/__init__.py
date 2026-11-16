@@ -68,6 +68,7 @@ from clarity_chat.documents.reading import (
     visible_bidi,
 )
 from clarity_chat.documents.refused import (
+    NOTHING_SENT,
     PAGES_LOST,
     SearchRefused,
     control_token_problem,
@@ -78,6 +79,7 @@ from clarity_chat.documents.search import load as load_document
 from clarity_chat.documents.search import search as search_documents
 
 __all__ = [
+    "NOTHING_SENT",
     "COMMON_WORDS",
     "CONSIDERED",
     "Loaded",

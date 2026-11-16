@@ -19,6 +19,7 @@ const clarity = {
   key: null, // the start's secret
   live: false,
   state: null, // the latest /state
+  foundOpen: new Set(), // the "From documents" lists left open, kept on redraws (C3)
   start: null, // the first /state's `start`: this Clarity's start
   writing: { k: null, text: "", end: 0 }, // the reply being written, joined by numbers
   listeners: [], // screens' event handlers
@@ -329,6 +330,7 @@ async function draw(number) {
   swap($("thread"), thread, alertOnce);
   rove($("thread"));
   if (clarity.differOpen) showDiffer(true);
+  for (const key of clarity.foundOpen) showFound(key, true);
   shade(); // the thread is new: shade its reply again if Probabilities is open
   swap($("composer-row"), row);
   swap($("chips"), chips);
@@ -458,7 +460,7 @@ async function start(name, args) {
       clarity.sending = false;
       clarity.focusBox = false;
     });
-  if (answer.handled) return;
+  if (answer.handled) return answer;
   await refresh(); // first: a redraw that fails says so, and the sentence below stays
   if (!answer.error) {
     notKept(answer.result);
@@ -467,6 +469,7 @@ async function start(name, args) {
     notice(`! ${label} didn’t start.`, answer.error);
     $("picker-button").focus(); // to choose again
   }
+  return answer;
 }
 
 async function about() {
@@ -1844,6 +1847,23 @@ async function openChooser() {
   if ($("search-button")) showMenu($("search-button"));
 }
 
+function showFound(key, on) {
+  const line = $("thread").querySelector(`[data-found="${CSS.escape(key)}"]`);
+  if (on) clarity.foundOpen.add(key);
+  else clarity.foundOpen.delete(key);
+  if (!line) return;
+  line.querySelector("[data-action=found]").setAttribute("aria-expanded", String(on));
+  line.querySelector(".parts").hidden = !on;
+}
+
+async function fixCommand(name, args) {
+  // A command from a button in the thread: a refusal is a notice; the thread is drawn again.
+  const answer = await command(name, args).catch(unanswered);
+  if (answer.handled) return;
+  if (answer.error) notice("!", answer.error);
+  await refresh();
+}
+
 async function chooserCommand(name, args) {
   // A command from the chooser: the row under the box is drawn again from /state and the
   // chooser opens again on it; a refusal is a notice.
@@ -2025,10 +2045,12 @@ document.addEventListener("keydown", (event) => {
 const THREAD = {
   // Details (C4b): one call's record, from the toolbar, the facts line or a failed line.
   details: (element, call) => showPanel("details", { call }, element),
-  // Your message's attachment line: Details for its reply, at Attachments (F16).
+  // Your message's attachment line: Details for its reply, at Attachments (F16); "Show in
+  // Details" under "From documents", at Documents (C3).
   attached: async (element) => {
     await showPanel("details", { call: element.dataset.reply }, element);
-    const section = $("panel").querySelector("details[data-key=attachments]");
+    const key = element.dataset.section || "attachments";
+    const section = $("panel").querySelector(`details[data-key=${key}]`);
     if (!section) return;
     section.open = true;
     section.querySelector("summary").focus();
@@ -2099,6 +2121,21 @@ const THREAD = {
     chooserCommand("search", next.length ? next.join(" ") : "none");
   },
   "search-rebuild": (element) => chooserCommand("documents", `rebuild ${element.dataset.name}`),
+  found: (element) => {
+    const key = element.closest("[data-found]").dataset.found;
+    showFound(key, element.getAttribute("aria-expanded") !== "true");
+  },
+  // A refused Send's buttons (W6): each fixes its own line; the box goes with the last.
+  "refused-rebuild": (element) => fixCommand("documents", `rebuild ${element.dataset.name}`),
+  "refused-stop": (element) => {
+    const rest = searchedNames().filter((n) => n !== element.dataset.name);
+    fixCommand("search", rest.length ? rest.join(" ") : "none");
+  },
+  "new-with-documents": async (element) => {
+    // A full context: a new chat on this profile, then /search with this chat's documents.
+    const answer = await start("new", "");
+    if (answer && !answer.error && !answer.handled) await fixCommand("search", element.dataset.names);
+  },
   "documents-close": () => $("documents-sheet").close(),
   "documents-add": () => {
     // A fresh input each press, as the paperclip's (Firefox keeps a used one's file).

@@ -549,17 +549,17 @@ dialog.sheet.documents { width: min(760px, calc(100vw - 32px)); max-height: calc
 .documents .try { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--rule); padding-top: 12px; margin-top: 12px; }
 .documents .try p { margin: 0; }
 .documents .try .lbl { font-weight: 500; }
-.documents .try .problem .ln { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.documents .parts { background: var(--sunken); border-radius: var(--r-md); padding: 6px 12px 8px; font-size: 13px; display: flex; flex-direction: column; }
-.documents .phead { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; color: var(--muted); font-size: 12px; padding: 2px 0 4px; border-bottom: 1px solid var(--rule); }
-.documents .part { display: grid; grid-template-columns: 22px 1fr auto; gap: 1px 8px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
-.documents .part .rk { grid-row: span 2; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; padding-top: 1px; }
-.documents .part .pt { overflow-wrap: anywhere; }
-.documents .part .tk { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
-.documents .part .why { grid-column: 2 / -1; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
-.documents .part.already .pt { color: var(--muted); }
-.documents .pnote, .documents .words { color: var(--muted); font-size: 12.5px; padding-top: 6px; }
-.documents .empty { padding: 4px 0 2px; }
+.documents .try .problem .ln, .problem.refused .ln { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+:is(.documents, .found) .parts { background: var(--sunken); border-radius: var(--r-md); padding: 6px 12px 8px; font-size: 13px; display: flex; flex-direction: column; }
+:is(.documents, .found) .phead { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; color: var(--muted); font-size: 12px; padding: 2px 0 4px; border-bottom: 1px solid var(--rule); }
+:is(.documents, .found) .part { display: grid; grid-template-columns: 22px 1fr auto; gap: 1px 8px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
+:is(.documents, .found) .part .rk { grid-row: span 2; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; padding-top: 1px; }
+:is(.documents, .found) .part .pt { overflow-wrap: anywhere; }
+:is(.documents, .found) .part .tk { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
+:is(.documents, .found) .part .why { grid-column: 2 / -1; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+:is(.documents, .found) .part.already .pt { color: var(--muted); }
+.documents .pnote, .documents .words, .found .pnote, .found .words { color: var(--muted); font-size: 12.5px; padding-top: 6px; }
+:is(.documents, .found) .empty { padding: 4px 0 2px; }
 
 /* "Search it" and the Searching chooser (v0.3.2 C2, the board's ①) */
 .srchbtn { font-variant-numeric: tabular-nums; }
@@ -585,3 +585,16 @@ dialog.sheet.documents { width: min(760px, calc(100vw - 32px)); max-height: calc
 .attach .name input { flex: 1; padding: 6px 9px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--paper); color: var(--ink); font: 14px var(--sans); }
 .attach .od.ink { color: var(--ink); }
 .attach .name .btn { align-self: flex-start; }
+
+/* "From documents" above a reply, built like the board's Thinking line (v0.3.2 C3, ②) */
+.found { display: flex; flex-direction: column; gap: 6px; margin-bottom: 6px; }
+.srcline { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; padding: 3px 8px 3px 4px; margin-left: -4px; border-radius: var(--r-sm); color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.srcline:hover, .srcline[aria-expanded="true"] { background: var(--hover); color: var(--ink); }
+.srcline .icon:nth-child(2), .srcline[aria-expanded="true"] .icon:first-child { display: none; }
+.srcline[aria-expanded="true"] .icon:nth-child(2) { display: block; }
+.srcline .n { opacity: .8; }
+.found .foot { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding-top: 6px; color: var(--muted); font-size: 12.5px; }
+.found .foot .linkbtn { white-space: nowrap; }
+.problem.refused { flex-direction: column; align-items: stretch; gap: 8px; }
+.problem.refused .ln p { flex: 1 1 100%; margin: 0; }
+.problem .newwith { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
