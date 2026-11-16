@@ -180,11 +180,12 @@ def test_a_control_token_in_a_found_part_refuses_the_call(root, chat_tokenizer):
     with pytest.raises(ConfigError) as refused:
         run(c, "say Tell me about the wren")
     assert str(refused.value) == (
-        "Part odd:1 holds </s>, which this model reads as a control token, so nothing was sent. "
-        "Fix that part in odd's text.md and rebuild it, or stop searching odd."
+        'Nothing was sent.\nPart 1 of odd ("Wren") holds </s>, which this model reads as a '
+        "control token, not text. Take it out of local/documents/odd/text.md; Clarity then "
+        "shows the document as Changed, with Rebuild. Or stop searching odd."
     )
     call = turns(session, "call")[-1]
-    assert call["error"].startswith("SearchRefused: Part odd:1 holds </s>")
+    assert call["error"].startswith('SearchRefused: Nothing was sent.\nPart 1 of odd ("Wren")')
     assert users(session)[0]["found"]["parts"][0]["id"] == "odd:1"
     assert session.conversation is not None
     assert session.conversation.unanswered == {
@@ -207,13 +208,16 @@ def test_a_stale_document_refuses_the_call_with_its_way_out(root, chat_tokenizer
     assert (
         str(refused.value)
         == {
-            "changed": "glossary has changed since it was built, so nothing was sent. Rebuild it, "
-            "or stop searching it.",
-            "missing": "glossary isn't in your documents any more, so nothing was sent. Stop "
-            "searching it, or add it again.",
+            "changed": "Nothing was sent.\nClarity can't search glossary: a file in its folder "
+            "has changed since Clarity cut it into parts. Rebuild cuts them again from its "
+            "text.md.",
+            "missing": "Nothing was sent.\nClarity can't search glossary: its folder in "
+            "local/documents/ is gone. Stop searching it, or add the file again in Documents….",
         }[how]
     )
-    assert turns(session, "call")[-1]["error"].startswith("SearchRefused: glossary")
+    assert turns(session, "call")[-1]["error"].startswith(
+        "SearchRefused: Nothing was sent.\nClarity can't search glossary"
+    )
     assert session.conversation is not None and session.conversation.unanswered is not None
 
 
@@ -237,7 +241,7 @@ def test_the_stop_counts_the_parts_tokens(root, chat_tokenizer):
     backend._n_ctx = 150
     with pytest.raises(ContextError) as stopped:
         run(c, "say Tell me about the wren")
-    assert "of them in found parts and their framing lines" in str(stopped.value)
+    assert "of them in parts found in your documents and their framing lines;" in str(stopped.value)
 
 
 def test_a_failed_send_searches_again_next_time(root, chat_tokenizer):

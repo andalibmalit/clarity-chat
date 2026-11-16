@@ -28,7 +28,7 @@ OUTPUT_CAP = 256 * 1024 * 1024  # the child's answer, in bytes
 CHILD = [sys.executable, "-I", "-m", "clarity_chat.documents.child"]  # tests run stubs
 # SENTENCES' "stopped": the page shows it too, for a Cancel before the bytes are up.
 STOPPED = "Stopped reading {name}."
-SMALLER = "Attach a smaller file, or split it and attach the part you need."  # F11
+SMALLER = "Use a smaller file, or split it and use the part you need."  # F11; the walk's S1
 TOO_SLOW = "{name} took longer than {seconds} seconds to read. " + SMALLER
 TOO_MUCH_MEMORY = "{name} took more than {memory} of memory to read. " + SMALLER
 SLOW_READ = "A long file can take a minute to read. Clarity stops reading at {seconds} seconds."
@@ -189,7 +189,7 @@ def extract(
     if "failed" in answer:
         raise DocumentRefused(
             f"Clarity couldn't read {name} ({answer['failed']}). The file may be damaged: save "
-            "a fresh copy and attach that."
+            "a fresh copy and use that."
         )
     _last = Document(
         name=name,

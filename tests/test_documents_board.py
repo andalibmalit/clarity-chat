@@ -390,3 +390,84 @@ def test_documents_gives_the_library_s_folder(root, capsys):
     )
     assert cli.main(["--root", str(root), "document", "list", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["folder"].endswith("documents")
+
+
+# --- CM1 (Checkpoint 2's must, with WB2): every refusal at Send takes the logged path
+
+
+def no_fts5(monkeypatch) -> None:
+    import sqlite3
+
+    from clarity_chat.documents import search as search_module
+
+    class NoFts5:
+        def execute(self, *args):
+            raise sqlite3.OperationalError("no such module: fts5")
+
+    search_module._indexes.clear()
+    monkeypatch.setattr(search_module.sqlite3, "connect", lambda *a, **k: NoFts5())
+
+
+@pytest.mark.parametrize("how", ["manifest", "link", "no_fts5"])
+def test_a_refusal_at_send_is_logged_and_given_back(
+    root, chat_tokenizer, tmp_path, monkeypatch, how
+):
+    from clarity_chat.cli import ChatLoop
+    from clarity_chat.logs import read_records
+
+    path = root / "profiles" / "chat.toml"
+    path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nsearch = ["notes"]\n')
+    backend = FakeBackend([" R."], tokenizer=chat_tokenizer)
+    session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
+    output: list[str] = []
+    loop = ChatLoop(session, "chat", lambda d: "", output.append)
+    loop.start()
+    if how == "manifest":
+        unreadable(root, "notes")
+    elif how == "link":
+        folder = root / "local/documents/notes"
+        shutil.move(folder, tmp_path / "elsewhere")
+        folder.symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+    else:
+        no_fts5(monkeypatch)
+    loop.handle("Tell me about the wren")
+    assert loop.draft == "Tell me about the wren"  # the terminal gives it back
+    assert "Nothing was sent." in "".join(output)
+    conversation = session.conversation
+    assert conversation is not None and conversation.unanswered is not None
+    records = list(read_records(conversation.log.path))
+    (user,) = [r for r in records if r["type"] == "turn" and r["role"] == "user"]
+    (call,) = [r for r in records if r["type"] == "call"]
+    assert call["error"].startswith("SearchRefused: Nothing was sent.\n"), call["error"]
+    assert call["prompt_ids"] and call.get("turn_id") is None and user["text"] == loop.draft
+    assert backend.calls == []
+
+
+def test_the_terminal_s_unnamed_file_says_how_to_give_a_name(root, tmp_path, capsys):
+    path = tmp_path / "日本語.md"
+    path.write_bytes(b"Made-up.\n")
+    assert cli.main(["--root", str(root), "document", "add", str(path)]) == 1
+    assert capsys.readouterr().err.strip().splitlines()[-1] == (
+        "clarity: Clarity can't make a document name from 日本語.md. Give it one with `--name "
+        "NAME`. A document's name is 1 to 64 characters: a to z, 0 to 9, - and _, "
+        "starting with a letter or a digit."
+    )
+
+
+# --- WB5: a check, reported before any change (the status file)
+
+
+def test_a_web_page_is_one_paragraph_to_the_chunker_today():
+    """WB5's finding, pinned until its ruling: html_text joins block elements with one
+    newline, so headings and paragraphs reach the chunker as one paragraph with no title.
+    A fix changes the text v0.3.1 attaches from an HTML file, so it waits for the owner."""
+    from clarity_chat.documents import cut_parts
+    from clarity_chat.documents.child import html_text
+
+    page = (
+        b"<html><body><h1>Birds</h1><p>The wren is small.</p><p>The dipper walks under "
+        b"water.</p><h2>Herons</h2><p>Tall.</p></body></html>"
+    )
+    text = html_text(page, "p.html")
+    assert text == "Birds\nThe wren is small.\nThe dipper walks under water.\nHerons\nTall.\n"
+    assert [(p["title"], p["words"]) for p in cut_parts(text, "p.html")] == [(None, 12)]

@@ -24,10 +24,10 @@ from clarity_chat.documents import (
 from tests.pdfs import aes_pdf, encrypted_pdf, make_pdf
 
 FIXTURES = Path(__file__).parent / "fixtures" / "documents"
-SAVE_AS = "Save it as PDF or as UTF-8 text and attach that."
+SAVE_AS = "Save it as PDF or as UTF-8 text and use that copy."
 
 
-SPLIT = " Attach a smaller file, or split it and attach the part you need."  # F11
+SPLIT = " Use a smaller file, or split it and use the part you need."  # F11
 
 
 @pytest.fixture(autouse=True)
@@ -127,7 +127,7 @@ def test_a_pdf_with_no_text_at_all_is_refused():
     assert refused(make_pdf(["", ""]), "scan.pdf") == (  # fact-check row 36
         "scan.pdf has no text Clarity can read. Its pages may be scanned images, which "
         "Clarity doesn't read. Use a PDF app's text recognition (OCR) to add the text, then "
-        "attach that copy."
+        "use that copy."
     )
 
 
@@ -138,7 +138,7 @@ def test_a_pdf_with_no_text_at_all_is_refused():
 def test_a_broken_pdf_is_refused_with_the_error_s_type(data):
     sentence = refused(data, "broken.pdf")  # fact-check row 42: what to do
     assert sentence.startswith("Clarity couldn't read broken.pdf (")
-    assert sentence.endswith("). The file may be damaged: save a fresh copy and attach that.")
+    assert sentence.endswith("). The file may be damaged: save a fresh copy and use that.")
 
 
 def test_a_real_pdf_reads_to_its_known_text():
@@ -159,7 +159,7 @@ def test_a_pdf_that_opens_with_an_empty_password_is_read_and_says_encrypted():
 
 def test_a_pdf_that_needs_a_password_is_refused():
     assert refused(encrypted_pdf(["Locked."], user_password="made-up"), "locked.pdf") == (
-        "locked.pdf needs a password. Save a copy without one and attach that."
+        "locked.pdf needs a password. Save a copy without one and use that."
     )
 
 
@@ -481,7 +481,7 @@ def test_aes_is_refused_from_the_dictionary_with_or_without_a_provider(
         child.extract("pdf", aes_pdf(["Protected."], version=version), "aes.pdf")
     assert str(e.value) == (
         "aes.pdf is protected, even if it opens without a password. Export or print it to a "
-        "new PDF and attach that."
+        "new PDF and use that."
     )
 
 

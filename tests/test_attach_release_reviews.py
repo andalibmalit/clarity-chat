@@ -58,15 +58,15 @@ NEW = {
     "start a new chat, or lower max_tokens.",
     "slow_read": "A long file can take a minute to read. Clarity stops reading at {seconds} "
     "seconds.",
-    "too_slow": "{name} took longer than {seconds} seconds to read. Attach a smaller file, or "
-    "split it and attach the part you need.",
-    "too_much_memory": "{name} took more than {memory} of memory to read. Attach a smaller "
-    "file, or split it and attach the part you need.",
+    "too_slow": "{name} took longer than {seconds} seconds to read. Use a smaller file, or "
+    "split it and use the part you need.",
+    "too_much_memory": "{name} took more than {memory} of memory to read. Use a smaller "
+    "file, or split it and use the part you need.",
     "protected": "{name} is protected, even if it opens without a password. Export or print "
-    "it to a new PDF and attach that.",
+    "it to a new PDF and use that.",
     "no_text": "{name} has no text Clarity can read. Its pages may be scanned images, which "
     "Clarity doesn't read. Use a PDF app's text recognition (OCR) to add the text, then "
-    "attach that copy.",
+    "use that copy.",
 }
 
 
@@ -237,15 +237,15 @@ def test_the_reading_state_s_slow_line_comes_from_the_table(make):
             "slow.md",
             NOTES,
             "import time; time.sleep(60)",
-            "slow.md took longer than 1 seconds to read. Attach a smaller file, or split it and "
-            "attach the part you need.",
+            "slow.md took longer than 1 seconds to read. Use a smaller file, or split it and "
+            "use the part you need.",
         ),
         (
             "huge.md",
             NOTES,
             "import sys; sys.exit(70)",
-            "huge.md took more than 1 GB of memory to read. Attach a smaller file, or split it "
-            "and attach the part you need.",
+            "huge.md took more than 1 GB of memory to read. Use a smaller file, or split it "
+            "and use the part you need.",
         ),
     ],
 )

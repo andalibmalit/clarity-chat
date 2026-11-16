@@ -78,7 +78,7 @@ def test_try_in_a_chat_that_searches_nothing_says_so(root, chat_tokenizer):
 def test_try_on_a_changed_document_is_refused_with_the_way_out(root, chat_tokenizer):
     session, c = chat(root, chat_tokenizer)
     (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match="^glossary has changed since it was built"):
+    with pytest.raises(ConfigError, match="^Clarity can't search glossary: a file in its"):
         c.run("try", "Tell me about the wren", quiet)
 
 
@@ -105,7 +105,10 @@ def test_the_terminal_prints_try_without_the_parts_text(root, chat_tokenizer):
     assert '  1. glossary:1 "Wren": title matches wren; shares words: wren (' in text  # song
     assert "small brown bird" not in text
     nothing = format_found(c.run("try", "what is it?", quiet)["found"])
-    assert nothing == "Nothing to search for: every word is a common one (what, is, it)."
+    assert nothing == (
+        "Nothing to search for: your message holds only common words and single letters or "
+        "digits (what, is, it)."
+    )
 
 
 def test_document_try_on_the_command_line(root, chat_tokenizer, monkeypatch, capsys):
@@ -171,7 +174,7 @@ def test_the_pre_check_refuses_a_stale_document_before_any_model_loads(root, cha
     (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
     backend = FakeBackend([" A reply."], tokenizer=chat_tokenizer)
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
-    with pytest.raises(ConfigError, match="^glossary has changed since it was built"):
+    with pytest.raises(ConfigError, match="^Clarity can't search glossary: a file in its"):
         run_batch(
             session, "run-x", root / "runs" / "run-x", root / "openings.txt", ["chat"], 1, print
         )

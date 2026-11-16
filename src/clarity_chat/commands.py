@@ -373,9 +373,13 @@ def suggestion(c: Commands, e: DoesntFit, doc: documents.Document, source: str) 
     )
     roomy = SENTENCES["preselected"].format(max_tokens=max_tokens).removesuffix(".")
     aside = c.session.aside()
-    budget = f" {SENTENCES['aside'].format(budget=f'{aside:,}')}" if aside else ""
+    if aside:  # a searching chat's start leaves the budget free too (the walk's S14)
+        origin = SENTENCES[f"budget_{c.session.budget()[1]}"]
+        roomy = SENTENCES["preselected_search"].format(
+            max_tokens=max_tokens, budget=f"{aside:,}", origin=origin
+        )
     pages = f" {SENTENCES['pdf_pages']}" if doc.kind == "pdf" else ""  # the walkthrough's F2
-    return f"{roomy}: {taken}.{budget} {fits}{pages}"
+    return f"{roomy}: {taken}. {fits}{pages}"
 
 
 def check_lines(check: dict[str, Any]) -> list[str]:
@@ -392,11 +396,12 @@ def check_lines(check: dict[str, Any]) -> list[str]:
     if check["kind"] == "pdf":  # before any range is typed (the walkthrough's F2)
         lines.append(SENTENCES["pdf_pages"])
     lines.append(SENTENCES["free"].format(free=f"{check['free']:,}", max_tokens=max_tokens))
+    left = SENTENCES["left_search" if check["aside"] else "left"]
     if check["fits"]:
         lines.append(
             SENTENCES["whole"].format(tokens=f"{check['tokens_whole']:,}")
             + " "
-            + SENTENCES["left"].format(left=f"{check['left_whole']:,}")
+            + left.format(left=f"{check['left_whole']:,}")
         )
     else:
         needed = more_than(check["tokens_whole"], check["tokens_whole_at_least"])
@@ -414,9 +419,13 @@ def check_lines(check: dict[str, Any]) -> list[str]:
                 lines.append(SENTENCES["no_start"].format(unit=unit, max_tokens=max_tokens))
             else:
                 reason = SENTENCES["preselected"].format(max_tokens=max_tokens).removesuffix(".")
+                if check["aside"]:  # the budget folded in (the board walk's S14)
+                    reason = SENTENCES["preselected_search"].format(
+                        max_tokens=max_tokens,
+                        budget=f"{check['aside']:,}",
+                        origin=SENTENCES[f"budget_{check['aside_origin']}"],
+                    )
                 lines.append(f"{reason}: {units} 1 to {preselected['range'][1]:,}.")
-                if check["aside"]:
-                    lines.append(SENTENCES["aside"].format(budget=f"{check['aside']:,}"))
         if check["fits_new_chat"]:
             lines.append(SENTENCES["new_chat"].format(free=f"{check['free_new_chat']:,}"))
     if chosen := check["chosen"]:
@@ -539,7 +548,10 @@ def document_rebuild(root: Path, name: str) -> dict[str, Any]:
 
 
 def document_list(root: Path) -> dict[str, Any]:
-    return {"documents": documents.library_documents(root)}
+    """The library, and its folder as an absolute path, for showing once (the board's W10):
+    a result only, never written to a log."""
+    folder = str((root / documents.LIBRARY).resolve())
+    return {"documents": documents.library_documents(root), "folder": folder}
 
 
 def _try(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -586,7 +598,9 @@ def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
             source, _, typed = rest.partition(" ")
             uploaded = c.uploads.get(source)
             if uploaded is None:
-                raise documents.DocumentRefused("That file is no longer uploaded: choose it again.")
+                raise documents.DocumentRefused(
+                    "That file isn't uploaded any more. Choose it again."
+                )
             data, filename = uploaded
             name = documents.checked_library_name(typed.strip()) if typed.strip() else None
             return documents.library_add(
