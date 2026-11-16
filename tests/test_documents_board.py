@@ -425,6 +425,8 @@ def test_a_refusal_at_send_is_logged_and_given_back(
     if how == "manifest":
         unreadable(root, "notes")
     elif how == "link":
+        if os.name == "nt":
+            pytest.skip("symlinks need privileges on Windows")
         folder = root / "local/documents/notes"
         shutil.move(folder, tmp_path / "elsewhere")
         folder.symlink_to(tmp_path / "elsewhere", target_is_directory=True)
