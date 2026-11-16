@@ -491,6 +491,35 @@ def test_edit_shows_what_it_keeps(clarity, page):
     shot(page, "C2-edit-keeps", "v031")
 
 
+def test_edit_s_x_takes_an_attachment_out(clarity, page):  # Q2, the board's ⑥
+    redirect, backend = clarity
+    chat(page, redirect)
+    choose(page, "trail-notes.md", NOTES)
+    ready(page)
+    page.click("[data-action=attach-add]")
+    page.wait_for_selector("#chips .chip")
+    page.fill("#message", "What marks the ridge?")
+    page.click("#send")
+    page.wait_for_selector(".reply.last .tb")
+    page.click(".turn.user [data-action=edit]")
+    page.wait_for_selector(".editbox:not([hidden])")
+    page.click(".editbox [data-action=edit-drop]")
+    assert page.is_hidden(".editbox .keeps .chip")
+    assert "Keeps no attachments." in page.inner_text(".editbox .keeps")
+    shot(page, "edit-x", "v032-q2")
+    page.click(".editbox [data-action=edit-cancel]")  # Cancel brings every chip back
+    page.click(".turn.user [data-action=edit]")
+    assert page.is_visible(".editbox .keeps .chip")
+    page.click(".editbox [data-action=edit-drop]")
+    page.fill(".editbox textarea", "And without the notes?")
+    calls = len(backend.calls)
+    page.click(".editbox [type=submit]")
+    page.wait_for_selector(".turn.user .msg:has-text('And without the notes?')")
+    page.wait_for_selector(".reply.last .tb")
+    assert len(backend.calls) == calls + 1
+    assert "Attached:" not in page.inner_text(".turn.user:last-of-type")
+
+
 def test_a_failed_send_brings_the_chips_back_and_offers_removing_one(clarity, page):
     redirect, backend = clarity
     backend._n_ctx = 2000
