@@ -32,7 +32,8 @@ CLOSING_TAG = "</document>"
 # and reference.md use these (decision 20). Each was fact-checked (Lane 3).
 SENTENCES = {
     "whole": "It takes up {tokens} tokens in every later prompt of this chat.",
-    "excerpt": "Only the {units} you choose are sent, after a line that says they're an excerpt.",
+    "excerpt": "Only the {units} you choose are sent, after a line that says they're an excerpt "
+    "unless the profile sets no marker.",
     "no_marker": "No excerpt marker (this profile).",
     "free": "{free} tokens free in this chat, after setting aside {max_tokens} for the reply "
     "(your max_tokens).",
@@ -61,8 +62,7 @@ SENTENCES = {
     "closing_tag": "Holds </document>, which ends Clarity's wrapper early; it's sent as it is.",
     "framing": "Framing line ({origin}): {framing}",
     "framing_label": "Clarity introduces the document to the model with this line ({origin}):",
-    "marker_label": "The excerpt starts with this line, so the model knows it's partial "
-    "({origin}):",
+    "marker_label": "The excerpt starts with this line, which says it's partial ({origin}):",
     "new_chat_does": "Starts a new chat on this profile with the whole file attached, waiting "
     "for your first message. This chat stays in Chats.",
     "not_kept": "Not kept: {names}, waiting for your next message. An attachment is logged "
@@ -81,8 +81,9 @@ SENTENCES = {
     "highlight_added": "Highlighted: the framing line and documents Clarity put in your messages.",
     # Details' Attachments row, under the counts (the walkthrough's F3, as the lead ruled).
     "attachments_caption": "Your message's line counts each attachment as it cost when it was "
-    "attached: its block, the blank lines Clarity puts around it (not highlighted here) and, "
-    "for a message's first, the framing line.",
+    "attached: its block and the blank line after it (not highlighted here). The first "
+    "attachment in a message also counts the framing line and its blank line, when the "
+    "profile has one.",
     # The stop (the final fact-check's FIX 1, F8, ruling 9 and row 53b).
     "too_long": "It's {over} tokens too long.",
     "stop_advice": "Shorten your message, start a new chat, or lower max_tokens.",
