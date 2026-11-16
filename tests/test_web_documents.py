@@ -333,6 +333,7 @@ def test_an_empty_try_runs_nothing_and_says_no_command(root, make, message):  # 
     fragment = page(client, **{"try": message})
     assert "Usage" not in fragment and "/try" not in fragment
     assert 'class="parts"' not in fragment and 'role="alert">' not in fragment.split("try")[-1]
+    assert 'class="problem"' not in fragment  # the fix check's could D
 
 
 @pytest.mark.parametrize("added", ["yesterday", "2026-13-01T10:00:00Z", "2026-00-05T10:00:00Z"])
@@ -411,3 +412,24 @@ def test_a_refusal_s_buttons_follow_its_problem():  # could 5
         ("c", "c"),
         (None, None),
     ]
+
+
+# --- the C1 fix check's should A: when the first part's count holds the framing line
+
+
+FIRST_COUNT = "The first part's count includes the line Clarity puts before the parts."
+
+
+def test_no_framing_line_no_first_count_sentence(root, make):
+    client, _ = make('search = ["glossary"]\nframing = ""')
+    tried = text_of(page(client, **{"try": "Tell me about the wren"}))
+    assert 'glossary · "Wren"' in tried and FIRST_COUNT not in tried
+
+
+def test_an_attached_message_s_framing_line_is_the_attachment_s(root, make, tmp_path):
+    client, _ = make('search = ["glossary"]')
+    notes = tmp_path / "notes.md"
+    notes.write_text("Made-up notes.\n", encoding="utf-8")
+    command(client, "attach", str(notes))
+    tried = text_of(page(client, **{"try": "Tell me about the wren"}))
+    assert 'glossary · "Wren"' in tried and FIRST_COUNT not in tried
