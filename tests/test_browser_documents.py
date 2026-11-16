@@ -24,7 +24,7 @@ def documents(page, redirect) -> None:
     page.wait_for_selector("#thread .intro")
     page.click("#clarity-button")
     page.click("[data-action=documents]")
-    page.wait_for_selector("#documents-sheet[open] .docs")
+    page.wait_for_selector("#documents-sheet[open] .try")
 
 
 def test_add_writes_the_copy_lists_it_and_searches_it_here(clarity, page, fetched_root):  # noqa: F811
