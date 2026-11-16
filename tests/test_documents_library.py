@@ -385,3 +385,41 @@ def test_the_subcommands_say_what_they_write(root, tmp_path, capsys):
     )
     assert cli.main(["--root", str(root), "document", "check", "glossary"]) == 0
     assert capsys.readouterr().out.strip() == "glossary: ready."
+
+
+# --- Checkpoint 1's M1: a document folder that's a link
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_a_linked_document_folder_is_refused_and_nothing_outside_changes(root, tmp_path):
+    from clarity_chat.commands import document_list
+    from clarity_chat.documents import library_state, load_document
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "text.md").write_text("Made-up, not Clarity's.\n", encoding="utf-8")
+    (elsewhere / "keep.docx").write_bytes(b"made-up")
+    (root / "local" / "documents").mkdir(parents=True)
+    (root / "local" / "documents" / "notes").symlink_to(elsewhere, target_is_directory=True)
+    before = sorted((p.name, p.read_bytes()) for p in elsewhere.iterdir())
+    says = "notes's folder in local/documents/ is a link, which Clarity doesn't follow."
+    answers = []
+    for act in (
+        lambda: document_rebuild(root, "notes"),
+        lambda: document_check(root, ["notes"]),
+        lambda: load_document(root, "notes"),
+        lambda: document_add(root, file(tmp_path, "notes.md", "Made-up.\n"), replace=True),
+    ):
+        try:
+            act()
+            answers.append("no refusal")
+        except DocumentRefused as e:
+            answers.append(str(e))
+        except Exception as e:  # noqa: BLE001 - what the bug raised, as the test's answer
+            answers.append(type(e).__name__)
+    assert sorted((p.name, p.read_bytes()) for p in elsewhere.iterdir()) == before
+    assert [a.startswith(says) for a in answers] == [True] * 4, answers
+    assert library_state(root, "notes") == "unreadable"
+    assert document_list(root)["documents"][0]["state"] == "unreadable"
+    assert sorted((p.name, p.read_bytes()) for p in elsewhere.iterdir()) == before
+    assert sorted(p.name for p in (root / "local" / "documents").iterdir()) == ["notes"]
