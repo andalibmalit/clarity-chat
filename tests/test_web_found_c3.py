@@ -203,3 +203,55 @@ def test_a_full_context_offers_a_new_chat_with_these_documents(root, make):  # n
         "Starts a new chat on this profile that searches glossary. This chat stays in Chats."
         in text_of(page)
     )
+
+
+# --- the part 2 whole-branch review's S4: C3's Checks with no test
+
+
+HOSTILE = (
+    b"## Wren <img src=x onerror=alert(1)>\nThe wren <b>sings</b> &amp; <script>x()</script>.\n"
+)
+
+
+def test_a_hostile_part_stays_text_in_the_line_details_try_box_and_chooser(root, make):  # noqa: F811
+    library_add(root, HOSTILE, "odd.md")
+    client, _ = make('search = ["glossary", "odd"]')
+    command(client, "say", "Tell me about the wren")
+    pages = [
+        thread(client),
+        get(client, "details", call=last_call(client)),
+        get(client, "documents", **{"try": "wren sings"}),
+        get(client, "picker", library="1"),
+    ]
+    for page in pages:
+        assert "<img src=x" not in page and "<script>x()" not in page and "<b>sings" not in page
+    assert "&lt;img src=x onerror=alert(1)&gt;" in pages[0] + pages[2]
+    assert 'odd · "Wren <img src=x onerror=alert(1)>"' in found_line(client)
+
+
+def test_the_line_reads_the_same_after_a_resume(root, make):  # noqa: F811
+    client, _ = make(SEARCHES)
+    command(client, "say", "Tell me about the wren")
+    before = found_line(client)
+    log_id = command(client, "state").json()["result"]["log_id"]
+    command(client, "new", "")
+    assert "error" not in command(client, "resume", log_id).json()
+    assert found_line(client) == before
+
+
+def test_details_highlights_exactly_each_part_s_range(root, make):  # noqa: F811
+    import html
+
+    client, _ = make(SEARCHES)
+    command(client, "say", "Tell me about the wren")
+    call = command(client, "prompt").json()["result"]["call"]
+    text = call["prompt_text"]
+    added = [
+        text[a["chars"][0] : a["chars"][1]]
+        for s in call["message_spans"]
+        for a in s.get("added", [])
+    ]
+    page = get(client, "details", call=call["call_id"])
+    pane = page.split('data-pane="text"', 1)[1].split("</pre>", 1)[0]
+    marks = [html.unescape(m) for m in re.findall(r'<mark class="added">(.*?)</mark>', pane, re.S)]
+    assert marks == added and any("<part " in m for m in marks)

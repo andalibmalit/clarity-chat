@@ -141,3 +141,22 @@ def test_a_refused_send_s_stop_searching_it_lets_send_go(clarity, page, fetched_
     page.click("#send")
     page.wait_for_selector("#thread .turn.assistant")
     assert backend.calls
+
+
+def test_new_chat_with_these_documents_starts_one_that_searches_them(clarity, page, fetched_root):  # noqa: F811
+    library_add(fetched_root, GLOSSARY, "glossary.md")  # the part 2 whole-branch review's S4
+    redirect, backend = clarity
+    chat(page, redirect)  # the profile searches nothing: the chat's list is the chooser's
+    page.click("#search-button")
+    page.wait_for_selector("#search-menu:not([hidden])")
+    page.click("#search-menu [data-name=glossary]")
+    page.wait_for_selector("#search-button:has-text('Searching: 1 document')")
+    page.keyboard.press("Escape")
+    backend._n_ctx = 60
+    page.fill("#message", "Tell me about the wren " * 4)
+    page.click("#send")
+    page.wait_for_selector("[data-action=new-with-documents]")
+    backend._n_ctx = None  # the new chat starts with the usual context
+    page.click("[data-action=new-with-documents]")
+    page.wait_for_selector("#thread .intro")
+    page.wait_for_selector("#search-button:has-text('Searching: 1 document')")
