@@ -137,6 +137,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 - Openings files have their line endings normalized, so an editor's line endings never change the token IDs.
 - A server restart mid-run stops the run, so no run mixes server processes.
 - Nothing goes to `logs/`, not even the server's output, so held-out openings never end up in a transcript export.
+- A profile that searches documents searches each opening once and sends those parts with every seed, so seeds vary the reply, not what it was given. Two profiles can still get different parts for one opening: each counts the budget with its own tokenizer, or has its own budget. The run says so for each opening where that happened, because a rater comparing the replies would otherwise read a difference in what the model was given as a difference in the setup under test.
 
 ## Attached documents
 

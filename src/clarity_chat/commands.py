@@ -542,6 +542,16 @@ def document_list(root: Path) -> dict[str, Any]:
     return {"documents": documents.library_documents(root)}
 
 
+def _try(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    """/try TEXT: what a message with TEXT would find now, with no model call (v0.3.2 B4)."""
+    return {"found": c.session.try_search(needs(args, "/try TEXT"))}
+
+
+def document_try(root: Path, names: list[str], profile: str, text: str) -> dict[str, Any]:
+    """`clarity document try`: what a first message would find in a new chat on `profile`."""
+    return {"found": Session(root).try_documents(names, profile, text)}
+
+
 def _search(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     """/search: the documents this chat searches, with their state; /search NAME …: these
     from now on; /search none: none (v0.3.2 B1)."""
@@ -1216,6 +1226,11 @@ COMMANDS: dict[str, Command] = {
         "the documents this chat searches for each message; names: search these from now on; "
         "none: search nothing",
         _search,
+    ),
+    "try": Command(
+        "/try TEXT",
+        "what a message with TEXT would find in this chat's documents now, with no model call",
+        _try,
     ),
     "documents": Command(
         "/documents [add PATH [NAME] | rebuild NAME]",

@@ -102,7 +102,8 @@ def check_run(
     session: Session, profile_names: list[str], openings: list[str], n_seeds: int
 ) -> list[Prepared]:
     """Everything that can be checked before a model loads: the profiles load, are distinct
-    and share max_tokens, and every opening fits every profile's context."""
+    and share max_tokens, every opening fits every profile's context, and every document a
+    profile searches is ready and can be searched for every opening."""
     if n_seeds < 1 or FIRST_SEED + n_seeds - 1 > SEED_MAX:
         raise ConfigError(f"--seeds must be from 1 to {SEED_MAX - FIRST_SEED + 1}.")
     prepared = [session.prepare(name) for name in profile_names]
@@ -128,7 +129,16 @@ def check_run(
                     f"Opening {i} with profile {name} is {len(prompt.ids)} tokens; with "
                     f"max_tokens {limit} it doesn't fit the context of {n_ctx} tokens."
                 )
+        if p.profile.search:  # searched now, so a stale document stops the run here
+            for opening in openings:
+                session.try_documents(list(p.profile.search), str(p.profile.path), opening)
     return prepared
+
+
+def builds(session: Session, prepared: list[Prepared]) -> dict[str, str]:
+    """Each searched document's build ID before the run: the run stops if one changes."""
+    names = list(dict.fromkeys(name for p in prepared for name in p.profile.search))
+    return session.document_builds(names)
 
 
 def run_batch(
@@ -148,6 +158,7 @@ def run_batch(
     text, openings = read_openings(openings_path)
     checked = check_run(session, profile_names, openings, n_seeds)
     prepared = dict(zip(profile_names, checked, strict=True))
+    searched = builds(session, checked)
     seeds = [FIRST_SEED + k for k in range(n_seeds)]
     facts = {
         "run_id": run_id,
@@ -158,6 +169,7 @@ def run_batch(
         "seeds": seeds,
         "split_rule": SPLIT_RULE,
         "trim_rule": TRIM_RULE,
+        **({"documents": searched} if searched else {}),
     }
     log = LogFile(run_dir / "calls.jsonl")
     log.append({"type": "run", **facts, "client": client_git(), "machine": machine()})
@@ -172,6 +184,8 @@ def run_batch(
     order = sorted(profile_names, key=lambda name: groups.index(loaded(name)))
     total = len(openings) * len(profile_names) * n_seeds
     replies: dict[tuple[int, str, int], Reply] = {}
+    # Searched once per opening and profile, and the same block sent with every seed.
+    blocks: dict[tuple[int, str], dict[str, Any]] = {}
     shown: set[str] = set()
     started: set[tuple[str, str | None, str, int]] = set()  # what this run has loaded
 
@@ -201,7 +215,20 @@ def run_batch(
                             warn(warning)
                     for warning in conversation.warnings:  # e.g. unread template_kwargs
                         warn(warning)
-                    outcome = session.say(opening, seed=Setting(seed, "run"))
+                    if (i, name) not in blocks:
+                        blocks[i, name] = session.block(opening)
+                        changed = [
+                            d["name"]
+                            for d in blocks[i, name].get("found", {}).get("documents", [])
+                            if d["build_id"] != searched[d["name"]]
+                        ]
+                        if changed:
+                            raise RunError(
+                                f"{', '.join(changed)} changed during the run (before {where}), "
+                                "so its openings weren't all searched in one build."
+                            )
+                    block = blocks[i, name]
+                    outcome = session.say(opening, seed=Setting(seed, "run"), block=block)
                 except (ContextError, BackendError, ConfigError) as e:
                     raise RunError(f"{where.capitalize()}: {e}") from e
                 except KeyboardInterrupt as e:
@@ -221,6 +248,18 @@ def run_batch(
                 )
                 write(f"\r{len(replies)}/{total}")
     write("\n")
+    for i in range(1, len(openings) + 1):  # the confound a reader of blind.md must know
+        got = {
+            name: [p["id"] for p in blocks[i, name].get("found", {}).get("parts", [])]
+            for name in profile_names
+            if "found" in blocks[i, name]
+        }
+        if len({tuple(ids) for ids in got.values()}) > 1:
+            said = "; ".join(f"{name}: {', '.join(ids) or 'none'}" for name, ids in got.items())
+            warn(
+                f"Opening {i}: the profiles got different parts ({said}). Their budgets count "
+                "different tokenizers, so the replies differ in what they were given too."
+            )
 
     shuffle_seed = secrets.randbelow(2**32)
     rng = random.Random(shuffle_seed)

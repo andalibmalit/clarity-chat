@@ -21,6 +21,7 @@ from clarity_chat.commands import (
     document_check,
     document_list,
     document_rebuild,
+    document_try,
     how_words,
     read_files,
     summaries,
@@ -687,6 +688,8 @@ class ChatLoop:
             self.listed = True
         elif name == "search":
             self.write(format_searching(result) + "\n")
+        elif name == "try":
+            self.write(format_found(result["found"]) + "\n")
         elif name == "documents" and "added" in result:
             self.write(format_added(result) + "\n")
         elif name == "documents" and "rebuilt" in result:
@@ -988,6 +991,10 @@ def cmd_document(root: Path, args: argparse.Namespace) -> int:
         checked = document_check(root, args.names, tokenizer)["checked"]
         print(format_checked(checked) if checked else "No documents yet.")
         return 0 if all(c["state"] == "ready" for c in checked) else 1
+    if args.action == "try":
+        found = document_try(root, args.names, args.profile, args.text)["found"]
+        print(json.dumps(found) if args.json else format_found(found))
+        return 0
     try:
         result = document_rebuild(root, args.name)
     except OriginalChanged as e:  # the terminal's way out, by name
@@ -1073,8 +1080,29 @@ def format_checked(checked: list[dict[str, Any]]) -> str:
 
 
 def format_found(found: dict[str, Any]) -> str:
-    """A stub for B4's red: a search's result in lines, not built yet."""
-    return ""
+    """A search's result in lines, without the parts' text: the words, what was added and
+    why, and what was left out."""
+    if not found["words"]:
+        return f"Nothing to search for: every word is a common one ({', '.join(found['ignored'])})."
+    ignored = f" (ignored: {', '.join(found['ignored'])})" if found["ignored"] else ""
+    lines = [f"Searched for: {', '.join(found['words'])}{ignored}."]
+    if not found["matched"]:
+        lines.append("Nothing matched.")
+        return "\n".join(lines)
+    lines.append(
+        f"{found['matched']:,} matched; {parts(len(found['parts']))} added, "
+        f"{found['tokens']:,} tokens of the budget of {found['budget']:,}."
+    )
+    for p in found["parts"]:
+        title = f' "{p["title"]}"' if p["title"] else ""
+        reasons = [f"title matches {', '.join(p['title_words'])}"] if p["title_words"] else []
+        reasons += [f"shares words: {', '.join(p['words'])}"] if p["words"] else []
+        lines.append(
+            f"  {p['rank']}. {p['id']}{title}: {'; '.join(reasons)} ({p['tokens']:,} tokens)"
+        )
+    for o in found["left_out"]:
+        lines.append(f"  {o['rank']}. {o['id']}: left out ({o['why']})")
+    return "\n".join(lines)
 
 
 def format_searching(result: dict[str, Any]) -> str:
@@ -1208,6 +1236,13 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     checked.add_argument("--profile", help="also list the parts holding its model's control tokens")
     rebuilt = document.add_parser("rebuild", help="build a document's parts again from text.md")
     rebuilt.add_argument("name")
+    tried = document.add_parser(
+        "try", help="what a message would find in these documents, with no model"
+    )
+    tried.add_argument("names", nargs="+", metavar="NAME")
+    tried.add_argument("--profile", required=True, help="whose tokenizer counts the budget")
+    tried.add_argument("text", help="the message: quote it if it has spaces")
+    tried.add_argument("--json", action="store_true", help="the whole found object, for scripts")
     return parser, chat
 
 

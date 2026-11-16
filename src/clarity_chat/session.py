@@ -782,12 +782,17 @@ class Session:
         on_text: Callable[[str], None] | None = None,
         seed: Setting | None = None,
         cancel: threading.Event | None = None,
+        block: dict[str, Any] | None = None,
     ) -> CallOutcome:
         """Add a user turn after `head` and get the model's reply. `seed` replaces the
         profile's seed for this call (a batch run's seeds). `cancel`: an event the caller
-        makes for this call and may set from any thread to stop it."""
+        makes for this call and may set from any thread to stop it. `block`: the message's
+        block fields, already found (a batch run searches once per opening and profile)."""
         conversation = self._require_conversation()
-        attached, refused = self._block(text, conversation.pending, conversation.head)
+        if block is None:
+            attached, refused = self._block(text, conversation.pending, conversation.head)
+        else:
+            attached, refused = block, None
         user = conversation.add_turn("user", "user", text, conversation.head, **attached)
         conversation.head, conversation.pending = user.turn_id, []
         return self.call(user, seed=seed, on_text=on_text, cancel=cancel, refused=refused)
@@ -812,26 +817,83 @@ class Session:
         }
         if not conversation.searching:
             return fields, None
-        try:
-            docs = [load_document(self.root, name) for name in conversation.searching]
-        except Stale as e:
-            return fields, SearchRefused(STALE[e.state].format(name=e.name))
         already = frozenset(
             p["sha256"] for t in conversation.path_to(parent) for p in found_in(t.attached_fields())
         )
-        budget, budget_origin = self.budget()
-        found = fill(
-            self.room(after=parent),
+        try:
+            found = self._found(
+                text, conversation.searching, self.room(after=parent), profile, fields, already
+            )
+        except SearchRefused as e:
+            return fields, e
+        return {**fields, "found": found}, None
+
+    def _found(
+        self,
+        text: str,
+        names: list[str],
+        room: Room,
+        profile: Profile,
+        fields: dict[str, Any],
+        already: frozenset[str] = frozenset(),
+    ) -> dict[str, Any]:
+        """What `text` finds in the documents `names`, filled to `profile`'s budget into a
+        block holding `fields`' attachments: one function for a message, /try and a batch
+        run (SYS: "one object, three uses"). A stale document is refused."""
+        try:
+            docs = [load_document(self.root, name) for name in names]
+        except Stale as e:
+            raise SearchRefused(STALE[e.state].format(name=e.name)) from None
+        budget, origin = budget_of(profile)
+        return fill(
+            room,
             text,
             attached_in(fields),
-            framing,
+            fields["framing"],
             search_documents(docs, text),
             budget,
-            budget_origin,
-            profile.placement,
+            origin,
+            fields["placement"],
             already,
         )
-        return {**fields, "found": found}, None
+
+    def document_builds(self, names: list[str]) -> dict[str, str]:
+        """Each document's build ID, as a search now would read it (a stale one refused)."""
+        try:
+            return {name: load_document(self.root, name).build_id for name in names}
+        except Stale as e:
+            raise SearchRefused(STALE[e.state].format(name=e.name)) from None
+
+    def block(self, text: str) -> dict[str, Any]:
+        """A next message's block fields, searched now, a refusal raised (a batch run)."""
+        conversation = self._require_conversation()
+        fields, refused = self._block(text, conversation.pending, conversation.head)
+        if refused is not None:
+            raise refused
+        return fields
+
+    def try_search(self, text: str) -> dict[str, Any]:
+        """/try: what a message with `text` would find now, with no model call and nothing
+        logged: the same object a message's turn would hold (decision 14)."""
+        conversation = self._require_conversation()
+        if not conversation.searching:
+            raise ConfigError("This chat searches no documents yet.")
+        return self.block(text)["found"]
+
+    def try_documents(self, names: list[str], profile_name: str, text: str) -> dict[str, Any]:
+        """`clarity document try`: what a first message with `text` would find in `names` in
+        a new chat on `profile_name`, counted with its tokenizer, with no model."""
+        for name in names:
+            checked_library_name(name)
+        profile, model, _ = self.profile_for(profile_name)
+        self._profile_documents(profile)
+        tokenizer, template = self.tokenizers_for(profile, model)
+        new = NewChat(profile, tokenizer, template, self.ctx_size_for(profile).value, "")
+        framing, origin = framing_of(profile)
+        fields = {"attachments": [], "framing": framing, "framing_origin": origin}
+        return self._found(
+            text, names, self.room(new), profile, {**fields, "placement": profile.placement}
+        )
 
     def room(
         self,
@@ -845,9 +907,9 @@ class Session:
         message it replaces; or, with `new`, in the chat /new would start), and the free
         context a prompt of that many tokens leaves. With `cancel`, each count first checks
         it, and a set one stops counting `name`."""
-        conversation = self._require_conversation()
-        assert self.tokenizer is not None
         if new is None:
+            conversation = self._require_conversation()
+            assert self.tokenizer is not None
             tokenizer, template = self.tokenizer, self.template_tokenizer
             parent = conversation.head if after is HEAD else cast("str | None", after)
             profile, turns = conversation.profile, conversation.path_to(parent)
@@ -1326,18 +1388,13 @@ class Session:
     def budget(self) -> tuple[int, str]:
         """Search's budget for a message, and where it comes from: the profile, or Clarity's
         default."""
-        profile = self._require_conversation().profile
-        return (BUDGET, "default") if profile.budget is None else (profile.budget, "profile")
+        return budget_of(self._require_conversation().profile)
 
     def aside(self) -> int:
         """What a suggested start leaves free for search: the budget, when this chat searches
         any document (v0.3.2's S1); else 0."""
         conversation = self.conversation
         return self.budget()[0] if conversation is not None and conversation.searching else 0
-
-    def try_documents(self, names: list[str], profile_name: str, text: str) -> dict[str, Any]:
-        """A stub for B4's red: `clarity document try`, not built yet."""
-        return {}
 
     def searching(self) -> list[dict[str, Any]]:
         """The documents this chat searches, each with its state (ready, changed, missing or
@@ -2202,6 +2259,11 @@ def attached_tokens(spans: Any, conversation: Conversation, user_turn: Turn) -> 
     path = prompt_turns(conversation, user_turn)
     n = sum(a["tokens"] for t in path for a in t.attachments)
     return f", {n:,} of them for attached documents, counted when attached" if n else ""
+
+
+def budget_of(profile: Profile) -> tuple[int, str]:
+    """Search's budget for a message on `profile`, and where it comes from."""
+    return (BUDGET, "default") if profile.budget is None else (profile.budget, "profile")
 
 
 def found_summary(found: dict[str, Any]) -> dict[str, Any]:
