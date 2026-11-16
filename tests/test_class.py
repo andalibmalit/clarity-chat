@@ -79,7 +79,32 @@ SHAPES: dict[str, list[tuple[Any, ...]]] = {
     ],
     "search": [("documents",)],  # v0.3.2 B1
 }
-ROWS = [(kind, path) for kind, paths in SHAPES.items() for path in paths]
+FOUND_KEYS: dict[str, set[str]] = {  # the Shapes table's `found` (Checkpoint 1's S9)
+    "found": {
+        "method", "searched_for", "scan_depth", "words", "ignored", "documents", "engine",
+        "considered", "budget", "budget_origin", "parts", "left_out", "matched", "tokens",
+    },
+    "documents": {"name", "build_id", "original_sha256"},
+    "engine": {
+        "name", "sqlite", "tokenizer", "weights", "word_rule", "common_words", "query",
+    },
+    "parts": {
+        "id", "document", "ordinal", "title", "page", "text", "sha256", "rank", "score",
+        "title_words", "words", "tokens",
+    },
+    "left_out": {"id", "rank", "score", "why"},
+}  # fmt: skip
+FOUND_ROWS = [  # v0.3.2 B2: the turn's `found`, from FOUND_SHAPE below
+    ("turn", path)
+    for path in [
+        *(("found", key) for key in sorted(FOUND_KEYS["found"])),
+        *(("found", "parts", 0, key) for key in sorted(FOUND_KEYS["parts"])),
+        *(("found", "left_out", 0, key) for key in sorted(FOUND_KEYS["left_out"])),
+        *(("found", "documents", 0, key) for key in sorted(FOUND_KEYS["documents"])),
+        *(("found", "engine", key) for key in sorted(FOUND_KEYS["engine"])),
+    ]
+]
+ROWS = [(kind, path) for kind, paths in SHAPES.items() for path in paths] + FOUND_ROWS
 TURN_ROWS = [("turn", path) for path in SHAPES["turn"]]
 
 
@@ -107,6 +132,8 @@ def scripted_chat(session: Session, tmp_path: Path) -> None:
     library_add(session.root, b"## Wren\nA made-up bird.\n", "birds.md")
     session.new_conversation("chat")
     session.set_search(["birds"])
+    session.say("Tell me about the wren")  # found: a part added
+    session.say("The wren again")  # found: that part left out, already in the chat
     session.attach(doc())
     session.say("What's in it?")
     session.regen()
@@ -441,21 +468,7 @@ def test_t3_a_chat_that_uses_it_resumes_exports_and_replays(
 
 # --- The Shapes table's `found` (Checkpoint 1's S9): what a search adds to a turn
 
-FOUND_SHAPE: dict[str, set[str]] = {
-    "found": {
-        "method", "searched_for", "scan_depth", "words", "ignored", "documents", "engine",
-        "considered", "budget", "budget_origin", "parts", "left_out", "matched", "tokens",
-    },
-    "documents": {"name", "build_id", "original_sha256"},
-    "engine": {
-        "name", "sqlite", "tokenizer", "weights", "word_rule", "common_words", "query",
-    },
-    "parts": {
-        "id", "document", "ordinal", "title", "page", "text", "sha256", "rank", "score",
-        "title_words", "words", "tokens",
-    },
-    "left_out": {"id", "rank", "score", "why"},
-}  # fmt: skip
+FOUND_SHAPE = FOUND_KEYS
 
 
 def test_found_has_the_shapes_table_s_keys():
