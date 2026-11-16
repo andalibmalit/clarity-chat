@@ -341,7 +341,11 @@ TERMINAL_ONLY = {
         "the page sends a number it checked, or none"
     ),
     "Usage: /branches [all]": "the page sends none, or all",
-    "Usage: /edit TEXT": "the page's Edit sends no empty text",
+    "Usage: /edit [--drop N]... TEXT": "the page's Edit sends no empty text",
+    "--drop : this message has no attachments.": "the page's × is drawn only on attachments",
+    "--drop : this message has . Use a number from 1 to .attachment": (
+        "the page's × sends the place of an attachment it drew"
+    ),
     "Usage: /try TEXT": "the try box runs no empty message",
     "Usage: /set NAME [VALUE]": "the page's rows always name their setting",
     "Usage: /title TEXT": "the page's Rename sends no empty title",

@@ -14,7 +14,7 @@ import os
 import secrets
 import threading
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
@@ -40,6 +40,7 @@ from clarity_chat.documents import (
     content,
     control_token_parts,
     control_token_problem,
+    counted,
     covers_whole,
     fill,
     fit,
@@ -1377,14 +1378,27 @@ class Session:
         text: str,
         on_text: Callable[[str], None] | None = None,
         cancel: threading.Event | None = None,
+        drop: Sequence[int] = (),
     ) -> CallOutcome:
-        """Replace the current message with `text`, as a new branch, and get a reply."""
+        """Replace the current message with `text`, as a new branch, and get a reply. `drop`:
+        the attachments to leave out, by their place in the message, from 1 (Q2)."""
         conversation = self._require_conversation()
         reply = conversation.current_reply("edit the message of")
         assert reply.parent_id is not None
         original = conversation.turns[reply.parent_id]
-        # The attachments are kept; the new text is searched again (decision 2, Q6).
-        attached, refused = self._block(text, original.attachments, original.parent_id, True)
+        n = len(original.attachments)
+        for i in drop:
+            if not n:
+                raise ConfigError(f"--drop {i}: this message has no attachments.")
+            if not 1 <= i <= n:
+                raise ConfigError(
+                    f"--drop {i}: this message has {counted(n, 'attachment')}. "
+                    f"Use a number from 1 to {n}."
+                )
+        kept = [a for i, a in enumerate(original.attachments, 1) if i not in drop]
+        # The attachments are kept, but those dropped; the new text is searched again
+        # (decision 2, Q6).
+        attached, refused = self._block(text, kept, original.parent_id, True)
         user = conversation.add_turn(
             "user", "edit", text, original.parent_id, edit_of=original.turn_id, **attached
         )
