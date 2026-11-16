@@ -208,3 +208,14 @@ def test_twenty_thousand_parts_are_searched_within_a_loose_bound():
     found = search_documents([doc], "headword 19999 meaning")
     assert time.monotonic() - started < 30  # 0.5 s on the M2 Max; SYS measured 0.46 s
     assert found["matches"][0]["id"] == "big:20000"
+
+
+def test_reference_lists_the_common_words_exactly():
+    from pathlib import Path
+
+    from clarity_chat.documents import COMMON_WORDS
+
+    text = (Path(__file__).parent.parent / "docs" / "reference.md").read_text(encoding="utf-8")
+    line = next(t for t in text.splitlines() if t.startswith("**Common words, version 1**"))
+    listed = line.split(": ", 1)[1].rstrip(".").split(", ")
+    assert listed == sorted(COMMON_WORDS)

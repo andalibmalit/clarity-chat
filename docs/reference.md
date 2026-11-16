@@ -356,6 +356,17 @@ The documents Clarity searches live in `local/documents/NAME/`, four files each:
 
 **Parts, version 1.** `text.md` is split at blank lines into paragraphs. A line of one to six `#`, a space and text is a heading, outside a fenced code block (between ` ``` ` lines) and except in a code file (a text file whose name ends in a common code extension, such as `.py` or `.js`). A heading starts a part, and its text, up to 120 characters, titles the parts under it until the next heading; the heading line stays in the part's text. Paragraphs under one title are packed into a part of up to 250 words; a longer paragraph is split at sentence ends, and a longer sentence at word boundaries. Parts don't overlap, and what lies between them is only whitespace, so they rebuild `text.md`. A part holding `</part>` or `</document>` is listed when it's checked, and sent as it is.
 
+## Word search
+
+Search finds the parts of the chat's documents that share words with your message. Version 1 of the rules:
+
+- **The words (word rule 1):** your message split into runs of letters and digits (so `_` and punctuation split words), lowercased. One-character words, the common words below, and repeats are dropped; the turn records the words searched for and the words dropped.
+- **The query:** each word quoted, joined with `OR`, in SQLite's FTS5 with the `porter unicode61` tokenizer, which matches a word's stem (`singing` matches `sings`). A part matches if it shares any one of the words.
+- **The order:** FTS5's `bm25`, titles counting double, rounded to six places; then the document's name; then the part's number. Each match records the words it matched in its title and in its text, as FTS5 matched them.
+- **The same result** comes from the same text, the same build and the same SQLite version.
+
+**Common words, version 1** (161): a, about, above, after, again, against, all, also, am, an, and, any, are, as, at, be, because, been, before, being, below, between, both, but, by, can, cannot, could, did, do, does, doing, done, down, during, each, either, else, ever, every, few, for, from, further, get, gets, got, had, has, have, having, he, hello, her, here, hers, herself, hi, him, himself, his, how, i, if, in, into, is, it, its, itself, just, let, lets, like, many, may, me, might, more, most, much, must, my, myself, no, nor, not, now, of, off, ok, okay, on, once, only, or, other, our, ours, ourselves, out, over, own, please, really, same, say, says, shall, she, should, so, some, such, tell, than, thank, thanks, that, the, their, theirs, them, themselves, then, there, these, they, this, those, through, to, too, under, until, up, us, very, was, we, well, were, what, when, where, which, while, who, whom, whose, why, will, with, would, yes, yet, you, your, yours, yourself, yourselves.
+
 ## Files Clarity writes
 
 | Path | Contents |
