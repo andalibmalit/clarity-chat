@@ -15,7 +15,7 @@ Two headings are Clarity's own, used when they apply:
 - `clarity document add|list|check|rebuild`: the library of documents Clarity will search, in `local/documents/NAME/` (a copy of the file, its text as `text.md`, its parts and a manifest). Clarity says where it writes before and after, builds each document in a temporary folder and renames it into place, and refuses a document whose files have changed until you rebuild it.
 
 ### Output may change
-- An HTML file's text (version 2 of Clarity's HTML rules) puts a blank line between block elements and turns `h1` to `h6` into `#` headings, so a saved web page gets paragraphs, and in your documents titled parts. Its tokens differ from v0.3.1's for the same file. Old logs and replay are unaffected: a call replays its logged IDs, and a resume reads the logged text.
+- An HTML file's text (version 2 of Clarity's HTML rules) puts a blank line between block elements and turns `h1` to `h6` into `#` headings, so a saved web page gets paragraphs, and in your documents titled parts. Its tokens differ from v0.3.1's for the same file, and its lines are numbered differently, so a range such as `lines 1-20` picks different text. Old logs and replay are unaffected: a call replays its logged IDs, and a resume reads the logged text.
 
 ### Changed
 - The refusals for a file Clarity can't read say "use that copy" rather than "attach that", since the same file can now go into your documents too.
