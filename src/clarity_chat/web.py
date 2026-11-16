@@ -63,6 +63,7 @@ from clarity_chat.documents import (
     visible_bidi,
 )
 from clarity_chat.json_chat import JsonChat
+from clarity_chat.logs import unreadable
 from clarity_chat.profiles import NEUTRAL, SETTING_HELP, SETTING_RANGES, ConfigError
 from clarity_chat.replay import CANNOT_CHANGE_OUTPUT, cancelled_refusal, replay_notes
 from clarity_chat.session import CONTEXT_WARN_FRACTION, ContextError, Session
@@ -461,7 +462,10 @@ def make_app(
             params: dict[str, str | None] = {"call": call}
             if request.path_params["name"] == "attach":
                 params.update(attach_params(request.query_params))
-            return HTMLResponse(await renderer(worker, params))
+            try:
+                return HTMLResponse(await renderer(worker, params))
+            except (KeyError, TypeError, AttributeError) as e:  # a record a read refuses too
+                raise Refused(503, unreadable(e)) from e
         except Refused as e:
             return PlainTextResponse(str(e), e.status)
 
