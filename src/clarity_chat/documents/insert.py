@@ -241,6 +241,8 @@ def content(
     """The message's content as the model gets it: the block (the framing line, unless
     empty; each attachment; each found part), then your message, a blank line apart; at
     placement "end", your message first, then the block."""
+    if placement not in ("start", "end"):  # never sent as start without a word (C4)
+        raise ValueError(f"placement must be start or end, not {placement!r}")
     if not attached and not found:
         return message
     block = [text for _, text in parts(attached, framing, found)]
@@ -332,7 +334,7 @@ TURN_TYPES: dict[str, Callable[[Any], bool]] = {
     "attachments": lambda v: isinstance(v, list) and all(isinstance(a, dict) for a in v),
     "framing": lambda v: isinstance(v, str),
     "framing_origin": lambda v: v in ("default", "profile"),
-    "placement": lambda v: v == "start",
+    "placement": lambda v: v in ("start", "end"),
 }
 
 
@@ -446,9 +448,10 @@ def fill(
     added: list[dict[str, Any]] = []
     left_out: list[dict[str, Any]] = []
     cost, full = 0, False
+    seen = set(already)  # earlier messages', then this one's as they're added (S6)
     for match in matches[:CONSIDERED]:
         why = None
-        if match["sha256"] in already:
+        if match["sha256"] in seen:
             why = "already in the chat"
         elif full:
             why = "budget"
@@ -459,6 +462,7 @@ def fill(
             else:
                 added.append({**match, "tokens": now - without - cost})
                 cost = now - without
+                seen.add(match["sha256"])
         if why is not None:
             left_out.append(
                 {"id": match["id"], "rank": match["rank"], "score": match["score"], "why": why}

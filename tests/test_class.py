@@ -461,11 +461,12 @@ FOUND_SHAPE: dict[str, set[str]] = {
 def test_found_has_the_shapes_table_s_keys():
     import sqlite3
 
-    from clarity_chat.documents import FRAMING, Loaded, cut_parts, fill, search_documents
+    from clarity_chat.documents import FRAMING, fill, search_documents
     from tests.test_documents_found import counting_room
+    from tests.test_documents_search import loaded
 
     text = "\n\n".join(f"## Wren {i}\nA made-up wren, number {i}." for i in range(12))
-    docs = [Loaded("birds", "b", "s", cut_parts(text, "birds.md"))]
+    docs = [loaded("birds", text)]
     room, _ = counting_room()
     found = fill(room, "wren", [], FRAMING, search_documents(docs, "wren"), 10**6, "default")
     assert set(found) == FOUND_SHAPE["found"]

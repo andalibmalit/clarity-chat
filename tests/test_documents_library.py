@@ -101,14 +101,10 @@ def test_add_writes_the_four_files_and_says_so(root, tmp_path):
         ("guide.pdf", make_pdf(["Made-up page one.", "Made-up page two."]), "original.pdf"),
         ("page.html", b"<html><body><p>Made-up page.</p></body></html>", "original.html"),
         ("notes.txt", b"Made-up notes.\n", "original.txt"),
-        ("odd.pdf.txt", b"%PDF-1.4 not really\n", "original.txt"),
+        ("notes.markdown", b"Made-up notes.\n", "original.txt"),  # never from the name
     ],
 )
 def test_the_original_s_name_comes_from_its_kind(root, tmp_path, name, data, original):
-    if name == "odd.pdf.txt":  # a PDF by its bytes is a PDF: this one isn't one
-        with pytest.raises(DocumentRefused):
-            document_add(root, file(tmp_path, name, data))
-        return
     result = document_add(root, file(tmp_path, name, data))
     assert result["written"][0].endswith("/" + original)
 
@@ -159,8 +155,8 @@ def test_a_crash_mid_add_leaves_no_folder(root, tmp_path, monkeypatch):
         real(path, data)
 
     monkeypatch.setattr(library_module, "write", crash)
-    with pytest.raises(OSError, match="made-up crash"):
-        document_add(root, file(tmp_path, "notes.md", "Made-up.\n"))
+    with pytest.raises(DocumentRefused, match="^Can't write notes in local/documents/: OSError."):
+        document_add(root, file(tmp_path, "notes.md", "Made-up.\n"))  # a refusal since S5
     assert library(root) == []
 
 
@@ -406,8 +402,8 @@ def test_a_linked_document_folder_is_refused_and_nothing_outside_changes(root, t
     answers = []
     for act in (
         lambda: document_rebuild(root, "notes"),
-        lambda: document_check(root, ["notes"]),
         lambda: load_document(root, "notes"),
+        lambda: document_add(root, file(tmp_path, "notes.md", "Made-up.\n")),
         lambda: document_add(root, file(tmp_path, "notes.md", "Made-up.\n"), replace=True),
     ):
         try:
@@ -419,6 +415,8 @@ def test_a_linked_document_folder_is_refused_and_nothing_outside_changes(root, t
             answers.append(type(e).__name__)
     assert sorted((p.name, p.read_bytes()) for p in elsewhere.iterdir()) == before
     assert [a.startswith(says) for a in answers] == [True] * 4, answers
+    (checked,) = document_check(root, ["notes"])["checked"]  # listed, since S4: one stops none
+    assert checked["state"] == "unreadable" and checked["problems"][0].startswith(says)
     assert library_state(root, "notes") == "unreadable"
     assert document_list(root)["documents"][0]["state"] == "unreadable"
     assert sorted((p.name, p.read_bytes()) for p in elsewhere.iterdir()) == before

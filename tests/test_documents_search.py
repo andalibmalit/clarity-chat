@@ -20,10 +20,13 @@ from clarity_chat.documents import (
 
 
 def loaded(name: str, text: str, filename: str = "made-up.md"):
-    """A document as search reads it, without the library: its parts, a fixed build."""
-    from clarity_chat.documents import Loaded
+    """A document as search reads it, without the library: its parts, and the build ID the
+    library would give them (the index is kept by build ID, so a made-up one shared by two
+    tests' texts would hand one the other's)."""
+    from clarity_chat.documents import Loaded, build_id, parts_jsonl
 
-    return Loaded(name, f"build-{name}", f"sha-{name}", cut_parts(text, filename))
+    parts = cut_parts(text, filename)
+    return Loaded(name, build_id(parts_jsonl(parts)), f"sha-{name}", parts)
 
 
 def ids(found: dict) -> list[str]:
@@ -86,7 +89,7 @@ def test_the_engine_and_query_are_recorded():
     assert found["engine"]["weights"] == {"title": 2, "text": 1}
     assert (found["engine"]["word_rule"], found["engine"]["common_words"]) == (1, 1)
     assert found["documents"] == [
-        {"name": "birds", "build_id": "build-birds", "original_sha256": "sha-birds"}
+        {"name": "birds", "build_id": DOCS[0].build_id, "original_sha256": "sha-birds"}
     ]
     assert (found["method"], found["scan_depth"], found["searched_for"]) == (
         "words",

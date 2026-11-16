@@ -33,7 +33,9 @@ COMMON_WORDS = frozenset(
     theirs them themselves then there these they this those through to too under until up
     us very was we well were what when where which while who whom whose why will with
     would yes yet you your yours yourself yourselves
-    """.split()
+    aren couldn didn doesn don hadn hasn haven isn ll mightn mustn needn re shan shouldn ve
+    wasn weren won wouldn
+    """.split()  # the last two lines: what a contraction leaves (don't: don, t)
 )
 NO_FTS5 = (
     "Word search needs SQLite's FTS5, which the Python running Clarity doesn't have. Use a "
@@ -75,10 +77,11 @@ def load(root: Path, name: str) -> Loaded:
     """A document ready to search: refused as `changed` or `missing` (Stale) when its files
     don't match its manifest, and its parts read and checked against its build ID."""
     manifest = read_manifest(root, name)  # missing, or a refusal that says why
-    now = state(root, name)
+    now = state(root, name, manifest)
     if now != "ready":
         raise Stale(name, now)
-    return Loaded(name, manifest["build_id"], manifest["original"]["sha256"], parts_of(root, name))
+    parts, build = parts_of(root, name, manifest)  # one read: its build is the one searched
+    return Loaded(name, build, manifest["original"]["sha256"], parts)
 
 
 @dataclass
@@ -121,11 +124,15 @@ def index(docs: list[Loaded]) -> Index:
     return built
 
 
-def matched_in(built: Index, column: str, word: str) -> set[int]:
-    """The rows whose `column` holds `word`, as FTS5 matches it (stemmed): the reasons come
-    from FTS5 itself, never from a second stemmer."""
+def matched_in(built: Index, column: str, word: str, among: list[int]) -> set[int]:
+    """Which of the rows `among` hold `word` in `column`, as FTS5 matches it (stemmed): the
+    reasons come from FTS5 itself, never from a second stemmer."""
+    if not among:
+        return set()
+    marks = ", ".join("?" * len(among))
     rows = built.connection.execute(
-        "SELECT rowid FROM parts WHERE parts MATCH ?", (f"{{{column}}} : {query_of([word])}",)
+        f"SELECT rowid FROM parts WHERE parts MATCH ? AND rowid IN ({marks})",
+        (f"{{{column}}} : {query_of([word])}", *among),
     )
     return {row[0] for row in rows}
 
@@ -166,8 +173,11 @@ def search(docs: list[Loaded], message: str) -> dict[str, Any]:
     order = sorted(
         rows, key=lambda r: (r[1], built.parts[r[0]][0].name, built.parts[r[0]][1]["ordinal"])
     )
-    title_rows = {w: matched_in(built, "title", w) for w in words}
-    text_rows = {w: matched_in(built, "text", w) for w in words}
+    # Reasons only for the matches a fill considers (Checkpoint 1's C2): two queries a word,
+    # over those rows only, so a long message on a large library stays quick.
+    considered = [rowid for rowid, _ in order[:CONSIDERED]]
+    title_rows = {w: matched_in(built, "title", w, considered) for w in words}
+    text_rows = {w: matched_in(built, "text", w, considered) for w in words}
     for rank, (rowid, score) in enumerate(order, 1):
         doc, part = built.parts[rowid]
         found["matches"].append(

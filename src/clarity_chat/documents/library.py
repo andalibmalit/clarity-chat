@@ -20,12 +20,19 @@ import re
 import shutil
 import tempfile
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from clarity_chat.documents.parts import CHUNKER, build_id, cut_parts, parts_jsonl
+from clarity_chat.documents.parts import (
+    CHUNKER,
+    build_id,
+    closing_tag_parts,
+    cut_parts,
+    parts_jsonl,
+)
 from clarity_chat.documents.reading import Document, DocumentRefused, extract, read_path
 from clarity_chat.profiles import NAME_RULE, library_name_problem
 
@@ -142,11 +149,12 @@ def add(
     replace: bool = False,
     cancel: threading.Event | None = None,
     on_read: Callable[[], None] | None = None,
-    on_write: Callable[[str], None] | None = None,
+    on_write: Callable[[str, bool], None] | None = None,
 ) -> dict[str, Any]:
     """Add a file to the library: read it as v0.3.1 does (its child, its limits), then write
-    the four files. `on_write` gets the folder (relative to the project) just before
-    anything is written. Nothing is written on a refusal."""
+    the four files. `on_write` gets the folder (relative to the project), and whether it
+    replaces a document there, just before anything is written. Nothing is written on a
+    refusal."""
     if name is None:
         name = default_name(filename)
         if name is None:
@@ -162,32 +170,54 @@ def add(
         doc.text, name, original, doc.extractor, page_starts(doc), edited=False
     )
     relative = target.relative_to(root).as_posix()
+    replacing = target.exists()
     if on_write is not None:
-        on_write(relative)
-    target.parent.mkdir(parents=True, exist_ok=True)
+        on_write(relative, replacing)
     files = [original_name(doc.kind), "text.md", "parts.jsonl", "manifest.json"]
-    building = Path(tempfile.mkdtemp(prefix=f".{name}-", dir=target.parent))
+    with writing(name):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        building = Path(tempfile.mkdtemp(prefix=f".{name}-", dir=target.parent))
+        try:
+            write(building / files[0], data)
+            write(building / "text.md", text_md)
+            write(building / "parts.jsonl", jsonl)
+            manifest["files"] = stats(building, files[:3])
+            write(building / "manifest.json", manifest_bytes(manifest))
+            swap_in(building, target, replace)
+        finally:
+            if building.exists():
+                shutil.rmtree(building)
+    written = [f"{relative}/{f}" for f in files]
+    return {"added": manifest, "written": written, "replaced": replacing}
+
+
+@contextmanager
+def writing(name: str) -> Generator[None]:
+    """A write the system refuses (a folder you can't write, a full disk, a file another
+    program holds open) is a refusal that says why, never a path."""
     try:
-        write(building / files[0], data)
-        write(building / "text.md", text_md)
-        write(building / "parts.jsonl", jsonl)
-        manifest["files"] = stats(building, files[:3])
-        write(building / "manifest.json", manifest_bytes(manifest))
-        swap_in(building, target)
-    finally:
-        if building.exists():
-            shutil.rmtree(building)
-    return {"added": manifest, "written": [f"{relative}/{f}" for f in files]}
+        yield
+    except OSError as e:
+        raise DocumentRefused(
+            f"Can't write {name} in local/documents/: {e.strerror or type(e).__name__}."
+        ) from None
 
 
 KNOWN = ("original.pdf", "original.html", "original.txt", "text.md", "parts.jsonl")
 
 
-def swap_in(building: Path, target: Path) -> None:
-    """The new folder renamed into place. A document already there is renamed aside first,
-    its four known files deleted, and anything else you put in its folder moved across."""
-    if not target.exists():
-        os.replace(building, target)
+def swap_in(building: Path, target: Path, replace: bool) -> None:
+    """The new folder renamed into place. Without `replace`, a folder that appeared there
+    meanwhile (another add) stays, and this one is refused (Checkpoint 1's S5). With it, a
+    document already there is renamed aside first, its four known files deleted, and
+    anything else you put in its folder moved across."""
+    if not replace or not target.exists():
+        try:
+            os.rename(building, target)  # never over a folder: one there refuses it
+        except OSError:
+            if target.exists():
+                raise DocumentRefused(f"There's already a document named {target.name}.") from None
+            raise
         return
     aside = Path(tempfile.mkdtemp(prefix=f".{target.name}-old-", dir=target.parent))
     os.rmdir(aside)
@@ -213,16 +243,56 @@ def read_manifest(root: Path, name: str) -> dict[str, Any]:
         raise Stale(name, "missing")
     try:
         manifest = json.loads(path.read_bytes())
-        if not isinstance(manifest, dict) or manifest.get("schema") != SCHEMA:
-            raise ValueError("not a manifest Clarity writes")
-        for key in ("original", "text", "build_id", "files", "parts", "titled"):
-            manifest[key]  # noqa: B018 - each must be there
-    except (OSError, ValueError, KeyError) as e:
+        if not typed(manifest):
+            raise ValueError("it isn't a manifest Clarity writes")
+    except OSError as e:  # the reason, never the path (str(e) holds it)
         raise DocumentRefused(
-            f"{name}'s manifest.json can't be read ({type(e).__name__}: {e}). Add the file "
-            "again to build it anew."
+            f"{name}'s manifest.json can't be read ({e.strerror or type(e).__name__}). Add the "
+            "file again to build it anew."
+        ) from None
+    except ValueError as e:
+        raise DocumentRefused(
+            f"{name}'s manifest.json can't be read ({e}). Add the file again to build it anew."
         ) from None
     return manifest
+
+
+def _int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def typed(manifest: Any) -> bool:
+    """Whether a manifest holds what the readers rely on, each of the type Clarity writes:
+    read from disk, it's untrusted (Checkpoint 1's S4)."""
+    try:
+        original, text, files = manifest["original"], manifest["text"], manifest["files"]
+        starts = text["page_starts"]
+        return (
+            manifest["schema"] == SCHEMA
+            and isinstance(original["name"], str)
+            and original["kind"] in EXTENSIONS
+            and _int(original["bytes"])
+            and isinstance(original["sha256"], str)
+            and isinstance(text["sha256"], str)
+            and _int(text["bytes"])
+            and isinstance(text["edited"], bool)
+            and (starts is None or (isinstance(starts, list) and all(map(_int, starts))))
+            and isinstance(manifest["build_id"], str)
+            and _int(manifest["parts"])
+            and _int(manifest["titled"])
+            and isinstance(manifest["extractor"], dict)
+            and isinstance(manifest["added"], str)
+            and isinstance(files, dict)
+            and set(files) == {original_name(original["kind"]), "text.md", "parts.jsonl"}
+            and all(
+                isinstance(f, dict)
+                and set(f) == {"bytes", "mtime_ns"}
+                and all(map(_int, f.values()))
+                for f in files.values()
+            )
+        )
+    except (KeyError, TypeError, AttributeError):
+        return False
 
 
 class Stale(DocumentRefused):
@@ -234,16 +304,17 @@ class Stale(DocumentRefused):
         super().__init__(f"{name} is {state}.")
 
 
-def state(root: Path, name: str) -> str:
+def state(root: Path, name: str, manifest: dict[str, Any] | None = None) -> str:
     """`ready`, `changed` (a file's size or time differs from the manifest), `missing`, or
     `unreadable` (a manifest Clarity can't read, or a folder that's a link): the quick check
-    before each search."""
-    try:
-        manifest = read_manifest(root, name)
-    except Stale as e:
-        return e.state
-    except DocumentRefused:
-        return "unreadable"
+    before each search. `manifest`: one already read."""
+    if manifest is None:
+        try:
+            manifest = read_manifest(root, name)
+        except Stale as e:
+            return e.state
+        except DocumentRefused:
+            return "unreadable"
     path = folder(root, name)
     try:
         now = stats(path, list(manifest["files"]))
@@ -299,16 +370,27 @@ def check(root: Path, name: str) -> dict[str, Any]:
                 problems.append(f"{file} has changed")
         except OSError:
             problems.append(f"{file} is missing")
-    return {"name": name, "state": "changed" if problems else "ready", "problems": problems}
+    found: dict[str, Any] = {"name": name, "state": "changed" if problems else "ready"}
+    found["problems"] = problems
+    if not problems:  # decision 7: listed, as v0.3.1 lists </document>
+        found["closing_tag_parts"] = closing_tag_parts(parts_of(root, name, manifest)[0])
+    return found
 
 
-def parts_of(root: Path, name: str) -> list[dict[str, Any]]:
-    """A document's parts, read from parts.jsonl and checked against its build ID."""
-    manifest = read_manifest(root, name)
-    data = (folder(root, name) / "parts.jsonl").read_bytes()
+def parts_of(
+    root: Path, name: str, manifest: dict[str, Any] | None = None
+) -> tuple[list[dict[str, Any]], str]:
+    """A document's parts, read from parts.jsonl, and the build ID they are: the one in
+    `manifest` (read now, if not given), or the document is `changed`."""
+    if manifest is None:
+        manifest = read_manifest(root, name)
+    try:
+        data = (folder(root, name) / "parts.jsonl").read_bytes()
+    except OSError:
+        raise Stale(name, "changed") from None
     if build_id(data) != manifest["build_id"]:
         raise Stale(name, "changed")
-    return [json.loads(line) for line in data.decode("utf-8").splitlines()]
+    return [json.loads(line) for line in data.decode("utf-8").splitlines()], manifest["build_id"]
 
 
 def control_token_parts(
@@ -323,25 +405,56 @@ def control_token_parts(
     return found
 
 
+class OriginalChanged(DocumentRefused):
+    """A rebuild refused because the original isn't the file the text came from: the way
+    out is to add the file again, replacing the document (Checkpoint 1's S3)."""
+
+    def __init__(self, name: str, file: str, why: str) -> None:
+        self.name = name
+        super().__init__(f"{name}'s {file} is {why}: add the file again to replace {name}.")
+
+
 def rebuild(root: Path, name: str) -> dict[str, Any]:
     """Build a document's parts again from its text.md, which is read as your input (v0.3.1's
-    checks: UTF-8, no NUL, at most 64 MB). Pages are dropped: an edited text has none."""
+    checks: UTF-8, no NUL, at most 64 MB). An edited text drops its pages; an unchanged one
+    (only its time moved: a copy, a sync, a save) keeps them and stays unedited. The
+    original must be the file the text came from, or the way out is adding it again."""
     manifest = read_manifest(root, name)
     path = folder(root, name)
+    original_file = original_name(manifest["original"]["kind"])
+    try:
+        original = (path / original_file).read_bytes()
+    except OSError:
+        raise OriginalChanged(name, original_file, "missing") from None
+    if sha256(original) != manifest["original"]["sha256"]:
+        raise OriginalChanged(name, original_file, "not the file it was built from")
     data, _ = read_path(str(path / "text.md"))
     doc = extract(data, "text.md")
-    original_file = original_name(manifest["original"]["kind"])
-    text_md, jsonl, rebuilt = built(
-        doc.text, name, manifest["original"], manifest["extractor"], None, edited=True
+    unchanged = sha256(data) == manifest["text"]["sha256"]
+    starts = manifest["text"]["page_starts"] if unchanged else None
+    edited = manifest["text"]["edited"] if unchanged else True
+    _, jsonl, rebuilt = built(
+        doc.text, name, manifest["original"], manifest["extractor"], starts, edited
     )
     rebuilt["added"] = manifest["added"]
     rebuilt["text"]["sha256"] = sha256(data)  # the file as it is, BOM and all
     rebuilt["text"]["bytes"] = len(data)
-    del text_md  # the file stays as you wrote it
-    write(path / "parts.jsonl.new", jsonl)
-    os.replace(path / "parts.jsonl.new", path / "parts.jsonl")
-    rebuilt["files"] = stats(path, [original_file, "text.md", "parts.jsonl"])
-    write(path / "manifest.json.new", manifest_bytes(rebuilt))
-    os.replace(path / "manifest.json.new", path / "manifest.json")
+    with writing(name):
+        replace_file(path / "parts.jsonl", jsonl)
+        rebuilt["files"] = stats(path, [original_file, "text.md", "parts.jsonl"])
+        replace_file(path / "manifest.json", manifest_bytes(rebuilt))
     relative = path.relative_to(root).as_posix()
     return {"rebuilt": rebuilt, "written": [f"{relative}/parts.jsonl", f"{relative}/manifest.json"]}
+
+
+def replace_file(path: Path, data: bytes) -> None:
+    """`path`'s contents replaced whole: written beside it under a name of its own, then
+    renamed over it, so two rebuilds never share a half-written file."""
+    handle, temporary = tempfile.mkstemp(prefix=f".{path.name}-", dir=path.parent)
+    os.close(handle)
+    try:
+        write(Path(temporary), data)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)

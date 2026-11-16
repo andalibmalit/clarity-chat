@@ -16,6 +16,7 @@ from clarity_chat.profiles import ConfigError
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend
 
+NONE = {"control_token_parts": 0, "closing_tag_parts": 0}  # a ready document's counts
 GLOSSARY = b"## Wren\nA small brown bird.\n\n## Dipper\nIt walks under water.\n"
 
 
@@ -88,12 +89,12 @@ def test_the_profile_s_list_budget_and_placement(root, chat_tokenizer):
     profile(root, 'search = ["glossary"]\nbudget = 900\nplacement = "end"')
     session, c = chat(root, chat_tokenizer)
     assert run(c, "search") == {
-        "searching": [{"name": "glossary", "state": "ready"}],
+        "searching": [{"name": "glossary", "state": "ready", **NONE}],
         "origin": "profile",
     }
     assert session.budget() == (900, "profile")
     assert session.conversation is not None and session.conversation.profile.placement == "end"
-    assert run(c, "state")["searching"] == [{"name": "glossary", "state": "ready"}]
+    assert run(c, "state")["searching"] == [{"name": "glossary", "state": "ready", **NONE}]
 
 
 def test_with_no_documents_table_nothing_is_searched_at_the_default_budget(root, chat_tokenizer):
@@ -109,7 +110,10 @@ def test_with_no_documents_table_nothing_is_searched_at_the_default_budget(root,
 def test_search_sets_the_list_and_logs_the_whole_set(root, chat_tokenizer):
     session, c = chat(root, chat_tokenizer)
     assert run(c, "search glossary notes") == {
-        "searching": [{"name": "glossary", "state": "ready"}, {"name": "notes", "state": "ready"}],
+        "searching": [
+            {"name": "glossary", "state": "ready", **NONE},
+            {"name": "notes", "state": "ready", **NONE},
+        ],
         "origin": "chat",
     }
     run(c, "search notes")
@@ -132,7 +136,7 @@ def test_a_name_not_in_the_library_is_refused_and_nothing_changes(root, chat_tok
         with pytest.raises(ConfigError) as refused:
             run(c, f"search {args}")
         assert str(refused.value).startswith(says), refused.value
-    assert run(c, "search")["searching"] == [{"name": "glossary", "state": "ready"}]
+    assert run(c, "search")["searching"] == [{"name": "glossary", "state": "ready", **NONE}]
 
 
 def test_search_is_resumed_and_a_log_without_a_record_searches_the_profile_s(root, chat_tokenizer):
@@ -147,12 +151,12 @@ def test_search_is_resumed_and_a_log_without_a_record_searches_the_profile_s(roo
     second = session.conversation.log.path
     session.resume(first)
     assert run(c, "search") == {
-        "searching": [{"name": "glossary", "state": "ready"}],
+        "searching": [{"name": "glossary", "state": "ready", **NONE}],
         "origin": "profile",
     }
     session.resume(second)
     assert run(c, "search") == {
-        "searching": [{"name": "notes", "state": "ready"}],
+        "searching": [{"name": "notes", "state": "ready", **NONE}],
         "origin": "chat",
     }
 
@@ -205,7 +209,7 @@ def test_documents_lists_adds_and_rebuilds_and_says_where_it_writes(root, chat_t
     assert added["added"]["name"] == "birds"
     assert events == [
         {"event": "reading", "name": "Birds.md"},
-        {"event": "writing", "folder": "local/documents/birds"},
+        {"event": "writing", "folder": "local/documents/birds", "replacing": False},
     ]
     named = run(c, f"documents add {path} herons")
     assert named["added"]["name"] == "herons"
@@ -309,3 +313,17 @@ def test_a_searching_chat_s_refusal_suggests_a_start_that_leaves_the_budget(
     plain = suggested()
     c.run("search", "glossary", lambda e: None)
     assert suggested() < plain
+
+
+def test_search_counts_the_parts_holding_control_tokens_and_closing_tags(root, chat_tokenizer):
+    """Checkpoint 1's S10 and B1's count: a part holding this model's control token stops a
+    call (decision 12), so /search says how many; and those holding </part>."""
+    library_add(root, b"Safe.\n\n## T\nHolds </s> here.\n\n## U\nAnd </part> here.\n", "odd.md")
+    session, c = chat(root, chat_tokenizer)
+    (odd,) = run(c, "search odd")["searching"]
+    assert odd == {
+        "name": "odd",
+        "state": "ready",
+        "control_token_parts": 1,
+        "closing_tag_parts": 1,
+    }

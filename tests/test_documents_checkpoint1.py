@@ -15,7 +15,6 @@ from clarity_chat.documents import (
     FRAMING,
     Attached,
     DocumentRefused,
-    Loaded,
     content,
     cut_parts,
     fill,
@@ -28,6 +27,7 @@ from clarity_chat.documents import (
 )
 from tests.pdfs import make_pdf
 from tests.test_documents_found import counting_room, matches
+from tests.test_documents_search import loaded
 
 
 @pytest.fixture
@@ -134,8 +134,9 @@ def test_a_manifest_with_a_wrong_type_is_unreadable_not_a_crash(root, tmp_path, 
     listed = answer(lambda: library_documents(root))
     assert listed == "no refusal", listed
     assert [d["state"] for d in library_documents(root)] == ["unreadable", "ready"]
-    checked = answer(lambda: document_check(root, ["notes"]))
-    assert checked.startswith("notes's manifest.json can't be read"), checked
+    (checked,) = document_check(root, ["notes"])["checked"]  # one stops no other: listed
+    assert checked["state"] == "unreadable"
+    assert checked["problems"][0].startswith("notes's manifest.json can't be read")
 
 
 def test_a_manifest_that_can_t_be_opened_says_why_without_a_path(root, tmp_path):
@@ -143,7 +144,8 @@ def test_a_manifest_that_can_t_be_opened_says_why_without_a_path(root, tmp_path)
     path = root / "local/documents/notes/manifest.json"
     path.unlink()
     path.mkdir()
-    said = answer(lambda: document_check(root, ["notes"]))
+    (checked,) = document_check(root, ["notes"])["checked"]
+    said = checked["problems"][0]
     assert said.startswith("notes's manifest.json can't be read"), said
     assert str(root) not in said and "/" not in said.split("(")[1]
 
@@ -187,8 +189,8 @@ def test_a_write_that_fails_is_a_refusal_without_a_path(root, tmp_path):
 def test_a_paragraph_two_documents_share_is_added_once():
     shared = "## Wren\nThe same made-up paragraph in both.\n"
     docs = [
-        Loaded("x", "bx", "sx", cut_parts(shared + "\n## Lake\nOther.\n", "x.md")),
-        Loaded("y", "by", "sy", cut_parts(shared, "y.md")),
+        loaded("x", shared + "\n## Lake\nOther.\n"),
+        loaded("y", shared),
     ]
     room, _ = counting_room()
     filled = fill(room, "wren", [], FRAMING, search_documents(docs, "wren"), 10**6, "default")
@@ -293,17 +295,17 @@ def test_check_of_a_name_never_added_says_it_isn_t_in_the_library(root, capsys):
 
 
 def test_load_s_build_id_is_the_parts_it_read(root, tmp_path, monkeypatch):
-    from clarity_chat.documents import library as library_module
+    from clarity_chat.documents import search as search_module
 
     document_add(root, file(tmp_path, "notes.md", "## A\nMade-up.\n"))
-    real = library_module.read_manifest
+    real = search_module.read_manifest
     reads = []
 
     def counted(*args, **kwargs):
         reads.append(1)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr(library_module, "read_manifest", counted)
+    monkeypatch.setattr(search_module, "read_manifest", counted)
     loaded = load_document(root, "notes")
     assert len(reads) == 1
     data = (root / "local/documents/notes/parts.jsonl").read_bytes()
@@ -317,7 +319,7 @@ def test_load_s_build_id_is_the_parts_it_read(root, tmp_path, monkeypatch):
 
 def test_reasons_are_found_for_the_considered_matches_only():
     text = "\n\n".join(f"## Wren {i}\nA made-up wren, number {i}." for i in range(20))
-    found = search_documents([Loaded("d", "b", "s", cut_parts(text, "d.md"))], "wren")
+    found = search_documents([loaded("d", text)], "wren")
     assert all(m["title_words"] == ["wren"] for m in found["matches"][:8])
     assert all(m["title_words"] == [] and m["words"] == [] for m in found["matches"][8:])
 
@@ -338,12 +340,12 @@ def test_replace_says_it_replaces_before_and_after(root, tmp_path, capsys):
     assert cli.main(["--root", str(root), "document", "add", path]) == 0
     capsys.readouterr()
     assert cli.main(["--root", str(root), "document", "add", path, "--replace"]) == 0
-    out = capsys.readouterr().out.splitlines()
-    assert out[1] == (
+    out = capsys.readouterr().out.splitlines()  # "Reading …" only if it's read again
+    assert out[-2] == (
         "Replacing notes in local/documents/notes/: a copy of the file, its text and its parts, "
         "in place of the ones there."
     )
-    assert out[2].startswith("Replaced notes in local/documents/notes/: ")
+    assert out[-1].startswith("Replaced notes in local/documents/notes/: ")
 
 
 # --- "For B1 and B2": a turn at placement "end" reads back

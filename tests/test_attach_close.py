@@ -344,7 +344,7 @@ def test_a_well_formed_attachment_passes():
         {"extracted_sha256": 5},
         {"framing": None},
         {"framing_origin": "elsewhere"},
-        {"placement": "end"},
+        {"placement": "middle"},  # "end" is a placement since v0.3.2
     ],
 )
 def test_a_wrong_typed_field_is_refused_as_unreadable(changed):

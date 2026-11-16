@@ -31,6 +31,7 @@ from clarity_chat.documents.insert import (
 )
 from clarity_chat.documents.library import (
     LIBRARY,
+    OriginalChanged,
     Stale,
     checked_library_name,
     control_token_parts,
@@ -74,6 +75,7 @@ __all__ = [
     "search_documents",
     "words_of",
     "LIBRARY",
+    "OriginalChanged",
     "Stale",
     "checked_library_name",
     "control_token_parts",

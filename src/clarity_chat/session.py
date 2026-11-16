@@ -32,11 +32,14 @@ from clarity_chat.documents import (
     attached_in,
     checked_attachments,
     checked_library_name,
+    closing_tag_parts,
     content,
+    control_token_parts,
     covers_whole,
     fit,
     framing_of,
     library_manifest,
+    library_parts,
     library_state,
     message_content,
     more_than,
@@ -449,6 +452,7 @@ class Session:
         self.backend = backend or self.backend_for("llama.cpp", None)
         self.conversation: Conversation | None = None
         self._checked: tuple[tuple, Counts] | None = None  # the last check's counts
+        self._scans: dict[tuple[str, int], dict[str, int]] = {}  # /search's counts, by build
         self.model: ModelEntry | None = None
         self.model_lock: dict[str, Any] = {}
         self.tokenizer: Tokenizer | None = None
@@ -1270,14 +1274,34 @@ class Session:
         return self.budget()[0] if conversation is not None and conversation.searching else 0
 
     def searching(self) -> list[dict[str, Any]]:
-        """The documents this chat searches, each with its state: ready, changed or
-        missing."""
+        """The documents this chat searches, each with its state (ready, changed, missing or
+        unreadable) and, when ready, how many of its parts hold this model's control tokens
+        (which stop a call, decision 12) and how many hold </part> or </document>."""
         if self.conversation is None:
             return []
-        return [
-            {"name": name, "state": library_state(self.root, name)}
-            for name in self.conversation.searching
-        ]
+        found = []
+        for name in self.conversation.searching:
+            state = library_state(self.root, name)
+            entry: dict[str, Any] = {"name": name, "state": state}
+            if state == "ready":
+                entry.update(self._scanned(name))
+            found.append(entry)
+        return found
+
+    def _scanned(self, name: str) -> dict[str, int]:
+        """A ready document's counts for this tokenizer, kept by build ID: /state asks often."""
+        assert self.tokenizer is not None
+        manifest = library_manifest(self.root, name)
+        key = (manifest["build_id"], id(self.tokenizer))
+        if key not in self._scans:
+            parts, _ = library_parts(self.root, name, manifest)
+            self._scans[key] = {
+                "control_token_parts": len(
+                    control_token_parts(parts, self.tokenizer.special_tokens_in)
+                ),
+                "closing_tag_parts": len(closing_tag_parts(parts)),
+            }
+        return self._scans[key]
 
     def set_setting(self, name: str, text: str) -> dict[str, Any]:
         """Change a setting for this conversation (`text` empty: back to the profile's value).
