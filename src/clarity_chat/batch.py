@@ -135,15 +135,32 @@ def check_run(
     return prepared
 
 
+DIFFERS = {  # what can give two profiles different parts for one opening
+    "tokenizers": lambda p: (p.model.tokenizer_repo, p.model.tokenizer_revision),
+    "budgets": lambda p: p.profile.budget,
+    "search lists": lambda p: tuple(p.profile.search),
+    "placements": lambda p: p.profile.placement,
+}
+
+
 def parts_differ(i: int, got: dict[str, list[str]], prepared: dict[str, Any]) -> str | None:
-    """A stub for part 1's whole-branch S2 (red first)."""
-    return None
-
-
-def builds(session: Session, prepared: list[Prepared]) -> dict[str, str]:
-    """Each searched document's build ID before the run: the run stops if one changes."""
-    names = list(dict.fromkeys(name for p in prepared for name in p.profile.search))
-    return session.document_builds(names)
+    """The notice when the profiles got different parts for opening `i` (a confound a
+    reader of blind.md must know), naming what differs between them; None when they got
+    the same (part 1's whole-branch S2)."""
+    if len({tuple(ids) for ids in got.values()}) < 2:
+        return None
+    said = "; ".join(f"{name}: {', '.join(ids) or 'none'}" for name, ids in got.items())
+    differ = [what for what, of in DIFFERS.items() if len({of(prepared[n]) for n in got}) > 1]
+    why = (
+        f"Their {' and '.join([', '.join(differ[:-1]), differ[-1]] if differ[1:] else differ)} "
+        "differ, so the replies"
+        if differ
+        else "The replies"
+    )
+    return (
+        f"Opening {i}: the profiles got different parts ({said}). {why} differ in what they "
+        "were given too."
+    )
 
 
 def run_batch(
@@ -163,7 +180,10 @@ def run_batch(
     text, openings = read_openings(openings_path)
     checked = check_run(session, profile_names, openings, n_seeds)
     prepared = dict(zip(profile_names, checked, strict=True))
-    searched = builds(session, checked)
+    # Each searched document's build before the run: the run stops if one changes.
+    searched = session.document_builds(
+        list(dict.fromkeys(name for p in checked for name in p.profile.search))
+    )
     seeds = [FIRST_SEED + k for k in range(n_seeds)]
     facts = {
         "run_id": run_id,
@@ -259,12 +279,8 @@ def run_batch(
             for name in profile_names
             if "found" in blocks[i, name]
         }
-        if len({tuple(ids) for ids in got.values()}) > 1:
-            said = "; ".join(f"{name}: {', '.join(ids) or 'none'}" for name, ids in got.items())
-            warn(
-                f"Opening {i}: the profiles got different parts ({said}). Their budgets count "
-                "different tokenizers, so the replies differ in what they were given too."
-            )
+        if (notice := parts_differ(i, got, prepared)) is not None:
+            warn(notice)
 
     shuffle_seed = secrets.randbelow(2**32)
     rng = random.Random(shuffle_seed)

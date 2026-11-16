@@ -162,6 +162,38 @@ In the web interface, the paperclip beside the message box opens your computer's
 
 The framing line comes from the profile. To change it, set `framing` in the profile's `[documents]` table; `framing = ""` sends none. `excerpt_marker` sets the excerpt's line the same way ([profile keys](reference.md#profile-keys)).
 
+## Search your documents
+
+Give Clarity a document once, and a chat can search it with every message you send. Add it to your library:
+
+```
+uv run clarity document add glossary.md
+```
+
+Clarity reads the file as `/attach` does, then writes `local/documents/glossary/`: a copy of the file, its text as `text.md`, its parts and a manifest. Each part is a paragraph or a few, up to 250 words, titled by the Markdown heading above it. `clarity document list` lists your documents, and `clarity document check` hashes each one against its manifest.
+
+In a chat, `/search glossary` searches it from your next message, or set `search = ["glossary"]` under `[documents]` in a chat-mode profile to search it from the start. Each message you send is searched with the words you typed: common words and single letters are dropped, and the parts that share any of the rest, ranked by SQLite FTS5's `bm25` with titles counting double ([Word search](reference.md#word-search)), go into your message, best first, until the next one would pass the budget (1,500 tokens by default; `budget` in the profile). A part already in the chat isn't added again. `/try TEXT` shows what a message would find, with no model call, and `/history` shows what each message found. The parts are logged with the message, so a regeneration sends them again without searching, and replay sends them exactly.
+
+### Fix a document's text, then rebuild
+
+Search reads `text.md`, which is yours to fix: add `## ` headings so its parts get titles, or take out text that shouldn't be searched. Then cut its parts again:
+
+```
+uv run clarity document rebuild glossary
+```
+
+Until you rebuild, a chat that searches it refuses to send, and says so. Rebuilding a PDF's edited `text.md` drops its page numbers, since Clarity can no longer say which page a line came from. If the original file changed, add it again with `clarity document add FILE --name glossary --replace`.
+
+### Compare placements
+
+`placement = "start"` (the default) puts the parts before your message, and `placement = "end"` after it. To see which a model answers better from, make two profiles that differ only in `placement`, both searching the same documents, and run a blind test ([Run and rate a blind test](#run-and-rate-a-blind-test)):
+
+```
+uv run clarity run --openings questions.txt --profiles parts-first parts-last
+```
+
+Each opening is searched once for each profile, and every seed gets those parts. The run says when two profiles got different parts for an opening, and what differs between them.
+
 ## Follow branches
 
 `/regen` and `/edit` add a branch next to the reply or message they replace, and `/undo` steps back so your next message starts one. Nothing is overwritten. `/branches` lists every place on the current path where the conversation branches, with each option's turn ID, and `/switch TURN_ID` goes to that branch's newest reply. Switching sends nothing; your next message continues from there.

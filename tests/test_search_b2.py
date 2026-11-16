@@ -9,7 +9,6 @@ import json
 
 import pytest
 
-from clarity_chat import cli
 from clarity_chat.backends import BackendError
 from clarity_chat.cli import ChatLoop
 from clarity_chat.commands import Commands
@@ -239,7 +238,6 @@ def test_the_terminal_gives_a_refused_message_back(root, chat_tokenizer):
     loop.handle("Tell me about the wren")
     assert "Your message is back in the input" in "".join(output)
     assert loop.draft == "Tell me about the wren"
-    assert cli is not None
 
 
 def test_the_stop_counts_the_parts_tokens(root, chat_tokenizer):
@@ -306,7 +304,12 @@ def test_history_summarises_found_without_text(root, chat_tokenizer):
     user = next(t for t in run(c, "history")["turns"] if t["role"] == "user")
     summary = user["found"]
     assert summary["words"] == ["wren"] and summary["tokens"] > 0
-    assert summary["parts"] == [{"id": "glossary:1", "title": "Wren", "rank": 1}]
+    (part,) = summary["parts"]  # part 1's whole-branch S1 widened it, still with no text
+    assert {k: part[k] for k in ("id", "title", "rank")} == {
+        "id": "glossary:1",
+        "title": "Wren",
+        "rank": 1,
+    }
     assert "text" not in json.dumps(summary["parts"])
 
 

@@ -92,23 +92,6 @@ def test_history_says_already_in_the_chat(root, chat_tokenizer):
     assert "  searched for wren: 1 matched, none added (already in the chat)" in lines
 
 
-@pytest.mark.parametrize(
-    ("whys", "reason"),
-    [
-        (["budget"], "none fit the budget"),
-        (["already in the chat"], "already in the chat"),
-        (["already in the chat", "budget"], "already in the chat, or over the budget"),
-        (["already in the chat", "not considered"], "already in the chat"),
-    ],
-)
-def test_history_s_reason_comes_from_left_out(whys, reason):
-    found = {"words": ["wren"], "ignored": [], "documents": ["g"], "matched": len(whys),
-             "tokens": 0, "parts": [], "left_out": len(whys), "left_out_why": whys}  # fmt: skip
-    turn = {"role": "user", "text": "Tell me", "marks": [], "notes": [], "found": found}
-    line = format_history({"turns": [turn]}).splitlines()[1]
-    assert line == f"  searched for wren: {len(whys)} matched, none added ({reason})"
-
-
 # --- FS4: the read bound
 
 

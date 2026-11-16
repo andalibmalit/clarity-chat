@@ -14,7 +14,6 @@ from clarity_chat.export import export_log
 from clarity_chat.profiles import load_defaults, load_profile
 from clarity_chat.render import build_prompt, message_spans
 from tests.test_documents_board import chat, quiet
-from tests.test_session_attach import doc
 
 GLOSSARY = (
     b"## Wren\nThe wren is a small brown bird.\n\n"
@@ -171,4 +170,3 @@ def test_the_recompute_check_runs_over_the_whole_prompt_parts_included(root, cha
     assert measure(row, model, "transformers")["measured"]["largest_gap"] == 0.0
     assert model.seen[: len(row["prompt_ids"])] == row["prompt_ids"]
     assert "The wren is a small brown bird." in row["prompt_text"]
-    assert doc is not None

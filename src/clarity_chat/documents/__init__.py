@@ -32,6 +32,7 @@ from clarity_chat.documents.insert import (
 )
 from clarity_chat.documents.library import (
     LIBRARY,
+    TAKEN,
     OriginalChanged,
     PartsRefused,
     Stale,
@@ -47,7 +48,6 @@ from clarity_chat.documents.library import read_manifest as library_manifest
 from clarity_chat.documents.library import rebuild as library_rebuild
 from clarity_chat.documents.library import state as library_state
 from clarity_chat.documents.parts import (
-    CHUNKER,
     build_id,
     closing_tag_parts,
     cut_parts,
@@ -66,13 +66,12 @@ from clarity_chat.documents.reading import (
     visible_bidi,
 )
 from clarity_chat.documents.refused import SearchRefused, control_token_problem
-from clarity_chat.documents.search import COMMON_WORDS, CONSIDERED, Loaded, words_of
+from clarity_chat.documents.search import COMMON_WORDS, Loaded, words_of
 from clarity_chat.documents.search import load as load_document
 from clarity_chat.documents.search import search as search_documents
 
 __all__ = [
     "COMMON_WORDS",
-    "CONSIDERED",
     "Loaded",
     "load_document",
     "search_documents",
@@ -80,6 +79,7 @@ __all__ = [
     "LIBRARY",
     "OriginalChanged",
     "PartsRefused",
+    "TAKEN",
     "SearchRefused",
     "control_token_problem",
     "Stale",
@@ -93,7 +93,6 @@ __all__ = [
     "library_parts",
     "library_rebuild",
     "library_state",
-    "CHUNKER",
     "build_id",
     "closing_tag_parts",
     "cut_parts",
