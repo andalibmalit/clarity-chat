@@ -606,6 +606,8 @@ def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         return document_list(root)
     if action == "rebuild" and rest:
         return document_rebuild(root, rest)
+    replace = rest.endswith(" --replace")  # the owner's Q12: Replace on the page
+    rest = rest.removesuffix(" --replace")
     if action == "add" and rest:
         # Said before and after (S11): reading the file, then where it's written.
         def told(name: str) -> Callable[[], None]:
@@ -625,7 +627,7 @@ def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
             data, filename = uploaded
             name = documents.checked_library_name(typed.strip()) if typed.strip() else None
             added = documents.library_add(
-                root, data, filename, name, on_read=told(filename), on_write=writing
+                root, data, filename, name, replace, on_read=told(filename), on_write=writing
             )
             c.uploads.pop(source, None)  # used: dropped, as /attach drops one (a refusal keeps it)
             return added
@@ -633,7 +635,9 @@ def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
             source, name = rest.rsplit(" ", 1)  # a path, then the name
         filename = os.path.basename(source)
         try:
-            return document_add(root, source, name, on_read=told(filename), on_write=writing)
+            return document_add(
+                root, source, name, replace, on_read=told(filename), on_write=writing
+            )
         except documents.DocumentRefused as e:  # a chat's way to name it (the page: its box)
             if str(e).endswith(" Give it one."):
                 said = str(e).removesuffix(".")
@@ -643,7 +647,7 @@ def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
                     f"{e} /documents add PATH NAME gives this one another name."
                 ) from None
             raise
-    raise ConfigError("Usage: /documents [add PATH [NAME] | rebuild NAME]")
+    raise ConfigError("Usage: /documents [add PATH [NAME] [--replace] | rebuild NAME]")
 
 
 def read_files(
@@ -1122,6 +1126,8 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "pending": [],
         "reading": reading,
         "searching": [],
+        "searching_origin": None,
+        "budget": None,
     }
     if conversation is None:
         return out
@@ -1138,6 +1144,8 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "profile": conversation.profile.name,
         "mode": conversation.profile.mode,  # the paperclip opens the picker in the press
         "searching": session.searching(),
+        "searching_origin": conversation.searching_origin,
+        "budget": dict(zip(("tokens", "origin"), session.budget(), strict=True)),
         "head": conversation.head,
         "turns": turns,
         "unanswered": conversation.unanswered,

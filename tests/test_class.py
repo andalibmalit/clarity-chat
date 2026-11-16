@@ -376,7 +376,7 @@ TERMINAL_ONLY = {
         "the page switches to turns it drew from /branches; a stale one needs another tab, "
         "which the page refuses"
     ),
-    "Usage: /documents [add PATH [NAME] | rebuild NAME]": (
+    "Usage: /documents [add PATH [NAME] [--replace] | rebuild NAME]": (
         "the page sends /documents, add with an upload ID, or rebuild with a listed name"
     ),
     "The Transformers backend needs torch: run `uv sync --extra hf`.": (

@@ -560,3 +560,28 @@ dialog.sheet.documents { width: min(760px, calc(100vw - 32px)); max-height: calc
 .documents .part.already .pt { color: var(--muted); }
 .documents .pnote, .documents .words { color: var(--muted); font-size: 12.5px; padding-top: 6px; }
 .documents .empty { padding: 4px 0 2px; }
+
+/* "Search it" and the Searching chooser (v0.3.2 C2, the board's ①) */
+.srchbtn { font-variant-numeric: tabular-nums; }
+.srchbtn.hot { color: var(--warn); }
+.menu.searchmenu { left: 72px; bottom: calc(100% - 2px); width: 400px; max-width: calc(100% - 104px); max-height: calc(100vh - 150px); overflow-y: auto; }
+.searchmenu .pnote { padding: 0 10px 6px; font-size: 12.5px; color: var(--muted); margin: 0; }
+.searchmenu .grp { padding: 8px 10px 2px; font-size: 12.5px; color: var(--muted); }
+.searchmenu .srow { display: flex; flex-direction: column; gap: 2px; padding: 0 0 2px; }
+.searchmenu .srow .mi { display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 10px; }
+.searchmenu .cb { width: 16px; height: 16px; border: 1.5px solid var(--muted); border-radius: 4px; display: grid; place-items: center; font-size: 11px; line-height: 1; }
+.searchmenu [aria-checked="true"] .cb { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.searchmenu .cb .icon { width: 12px; height: 12px; visibility: hidden; }
+.searchmenu [aria-checked="true"] .cb .icon { visibility: visible; }
+.searchmenu .t { display: flex; flex-direction: column; min-width: 0; }
+.searchmenu .d2 { font-size: 12.5px; overflow-wrap: anywhere; }
+.searchmenu .st { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.searchmenu .st.bad { color: var(--warn); }
+.searchmenu .snote { margin: 0 10px 0 38px; font-size: 12.5px; color: var(--muted); }
+.searchmenu .snote.w { color: var(--warn); }
+.searchmenu .srow .btn { align-self: flex-start; margin: 2px 0 4px 38px; }
+.attach .name { display: flex; flex-direction: column; gap: 6px; }
+.attach .name .in { display: flex; gap: 8px; align-items: center; }
+.attach .name input { flex: 1; padding: 6px 9px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--paper); color: var(--ink); font: 14px var(--sans); }
+.attach .od.ink { color: var(--ink); }
+.attach .name .btn { align-self: flex-start; }

@@ -444,6 +444,7 @@ def documents(root: Path) -> list[dict[str, Any]]:
                 "kind": manifest["original"]["kind"],
                 "original": manifest["original"]["name"],
                 "added": manifest["added"],
+                "sha256": manifest["original"]["sha256"],  # "Search it" knows the same file
                 "bytes": manifest["original"]["bytes"],
                 "parts": manifest["parts"],
                 "titled": manifest["titled"],

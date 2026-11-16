@@ -73,12 +73,13 @@ from clarity_chat.documents.refused import (
     control_token_problem,
     problem_words,
 )
-from clarity_chat.documents.search import COMMON_WORDS, Loaded, words_of
+from clarity_chat.documents.search import COMMON_WORDS, CONSIDERED, Loaded, words_of
 from clarity_chat.documents.search import load as load_document
 from clarity_chat.documents.search import search as search_documents
 
 __all__ = [
     "COMMON_WORDS",
+    "CONSIDERED",
     "Loaded",
     "load_document",
     "search_documents",
