@@ -1804,6 +1804,15 @@ async def _attach(worker: Worker, params: dict[str, str | None]) -> str:
     return templates.get_template("attach.html").render(error=None, s=sheet)
 
 
+def replace_offer(name: str) -> dict[str, str]:
+    """Q12's Replace for a taken name, on the sheet's Search it and on Documents… → Add:
+    its label, and the note that says what's overwritten before you confirm."""
+    return {
+        "label": SENTENCES["replace_label"].format(name=name),
+        "note": SENTENCES["replace_note"].format(name=name),
+    }
+
+
 def search_choice(
     check: dict[str, Any],
     data: bytes,
@@ -1842,8 +1851,7 @@ def search_choice(
         choice["lines"].append(SENTENCES["keeps_copy"].format(name=name))
     elif name in {d["name"] for d in docs}:  # taken: another name, or Replace (Q12)
         choice["why"] = f"{why} {SENTENCES['name_taken']}"
-        choice["replace"] = {"label": SENTENCES["replace_label"].format(name=name),
-                             "note": SENTENCES["replace_note"].format(name=name)}  # fmt: skip
+        choice["replace"] = replace_offer(name)
     elif not name:
         choice["rule"] = NAME_RULE
     return choice
@@ -2363,8 +2371,9 @@ async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
         name, why = document_name(filename, None, docs)
         add = {"upload": upload, "file": filename, "size": size_words(len(data)), "name": name,
                "why": why, "rule": None if name else NAME_RULE}  # fmt: skip
-        if name in docs:  # the page's way out (N8)
+        if name in docs:  # the page's way out (N8), or Replace (Q12, the board's ⑧)
             add["why"] = f"{why} {SENTENCES['name_taken']}"
+            add["replace"] = replace_offer(name)
         elif why is None:
             add["keeps"] = SENTENCES["keeps_copy"].format(name=name)
     if not chat_open:

@@ -1590,7 +1590,9 @@ async function searchIt(choice) {
   const existing = choice.dataset.existing;
   const name = existing || $("attach-search-name").value.trim();
   if (!existing) {
-    const words = ["add", choice.dataset.args, name, ...(choice.dataset.replace === "true" ? ["--replace"] : [])];
+    // Replace writes over only the document its note named, not a name typed since.
+    const replace = choice.dataset.replace === "true" && name === $("attach-search-name").defaultValue;
+    const words = ["add", choice.dataset.args, name, ...(replace ? ["--replace"] : [])];
     const added = await command("documents", words.join(" ")).catch(unanswered);
     if (added.error || added.handled) return added;
   }
@@ -1864,7 +1866,10 @@ async function documentsUpload(file) {
 function documentsAdd(form) {
   const name = $("documents-name").value.trim();
   const upload = form.dataset.upload;
-  documentsCommand("documents", `add ${upload} ${name}`, () => ({})); // the notice is its result
+  // Replace writes over only the document its note named, not a name typed since.
+  const replace = form.dataset.replace === "true" && name === $("documents-name").defaultValue;
+  const words = ["add", upload, name, ...(replace ? ["--replace"] : [])];
+  documentsCommand("documents", words.join(" "), () => ({})); // the notice is its result
 }
 
 function documentsSearch(names, after) {
@@ -2208,6 +2213,13 @@ const THREAD = {
     element.setAttribute("aria-expanded", "true");
     $("attach-search").dataset.replace = "true";
     $("attach-search-name").value = element.closest(".name").querySelector("input").defaultValue;
+  },
+  "documents-replace": (element) => {
+    // Q12 on Add (the board's ⑧): the note says what's overwritten; Add then replaces it.
+    $("documents-replace-note").hidden = false;
+    element.setAttribute("aria-expanded", "true");
+    $("documents-add-form").dataset.replace = "true";
+    $("documents-name").value = $("documents-name").defaultValue;
   },
   "attach-add": () => addAttachment(),
   "attach-cancel": () => cancelRead(),

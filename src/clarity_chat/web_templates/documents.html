@@ -8,7 +8,7 @@
 {% if add.keeps %}<p>{{ add.keeps }}</p><input type="hidden" id="documents-name" value="{{ add.name }}">
 {% else %}<p class="warn">{{ add.why }}</p>
 <div class="in"><label for="documents-name">Name</label><input id="documents-name" type="text" autocomplete="off" spellcheck="false" value="{{ add.name }}" aria-invalid="true"{% if add.rule %} aria-describedby="documents-rule"{% endif %}></div>
-{% if add.rule %}<p class="d2" id="documents-rule">{{ add.rule }}</p>{% endif %}
+{% if add.rule %}<p class="d2" id="documents-rule">{{ add.rule }}</p>{% endif %}{% if add.replace %}<button type="button" class="btn sm" data-action="documents-replace" aria-expanded="false" aria-controls="documents-replace-note">{{ add.replace.label }}</button><p class="d2" id="documents-replace-note" hidden>{{ add.replace.note }}</p>{% endif %}
 {% endif %}<div class="actions"><button type="button" class="btn" data-action="documents-add-cancel">Cancel</button><button type="submit" class="btn pri">Add</button></div>
 </form>
 {% endif %}{% if notice %}<div class="notice" role="status"><p>{{ notice }}</p>{% if search_here %}<button type="button" class="btn sm" data-action="documents-search-here" data-name="{{ search_here }}">Search it in this chat</button>{% endif %}</div>
