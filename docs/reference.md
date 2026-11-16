@@ -22,7 +22,7 @@ A conversation's ID, as `clarity chats` lists it, is its log file's name: `logs/
 | `clarity fetch NAME` | Download (and, for the `convert` route, convert) a model from `models.toml`, and record it in `models.lock`. A gated repo needs your own Hugging Face login first ([Fetch a gated model](guides.md#fetch-a-gated-model)); without access, the fetch stops and says what to do. |
 | `clarity verify [NAME …]` | Re-hash fetched models against `models.lock`; with no names, every fetched model. |
 | `clarity document add FILE [--name NAME] [--replace]` | Add a file to the documents Clarity searches, in `local/documents/NAME/` ([The library](#the-library)). It's read as `/attach` reads it, and Clarity says where it writes before and after. NAME defaults to the file's name; `--replace` replaces a document of that name. |
-| `clarity document list [--json]` | The library's folder, then each document's name, kind, size, parts (and how many have a title) and state: `ready`, `changed`, or `unreadable` with why. |
+| `clarity document list [--json]` | The library's folder, then each document's name, kind, size, parts (and how many have a title) and state (`--json` adds `original`, `added` and `edited`): `ready`, `changed`, or `unreadable` with why. |
 | `clarity document check [NAME …] [--profile P]` | Hash each document's files against its manifest (with no names, every document), and say the way out of a difference: `rebuild` for its `text.md` or parts, adding the file again with `--replace` for its original. It lists the parts holding `</part>` or `</document>`, and with `--profile` the parts holding that profile's model's control tokens. One unreadable document stops no other. Exit status 1 if one isn't ready. |
 | `clarity document rebuild NAME` | Build a document's parts again from its `text.md`, after you've fixed it by hand. |
 | `clarity document try NAME … --profile P TEXT [--json]` | What a first message with TEXT would find in these documents, in a new chat on profile P, counted with its tokenizer, with no model: the words searched and ignored, each part added and why, and what was left out. `--json` prints the whole object, as a turn's `found`. |
@@ -172,6 +172,7 @@ The views read only through the command table, the way a script would; while a m
 - `export`: the sheet after Export, from this start's last `/export` of the open log (else refused with 409; a copied log has its own): Download (`GET /export`, saved under the export's file name), the file's path, whether it replaced an earlier export, the calls left out (`failed_calls_left_out` plus `calls_without_a_turn_left_out`), and, when `steered` isn't empty, the vector files to send with it (a path with control or invisible characters shows them as escapes, such as `\x1b`, with no Copy). A refused export shows the sentence with Try again.
 - `attach?upload=ID[&unit=pages|lines&first=A&last=B]`: the attach sheet for an upload, from `/attach ID [range] check`, or its refusal: the file's facts and the free context; Attach whole, Attach part of it (with the range, its count and what it leaves; without a range, a file that doesn't fit opens on the preselected part) and, when only an empty chat has room, New chat with this document; the framing line and marker with their sources; and the extracted text's start and end, each line cut at 2,000 characters. A range the file doesn't have shows its sentence in the part. ID must be an upload ID and A and B whole numbers of at most 9 digits, or the view answers 400.
 - `pending`: the attachments waiting for your next message, from `/state`'s `pending`, as chips, each with a × that sends `/detach N`.
+- `documents`: the Documents… page (Clarity ▾ → Documents…), from `/documents` and `/state`: the library's rows (name; the file, the date it was added, whether `text.md` was edited, its parts and how many have a title; kind; size; parts; Ready, "! Changed" with Rebuild, which sends `/documents rebuild NAME`, or "! Can't be read" with why), the library's folder, and the try box, which sends a message to `/try` with the open chat's profile and shows its result as a message's "From documents" list does. Add… uploads a file (`POST /upload`) and shows where the copy goes, asking for a name when Clarity can't make one or the name is taken; Add sends `/documents add ID NAME`. Its parameters: `try` (a message to try, at most 4,000 characters), `upload` and `name` (Add's panel), and the notice to draw: `added`, `rebuilt` (with `dropped=1` when the rebuild took a PDF's page numbers away) or `searched` (after "Search it in this chat", which sends `/search` with the chat's list and the name).
 - "Start the model again" sends `/resume` with the open chat's `log_id`; a refusal shows "! The model didn't start again." with the sentence's first line, and the rest (llama-server's output) in a box that scrolls.
 - `compare?call=CALL_ID`: the replies side by side, from `/compare`. Replies with matched seeds line up in rows, one column per group of settings, with a marker where each first parts from the first column's (`first_different_char`), and a line under the lead sentence that says what the marker means; "the same until the shorter one ends" for a `prefix` pair and "the same text" for identical ones. Otherwise they're cards, with a sentence when both the seed and a setting differ. Each card or cell has the thread's bookmark, which marks or notes that reply (`/mark`, `/unmark`, `/note` with its call ID) without leaving Compare; none while a command changes the chat. "Same in all" lists the profile, model and backend, the settings in `same` except the sampler list, settings at their neutral or off values ("not steered" stays on a profile with a vector), and `repeat_last_n` when every penalty is neutral; then "the prompt" when `same_prompt` is true.
 
@@ -296,6 +297,35 @@ The page, the terminal and this list share these sentences and phrases, from one
 - `origin_profile`: this profile
 - `encrypted`: encrypted (it opens without a password)
 - `empty_units`: {count} with no text
+- `documents_intro`: Documents Clarity can search. A chat searches only the ones chosen in its Searching list. Clarity cuts each document into parts of at most 250 words, and a heading starts a new part.
+- `documents_folder`: Each is kept in a folder of its own in {folder}. The copy of your file is named original, with .pdf, .html or .txt for its kind.
+- `documents_titles`: Search counts a word in a part's title twice. A part's title is the Markdown heading above it in the document's text.md: a line that starts with one to six # characters, a space and some text. A code file has no headings. A saved web page gets them from its own headings; a PDF, or a text file without such lines, has none until you add them to its text.md and rebuild, and a PDF whose text.md you edit and rebuild loses its page numbers.
+- `keeps_copy`: Clarity keeps a copy in local/documents/{name}/: the file, its text, its parts and a record of them.
+- `name_taken`: Give this one a different name.
+- `searches_next`: This chat searches {name} from your next message.
+- `state_changed`: A file in its folder has changed since Clarity cut it into parts.
+- `try_open`: Type a message. Clarity shows the parts it would add if you sent it next in this chat, which searches {names}. Token counts are for this chat's profile, {profile}. Nothing is sent to the model, and nothing is logged.
+- `try_no_chat`: Open a chat to try a search. A try searches that chat's documents and counts tokens for its profile.
+- `try_none`: This chat searches no documents. Choose one in Searching to try a search.
+- `try_no_documents`: No documents yet. Add a file, or press the paperclip in a chat and choose "Search it".
+- `found_parts`: {parts} · {tokens} tokens
+- `found_already_more`: {n} more already in the chat
+- `found_nothing_words`: nothing to search for
+- `found_nothing_matched`: nothing matched
+- `found_nothing_new`: nothing new · {n} already in the chat
+- `found_nothing_fit`: nothing added · {n} didn't fit the budget
+- `found_in_title`: in its title: {words}
+- `found_in_text`: in its text: {words}
+- `found_already`: already in the chat: not added again
+- `found_left_budget`: {n} more matched but were left out: Clarity adds parts in order and stops at the first that doesn't fit the budget of {budget} tokens.
+- `found_left_budget_none`: {n} matched but were left out: Clarity adds parts in order and stops at the first that doesn't fit the budget of {budget} tokens.
+- `found_unconsidered`: {n} more matched but weren't considered: Clarity considers only the best {considered} matches.
+- `found_around`: The total also counts what Clarity adds around the parts, such as the framing line ({tokens} tokens).
+- `found_words`: Words searched: {words}.
+- `found_ignored`: Ignored (common words and single letters or digits): {words}.
+- `found_all_common`: Every word in your message is a common word or a single letter or digit, so nothing was searched and nothing was added.
+- `found_no_words`: Your message has no words to search for, so nothing was added.
+- `found_no_match`: No part of {documents} has any of the words searched, so nothing was added. Search matches words and close forms of them ("sing" finds "singing"), not meaning.
 
 ## Settings
 

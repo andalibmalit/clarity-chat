@@ -325,7 +325,9 @@ def test_list_gives_each_document_and_skips_other_folders(root, tmp_path):
     document_add(root, file(tmp_path, "glossary.md", GLOSSARY))
     (root / "local/documents/.glossary-made-up").mkdir()
     (root / "local/documents/Not A Name").mkdir()
-    assert library_documents(root) == [
+    (listed,) = library_documents(root)
+    assert listed.pop("added").endswith("Z")  # the manifest's time, the page's row date (C1)
+    assert [listed] == [
         {
             "name": "glossary",
             "kind": "text",

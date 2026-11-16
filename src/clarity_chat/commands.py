@@ -1366,3 +1366,29 @@ COMMANDS: dict[str, Command] = {
         "/quit", "stop the server and exit (also Ctrl-D)", _quit, needs_conversation=False
     ),
 }
+
+
+def format_added(result: dict[str, Any]) -> str:
+    manifest = result["added"]
+    folder = result["written"][0].rsplit("/", 1)[0]
+    *rest, last = (path.rsplit("/", 1)[1] for path in result["written"])
+    done = "replaced" if result["replaced"] else "wrote"
+    return (  # the point first (the board walk's S17; N12)
+        f"Clarity {done} {folder}/: {', '.join(rest)} and {last} "
+        f"({parts(manifest['parts'])}, {manifest['titled']:,} with a title)."
+    )
+
+
+def parts(n: int) -> str:
+    return f"{n:,} part" + ("" if n == 1 else "s")
+
+
+def format_rebuilt(result: dict[str, Any]) -> str:
+    manifest = result["rebuilt"]
+    files = " and ".join(path.rsplit("/", 1)[1] for path in result["written"])
+    folder = result["written"][0].rsplit("/", 1)[0]
+    dropped = " Its parts no longer have page numbers." if result["pages_dropped"] else ""
+    return (
+        f"Rebuilt {manifest['name']} from its text.md: {parts(manifest['parts'])}, "
+        f"{manifest['titled']:,} with a title. Wrote {files} in {folder}/.{dropped}"
+    )

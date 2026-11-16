@@ -125,6 +125,57 @@ SENTENCES = {
     "origin_profile": "this profile",
     "encrypted": "encrypted (it opens without a password)",
     "empty_units": "{count} with no text",
+    # The Documents… page (v0.3.2 C1; the board's N3, N8, N11, N23, N68-N70)
+    "documents_intro": "Documents Clarity can search. A chat searches only the ones chosen in "
+    "its Searching list. Clarity cuts each document into parts of at most 250 words, and a "
+    "heading starts a new part.",
+    "documents_folder": "Each is kept in a folder of its own in {folder}. The copy of your "
+    "file is named original, with .pdf, .html or .txt for its kind.",
+    "documents_titles": "Search counts a word in a part's title twice. A part's title is the "
+    "Markdown heading above it in the document's text.md: a line that starts with one to six # "
+    "characters, a space and some text. A code file has no headings. A saved web page gets them "
+    "from its own headings; a PDF, or a text file without such lines, has none until you add "
+    "them to its text.md and rebuild, and a PDF whose text.md you edit and rebuild loses its "
+    "page numbers.",
+    "keeps_copy": "Clarity keeps a copy in local/documents/{name}/: the file, its text, its "
+    "parts and a record of them.",
+    "name_taken": "Give this one a different name.",
+    "searches_next": "This chat searches {name} from your next message.",
+    "state_changed": "A file in its folder has changed since Clarity cut it into parts.",
+    "try_open": "Type a message. Clarity shows the parts it would add if you sent it next in "
+    "this chat, which searches {names}. Token counts are for this chat's profile, {profile}. "
+    "Nothing is sent to the model, and nothing is logged.",
+    "try_no_chat": "Open a chat to try a search. A try searches that chat's documents and "
+    "counts tokens for its profile.",
+    "try_none": "This chat searches no documents. Choose one in Searching to try a search.",
+    "try_no_documents": "No documents yet. Add a file, or press the paperclip in a chat and "
+    'choose "Search it".',
+    # What a search found, in the try box and "From documents" (N44-N53, N57-N59)
+    "found_parts": "{parts} · {tokens} tokens",
+    "found_already_more": "{n} more already in the chat",
+    "found_nothing_words": "nothing to search for",
+    "found_nothing_matched": "nothing matched",
+    "found_nothing_new": "nothing new · {n} already in the chat",
+    "found_nothing_fit": "nothing added · {n} didn't fit the budget",
+    "found_in_title": "in its title: {words}",
+    "found_in_text": "in its text: {words}",
+    "found_already": "already in the chat: not added again",
+    "found_left_budget": "{n} more matched but were left out: Clarity adds parts in order and "
+    "stops at the first that doesn't fit the budget of {budget} tokens.",
+    "found_left_budget_none": "{n} matched but were left out: Clarity adds parts in order and "
+    "stops at the first that doesn't fit the budget of {budget} tokens.",
+    "found_unconsidered": "{n} more matched but weren't considered: Clarity considers only the "
+    "best {considered} matches.",
+    "found_around": "The total also counts what Clarity adds around the parts, such as the "
+    "framing line ({tokens} tokens).",
+    "found_words": "Words searched: {words}.",
+    "found_ignored": "Ignored (common words and single letters or digits): {words}.",
+    "found_all_common": "Every word in your message is a common word or a single letter or "
+    "digit, so nothing was searched and nothing was added.",
+    "found_no_words": "Your message has no words to search for, so nothing was added.",
+    "found_no_match": "No part of {documents} has any of the words searched, so nothing was "
+    'added. Search matches words and close forms of them ("sing" finds "singing"), not '
+    "meaning.",
 }
 
 

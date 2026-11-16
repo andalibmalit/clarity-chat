@@ -1738,19 +1738,78 @@ async function rename() {
   if (answer.error) notice("!", answer.error);
 }
 
-async function openDocuments() {
-  // The Documents… page (v0.3.2 C1), drawn by the documents view.
+async function openDocuments(params = {}, focus = "documents-title") {
+  // The Documents… page (v0.3.2 C1), drawn by the documents view: the library, Add's
+  // panel (an upload and its name), a notice, and the try box (a message to try).
   closeDrawer(false);
   let html;
   try {
-    html = await view("documents");
+    html = await view("documents", params);
   } catch (error) {
     notice("!", error.message);
     return;
   }
   swap($("documents-body"), html);
   if (!$("documents-sheet").open) $("documents-sheet").showModal();
-  $("documents-title").focus();
+  ($(focus) || $("documents-title")).focus();
+}
+
+function documentsRefused(sentence) {
+  // A command's refusal, shown in the page above the library; the rest stays as drawn.
+  const refused = $("documents-body").querySelector(".refused");
+  refused.textContent = `! ${sentence}`;
+  refused.hidden = false;
+  refused.scrollIntoView({ block: "nearest" });
+}
+
+async function documentsCommand(name, args, after) {
+  // A command from the page; its refusal shows there, its result redraws the page.
+  const answer = await command(name, args).catch(unanswered);
+  if (answer.handled) return;
+  if (answer.error) {
+    documentsRefused(answer.error);
+    return;
+  }
+  await openDocuments(after(answer.result));
+  if (name === "search") refresh();
+}
+
+async function documentsUpload(file) {
+  // Add…: the file goes to /upload as the paperclip's does, then the page draws Add's panel.
+  const query = new URLSearchParams({ tab: TAB, name: file.name }).toString();
+  let response;
+  try {
+    response = await request(`/upload?${query}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/octet-stream" },
+      body: file,
+    });
+  } catch (error) {
+    const lost = unanswered(error);
+    if (!lost.handled) documentsRefused(lost.error);
+    return;
+  }
+  if (!response.ok) {
+    const text = await response.text();
+    if (text === "Clarity is open in another tab.") notLive();
+    else documentsRefused(text);
+    return;
+  }
+  await openDocuments({ upload: (await response.json()).upload }, "documents-name");
+}
+
+function documentsAdd(form) {
+  const name = $("documents-name").value.trim();
+  const upload = form.dataset.upload;
+  documentsCommand("documents", `add ${upload} ${name}`, () => ({ added: name }));
+}
+
+function documentsSearch(names, after) {
+  documentsCommand("search", names.length ? names.join(" ") : "none", after);
+}
+
+function searchedNames() {
+  return (clarity.state.searching || []).map((d) => d.name);
 }
 
 async function exportChat() {
@@ -1980,6 +2039,29 @@ const THREAD = {
   "export-close": () => $("export-sheet").close(),
   documents: () => openDocuments(),
   "documents-close": () => $("documents-sheet").close(),
+  "documents-add": () => {
+    // A fresh input each press, as the paperclip's (Firefox keeps a used one's file).
+    const input = $("documents-file").cloneNode();
+    $("documents-file").replaceWith(input);
+    input.click();
+  },
+  "documents-add-cancel": () => openDocuments(),
+  "documents-rebuild": (element) => {
+    const name = element.dataset.name;
+    documentsCommand("documents", `rebuild ${name}`, (result) => ({
+      rebuilt: name,
+      ...(result.pages_dropped ? { dropped: "1" } : {}),
+    }));
+  },
+  "documents-search-here": (element) => {
+    const name = element.dataset.name;
+    documentsSearch([...searchedNames(), name], () => ({ searched: name }));
+  },
+  "documents-stop": (element) => {
+    const name = element.dataset.name;
+    const tried = $("documents-try").value;
+    documentsSearch(searchedNames().filter((n) => n !== name), () => ({ try: tried }));
+  },
   "attach-pick": () => pickFile(),
   "attach-choose": (element) => {
     // A choice made while a range is counted stays: that count's answer is dropped (could 15).
@@ -2044,6 +2126,10 @@ document.addEventListener("submit", (event) => {
   } else if (form.matches("[data-note]")) {
     const text = form.querySelector("textarea").value.trim();
     if (text) annotate("note", form.closest("[data-call]").dataset.call, text);
+  } else if (form.id === "documents-add-form") {
+    documentsAdd(form);
+  } else if (form.id === "documents-try-form") {
+    if (!$("documents-try").disabled) openDocuments({ try: $("documents-try").value }, "documents-try");
   }
 });
 
@@ -2074,6 +2160,11 @@ document.addEventListener("DOMContentLoaded", () => {
   $("appearance").addEventListener("close", () => $("clarity-button").focus());
   $("stop").addEventListener("click", () => command("cancel"));
   document.addEventListener("change", (event) => {
+    if (event.target.id === "documents-file") {
+      const file = event.target.files[0];
+      if (file) documentsUpload(file);
+      return;
+    }
     // #attach-file is replaced on each press (pickFile), so its change is heard here.
     if (event.target.id !== "attach-file") return;
     const file = event.target.files[0];

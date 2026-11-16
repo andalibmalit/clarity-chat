@@ -65,7 +65,12 @@ from clarity_chat.documents.reading import (
     too_big,
     visible_bidi,
 )
-from clarity_chat.documents.refused import SearchRefused, control_token_problem
+from clarity_chat.documents.refused import (
+    PAGES_LOST,
+    SearchRefused,
+    control_token_problem,
+    problem_words,
+)
 from clarity_chat.documents.search import COMMON_WORDS, Loaded, words_of
 from clarity_chat.documents.search import load as load_document
 from clarity_chat.documents.search import search as search_documents
@@ -81,6 +86,8 @@ __all__ = [
     "PartsRefused",
     "TAKEN",
     "SearchRefused",
+    "PAGES_LOST",
+    "problem_words",
     "control_token_problem",
     "Stale",
     "checked_library_name",
