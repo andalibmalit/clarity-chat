@@ -127,6 +127,8 @@ SENTENCES = {
     "origin_default": "Clarity's default",
     "origin_profile": "this profile",
     "origin_chat": "this chat",  # N81: /framing's line (C4)
+    "framing_hint": "For this chat's messages from now on; the profile keeps its own line. "
+    "Leave it empty to send no framing line.",  # N79
     "encrypted": "encrypted (it opens without a password)",
     "empty_units": "{count} with no text",
     # The Documents… page (v0.3.2 C1; the board's N3, N8, N11, N23, N68-N70)
