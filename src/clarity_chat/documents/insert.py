@@ -123,6 +123,7 @@ SENTENCES = {
     "no_framing": "No framing line ({origin}).",
     "origin_default": "Clarity's default",
     "origin_profile": "this profile",
+    "origin_chat": "this chat",  # N81: /framing's line (C4)
     "encrypted": "encrypted (it opens without a password)",
     "empty_units": "{count} with no text",
     # The Documents… page (v0.3.2 C1; the board's N3, N8, N11, N23, N68-N70)
@@ -449,7 +450,7 @@ ATTACHMENT_FIELDS = frozenset(ATTACHMENT_TYPES)
 TURN_TYPES: dict[str, Callable[[Any], bool]] = {
     "attachments": lambda v: isinstance(v, list) and all(isinstance(a, dict) for a in v),
     "framing": lambda v: isinstance(v, str),
-    "framing_origin": lambda v: v in ("default", "profile"),
+    "framing_origin": lambda v: v in ("default", "profile", "chat"),
     "placement": lambda v: v in ("start", "end"),
 }
 
