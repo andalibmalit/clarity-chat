@@ -2129,7 +2129,8 @@ document.addEventListener("submit", (event) => {
   } else if (form.id === "documents-add-form") {
     documentsAdd(form);
   } else if (form.id === "documents-try-form") {
-    if (!$("documents-try").disabled) openDocuments({ try: $("documents-try").value }, "documents-try");
+    const tried = $("documents-try").value.trim(); // an empty try runs nothing
+    if (!$("documents-try").disabled && tried) openDocuments({ try: tried }, "documents-try");
   }
 });
 

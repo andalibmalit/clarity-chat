@@ -2108,8 +2108,9 @@ async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
     else:
         sub = SENTENCES["try_open"].format(names=joined(searching), profile=state["profile"])
     tried = refused = None
-    if in_chat and searching and params["try"] is not None:
-        answer = await read_or_refusal(worker, "try", params["try"])
+    message = params["try"] or ""
+    if in_chat and searching and message.strip():  # never an empty /try (its usage line)
+        answer = await read_or_refusal(worker, "try", message)
         if "error" in answer:
             refused = refusal_lines(answer)
         else:
