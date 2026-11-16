@@ -1114,7 +1114,7 @@ def format_found(found: dict[str, Any]) -> str:
         f"{found['tokens']:,} tokens of the budget of {found['budget']:,}."
     )
     for p in found["parts"]:
-        title = f' "{p["title"]}"' if p["title"] else ""
+        title = f' "{shown(p["title"])}"' if p["title"] else ""  # a heading can hold ESC
         reasons = [f"title matches {', '.join(p['title_words'])}"] if p["title_words"] else []
         reasons += [f"shares words: {', '.join(p['words'])}"] if p["words"] else []
         lines.append(

@@ -135,6 +135,13 @@ STALE = {  # a document a search can't read, and its way out (the board's N30, N
     "missing": "Clarity can't search {name}: its folder in local/documents/ is gone. Stop "
     "searching it, or add the file again in Documents….",
 }
+
+
+def cant_search(name: str, refused: DocumentRefused) -> str:
+    """A file in `name`'s folder that can't be read, said as a search's refusal (N32)."""
+    return f"Clarity can't search {name}: its {str(refused).removeprefix(name + "'s ")}"
+
+
 PAGES_LOST = "If you edited text.md, its parts will lose their page numbers."  # N24
 NOTHING_SENT = "Nothing was sent."  # N29: a refusal at Send's first line
 WITHOUT_SEARCH = "To send without searching, stop searching every document in this chat."
@@ -852,14 +859,21 @@ class Session:
         run (SYS: "one object, three uses"). Every document a search can't read is named in
         one refusal, each with its way out (the board walk's point 6); `at_send` heads it
         "Nothing was sent." """
-        lines = [line for name in names if (line := self._unsearchable(name)) is not None]
+        lines, docs = [], []
+        for name in names:
+            line = self._unsearchable(name)
+            if line is None:
+                try:
+                    docs.append(load_document(self.root, name))
+                    continue
+                except Stale as e:  # it changed since the check just now
+                    line = STALE[e.state].format(name=name)
+                except DocumentRefused as e:  # its parts.jsonl (the security review's S2)
+                    line = cant_search(name, e)
+            lines.append(line)
         head = [NOTHING_SENT] if at_send else []
         if lines:
             raise SearchRefused("\n".join([*head, *lines]))
-        try:
-            docs = [load_document(self.root, name) for name in names]
-        except Stale as e:  # it changed since the check just now
-            raise SearchRefused("\n".join([*head, STALE[e.state].format(name=e.name)])) from None
         budget, origin = budget_of(profile)
         try:
             found = search_documents(docs, text)
@@ -888,7 +902,7 @@ class Session:
         try:
             manifest = library_manifest(self.root, name)
         except DocumentRefused as e:  # unreadable: its own sentence, as its row says it
-            return f"Clarity can't search {name}: its {str(e).removeprefix(name + "'s ")}"
+            return cant_search(name, e)
         pdf = manifest["original"]["kind"] == "pdf" and manifest["text"]["page_starts"]
         return STALE["changed"].format(name=name) + (f" {PAGES_LOST}" if pdf else "")
 
@@ -1418,6 +1432,8 @@ class Session:
                 raise DocumentRefused(f"{name} isn't in your documents.")
             if state == "unreadable":
                 library_manifest(self.root, name)  # refused, saying why (a link, say)
+            if state == "ready":
+                library_parts(self.root, name)  # its parts read as untrusted (the review's S2)
         if len(set(names)) != len(names):
             raise ConfigError("Name each document once.")
         conversation.searching, conversation.searching_origin = list(names), "chat"
@@ -1451,7 +1467,10 @@ class Session:
             state = library_state(self.root, name)
             entry: dict[str, Any] = {"name": name, "state": state}
             if state == "ready":
-                entry.update(self._scanned(name))
+                try:
+                    entry.update(self._scanned(name))
+                except DocumentRefused:  # its parts.jsonl isn't Clarity's (the review's S2)
+                    entry["state"] = "unreadable"
             found.append(entry)
         return found
 
