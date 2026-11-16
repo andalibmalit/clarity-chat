@@ -20,6 +20,7 @@ FIELDS = {
         {"name": "b&c.md", "text": "Made-up text", "marker": "Excerpt: lines 1 to 1 of 3"},
     ],
     "framing": FRAMING,
+    "placement": "start",
 }
 BLOCKS = [
     '<document name="notes.md">\nLine one.\nLine two.\n</document>',
@@ -37,10 +38,11 @@ WHAT = [{"what": "framing"}, {"what": "attachment", "index": 0}, {"what": "attac
 
 def spans_of(tokenizer, root, fields):
     profile = load_profile(root, "chat", load_defaults(root))
-    turns = [("user", message_content("What's in it?", fields))]
+    text = "What's in it?"
+    turns = [("user", message_content(text, fields))]
     prompt = build_prompt(tokenizer, profile, turns)
     spans = message_spans(
-        tokenizer, profile, turns, ["turn-1"], prompt, added=[added_ranges(fields)]
+        tokenizer, profile, turns, ["turn-1"], prompt, added=[added_ranges(text, fields)]
     )
     assert isinstance(spans, list)
     return prompt, next(e for e in spans if e.get("turn_id") == "turn-1")
@@ -185,10 +187,11 @@ def test_a_template_that_trims_the_message_moves_the_ranges_with_it(root, tmp_pa
     tokenizer = toy(tmp_path, LOOP.replace("BODY", "m.content | trim"))
     profile = load_profile(root, "chat", load_defaults(root))
     fields = {**FIELDS, "framing": framing}
-    turns = [("user", message_content("What's in it?\n", fields))]
+    text = "What's in it?\n"
+    turns = [("user", message_content(text, fields))]
     prompt = build_prompt(tokenizer, profile, turns)
     spans = message_spans(
-        tokenizer, profile, turns, ["turn-1"], prompt, added=[added_ranges(fields)]
+        tokenizer, profile, turns, ["turn-1"], prompt, added=[added_ranges(text, fields)]
     )
     assert isinstance(spans, list)
     entry = next(e for e in spans if e.get("turn_id") == "turn-1")

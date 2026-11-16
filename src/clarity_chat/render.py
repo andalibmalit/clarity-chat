@@ -337,9 +337,9 @@ def message_spans(
     """Where each message, and the text around it, sits in `prompt`: a list of entries that
     covers every prompt token in order, each with half-open `chars` (in `prompt.text`) and
     `tokens` (in `prompt.ids`) ranges. Or `{"unavailable": reason}`: never a guess, and never
-    an error, since a call must not fail over its spans. `added`, for each turn: what sits
-    at the start of its content (documents.added_ranges); a message's entry lists them with
-    their own ranges."""
+    an error, since a call must not fail over its spans. `added`, for each turn: where its
+    block's pieces sit in its content (documents.added_ranges); a message's entry lists them
+    with their own ranges."""
     try:
         if profile.mode == "text":
             parts: list[Part] | str = _text_parts(profile, turns, turn_ids)

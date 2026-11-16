@@ -5,7 +5,7 @@ attachments and the profile: it reads no file and keeps no state. Counting is pa
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from html import escape
 from typing import Any
@@ -20,6 +20,7 @@ from clarity_chat.documents.reading import (
     DocumentRefused,
     checked_name,
 )
+from clarity_chat.documents.search import CONSIDERED, LEFT_OUT_LISTED
 from clarity_chat.profiles import Profile
 
 FRAMING = (
@@ -27,6 +28,7 @@ FRAMING = (
 )
 MARKER = "Excerpt: {units} {first} to {last} of {total}"
 CLOSING_TAG = "</document>"
+PART_CLOSING_TAG = "</part>"
 
 # The sheet's words, in one place: the page, the terminal, the refusals that explain a fit,
 # and reference.md use these (decision 20). Each was fact-checked (Lane 3).
@@ -226,32 +228,63 @@ def covers_whole(doc: Document, unit: str | None, first: int, last: int) -> bool
     return unit is None or (first, last) == (1, doc.total)
 
 
-def content(message: str, attached: list[Attached], framing: str) -> str:
-    """The message's content as the model gets it: the framing line (unless empty), each
-    attachment's block in order, then your message, a blank line apart."""
-    if not attached:
+def content(
+    message: str,
+    attached: list[Attached],
+    framing: str,
+    found: Sequence[Mapping[str, Any]] = (),
+    placement: str = "start",
+) -> str:
+    """The message's content as the model gets it: the block (the framing line, unless
+    empty; each attachment; each found part), then your message, a blank line apart; at
+    placement "end", your message first, then the block."""
+    if not attached and not found:
         return message
-    return "\n\n".join([*(text for _, text in parts(attached, framing)), message])
+    block = [text for _, text in parts(attached, framing, found)]
+    return "\n\n".join([message, *block] if placement == "end" else [*block, message])
 
 
-def parts(attached: list[Attached], framing: str) -> list[tuple[dict[str, Any], str]]:
-    """What goes before your message, each part with what it is, in order."""
-    found: list[tuple[dict[str, Any], str]] = [({"what": "framing"}, framing)] if framing else []
+def attribute(value: str) -> str:
+    """A value in the block's tags, escaped as v0.3.1 escapes a document's name."""
+    return escape(value, quote=True).replace("&#x27;", "'")
+
+
+def parts(
+    attached: list[Attached], framing: str, found: Sequence[Mapping[str, Any]] = ()
+) -> list[tuple[dict[str, Any], str]]:
+    """What the block holds, each piece with what it is, in order: the framing line, each
+    attachment's <document>, each found part's <part> (v0.3.2 decision 1)."""
+    block: list[tuple[dict[str, Any], str]] = [({"what": "framing"}, framing)] if framing else []
     for i, a in enumerate(attached):
         marker = f"{a.marker}\n" if a.marker else ""
         closing = "" if a.text.endswith("\n") else "\n"
-        name = escape(a.name, quote=True).replace("&#x27;", "'")
-        block = f'<document name="{name}">\n{marker}{a.text}{closing}{CLOSING_TAG}'
-        found.append(({"what": "attachment", "index": i}, block))
-    return found
+        text = f'<document name="{attribute(a.name)}">\n{marker}{a.text}{closing}{CLOSING_TAG}'
+        block.append(({"what": "attachment", "index": i}, text))
+    for i, p in enumerate(found):
+        tags = [f'document="{attribute(p["document"])}"']
+        if p["title"] is not None:
+            tags.append(f'title="{attribute(p["title"])}"')
+        if p["page"] is not None:
+            tags.append(f'page="{p["page"]}"')
+        closing = "" if p["text"].endswith("\n") else "\n"
+        text = f"<part {' '.join(tags)}>\n{p['text']}{closing}{PART_CLOSING_TAG}"
+        block.append(({"what": "part", "index": i}, text))
+    return block
+
+
+def found_in(fields: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The parts search added to a message, from a turn's fields or its record."""
+    return (fields.get("found") or {}).get("parts") or []
 
 
 def message_content(text: str, fields: Mapping[str, Any]) -> str:
     """A user message's content as the model gets it, from a turn's fields or its record:
-    the text alone, or with its attachments' block. Every prompt, check and read builds it
-    here. A record missing a field raises KeyError, which readers refuse as unreadable."""
-    attached = attached_in(fields)
-    return content(text, attached, fields["framing"]) if attached else text
+    the text alone, or with its block. Every prompt, check and read builds it here. A
+    record missing a field raises KeyError, which readers refuse as unreadable."""
+    attached, found = attached_in(fields), found_in(fields)
+    if not attached and not found:
+        return text
+    return content(text, attached, fields["framing"], found, fields["placement"])
 
 
 def attached_in(fields: Mapping[str, Any]) -> list[Attached]:
@@ -338,16 +371,17 @@ def summaries(attachments: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def added_ranges(fields: Mapping[str, Any]) -> list[dict[str, Any]]:
-    """Where the framing line and each block sit in the message's content: half-open
-    `chars`, for message_spans' `added`. Empty for a message without attachments."""
-    attached = attached_in(fields)
-    if not attached:
+def added_ranges(text: str, fields: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Where the framing line, each attachment and each found part sit in the message's
+    content: half-open `chars`, for message_spans' `added`. Empty for a message with
+    neither. At placement "end" the block starts after your message and a blank line."""
+    attached, found = attached_in(fields), found_in(fields)
+    if not attached and not found:
         return []
-    ranges, at = [], 0
-    for what, text in parts(attached, fields["framing"]):
-        ranges.append({**what, "chars": [at, at + len(text)]})
-        at += len(text) + 2  # the blank line after it
+    ranges, at = [], len(text) + 2 if fields["placement"] == "end" else 0
+    for what, piece in parts(attached, fields["framing"], found):
+        ranges.append({**what, "chars": [at, at + len(piece)]})
+        at += len(piece) + 2  # the blank line after it
     return ranges
 
 
@@ -385,6 +419,62 @@ def fit(
             return Fit(tokens=None, free=available, left=None, fits=False, at_least=at_least)
     cost = room.tokens(text) - before
     return Fit(tokens=cost, free=available, left=available - cost, fits=cost <= available)
+
+
+def fill(
+    room: Room,
+    message: str,
+    pending: list[Attached],
+    framing: str,
+    found: Mapping[str, Any],
+    budget: int,
+    budget_origin: str,
+    placement: str = "start",
+    already: frozenset[str] = frozenset(),
+) -> dict[str, Any]:
+    """The parts a search adds to a message (v0.3.2 decision 9): the best CONSIDERED
+    matches, in rank order, each counted exactly as it goes into the block, stopping at the
+    first that would take the block past `budget` tokens. A part whose text is already in
+    the chat on this branch (`already`, by sha256) isn't added again and costs nothing.
+    `tokens` is everything search added, the framing line and wrappers included when search
+    is why they're there. At most CONSIDERED + 1 renders."""
+    matches = found["matches"]
+    without = room.tokens(content(message, pending, framing, [], placement))
+    added: list[dict[str, Any]] = []
+    left_out: list[dict[str, Any]] = []
+    cost, full = 0, False
+    for match in matches[:CONSIDERED]:
+        why = None
+        if match["sha256"] in already:
+            why = "already in the chat"
+        elif full:
+            why = "budget"
+        else:
+            now = room.tokens(content(message, pending, framing, [*added, match], placement))
+            if now - without > budget:
+                full, why = True, "budget"
+            else:
+                added.append({**match, "tokens": now - without - cost})
+                cost = now - without
+        if why is not None:
+            left_out.append(
+                {"id": match["id"], "rank": match["rank"], "score": match["score"], "why": why}
+            )
+    left_out += [
+        {"id": m["id"], "rank": m["rank"], "score": m["score"], "why": "not considered"}
+        for m in matches[CONSIDERED:]
+    ]
+    filled = {k: v for k, v in found.items() if k != "matches"}
+    return {
+        **filled,
+        "considered": CONSIDERED,
+        "budget": budget,
+        "budget_origin": budget_origin,
+        "parts": added,
+        "left_out": left_out[:LEFT_OUT_LISTED],
+        "matched": len(matches),
+        "tokens": cost,
+    }
 
 
 def start_that_fits(
