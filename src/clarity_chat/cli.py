@@ -1147,15 +1147,17 @@ def format_found(found: dict[str, Any]) -> str:
             f"  {p['rank']}. {p['id']}{title}: {'; '.join(reasons)} ({p['tokens']:,} tokens)"
         )
     unconsidered = [o["id"] for o in found["left_out"] if o["why"] == "not considered"]
+    more = found["matched"] - min(found["matched"], found["considered"])  # all, not the 50
     for o in found["left_out"]:  # by rank; those not considered in one line (part 1's C8)
         if o["why"] != "not considered":
             lines.append(f"  {o['rank']}. {o['id']}: left out ({o['why']})")
-    if len(unconsidered) == 1:
+    unlisted = f", and {more - len(unconsidered):,} more" if more > len(unconsidered) else ""
+    if more == 1:
         lines.append(f"  1 more matched and wasn't considered: {unconsidered[0]}.")
     elif unconsidered:
         lines.append(
-            f"  {len(unconsidered):,} more matched and weren't considered: {unconsidered[0]} to "
-            f"{unconsidered[-1]}."
+            f"  {more:,} more matched and weren't considered: {unconsidered[0]} to "
+            f"{unconsidered[-1]}{unlisted}."
         )
     return "\n".join(lines)
 

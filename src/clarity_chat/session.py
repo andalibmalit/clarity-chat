@@ -797,7 +797,7 @@ class Session:
         attachments: list[dict[str, Any]],
         parent: str | None,
         at_send: bool = False,
-        chat: bool = True,
+        where: str = "chat",
     ) -> tuple[dict[str, Any], SearchRefused | None]:
         """A new message's block fields: its attachments and, when the chat searches, what
         its text found in the chat's documents (decisions 2, 3, 9), counted after the turns
@@ -823,7 +823,7 @@ class Session:
         try:
             room = self.room(after=parent)
             found = self._found(
-                text, conversation.searching, room, profile, fields, already, at_send, chat
+                text, conversation.searching, room, profile, fields, already, at_send, where
             )
         except SearchRefused as e:
             return fields, e
@@ -838,14 +838,14 @@ class Session:
         fields: dict[str, Any],
         already: frozenset[str] = frozenset(),
         at_send: bool = False,
-        chat: bool = True,
+        where: str = "chat",
     ) -> dict[str, Any]:
         """What `text` finds in the documents `names`, filled to `profile`'s budget into a
         block holding `fields`' attachments: one function for a message, /try and a batch
         run (SYS: "one object, three uses"). Every document a search can't read is named in
         one refusal, each with its way out (the board walk's point 6); `at_send` heads it
-        "Nothing was sent."; `chat` (not a run or `document try`) lets the terminal name
-        /search."""
+        "Nothing was sent."; `where` (a chat, a run, `document try`) says how the
+        terminal stops searching."""
         problems: list[dict[str, Any]] = []
         docs = []
         for name in names:
@@ -860,12 +860,12 @@ class Session:
                     problem = {"document": name, "state": "parts"}
             problems.append(problem)
         if problems:
-            raise SearchRefused(problems, at_send, chat)
+            raise SearchRefused(problems, at_send, where)
         budget, origin = budget_of(profile)
         try:
             found = search_documents(docs, text)
         except DocumentRefused:  # no FTS5 in this Python: how to send without it
-            raise SearchRefused([{"state": "no_fts5"}], at_send, chat) from None
+            raise SearchRefused([{"state": "no_fts5"}], at_send, where) from None
         return fill(
             room,
             text,
@@ -897,13 +897,13 @@ class Session:
         try:
             return {name: load_document(self.root, name).build_id for name in names}
         except Stale as e:
-            raise SearchRefused([{"document": e.name, "state": e.state}], chat=False) from None
+            raise SearchRefused([{"document": e.name, "state": e.state}], where="run") from None
 
-    def block(self, text: str, chat: bool = True) -> dict[str, Any]:
+    def block(self, text: str, where: str = "chat") -> dict[str, Any]:
         """A next message's block fields, searched now, a refusal raised (/try, and a batch
-        run with `chat` false)."""
+        run with `where` "run")."""
         conversation = self._require_conversation()
-        fields, refused = self._block(text, conversation.pending, conversation.head, chat=chat)
+        fields, refused = self._block(text, conversation.pending, conversation.head, where=where)
         if refused is not None:
             raise refused
         return fields
@@ -926,10 +926,11 @@ class Session:
         return next((p for p in problems if p is not None), None)
 
     def try_documents(
-        self, names: list[str], profile_name: str, text: str
+        self, names: list[str], profile_name: str, text: str, where: str = "try"
     ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         """`clarity document try`: what a first message with `text` would find in `names` in
-        a new chat on `profile_name`, counted with its tokenizer, with no model."""
+        a new chat on `profile_name`, counted with its tokenizer, with no model. A run's
+        pre-check says `where` "run": its names are the profile's list."""
         for name in names:
             checked_library_name(name)
         if named_twice(names) is not None:
@@ -950,7 +951,7 @@ class Session:
             self.room(new),
             profile,
             {**fields, "placement": profile.placement},
-            chat=False,
+            where=where,
         )
         return found, self._control_token_problem(found, tokenizer)
 
@@ -1442,6 +1443,8 @@ class Session:
                     library_parts(self.root, name)  # read as untrusted (the review's S2)
                 except Stale as e:  # changed under the quick check (the fix review's C6)
                     raise SearchRefused([{"document": name, "state": e.state}]) from None
+                except PartsRefused:  # its way out, as Send says it (fix 2's C1)
+                    raise SearchRefused([{"document": name, "state": "parts"}]) from None
         if named_twice(names) is not None:
             raise ConfigError("Name each document once.")
         conversation.searching, conversation.searching_origin = list(names), "chat"
@@ -2357,6 +2360,14 @@ def budget_of(profile: Profile) -> tuple[int, str]:
     return (BUDGET, "default") if profile.budget is None else (profile.budget, "profile")
 
 
+def left_out_counts(found: dict[str, Any]) -> dict[str, int]:
+    """How many matches were left out, by why: every one, not only the 50 listed (fix 2's
+    S2). The considered ones are all listed; the rest weren't considered."""
+    counts = Counter(o["why"] for o in found["left_out"] if o["why"] != "not considered")
+    unconsidered = found["matched"] - min(found["matched"], found["considered"])
+    return {**counts, **({"not considered": unconsidered} if unconsidered else {})}
+
+
 def found_summary(found: dict[str, Any]) -> dict[str, Any]:
     """/history's view of a turn's `found`, which /state's turns repeat: counts, tokens,
     words, the budget, what was left out by why, and each part's ID, title and why it
@@ -2370,7 +2381,7 @@ def found_summary(found: dict[str, Any]) -> dict[str, Any]:
         "tokens": found["tokens"],
         "budget": found["budget"],
         "parts": [{k: p[k] for k in keys} for p in found["parts"]],
-        "left_out": dict(Counter(o["why"] for o in found["left_out"])),
+        "left_out": left_out_counts(found),
     }
 
 

@@ -78,8 +78,8 @@ TERMINAL = {
     "not text. Take it out of local/documents/odd/text.md; `clarity document rebuild odd` then "
     "cuts its parts again. Or stop searching odd with /search.",
     "no_fts5": "Word search needs SQLite's FTS5, which the Python running Clarity doesn't "
-    "have. Use a Python whose SQLite includes it, such as the one uv installs. To send without "
-    "searching, stop searching every document in this chat.",
+    "have. Use a Python whose SQLite includes it, such as the one uv installs. `/search none` "
+    "turns search off for this chat.",
 }
 KINDS = list(TERMINAL)
 
@@ -279,7 +279,7 @@ def test_document_try_says_it_too(root, chat_tokenizer):
     assert result.get("refused") == (
         'Part 1 of odd ("Wren") holds </s>, which this model reads as a control token, not '
         "text. Take it out of local/documents/odd/text.md; `clarity document rebuild odd` then "
-        "cuts its parts again. Or take odd out of the profile's search list."
+        "cuts its parts again. Or leave odd out of the documents you try."
     )
 
 
@@ -356,7 +356,8 @@ def test_format_found_groups_the_matches_not_considered():
 
     left = [{"id": f"g:{n}", "rank": n, "score": -1.0, "why": "not considered"}
             for n in range(9, 31)]  # fmt: skip
-    found = {"words": ["wren"], "ignored": [], "matched": 30, "tokens": 0, "budget": 1500,
+    found = {"words": ["wren"], "ignored": [], "matched": 30, "considered": 8, "tokens": 0,
+             "budget": 1500,
              "parts": [], "left_out": [{"id": "g:2", "rank": 2, "score": -1.0, "why": "budget"},
                                        *left]}  # fmt: skip
     assert format_found(found).splitlines()[2:] == [

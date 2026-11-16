@@ -16,14 +16,24 @@ NOTHING_SENT = "Nothing was sent."  # N29: a refusal at Send's first line
 WITHOUT_SEARCH = "To send without searching, stop searching every document in this chat."
 
 
-def problem_words(problem: dict[str, Any], terminal: bool, chat: bool, at_send: bool) -> str:
+STOPPING = {  # how the terminal stops searching a document, by where the search ran
+    "chat": "stop searching {it} with /search",
+    "run": "take {it} out of the profile's search list",
+    "try": "leave {it} out of the documents you try",  # typed, not a profile's (fix 2's S1)
+}
+
+
+def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: bool) -> str:
     """One problem's sentence. `terminal`: the terminal's and --json's words, else the
-    page's; `chat`: said in a chat, where /search stops searching (else a run or a try,
-    where the profile's list does)."""
+    page's; `where` the search ran: a chat, a run or `document try` (STOPPING)."""
     name = problem.get("document", "")
     state = problem["state"]
     if state == "no_fts5":
-        return f"{NO_FTS5} {WITHOUT_SEARCH}" if at_send else NO_FTS5
+        if not at_send:
+            return NO_FTS5
+        if terminal:  # the command that turns it off (fix 2's C2)
+            return f"{NO_FTS5} `/search none` turns search off for this chat."
+        return f"{NO_FTS5} {WITHOUT_SEARCH}"
     if state == "unreadable":  # N32: its own way out, the same everywhere
         return f"Clarity can't search {name}: its {problem['why'].removeprefix(name + "'s ")}"
     if state == "profile_missing":  # N37
@@ -54,7 +64,7 @@ def problem_words(problem: dict[str, Any], terminal: bool, chat: bool, at_send: 
             else "Rebuild it."
         )
         return f"Clarity can't search {name}: its parts.jsonl isn't one Clarity writes. {way}"
-    stop = stopping(terminal, chat)
+    stop = STOPPING[where] if terminal else "stop searching {it}"
     if state == "missing":  # N31
         way = (
             f"add the file again: `clarity document add FILE --name {name}`"
@@ -88,26 +98,17 @@ def problem_words(problem: dict[str, Any], terminal: bool, chat: bool, at_send: 
     )
 
 
-def stopping(terminal: bool, chat: bool) -> str:
-    """How to stop searching a document, with `{it}` for what's stopped."""
-    if not terminal:
-        return "stop searching {it}"
-    return (
-        "stop searching {it} with /search" if chat else "take {it} out of the profile's search list"
-    )
-
-
 class SearchRefused(ConfigError):
     """A searched message's call (or /try, or a run) refused before anything was sent:
     `problems` says why, as data (each document and its state, the control-token part, or
     no FTS5), and each front end words its way out. str() is the page's words, which the
     log keeps; `terminal` the terminal's and --json's. `at_send` heads both with "Nothing
-    was sent."; `chat` says it's in a chat, where /search stops searching."""
+    was sent."; `where` the search ran: `chat`, `run` or `try`, for the way to stop it."""
 
     def __init__(
-        self, problems: list[dict[str, Any]], at_send: bool = False, chat: bool = True
+        self, problems: list[dict[str, Any]], at_send: bool = False, where: str = "chat"
     ) -> None:
-        self.problems, self.at_send, self.chat = problems, at_send, chat
+        self.problems, self.at_send, self.where = problems, at_send, where
         super().__init__(self.words(terminal=False))
 
     @property
@@ -115,7 +116,7 @@ class SearchRefused(ConfigError):
         return self.words(terminal=True)
 
     def words(self, terminal: bool) -> str:
-        lines = [problem_words(p, terminal, self.chat, self.at_send) for p in self.problems]
+        lines = [problem_words(p, terminal, self.where, self.at_send) for p in self.problems]
         return "\n".join([NOTHING_SENT, *lines] if self.at_send else lines)
 
 

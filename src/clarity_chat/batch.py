@@ -30,7 +30,14 @@ from clarity_chat.logs import LogFile, client_git, machine
 from clarity_chat.models import portable_path
 from clarity_chat.profiles import SEED_MAX, ConfigError, Setting
 from clarity_chat.render import build_prompt
-from clarity_chat.session import ContextError, Prepared, Session, room_left
+from clarity_chat.session import (
+    ContextError,
+    Prepared,
+    SearchRefused,
+    Session,
+    budget_of,
+    room_left,
+)
 
 FIRST_SEED = 42  # a run's seeds are 42, 43, …, starting from the default seed
 SPLIT_RULE = (
@@ -129,15 +136,19 @@ def check_run(
                     f"Opening {i} with profile {name} is {len(prompt.ids)} tokens; with "
                     f"max_tokens {limit} it doesn't fit the context of {n_ctx} tokens."
                 )
-        if p.profile.search:  # searched now, so a stale document stops the run here
-            for opening in openings:
-                session.try_documents(list(p.profile.search), str(p.profile.path), opening)
+        if p.profile.search:  # searched now: a stale document or a control token stops the
+            for opening in openings:  # run here, before any model loads (fix 2's M1)
+                _, problem = session.try_documents(
+                    list(p.profile.search), str(p.profile.path), opening, where="run"
+                )
+                if problem is not None:
+                    raise SearchRefused([problem], where="run")
     return prepared
 
 
 DIFFERS = {  # what can give two profiles different parts for one opening
     "tokenizers": lambda p: (p.model.tokenizer_repo, p.model.tokenizer_revision),
-    "budgets": lambda p: p.profile.budget,
+    "budgets": lambda p: budget_of(p.profile)[0],  # none written is the default (fix 2's C3)
     "search lists": lambda p: tuple(p.profile.search),
     "placements": lambda p: p.profile.placement,
 }
@@ -241,7 +252,7 @@ def run_batch(
                     for warning in conversation.warnings:  # e.g. unread template_kwargs
                         warn(warning)
                     if (i, name) not in blocks:
-                        blocks[i, name] = session.block(opening, chat=False)
+                        blocks[i, name] = session.block(opening, where="run")
                         changed = [
                             d["name"]
                             for d in blocks[i, name].get("found", {}).get("documents", [])
@@ -255,7 +266,8 @@ def run_batch(
                     block = blocks[i, name]
                     outcome = session.say(opening, seed=Setting(seed, "run"), block=block)
                 except (ContextError, BackendError, ConfigError) as e:
-                    raise RunError(f"{where.capitalize()}: {e}") from e
+                    said = e.terminal if isinstance(e, SearchRefused) else e  # a run's words
+                    raise RunError(f"{where.capitalize()}: {said}") from e
                 except KeyboardInterrupt as e:
                     raise RunError(f"Interrupted (Ctrl-C) during {where}.") from e
                 call = outcome.record

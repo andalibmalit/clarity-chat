@@ -200,7 +200,9 @@ def test_a_tampered_parts_file_is_refused_everywhere(root, chat_tokenizer, chang
     said = "notes's parts.jsonl isn't one Clarity writes. Rebuild it."
     assert refusal(lambda: library_parts(root, "notes")) == said
     session, c, _ = chat(root, chat_tokenizer)
-    assert refusal(lambda: c.run("search", "notes", quiet)) == said
+    assert refusal(lambda: c.run("search", "notes", quiet)) == (  # as Send says it (fix 2's C1)
+        "Clarity can't search notes: its parts.jsonl isn't one Clarity writes. Rebuild it."
+    )
     session, c, _ = chat(root, chat_tokenizer, 'search = ["notes"]')
     assert c.run("state", "", quiet)["searching"][0]["state"] == "unreadable"
     assert refusal(lambda: c.run("try", "Tell me about the wren", quiet)) == (

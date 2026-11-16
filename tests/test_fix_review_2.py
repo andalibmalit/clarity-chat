@@ -77,9 +77,9 @@ def test_a_mid_run_refusal_names_the_terminal_s_way_out(root, chat_tokenizer):
                       logs_dir=root / "runs" / "r")  # fmt: skip
     real = session.block
 
-    def stale_then_block(text, chat=True):  # the document changes after the pre-check
+    def stale_then_block(text: str, where: str = "chat") -> dict:  # changed after the pre-check
         (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
-        return real(text, chat)
+        return real(text, where)
 
     session.block = stale_then_block  # type: ignore[method-assign]
     with pytest.raises(RunError) as stopped:
