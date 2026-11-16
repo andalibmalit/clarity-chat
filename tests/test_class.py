@@ -461,7 +461,8 @@ def write_chat(name: str, c: Commands, backend: FakeBackend, tmp_path: Path) -> 
     elif name == "search":  # v0.3.2 B1
         run(f"documents add {path} notes")
         run("search notes")
-        run("say And now?")
+        sent = run("say Tell me about line one")["call"]  # a part goes in (whole-branch S3)
+        assert '<part document="notes">' in sent["prompt_text"]
         run("search none")
         run("say Without it?")
     elif name == "failed call":
