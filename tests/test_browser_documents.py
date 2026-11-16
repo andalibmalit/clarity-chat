@@ -45,6 +45,7 @@ def test_add_writes_the_copy_lists_it_and_searches_it_here(clarity, page, fetche
         "#documents-body .notice"
     )
     assert [d["name"] for d in library_documents(fetched_root)] == ["herons"]
+    assert page.locator("tr[data-name=herons]").count() == 1  # the page lists it (could 6)
     page.click("[data-action=documents-search-here]")
     page.wait_for_selector("#documents-body .notice:has-text('from your next message')")
     assert "This chat searches herons from your next message." in page.inner_text(
@@ -103,3 +104,18 @@ def test_the_try_box_shows_what_try_finds(clarity, page, fetched_root):  # noqa:
     shot(page, "documents-try", "v032-c1")
     assert "Words searched: wren." in said
     assert backend.calls == []  # nothing is sent to the model
+
+
+def test_a_file_add_refuses_shows_its_sentence_in_the_page(clarity, page, fetched_root):  # noqa: F811
+    """V31's reader sentences reach the page (the C1 tripwire review's should 4)."""
+    redirect, _ = clarity
+    documents(page, redirect)
+    with page.expect_file_chooser() as chooser:
+        page.click("[data-action=documents-add]")
+    chooser.value.set_files({"name": "latin.md", "mimeType": "text/markdown",
+                             "buffer": "caf\xe9\n".encode("latin-1")})  # fmt: skip
+    page.wait_for_selector("#documents-add-form")
+    page.click("#documents-add-form button[type=submit]")
+    page.wait_for_selector("#documents-body .refused:not([hidden])")
+    assert "latin.md isn't UTF-8 text." in page.inner_text("#documents-body .refused")
+    assert library_documents(fetched_root) == []
