@@ -132,3 +132,50 @@ def root_and_tokenizer(fetched_root, chat_tokenizer, tmp_path):
     notes = tmp_path / "notes.md"
     notes.write_bytes(b"Line one.\n")
     return fetched_root, chat_tokenizer, notes
+
+
+USAGE = "Usage: /edit [--drop N]... TEXT"
+
+
+# --- the part 2 whole-branch review's S1: --drop's parsing
+
+
+def edited_text(client) -> str:
+    turns = command(client, "history").json()["result"]["turns"]
+    return [t for t in turns if t["role"] == "user"][-1]["text"]
+
+
+def test_drop_keeps_the_spaces_your_text_starts_with(make):  # noqa: F811
+    client, _, _ = make()
+    sent(client)
+    assert "error" not in command(client, "edit", "--drop 1   indented text").json()
+    assert edited_text(client) == "  indented text"
+
+
+@pytest.mark.parametrize("args", ["--drop one Fixed", "--drop -1 Fixed", "--drop 1234567890 Fixed"])
+def test_a_drop_that_isn_t_a_number_is_refused_not_sent(make, args):  # noqa: F811
+    client, _, backend = make()
+    sent(client)
+    calls = len(backend.calls)
+    assert command(client, "edit", args).json().get("error") == USAGE
+    assert len(backend.calls) == calls
+
+
+def test_the_same_drop_twice_is_refused(make):  # noqa: F811
+    client, _, _ = make()
+    sent(client)
+    answer = command(client, "edit", "--drop 1 --drop 1 Fixed").json()
+    assert answer.get("error") == "Drop each attachment once."
+
+
+def test_the_terminal_refuses_a_drop_that_isn_t_a_number(root_and_tokenizer):
+    from tests.test_attach_close import chat_loop
+
+    root, tokenizer, notes = root_and_tokenizer
+    loop, output, _ = chat_loop(root, tokenizer)
+    loop.start()
+    loop.handle(f"/attach {notes}")
+    loop.handle("Summarize")
+    output.clear()
+    loop.handle("/edit --drop one")
+    assert f"! {USAGE}\n" in "".join(output)

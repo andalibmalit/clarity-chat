@@ -521,6 +521,26 @@ def test_edit_s_x_takes_an_attachment_out(clarity, page):  # Q2, the board's ⑥
     assert "Attached:" not in page.locator(".turn.user").last.inner_text()
 
 
+def test_edit_with_only_spaces_sends_nothing(clarity, page):  # the part 2 review's S1
+    redirect, backend = clarity
+    chat(page, redirect)
+    choose(page, "trail-notes.md", NOTES)
+    ready(page)
+    page.click("[data-action=attach-add]")
+    page.wait_for_selector("#chips .chip")
+    page.fill("#message", "What marks the ridge?")
+    page.click("#send")
+    page.wait_for_selector(".reply.last .tb")
+    page.click(".turn.user [data-action=edit]")
+    page.click(".editbox [data-action=edit-drop]")
+    page.fill(".editbox textarea", "   ")
+    calls = len(backend.calls)
+    page.click(".editbox [type=submit]")
+    page.wait_for_timeout(500)
+    assert "Usage:" not in page.inner_text("body")
+    assert page.is_visible(".editbox") and len(backend.calls) == calls
+
+
 def test_the_framing_line_s_edit_saves_this_chat_s_line(clarity, page):  # C4, the board's ⑦
     redirect, _ = clarity
     chat(page, redirect)
