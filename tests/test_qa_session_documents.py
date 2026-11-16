@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -110,3 +111,31 @@ def test_documents_steps_inside_the_root_pass_as_written(root):
     assert qa.parse_steps(steps(root, *lines), json_mode=False, root=root) == lines
     line = json.dumps({"command": "documents", "args": "add docs/notes.md"})
     assert qa.parse_steps(steps(root, line), json_mode=True, root=root) == [line]
+
+
+# --- the v0.3.2 driver review's could 1: each reading pinned on its own
+
+
+def test_a_link_whose_name_holds_a_space_is_judged_whole(root, tmp_path):
+    """Clarity reads the rest whole when it exists: only the whole reading sees this link."""
+    (root / "docs" / "away two.md").symlink_to(tmp_path / "secret.txt")
+    with pytest.raises(qa.Refused):
+        qa.parse_steps(steps(root, "/documents add docs/away two.md"), json_mode=False, root=root)
+
+
+def test_a_path_ending_in_a_space_is_judged_as_clarity_splits_it(root, tmp_path):
+    """Two spaces before the name: Clarity's split leaves a path ending in a space, which
+    only the unstripped rsplit reading holds."""
+    (root / "docs" / "sp.md ").symlink_to(tmp_path / "secret.txt")
+    line = "/documents add docs/sp.md  made-up-name"
+    with pytest.raises(qa.Refused):
+        qa.parse_steps(steps(root, line), json_mode=False, root=root)
+
+
+@pytest.mark.skipif(not hasattr(os, "link"), reason="no hard links")
+def test_a_file_with_a_second_name_is_refused_both_ways(root, tmp_path):
+    os.link(tmp_path / "secret.txt", root / "docs" / "twin.md")
+    with pytest.raises(qa.Refused, match="second name"):
+        qa.parse_steps(steps(root, "/documents add docs/twin.md"), json_mode=False, root=root)
+    with pytest.raises(qa.Refused, match="second name"):
+        qa.check_clarity_args(root, ["document", "add", "docs/twin.md"])
