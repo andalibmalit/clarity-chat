@@ -21,6 +21,10 @@ A conversation's ID, as `clarity chats` lists it, is its log file's name: `logs/
 | `clarity export ID [--out PATH]` | Write a conversation to `logs/exports/ID.jsonl`, or PATH, for a notebook. See [Export](#export). ID is an ID from `clarity chats`, or a log file's path, whose name then names the export. A new export replaces the old file and says so. Starts no server. |
 | `clarity fetch NAME` | Download (and, for the `convert` route, convert) a model from `models.toml`, and record it in `models.lock`. A gated repo needs your own Hugging Face login first ([Fetch a gated model](guides.md#fetch-a-gated-model)); without access, the fetch stops and says what to do. |
 | `clarity verify [NAME …]` | Re-hash fetched models against `models.lock`; with no names, every fetched model. |
+| `clarity document add FILE [--name NAME] [--replace]` | Add a file to the documents Clarity searches, in `local/documents/NAME/` ([The library](#the-library)). It's read as `/attach` reads it, and Clarity says where it writes before and after. NAME defaults to the file's name; `--replace` replaces a document of that name. |
+| `clarity document list [--json]` | The library: each document's name, kind, size, parts (and how many have a title) and state: `ready`, `changed` or `missing`. |
+| `clarity document check [NAME …] [--profile P]` | Hash each document's files against its manifest (with no names, every document); with `--profile`, also list the parts holding that profile's model's control tokens. Exit status 1 if one isn't ready. |
+| `clarity document rebuild NAME` | Build a document's parts again from its `text.md`, after you've fixed it by hand. |
 
 `--root PATH` sets the project folder, and goes before the command: `clarity --root PATH chat --profile NAME`. By default, the project folder is the nearest folder, from the current one upwards, that holds both `defaults.toml` and `server.toml`. `mark` and `note` don't need a project folder, only the log file.
 
@@ -333,6 +337,25 @@ Only these flags are allowed: the ones the shipped `server.toml` sets (`ctx-size
 
 Unless `n-gpu-layers` is 0, Clarity stops if llama.cpp puts the model on the CPU.
 
+## The library
+
+The documents Clarity searches live in `local/documents/NAME/`, four files each:
+
+| File | Contents |
+|---|---|
+| `original.pdf`, `original.html` or `original.txt` | The bytes you added. The extension comes from the kind Clarity read, never from the file's name. |
+| `text.md` | The text Clarity read from it, as `/attach` reads a file ([What Clarity reads from a file](#what-clarity-reads-from-a-file)); a PDF's pages are joined by a blank line. Everything after it is built from this file, so you can fix it by hand and rebuild. |
+| `parts.jsonl` | Its parts, one a line: `ordinal` (from 1), `title` (or null), `text`, `chars` (its range in `text.md`), `page` (the page it starts on, for a PDF not edited since; else null), `words` and `sha256` (of its text). |
+| `manifest.json` | `schema` (1), `name`, `added`, `original` (`name`, `kind`, `bytes`, `sha256`), `extractor`, `text` (`sha256`, `bytes`, `edited`, and `page_starts` for a PDF not edited since), `chunker` (`name`, `version`, `max_words`, `title_chars`), `build_id` (the sha256 of `parts.jsonl`), `parts`, `titled`, and `files` (each other file's `bytes` and `mtime_ns`). |
+
+**Names.** A document's name is 1 to 64 characters: `a` to `z`, `0` to `9`, `-` and `_`, starting with a letter or a digit. `none` and the names Windows reserves (`con`, `prn`, `aux`, `nul`, `com1` to `com9`, `lpt1` to `lpt9`) are refused. The default is the file's name without its extension, lowercased, other characters as `-`, from its first letter or digit; when none is left (a name in another script, say), you give one.
+
+**Adding and replacing.** A document is built in a temporary folder beside its own and renamed into place, so a crash leaves no half document. An existing name is refused unless you replace it; replacing deletes only the files Clarity wrote and keeps anything else in the folder. Nothing is written when a file is refused.
+
+**State.** Before a search, each document's files are compared with its manifest by size and modification time; `clarity document check` hashes them. A document whose files differ is `changed`, and one whose folder is gone is `missing`. Clarity never rebuilds one on its own: `clarity document rebuild NAME` reads `text.md` again (as your input: UTF-8, no NUL, at most 64 MB), cuts its parts, and marks it `edited`, which drops its pages.
+
+**Parts, version 1.** `text.md` is split at blank lines into paragraphs. A line of one to six `#`, a space and text is a heading, outside a fenced code block (between ` ``` ` lines) and except in a code file (a text file whose name ends in a common code extension, such as `.py` or `.js`). A heading starts a part, and its text, up to 120 characters, titles the parts under it until the next heading; the heading line stays in the part's text. Paragraphs under one title are packed into a part of up to 250 words; a longer paragraph is split at sentence ends, and a longer sentence at word boundaries. Parts don't overlap, and what lies between them is only whitespace, so they rebuild `text.md`. A part holding `</part>` or `</document>` is listed when it's checked, and sent as it is.
+
 ## Files Clarity writes
 
 | Path | Contents |
@@ -347,6 +370,7 @@ Unless `n-gpu-layers` is 0, Clarity stops if llama.cpp puts the model on the CPU
 | `logs/exports/ID.jsonl` | A conversation exported for a notebook (`clarity export`, `/export`), named by its log file, so a copied log's export doesn't replace the original's. `clarity chats` doesn't list it. |
 | `local/clarity.lock` | Locked while `chat`, `ui`, `run` or `replay` runs, so only one of them runs in a project at a time. Empty. |
 | `local/clarity.json` | Who holds the lock: process ID, command and start time, and the running llama-server's port, process ID and key. Readable only by you on Linux and macOS (mode 0600); on Windows it gets your folder's permissions. Removed on a normal exit; one left behind means Clarity didn't exit normally, and the next start uses it to stop that server. |
+| `local/documents/NAME/` | A document Clarity searches ([The library](#the-library)). |
 | `local/clarity-open.html` | The private page that opens `clarity ui`'s link, with that start's secret. Readable only by you on Linux and macOS (mode 0600). Deleted when the page it opened connects, and when Clarity stops; Enter in Clarity's terminal writes it again. |
 
 `logs/`, `runs/`, `models/` and `local/` are gitignored. Logs are append-only: a line is never rewritten. Clarity creates the files in `logs/` and `runs/` readable only by you on Linux and macOS (mode 0600); on Windows they get your folder's permissions. Files from before v0.2.1 keep the mode they had.

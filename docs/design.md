@@ -155,6 +155,10 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 - Cost: memory can overshoot by what's allocated between two polls, and Windows has no memory guard until v0.7.0 (the time limit still holds there).
 - The same extractor version gives the same text from the same bytes, with one exception: HTML is read with Python's own HTML parser, which has changed between Python releases, so another Python can change its text. Each attachment logs the extractor's name and version (for HTML, the Python version too), the file's sha256 and the whole extracted text's sha256, so a change shows.
 
+**The library keeps what search reads, and stale is an error.** `clarity document add` copies a file into `local/documents/NAME/` with the text Clarity read and the parts it cut, so search reads files you can inspect and fix: `text.md` is the truth for everything after it. A document whose files no longer match its manifest is refused, never rebuilt on its own: a silent rebuild would change what a later message finds without saying so. Rebuilding is a command you run.
+- Parts are cut by Markdown headings and paragraphs, up to 250 words, so a glossary's headwords title their entries; a PDF has no titles until its `text.md` gets headings. 250 words fit the embedder planned for meaning search, so parts won't need cutting again.
+- Cost: a hand edit to `text.md` drops a PDF's page numbers, since Clarity can no longer say which page a line came from.
+
 ## Determinism and replay
 
 **The same call on the same machine and build gives the same output,** at any temperature, because the seed is always fixed. Live tests check this back to back, after a longer call in between, and after a server restart, on SmolLM2 and OLMo 3. The Transformers backend passes the same checks (back to back and after a reload) on MPS for SmolLM2 and OLMo 3 Instruct, and on the CPU for SmolLM2. It holds because Clarity removes what usually varies: one request at a time, no prompt cache, and fixed batch sizes, so every GPU kernel sees the same shapes every time.

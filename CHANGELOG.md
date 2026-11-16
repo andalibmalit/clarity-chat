@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Added
+- `clarity document add|list|check|rebuild`: the library of documents Clarity will search, in `local/documents/NAME/` (a copy of the file, its text as `text.md`, its parts and a manifest). Clarity says where it writes before and after, builds each document in a temporary folder and renames it into place, and refuses a document whose files have changed until you rebuild it.
+
 ## [0.3.1] - 2026-11-15
 
 Live tests on an M2 Max (macOS), 2026-11-15, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 23 passed, `-m hf` 19 passed, `-m olmo` 12 passed, `-m llama` 3 passed, and `-m browser` 150 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit).
