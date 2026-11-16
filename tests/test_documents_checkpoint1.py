@@ -171,15 +171,19 @@ def test_an_add_without_replace_can_t_replace_through_a_race(root, tmp_path, mon
     assert [p.name for p in (root / "local/documents").iterdir()] == ["notes"]
 
 
-@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="no read-only folders here")
-def test_a_write_that_fails_is_a_refusal_without_a_path(root, tmp_path):
-    (root / "local/documents").mkdir(parents=True)
-    (root / "local/documents").chmod(0o500)
-    try:
-        said = answer(lambda: document_add(root, file(tmp_path, "notes.md", "Made-up.\n")))
-    finally:
-        (root / "local/documents").chmod(0o700)
-    assert said.startswith("Can't write notes in local/documents/: "), said
+def test_a_write_that_fails_is_a_refusal_without_a_path(root, tmp_path, monkeypatch):
+    """The system refusing the write (a folder you can't write, a full disk), injected so it
+    runs on every system: its path stays out of the sentence."""
+    from clarity_chat.documents import library as library_module
+
+    folder = str(root / "local/documents")
+
+    def refused(*args, **kwargs):
+        raise PermissionError(13, "Permission denied", folder)
+
+    monkeypatch.setattr(library_module.tempfile, "mkdtemp", refused)
+    said = answer(lambda: document_add(root, file(tmp_path, "notes.md", "Made-up.\n")))
+    assert said == "Can't write notes in local/documents/: Permission denied.", said
     assert str(root) not in said
 
 
