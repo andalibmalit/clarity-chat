@@ -90,6 +90,24 @@ def test_a_taken_name_s_replace_writes_over_it(clarity, page, fetched_root):  # 
     assert (doc["name"], doc["parts"]) == ("glossary", 1)
 
 
+def test_a_name_typed_after_replace_isn_t_replaced(clarity, page, fetched_root):  # noqa: F811
+    library_add(fetched_root, GLOSSARY, "glossary.md")
+    library_add(fetched_root, b"## Heron\nTall.\n", "herons.md")
+    redirect, _ = clarity
+    documents(page, redirect)
+    with page.expect_file_chooser() as chooser:
+        page.click("[data-action=documents-add]")
+    chooser.value.set_files({"name": "glossary.md", "mimeType": "text/markdown",
+                             "buffer": b"## Owl\nMade-up.\n"})  # fmt: skip
+    page.wait_for_selector("[data-action=documents-replace]")
+    page.click("[data-action=documents-replace]")
+    page.fill("#documents-name", "herons")  # the note named glossary, not herons
+    page.click("#documents-add-form button[type=submit]")
+    page.wait_for_selector("#documents-body .refused:visible")
+    herons = next(d for d in library_documents(fetched_root) if d["name"] == "herons")
+    assert herons["original"] == "herons.md"
+
+
 def test_rebuild_on_a_changed_row(clarity, page, fetched_root):  # noqa: F811
     library_add(fetched_root, GLOSSARY, "glossary.md")
     text = fetched_root / "local/documents/glossary/text.md"
