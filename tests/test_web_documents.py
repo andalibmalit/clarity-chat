@@ -300,3 +300,21 @@ def test_an_empty_try_runs_nothing_and_says_no_command(root, make, message):  # 
     fragment = page(client, **{"try": message})
     assert "Usage" not in fragment and "/try" not in fragment
     assert 'class="parts"' not in fragment and 'role="alert">' not in fragment.split("try")[-1]
+
+
+@pytest.mark.parametrize("added", ["yesterday", "2026-13-01T10:00:00Z", "2026-00-05T10:00:00Z"])
+def test_a_manifest_with_a_bad_date_is_one_unreadable_row(root, make, added):  # must 2
+    import json
+
+    from clarity_chat.documents import library_state
+
+    library_add(root, b"## Heron\nTall.\n", "herons.md")
+    path = root / "local/documents/herons/manifest.json"
+    manifest = json.loads(path.read_bytes())
+    path.write_text(json.dumps({**manifest, "added": added}), encoding="utf-8")
+    assert library_state(root, "herons") == "unreadable"
+    client, _ = make()
+    answer = client.get("/view/documents", headers=GET)
+    assert answer.status_code == 200, answer.text
+    assert row(answer.text, "herons").startswith("herons ! Can’t be read herons's manifest.json")
+    assert row(answer.text, "glossary").endswith("Ready")
