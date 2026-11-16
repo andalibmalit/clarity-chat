@@ -159,6 +159,8 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 - Parts are cut by Markdown headings and paragraphs, up to 250 words, so a glossary's headwords title their entries; a PDF has no titles until its `text.md` gets headings. 250 words fit the embedder planned for meaning search, so parts won't need cutting again.
 - Cost: a hand edit to `text.md` drops a PDF's page numbers, since Clarity can no longer say which page a line came from.
 
+**Word search, and its limits.** Search uses SQLite's FTS5, from the standard library: no new dependency, and 20,000 parts are searched in about half a second. A part matches if it shares any one uncommon word with your message, so most messages match something, and only the best few are considered. The words come from the message you typed, never from earlier ones or from an attachment, so a follow-up like "tell me more" finds nothing. A paraphrase that shares no word is missed; meaning search is planned for that. The stemmer and the common words are English only. The order is the same for the same text, build and SQLite version; Clarity claims no more than that across systems.
+
 ## Determinism and replay
 
 **The same call on the same machine and build gives the same output,** at any temperature, because the seed is always fixed. Live tests check this back to back, after a longer call in between, and after a server restart, on SmolLM2 and OLMo 3. The Transformers backend passes the same checks (back to back and after a reload) on MPS for SmolLM2 and OLMo 3 Instruct, and on the CPU for SmolLM2. It holds because Clarity removes what usually varies: one request at a time, no prompt cache, and fixed batch sizes, so every GPU kernel sees the same shapes every time.
