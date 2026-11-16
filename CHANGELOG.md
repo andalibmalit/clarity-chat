@@ -8,6 +8,10 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-15
+
+Live tests on an M2 Max (macOS), 2026-11-15, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 23 passed, `-m hf` 19 passed, `-m olmo` 12 passed, `-m llama` 3 passed, and `-m browser` 150 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit).
+
 ### Added
 - A chat-mode profile's `[documents]` table sets the line that goes before attached documents in your message (`framing`) and the first line of an excerpt (`excerpt_marker`); `""` means none. Attaching arrives with this release's commands.
 - `/attach PATH` attaches a file to your next message, whole if it fits; `/attach PATH pages A-B` or `lines A-B` attaches an excerpt, and `/attach PATH check` counts it without attaching. `/attach` lists what's waiting and `/detach [N]` removes it. A file that doesn't fit is refused with the numbers, the start that still leaves room for your message, and how far the start that fits goes; one that surely doesn't fit isn't counted whole ("needs more than N tokens"), so a huge text or an amplifying PDF is answered in seconds. `/state` gains `pending` and `reading`, and `/history` lists a message's attachments.
@@ -234,7 +238,8 @@ The first release.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - A llama-server that Clarity starts and checks itself, and a Transformers backend for the same weights.
 
-[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/andalibmalit/clarity-chat/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.3...v0.3.0
 [0.2.3]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/andalibmalit/clarity-chat/compare/v0.2.1...v0.2.2

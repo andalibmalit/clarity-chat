@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from clarity_chat import cli
+from clarity_chat.documents import message_content
 from clarity_chat.export import RECOMPUTE_NOTE, export_log
 from clarity_chat.logs import list_chats, read_records
 from clarity_chat.profiles import ConfigError
@@ -191,7 +192,8 @@ def test_older_calls_get_derived_spans_or_a_reason(make, golden, tmp_path):
             if span["kind"] == "message" and span.get("turn_id"):
                 start, end = span["chars"]
                 text = row["prompt_text"][start:end]
-                assert text == turns[span["turn_id"]]["text"] or span.get("trimmed")
+                turn = turns[span["turn_id"]]  # v0.3.1's: with its attachments' blocks
+                assert text == message_content(turn["text"], turn) or span.get("trimmed")
 
 
 def test_derived_spans_match_the_logged_ones(make):
