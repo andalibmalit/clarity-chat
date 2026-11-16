@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import html
 import re
+from datetime import UTC
 
 import pytest
 from starlette.testclient import TestClient
@@ -76,20 +77,21 @@ def row(fragment: str, name: str) -> str:
 # --- the library
 
 
+ADDED = "2026-11-16T02:00:00Z"  # a fixed time (the fix check's could B)
+
+
 def test_the_rows_equal_documents(root, make):
+    import json
+
+    path = root / "local/documents/glossary/manifest.json"
+    path.write_text(json.dumps({**json.loads(path.read_bytes()), "added": ADDED}), "utf-8")
     client, _ = make()
     listed = command(client, "documents").json()["result"]
     (doc,) = listed["documents"]
     fragment = page(client)
-    assert "added" in doc  # the row's date (C1)
-    said = row(fragment, "glossary")
-    from datetime import datetime
-
-    local = datetime.fromisoformat(doc["added"]).astimezone()  # the local date (could 7)
-    months = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
-    assert said == (
-        f"glossary glossary.md · added {local.day} {months[local.month - 1]} {local.year}; 2 "
-        "parts, 2 with a title "
+    assert doc["added"] == ADDED  # the row's date (C1)
+    assert row(fragment, "glossary") == (
+        f"glossary glossary.md · added {web.date_words(ADDED)}; 2 parts, 2 with a title "
         f"Text {doc['bytes']} bytes 2 Ready"
     )
     words = text_of(fragment)
@@ -372,7 +374,7 @@ def made_up_found(parts: list[dict], left: list[tuple[int, str]], matched: int) 
 def test_found_view_s_notes_and_already_rows():  # should 2
     found = made_up_found([made_up_part(1)], [(2, "already in the chat"), (3, "budget"),
                           (4, "budget")], 12)  # fmt: skip
-    view = web.found_view(found, ["g"])
+    view = web.found_view(found, ["g"], True)
     assert view["summary"] == "1 part · 50 tokens · 1 more already in the chat"
     assert [(r["rank"], r["label"], r["why"]) for r in view["rows"]] == [
         (1, "g · part 1", "in its text: wren"),
@@ -387,9 +389,9 @@ def test_found_view_s_notes_and_already_rows():  # should 2
 
 
 def test_found_view_s_nothing_new_and_nothing_fit():  # should 2
-    new = web.found_view(made_up_found([], [(1, "already in the chat")], 1), ["g"])
+    new = web.found_view(made_up_found([], [(1, "already in the chat")], 1), ["g"], True)
     assert new["summary"] == "nothing new · 1 already in the chat"
-    fit = web.found_view(made_up_found([], [(1, "budget"), (2, "budget")], 2), ["g"])
+    fit = web.found_view(made_up_found([], [(1, "budget"), (2, "budget")], 2), ["g"], True)
     assert fit["summary"] == "nothing added · 2 didn't fit the budget"
     assert fit["notes"][0].startswith("2 matched but were left out:")
 
@@ -426,10 +428,16 @@ def test_no_framing_line_no_first_count_sentence(root, make):
     assert 'glossary · "Wren"' in tried and FIRST_COUNT not in tried
 
 
-def test_an_attached_message_s_framing_line_is_the_attachment_s(root, make, tmp_path):
+def test_an_attached_message_s_framing_line_is_the_attachment_s(root, make):
     client, _ = make('search = ["glossary"]')
-    notes = tmp_path / "notes.md"
-    notes.write_text("Made-up notes.\n", encoding="utf-8")
-    command(client, "attach", str(notes))
+    upload_id = upload(client, b"Made-up notes.\n", "notes.md").json()["upload"]
+    assert "attached" in command(client, "attach", upload_id).json()["result"]
     tried = text_of(page(client, **{"try": "Tell me about the wren"}))
     assert 'glossary · "Wren"' in tried and FIRST_COUNT not in tried
+
+
+def test_the_row_s_date_is_the_local_one():  # could 7, with a zone (could B)
+    from datetime import timedelta, timezone
+
+    assert web.date_words(ADDED, UTC) == "16 Nov 2026"
+    assert web.date_words(ADDED, timezone(timedelta(hours=-5))) == "15 Nov 2026"

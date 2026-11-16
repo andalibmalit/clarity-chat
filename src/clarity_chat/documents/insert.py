@@ -237,6 +237,14 @@ class Fit:
     at_least: int | None = None
 
 
+def framing_in_first_part(framing: str, attached: bool) -> bool:
+    """Whether a message's first found part counts the framing line in its tokens (the fill
+    adds parts one at a time, so the first part's increment holds what goes before it):
+    only with a framing line and nothing attached, since an attachment already brought the
+    line in (the C1 fix check's should A). C1's try box and C3's list both say it."""
+    return bool(framing) and not attached
+
+
 def framing_of(profile: Profile) -> tuple[str, str]:
     """The framing line and its origin: the profile's own (which may be empty: none),
     else Clarity's default."""
