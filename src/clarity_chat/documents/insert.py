@@ -142,6 +142,37 @@ SENTENCES = {
     "name_taken": "Give this one a different name.",
     "searches_next": "This chat searches {name} from your next message.",
     "state_changed": "A file in its folder has changed since Clarity cut it into parts.",
+    # "Search it" on the attach sheet and the Searching chooser (v0.3.2 C2; N2-N27, N60)
+    "search_it": "For each message you send, Clarity adds the parts of this document that share "
+    'a word with your message, best match first; common words such as "the" don\'t count. A '
+    "message gets at most {considered} parts and {budget} tokens ({origin}), shared by every "
+    "document this chat searches. Added parts stay in the chat with that message.",
+    "already_documents": "Already in your documents as {name}. Nothing new is added to them.",
+    "already_searched": "This chat already searches it.",
+    "stale_copy": "A file in its folder has changed since Clarity cut it into parts. Rebuild it "
+    "in Documents… before you send.",
+    "control_before": "This file holds text this model reads as control tokens ({tokens}). "
+    "Clarity won't send a message that finds a part holding one: it stops and names the part.",
+    "replace_label": "Replace {name} with this file",
+    "replace_note": "Replacing writes this file's copy, text and parts over {name}'s in "
+    "local/documents/{name}/. Anything else you put in that folder stays.",
+    "control_count": "{n} parts hold a control token for this model. A message that finds one "
+    "isn't sent.",
+    "control_count_one": "1 part holds a control token for this model. A message that finds "
+    "it isn't sent.",
+    "searching_some": "Searching: {documents}",
+    "searching_none": "Searching: no documents",
+    "searching_head": "Searched for each message you send",
+    "searching_profile": "From this chat's profile, {profile}. A change here applies to this "
+    "chat only.",
+    "searching_chat": "Changed in this chat.",
+    "searching_others": "Your other documents",
+    "searching_missing": "Its folder in local/documents/ is gone. To search it again, add the "
+    "file again in Documents….",
+    "searching_empty": "No documents yet. Add one in Documents…, or press the paperclip and "
+    'choose "Search it".',
+    "edit_searched": "The new text will be searched again. The parts found before stay with the "
+    "old version.",
     "text_mode_search": "Searching needs a chat-mode profile; {profile} is in text mode.",
     "try_open": "Type a message. Clarity shows the parts it would add if you sent it next in "
     "this chat, which searches {names}. Token counts are for this chat's profile, {profile}. "

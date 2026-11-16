@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import hashlib
 import html
 import json
 import math
@@ -59,6 +60,7 @@ from clarity_chat.commands import (
     format_rebuilt,
 )
 from clarity_chat.documents import (
+    CONSIDERED,
     MAX_BYTES,
     PAGES_LOST,
     SENTENCES,
@@ -490,6 +492,8 @@ def make_app(
                 params.update(attach_params(request.query_params))
             if request.path_params["name"] == "documents":
                 params.update(documents_params(request.query_params))
+            if request.path_params["name"] == "picker":
+                params["library"] = request.query_params.get("library")
             try:
                 return HTMLResponse(await renderer(worker, params))
             except (KeyError, TypeError, AttributeError) as e:  # a record a read refuses too
@@ -909,6 +913,7 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
         changed_lines=changed_lines,
         back_in_box=back_in_box,
         stays=stays,
+        edit_searched=SENTENCES["edit_searched"] if state["searching"] else None,  # N60
     )
 
 
@@ -936,7 +941,15 @@ async def _picker(worker: Worker, params: dict[str, str | None]) -> str:
     button = starting or (
         {"name": state["profile"], "model_name": state["model_name"]} if in_chat else None
     )
+    search = None
+    if in_chat:
+        # The chooser lists the rest of the library only when it opens (`library`): /documents
+        # isn't a read that runs at once, and the row is drawn on every refresh.
+        reading = params.get("library") == "1" and state["running"] is None
+        docs = (await result_of(worker, "documents"))["documents"] if reading else None
+        search = searching_chooser(state, docs)
     return templates.get_template("picker.html").render(
+        search=search,
         button=button,
         current=state["profile"] if in_chat else None,
         in_chat=in_chat,
@@ -947,6 +960,69 @@ async def _picker(worker: Worker, params: dict[str, str | None]) -> str:
         nothing_fetched=not any(p["fetched"] for p in profiles),
         line=profile_line,
     )
+
+
+STATE_LABELS = {"ready": "Ready", "changed": "! Changed", "missing": "! Missing",
+                "unreadable": "! Can’t be read"}  # fmt: skip
+
+
+def searching_chooser(state: dict[str, Any], docs: list[dict[str, Any]] | None) -> dict[str, Any]:
+    """The Searching button and its chooser (v0.3.2 C2): the chat's documents, ticked, each
+    with its state and its way out (N21-N26), then the rest of the library; a control-token
+    count (N13); sending /search when a row is ticked or unticked."""
+    searching = state["searching"]
+    n = len(searching)
+    label = SENTENCES["searching_some"].format(documents=counted(n, "document")) if n else (
+        SENTENCES["searching_none"])  # fmt: skip
+    hot = any(d["state"] != "ready" for d in searching)
+    chooser: dict[str, Any] = {"label": label, "hot": hot, "rows": [], "text_mode": None}
+    if state["mode"] != "chat":  # N71, pressing Searching in a text-mode chat
+        chooser["text_mode"] = SENTENCES["text_mode_search"].format(profile=state["profile"])
+        return chooser
+    unread, docs = docs is None, docs or []  # unread: /documents waits behind a reply
+    library = {d["name"]: d for d in docs}
+    chooser.update(head=SENTENCES["searching_head"], others=SENTENCES["searching_others"],
+                   empty=None if docs or searching or unread
+                   else SENTENCES["searching_empty"])  # fmt: skip
+    chooser["origin"] = (
+        SENTENCES["searching_profile"].format(profile=state["profile"])
+        if state["searching_origin"] == "profile"
+        else SENTENCES["searching_chat"]
+    )
+    for d in searching:
+        row = {"name": d["name"], "checked": True, "state": STATE_LABELS[d["state"]],
+               "bad": d["state"] != "ready", "note": None, "rebuild": False,
+               "control": None}  # fmt: skip
+        doc = library.get(d["name"], {})
+        row["desc"] = (
+            f"{doc['original']} · {counted(doc['parts'], 'part')}"
+            if "original" in doc
+            else "not in your documents"
+            if d["state"] == "missing"
+            else f"local/documents/{d['name']}/"
+        )
+        if d["state"] == "changed":
+            row.update(note=SENTENCES["state_changed"], rebuild=True)
+            row["pages"] = PAGES_LOST if doc.get("kind") == "pdf" else None
+        elif d["state"] == "missing":
+            row["note"] = SENTENCES["searching_missing"]
+        elif d["state"] == "unreadable":
+            row["note"] = d.get("why")
+        elif count := d.get("control_token_parts"):
+            row["control"] = (
+                SENTENCES["control_count_one"]
+                if count == 1
+                else SENTENCES["control_count"].format(n=f"{count:,}")
+            )
+        chooser["rows"].append(row)
+    others = [d for d in docs if d["name"] not in {s["name"] for s in searching}]
+    for i, doc in enumerate(others):
+        chooser["rows"].append({
+            "name": doc["name"], "checked": False, "others": i == 0, "state": None,
+            "desc": f"{doc['original']} · {counted(doc['parts'], 'part')}"
+            if "original" in doc else f"local/documents/{doc['name']}/",
+        })  # fmt: skip
+    return chooser
 
 
 async def _about(worker: Worker, params: dict[str, str | None]) -> str:
@@ -1676,7 +1752,58 @@ async def _attach(worker: Worker, params: dict[str, str | None]) -> str:
     state = await result_of(worker, "state")
     typed = (params["first"], params["last"]) if part_error else None
     sheet = attach_sheet(check, upload, state["pending"], part_error, typed)
+    if state["mode"] == "chat" and upload in worker.uploads:  # C2: "Search it"
+        docs = (await result_of(worker, "documents"))["documents"]
+        sheet["search"] = search_choice(check, *worker.uploads[upload], docs, state)
+        sheet.update(searched_sentence=SENTENCES["searches_next"],
+                     control_count=SENTENCES["control_count"],
+                     control_count_one=SENTENCES["control_count_one"])  # fmt: skip
     return templates.get_template("attach.html").render(error=None, s=sheet)
+
+
+def search_choice(
+    check: dict[str, Any],
+    data: bytes,
+    filename: str,
+    docs: list[dict[str, Any]],
+    state: dict[str, Any],
+) -> dict[str, Any]:
+    """The sheet's third choice, "Search it" (v0.3.2 C2): what it does (N2), and where the
+    copy goes (N3), or the library's copy of the same file (N4-N6), or the name box (N7-N9,
+    with the owner's Q12 Replace); control tokens before the click (N10)."""
+    budget = state["budget"]
+    origin = SENTENCES["budget_profile" if budget["origin"] == "profile" else "budget_default"]
+    note = SENTENCES["search_it"].format(considered=CONSIDERED, budget=f"{budget['tokens']:,}",
+                                         origin=origin)  # fmt: skip
+    choice: dict[str, Any] = {"note": note, "ok": True, "name": "", "existing": None,
+                              "lines": [], "warn": None, "why": None, "rule": None,
+                              "replace": None}  # fmt: skip
+    if check["control_tokens"]:
+        choice["warn"] = SENTENCES["control_before"].format(
+            tokens=", ".join(dict.fromkeys(check["control_tokens"]))
+        )
+    searching = {d["name"] for d in state["searching"]}
+    same = next((d for d in docs if d.get("sha256") == hashlib.sha256(data).hexdigest()), None)
+    if same is not None:  # the same bytes: nothing new is added
+        choice.update(existing=same["name"], name=same["name"])
+        choice["lines"].append(SENTENCES["already_documents"].format(name=same["name"]))
+        if same["name"] in searching:
+            choice["lines"].append(SENTENCES["already_searched"])
+            choice["ok"] = False
+        elif same["state"] == "changed":
+            choice["stale"] = SENTENCES["stale_copy"]
+        return choice
+    name, why = document_name(filename, None, {d["name"] for d in docs})
+    choice.update(name=name, why=why)
+    if why is None:
+        choice["lines"].append(SENTENCES["keeps_copy"].format(name=name))
+    elif name in {d["name"] for d in docs}:  # taken: another name, or Replace (Q12)
+        choice["why"] = f"{why} {SENTENCES['name_taken']}"
+        choice["replace"] = {"label": SENTENCES["replace_label"].format(name=name),
+                             "note": SENTENCES["replace_note"].format(name=name)}  # fmt: skip
+    elif not name:
+        choice["rule"] = NAME_RULE
+    return choice
 
 
 KINDS = {"text": "Text", "html": "HTML", "pdf": "PDF"}

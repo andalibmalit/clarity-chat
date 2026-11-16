@@ -65,7 +65,7 @@ def text_of(fragment: str) -> str:
 
 def search_option(sheet: str) -> str:
     """The sheet's "Search it" choice: from its element to the comment that ends it."""
-    found = re.search(r'id="attach-search-opt".*?<!-- /attach-search-opt -->', sheet, re.S)
+    found = re.search(r'<div[^>]*id="attach-search-opt".*?<!-- /attach-search-opt -->', sheet, re.S)
     assert found, "no Search it choice"
     return found.group(0)
 
@@ -181,7 +181,9 @@ def test_documents_add_replace_writes_over_the_document(root, make):  # Q12
 
 
 def chooser(client) -> str:
-    found = re.search(r'<div class="menu searchmenu".*?</div>\s*$', get(client, "picker"), re.S)
+    found = re.search(
+        r'<div class="menu searchmenu".*?</div>\s*$', get(client, "picker", library="1"), re.S
+    )
     assert found, "no chooser"
     return found.group(0)
 

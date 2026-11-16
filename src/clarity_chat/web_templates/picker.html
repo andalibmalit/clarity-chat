@@ -1,6 +1,7 @@
 <button type="button" class="picker" id="picker-button" aria-haspopup="menu" aria-expanded="false" aria-controls="picker-menu"{% if button %} aria-label="Profile: {{ button.name }} · {{ button.model_name }}. Start a new chat with another profile"{% endif %}{% if waits %} aria-disabled="true" aria-describedby="picker-waits"{% endif %}><span class="nm">{% if button %}{{ button.name }} · {{ button.model_name }}{% else %}Choose a profile{% endif %}</span><svg class="icon sm" aria-hidden="true"><use href="#i-up"></use></svg></button>
 {% if waits %}<span class="vh" id="picker-waits">{{ waits }}</span>
 {% endif %}{% if changed is not none %}<button type="button" class="setbtn" data-action="settings"><svg class="icon sm" aria-hidden="true"><use href="#i-sliders"></use></svg>Settings{% if changed %} <span class="ch">· {{ changed }} changed</span>{% endif %}</button>
+{% endif %}{% if search %}<button type="button" class="setbtn srchbtn{% if search.hot %} hot{% endif %}" id="search-button" aria-haspopup="dialog" aria-expanded="false" aria-controls="search-menu" data-action="search-menu"><svg class="icon sm" aria-hidden="true"><use href="#i-search"></use></svg>{% if search.hot %}! {% endif %}{{ search.label }}<svg class="icon sm" aria-hidden="true"><use href="#i-up"></use></svg></button>
 {% endif %}{% if context %}<span class="ctx{% if context.hot %} hot{% endif %}">{% if context.hot %}! {% endif %}{{ context.text }}</span>
 {% endif %}{% set heading = "Start a new chat with" if in_chat else "Choose a profile to start" %}<div class="menu pickmenu" id="picker-menu" role="menu" aria-label="{{ heading }}"{% if nothing_fetched %} aria-describedby="picker-none"{% endif %} hidden>
 <div class="mhead{% if not in_chat %} big{% endif %}">{{ heading }}</div>
@@ -11,3 +12,12 @@
 {% endfor %}</div>
 {% endfor %}{% if in_chat %}<p class="note3">Your current chat stays as it is.</p>
 {% endif %}</div>
+{% if search %}<div class="menu searchmenu" id="search-menu" role="dialog" aria-label="Documents this chat searches" hidden>
+{% if search.text_mode %}<p class="pnote">{{ search.text_mode }}</p>
+{% else %}<div class="mhead">{{ search.head }}</div><p class="pnote">{{ search.origin }}</p>
+{% for r in search.rows %}{% if r.others %}<div class="grp">{{ search.others }}</div>
+{% endif %}<div class="srow"><button type="button" class="mi" role="menuitemcheckbox" aria-checked="{{ 'true' if r.checked else 'false' }}" data-action="search-toggle" data-name="{{ r.name }}"><span class="cb" aria-hidden="true"><svg class="icon sm"><use href="#i-check"></use></svg></span><span class="t"><span class="pname">{{ r.name }}</span><span class="d2">{{ r.desc }}</span></span>{% if r.state %}<span class="st{% if r.bad %} bad{% endif %}">{{ r.state }}</span>{% endif %}</button>{% if r.note %}<p class="snote">{{ r.note }}</p>{% endif %}{% if r.rebuild %}<button type="button" class="btn sm" data-action="search-rebuild" data-name="{{ r.name }}">Rebuild</button>{% if r.pages %}<p class="snote">{{ r.pages }}</p>{% endif %}{% endif %}{% if r.control %}<p class="snote w">! {{ r.control }}</p>{% endif %}</div>
+{% endfor %}{% if search.empty %}<p class="pnote">{{ search.empty }}</p>
+{% endif %}{% endif %}<div class="msep" role="separator"></div><button type="button" class="mi" data-action="documents">Documents…</button>
+</div>
+{% endif %}

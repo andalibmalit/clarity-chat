@@ -1495,7 +1495,8 @@ function updateAdd() {
   const ok = Boolean(choice) && choice.dataset.ok === "true";
   if (ok) add.removeAttribute("aria-disabled");
   else add.setAttribute("aria-disabled", "true");
-  add.textContent = choice && choice.dataset.choice === "new" ? "Start new chat" : "Add to message";
+  const labels = { new: "Start new chat", search: "Search it" };
+  add.textContent = (choice && labels[choice.dataset.choice]) || "Add to message";
   const why = $("attach-why");
   why.dataset.choose = why.dataset.choose || why.textContent; // the server's sentence
   let text = "";
@@ -1548,6 +1549,27 @@ document.addEventListener("change", (event) => {
   if (["attach-from", "attach-to"].includes(event.target.id)) rangeChanged();
 });
 
+async function searchIt(choice) {
+  // "Search it" (v0.3.2 C2): the file into your documents (unless the same file is there),
+  // then /search with the chat's list and it; the notice says so, with its control-token
+  // count from /search's answer.
+  const existing = choice.dataset.existing;
+  const name = existing || $("attach-search-name").value.trim();
+  if (!existing) {
+    const words = ["add", choice.dataset.args, name, ...(choice.dataset.replace === "true" ? ["--replace"] : [])];
+    const added = await command("documents", words.join(" ")).catch(unanswered);
+    if (added.error || added.handled) return added;
+  }
+  const answer = await command("search", [...new Set([...searchedNames(), name])].join(" ")).catch(unanswered);
+  if (answer.error || answer.handled) return answer;
+  const box = $("attach-search-note");
+  const lines = [box.dataset.searched.replace("{name}", () => name)];
+  const count = (answer.result.searching.find((d) => d.name === name) || {}).control_token_parts;
+  if (count) lines.push(count === 1 ? box.dataset.controlOne : box.dataset.control.replace("{n}", () => String(count)));
+  clarity.searchNotice = lines;
+  return answer;
+}
+
 async function addAttachment() {
   const choice = checkedChoice();
   if (!choice || choice.dataset.ok !== "true" || attaching.adding) return;
@@ -1567,6 +1589,8 @@ async function adding(choice) {
   if (choice.dataset.choice === "new") {
     answer = started = await command("new").catch(unanswered);
     if (!answer.error && !answer.handled) answer = await command("attach", choice.dataset.args).catch(unanswered);
+  } else if (choice.dataset.choice === "search") {
+    answer = await searchIt(choice);
   } else {
     answer = await command("attach", choice.dataset.args).catch(unanswered);
   }
@@ -1581,6 +1605,11 @@ async function adding(choice) {
   }
   $("attach-sheet").close();
   await refresh();
+  if (clarity.searchNotice) {
+    const [first, ...rest] = clarity.searchNotice;
+    clarity.searchNotice = null;
+    notice(null, [first, ...rest.map((line) => `! ${line}`)].join(" "));
+  }
   $("message").focus();
 }
 
@@ -1806,6 +1835,23 @@ function documentsAdd(form) {
 
 function documentsSearch(names, after) {
   documentsCommand("search", names.length ? names.join(" ") : "none", after);
+}
+
+async function openChooser() {
+  // The chooser reads the library when it opens, as the picker reads its profiles.
+  const row = await view("picker", { library: "1" }).catch(() => null);
+  if (row !== null) swap($("composer-row"), row);
+  if ($("search-button")) showMenu($("search-button"));
+}
+
+async function chooserCommand(name, args) {
+  // A command from the chooser: the row under the box is drawn again from /state and the
+  // chooser opens again on it; a refusal is a notice.
+  const answer = await command(name, args).catch(unanswered);
+  if (answer.handled) return;
+  if (answer.error) notice("!", answer.error);
+  await refresh();
+  await openChooser();
 }
 
 function searchedNames() {
@@ -2037,7 +2083,22 @@ const THREAD = {
   "rename-cancel": () => renaming(false, true),
   export: () => exportChat(),
   "export-close": () => $("export-sheet").close(),
-  documents: () => openDocuments(),
+  documents: () => {
+    hideMenu(false);
+    openDocuments();
+  },
+  "search-menu": (element) => {
+    if (openMenu && openMenu.button === element) hideMenu(true);
+    else openChooser();
+  },
+  "search-toggle": (element) => {
+    // The chooser (v0.3.2 C2): a row ticked or unticked sends /search with the new list.
+    const name = element.dataset.name;
+    const names = searchedNames();
+    const next = element.getAttribute("aria-checked") === "true" ? names.filter((n) => n !== name) : [...names, name];
+    chooserCommand("search", next.length ? next.join(" ") : "none");
+  },
+  "search-rebuild": (element) => chooserCommand("documents", `rebuild ${element.dataset.name}`),
   "documents-close": () => $("documents-sheet").close(),
   "documents-add": () => {
     // A fresh input each press, as the paperclip's (Firefox keeps a used one's file).
@@ -2073,6 +2134,13 @@ const THREAD = {
     if (element.dataset.counted === "false") rangeChanged(); // the part: count its boxes (should 4)
   },
   "attach-preview": () => showPreview($("attach-preview").hidden),
+  "attach-replace": (element) => {
+    // Q12: Replace, once its sentence says what's overwritten; Search it then replaces.
+    $("attach-replace-note").hidden = false;
+    element.setAttribute("aria-expanded", "true");
+    $("attach-search").dataset.replace = "true";
+    $("attach-search-name").value = element.closest(".name").querySelector("input").defaultValue;
+  },
   "attach-add": () => addAttachment(),
   "attach-cancel": () => cancelRead(),
   "reading-cancel": async (element) => {
