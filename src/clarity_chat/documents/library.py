@@ -454,7 +454,10 @@ def check(root: Path, name: str) -> dict[str, Any]:
     found: dict[str, Any] = {"name": name, "state": "changed" if problems else "ready"}
     found["problems"] = problems
     if not problems:  # decision 7: listed, as v0.3.1 lists </document>
-        found["closing_tag_parts"] = closing_tag_parts(parts_of(root, name, manifest)[0])
+        try:
+            found["closing_tag_parts"] = closing_tag_parts(parts_of(root, name, manifest)[0])
+        except PartsRefused:  # its hash matches a manifest made to match: rebuild (fix 2's C1)
+            found.update(state="changed", problems=["parts.jsonl isn't one Clarity writes"])
     return found
 
 

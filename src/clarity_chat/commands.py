@@ -557,7 +557,9 @@ def document_list(root: Path) -> dict[str, Any]:
 def _try(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     """/try TEXT: what a message with TEXT would find now, with no model call (v0.3.2 B4)."""
     found, problem = c.session.try_search(needs(args, "/try TEXT"))
-    terminal = c.uploads is None  # the page words its own way out (part 1's M1)
+    # The one result worded by the front end that asked (fix 2's C6): the page serves
+    # uploads, so its Commands has them; the terminal and --json name their commands.
+    terminal = c.uploads is None
     refused = SearchRefused([problem]).words(terminal) if problem else None
     return {"found": found, "refused": refused}
 
@@ -565,7 +567,7 @@ def _try(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 def document_try(root: Path, names: list[str], profile: str, text: str) -> dict[str, Any]:
     """`clarity document try`: what a first message would find in a new chat on `profile`."""
     found, problem = Session(root).try_documents(names, profile, text)
-    refused = SearchRefused([problem], chat=False).terminal if problem else None
+    refused = SearchRefused([problem], where="try").terminal if problem else None
     return {"found": found, "refused": refused}
 
 
