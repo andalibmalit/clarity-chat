@@ -1966,9 +1966,7 @@ def attach_sheet(
     choice = "part" if chosen or typed else "whole" if check["fits"] else None
     new = not check["fits"] and check["fits_new_chat"]
     names = ", ".join(a["name"] for a in pending)
-    origin = SENTENCES[
-        "origin_profile" if check["framing_origin"] == "profile" else "origin_default"
-    ]
+    origin = SENTENCES[f"origin_{check['framing_origin']}"]
     own_marker = check["excerpt_marker_origin"]
     marker_origin = SENTENCES["origin_default" if own_marker == "default" else "origin_profile"]
     return {

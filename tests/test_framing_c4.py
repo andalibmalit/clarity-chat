@@ -72,11 +72,11 @@ def test_framing_is_logged_and_kept_on_resume(root, make):  # noqa: F811
 def test_the_attach_check_counts_with_this_chat_s_line(root, make):  # noqa: F811
     client, _ = make()
     upload_id = upload(client, b"Line one.\n", "notes.md").json()["upload"]
-    before = command(client, "attach", f"{upload_id} check").json()["result"]
+    before = command(client, "attach", f"{upload_id} check").json()["result"]["check"]
     command(client, "framing", "none")
-    after = command(client, "attach", f"{upload_id} check").json()["result"]
+    after = command(client, "attach", f"{upload_id} check").json()["result"]["check"]
     assert (after.get("framing"), after.get("framing_origin")) == ("", "chat")
-    assert after["whole"]["tokens"] < before["whole"]["tokens"]
+    assert after["tokens_whole"] < before["tokens_whole"]
 
 
 def test_a_text_mode_chat_has_no_framing_line(root, make):  # noqa: F811
@@ -85,3 +85,16 @@ def test_a_text_mode_chat_has_no_framing_line(root, make):  # noqa: F811
     assert (
         answer.get("error") == "The framing line needs a chat-mode profile; text is in text mode."
     )
+
+
+def test_the_terminal_says_the_chat_s_line(root, chat_tokenizer):  # noqa: F811
+    from tests.test_attach_close import chat_loop
+
+    loop, output, _ = chat_loop(root, chat_tokenizer)
+    loop.start()
+    output.clear()
+    loop.handle(f"/framing {OURS}")
+    assert f"Framing line (this chat): {OURS}\n" in "".join(output)
+    output.clear()
+    loop.handle("/framing none")
+    assert "No framing line (this chat).\n" in "".join(output)

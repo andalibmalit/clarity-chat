@@ -466,9 +466,7 @@ def check_lines(check: dict[str, Any]) -> list[str]:
         lines.append(SENTENCES["control_tokens"].format(tokens=", ".join(check["control_tokens"])))
     if check["has_closing_tag"]:
         lines.append(SENTENCES["closing_tag"])
-    origin = SENTENCES[
-        "origin_default" if check["framing_origin"] == "default" else "origin_profile"
-    ]
+    origin = SENTENCES[f"origin_{check['framing_origin']}"]
     if check["framing"]:
         lines.append(SENTENCES["framing"].format(origin=origin, framing=check["framing"]))
     else:
@@ -579,7 +577,7 @@ def _try(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     refused = SearchRefused([problem]).words(terminal) if problem else None
     conversation = c.session.conversation
     assert conversation is not None  # try_search needs one
-    framing, _ = documents.framing_of(conversation.profile)
+    framing, _ = c.session.framing()
     framed = documents.framing_in_first_part(framing, bool(conversation.pending))
     return {"found": found, "refused": refused, "framed": framed}
 
@@ -592,6 +590,24 @@ def document_try(root: Path, names: list[str], profile: str, text: str) -> dict[
     framing, _ = documents.framing_of(session.profile_for(profile)[0])
     framed = documents.framing_in_first_part(framing, False)  # a first message, nothing attached
     return {"found": found, "refused": refused, "framed": framed}
+
+
+def framing_now(conversation: Any) -> tuple[str | None, str | None]:
+    """/state's framing line and its origin for the conversation it holds (another thread
+    can be switching the session's): this chat's, else the profile's; none in text mode."""
+    if conversation.profile.mode != "chat":
+        return None, None
+    if conversation.chat_framing is not None:
+        return conversation.chat_framing, "chat"
+    return documents.framing_of(conversation.profile)
+
+
+def _framing(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    """/framing TEXT: this chat's framing line from now on; /framing none: no line;
+    /framing alone: the profile's again (v0.3.2 C4, like /set)."""
+    record = c.session.set_framing(None if not args else "" if args == "none" else args)
+    framing, origin = c.session.framing()
+    return {"framing": framing, "framing_origin": origin, "record": record}
 
 
 def _search(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -1145,6 +1161,8 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "searching": [],
         "searching_origin": None,
         "budget": None,
+        "framing": None,
+        "framing_origin": None,
     }
     if conversation is None:
         return out
@@ -1162,6 +1180,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "mode": conversation.profile.mode,  # the paperclip opens the picker in the press
         "searching": session.searching(),
         "searching_origin": conversation.searching_origin,
+        **dict(zip(("framing", "framing_origin"), framing_now(conversation), strict=True)),
         "budget": dict(zip(("tokens", "origin"), session.budget(), strict=True)),
         "head": conversation.head,
         "turns": turns,
@@ -1293,6 +1312,12 @@ COMMANDS: dict[str, Command] = {
         cancellable=True,  # /cancel stops the reading
     ),
     "detach": Command("/detach [N]", "remove waiting attachment N, or all of them", _detach),
+    "framing": Command(
+        "/framing [TEXT | none]",
+        "the line before this chat's documents from now on; none: no line; alone: the "
+        "profile's again",
+        _framing,
+    ),
     "search": Command(
         "/search [NAME … | none]",
         "the documents this chat searches for each message; names: search these from now on; "
@@ -1305,7 +1330,7 @@ COMMANDS: dict[str, Command] = {
         _try,
     ),
     "documents": Command(
-        "/documents [add PATH [NAME] | rebuild NAME]",
+        "/documents [add PATH [NAME] [--replace] | rebuild NAME]",
         "the documents Clarity can search; add: add a file; rebuild: build a document's parts "
         "again from its text.md",
         _documents,
