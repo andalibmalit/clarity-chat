@@ -79,7 +79,7 @@ class Commands:
         self.start = secrets.token_urlsafe(16)
 
     def _call(self, name: str, args: str, emit: Emit) -> dict[str, Any]:
-        if name not in READS:
+        if name not in READS and name != "state":  # /state reads the history too
             return COMMANDS[name].run(self, args, emit)
         try:
             return COMMANDS[name].run(self, args, emit)
