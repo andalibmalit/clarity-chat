@@ -1908,6 +1908,11 @@ def json_response(content: dict[str, Any]) -> Response:
     return Response(body, media_type="application/json")
 
 
+async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
+    """The Documents… page (v0.3.2 C1): a stub, red first."""
+    return templates.get_template("documents.html").render()
+
+
 VIEW_RENDERERS = {
     "thread": _thread,
     "picker": _picker,
@@ -1921,4 +1926,5 @@ VIEW_RENDERERS = {
     "export": _export,
     "attach": _attach,
     "pending": _pending,
+    "documents": _documents,
 }

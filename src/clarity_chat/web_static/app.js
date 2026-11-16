@@ -1738,6 +1738,21 @@ async function rename() {
   if (answer.error) notice("!", answer.error);
 }
 
+async function openDocuments() {
+  // The Documents… page (v0.3.2 C1), drawn by the documents view.
+  closeDrawer(false);
+  let html;
+  try {
+    html = await view("documents");
+  } catch (error) {
+    notice("!", error.message);
+    return;
+  }
+  swap($("documents-body"), html);
+  if (!$("documents-sheet").open) $("documents-sheet").showModal();
+  $("documents-title").focus();
+}
+
 async function exportChat() {
   // Export writes the file at once; the sheet is the result, or the refusal with Try again.
   closeDrawer(false);
@@ -1963,6 +1978,8 @@ const THREAD = {
   "rename-cancel": () => renaming(false, true),
   export: () => exportChat(),
   "export-close": () => $("export-sheet").close(),
+  documents: () => openDocuments(),
+  "documents-close": () => $("documents-sheet").close(),
   "attach-pick": () => pickFile(),
   "attach-choose": (element) => {
     // A choice made while a range is counted stays: that count's answer is dropped (could 15).
