@@ -13,11 +13,13 @@ front end says the way out."""
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
 import os
 import re
 import shutil
+import stat
 import tempfile
 import threading
 from collections.abc import Callable, Generator
@@ -26,8 +28,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from clarity_chat.documents import reading
 from clarity_chat.documents.parts import (
     CHUNKER,
+    TITLE_CHARS,
     build_id,
     closing_tag_parts,
     cut_parts,
@@ -38,14 +42,13 @@ from clarity_chat.documents.reading import (
     Document,
     DocumentRefused,
     extract,
-    read_path,
-    too_big,
 )
 from clarity_chat.profiles import library_name_problem
 
 LIBRARY = Path("local") / "documents"
 SCHEMA = 1
 EXTENSIONS = {"pdf": "pdf", "html": "html", "text": "txt"}
+MANIFEST_BYTES = 16 * 1024 * 1024  # far past any manifest Clarity writes; a bigger one is cut
 
 
 def checked_library_name(name: str) -> str:
@@ -101,10 +104,11 @@ def sha256(data: bytes) -> str:
 
 
 def stats(path: Path, names: list[str]) -> dict[str, dict[str, int]]:
-    """Each file's size and modification time, which the quick check compares."""
+    """Each file's size and modification time, which the quick check compares: of the file
+    itself, so a link put in its place reads as changed."""
     found = {}
     for name in names:
-        info = (path / name).stat()
+        info = (path / name).lstat()
         found[name] = {"bytes": info.st_size, "mtime_ns": info.st_mtime_ns}
     return found
 
@@ -171,6 +175,11 @@ def add(
     target = folder(root, name)
     if target.exists() and not replace:
         raise DocumentRefused(f"There's already a document named {name}.")
+    if target.exists() and not target.is_dir():  # never moved aside (the security review's S4)
+        raise DocumentRefused(
+            f"local/documents/{name} isn't a folder, so Clarity can't replace it. Move it away, "
+            "then add the file again."
+        )
     doc = extract(data, filename, cancel, on_read)
     original = {"name": doc.name, "kind": doc.kind, "bytes": doc.bytes, "sha256": doc.sha256}
     text_md, jsonl, manifest = built(
@@ -229,13 +238,24 @@ def swap_in(building: Path, target: Path, replace: bool) -> None:
     aside = Path(tempfile.mkdtemp(prefix=f".{target.name}-old-", dir=target.parent))
     os.rmdir(aside)
     os.replace(target, aside)
-    os.replace(building, target)
-    for item in aside.iterdir():
-        if item.name in (*KNOWN, "manifest.json"):
-            item.unlink()
-        else:
-            os.replace(item, target / item.name)
-    os.rmdir(aside)
+    try:
+        os.replace(building, target)
+    except OSError:  # Windows refusing a folder another program holds: the old one back
+        os.replace(aside, target)
+        raise
+    try:
+        for item in aside.iterdir():
+            if item.name in (*KNOWN, "manifest.json"):
+                item.unlink()
+            else:
+                os.replace(item, target / item.name)
+        os.rmdir(aside)
+    except OSError as e:  # replaced, but your files are in the hidden folder: named
+        raise DocumentRefused(
+            f"Clarity replaced {target.name}, but couldn't clear its old folder "
+            f"({e.strerror or type(e).__name__}). What's left of it is in "
+            f"local/documents/{aside.name}/."
+        ) from None
 
 
 def manifest_bytes(manifest: dict[str, Any]) -> bytes:
@@ -249,23 +269,54 @@ def read_manifest(root: Path, name: str) -> dict[str, Any]:
     if not path.parent.is_dir():
         raise Stale(name, "missing")
     try:
-        manifest = json.loads(path.read_bytes())
+        manifest = json.loads(read_file(name, path, MANIFEST_BYTES))
         if not typed(manifest):
             raise ValueError("it isn't a manifest Clarity writes")
     except OSError as e:  # the reason, never the path (str(e) holds it)
-        raise DocumentRefused(unreadable_manifest(name, e.strerror or type(e).__name__)) from None
+        why = e.strerror or type(e).__name__
+        raise DocumentRefused(unreadable(name, "manifest.json", why)) from None
+    except RecursionError:  # nested too deep: this document only (the security review's S3)
+        raise DocumentRefused(unreadable(name, "manifest.json", "it's nested too deep")) from None
     except ValueError as e:
-        raise DocumentRefused(unreadable_manifest(name, str(e))) from None
+        raise DocumentRefused(unreadable(name, "manifest.json", str(e))) from None
     return manifest
 
 
-def unreadable_manifest(name: str, why: str) -> str:
-    """The way out of a manifest Clarity can't read (the board walk's W4): the folder goes,
-    then the file is added again."""
+def unreadable(name: str, file: str, why: str) -> str:
+    """The way out of a file in a document's folder that Clarity can't read (the board
+    walk's W4): the folder goes, then the file is added again."""
     return (
-        f"{name}'s manifest.json can't be read ({why}). Delete the folder "
-        f"local/documents/{name}/, then add the file again."
+        f"{name}'s {file} can't be read ({why}). Delete the folder local/documents/{name}/, "
+        "then add the file again."
     )
+
+
+def read_file(name: str, path: Path, limit: int) -> bytes:
+    """A file in a document's folder, read as untrusted (the security review's S1): never
+    through a link, never a FIFO or a device (opened without blocking and checked on its
+    descriptor, as v0.3.1's reader is), and at most `limit` + 1 bytes, so a file swapped in
+    can't fill memory: its hash then differs from the manifest's."""
+    link = unreadable(name, path.name, "it's a link")
+    if path.is_symlink() or path.is_junction():
+        raise DocumentRefused(link)
+    flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    flags |= getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+    special = unreadable(name, path.name, "it isn't a regular file")
+    try:
+        fd = os.open(path, flags)
+    except OSError as e:
+        if e.errno == errno.ELOOP:  # a link put there since the check above
+            raise DocumentRefused(link) from None
+        if path.is_dir():  # Windows won't open a folder; POSIX opens it, and fstat says
+            raise DocumentRefused(special) from None
+        raise
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            raise DocumentRefused(special)
+        with os.fdopen(fd, "rb", closefd=False) as f:
+            return f.read(limit + 1)
+    finally:
+        os.close(fd)
 
 
 def _int(value: Any) -> bool:
@@ -377,7 +428,7 @@ def check(root: Path, name: str) -> dict[str, Any]:
     problems = []
     for file, digest in expected.items():
         try:
-            if sha256((path / file).read_bytes()) != digest:
+            if sha256(read_file(name, path / file, manifest["files"][file]["bytes"])) != digest:
                 problems.append(f"{file} has changed")
         except OSError:
             problems.append(f"{file} is missing")
@@ -392,16 +443,55 @@ def parts_of(
     root: Path, name: str, manifest: dict[str, Any] | None = None
 ) -> tuple[list[dict[str, Any]], str]:
     """A document's parts, read from parts.jsonl, and the build ID they are: the one in
-    `manifest` (read now, if not given), or the document is `changed`."""
+    `manifest` (read now, if not given), or the document is `changed`. Each line is read as
+    untrusted (the security review's S2), split on "\n" only: a part's text may hold U+2028,
+    U+2029 or U+0085, which JSON writes raw (its M1)."""
     if manifest is None:
         manifest = read_manifest(root, name)
+    path = folder(root, name) / "parts.jsonl"
     try:
-        data = (folder(root, name) / "parts.jsonl").read_bytes()
+        data = read_file(name, path, manifest["files"]["parts.jsonl"]["bytes"])
     except OSError:
         raise Stale(name, "changed") from None
     if build_id(data) != manifest["build_id"]:
         raise Stale(name, "changed")
-    return [json.loads(line) for line in data.decode("utf-8").splitlines()], manifest["build_id"]
+    try:
+        *lines, end = data.decode("utf-8").split("\n")
+        parts = [json.loads(line) for line in lines]
+        ok = end == "" and all(written(part, n) for n, part in enumerate(parts, 1))
+    except (ValueError, RecursionError):
+        ok = False
+    if not ok:
+        raise DocumentRefused(f"{name}'s parts.jsonl isn't one Clarity writes. Rebuild it.")
+    return parts, manifest["build_id"]
+
+
+PART_KEYS = {"ordinal", "title", "text", "chars", "page", "words", "sha256"}
+
+
+def written(part: Any, ordinal: int) -> bool:
+    """Whether a line of parts.jsonl is a part as the chunker writes it: its page goes into
+    the block, its title into the block and the terminal, its sha256 into `already`."""
+    try:
+        title, chars = part["title"], part["chars"]
+        return (
+            set(part) == PART_KEYS
+            and _int(part["ordinal"])
+            and part["ordinal"] == ordinal
+            and (
+                title is None
+                or (isinstance(title, str) and "\n" not in title and len(title) <= TITLE_CHARS)
+            )
+            and isinstance(part["text"], str)
+            and part["sha256"] == sha256(part["text"].encode("utf-8"))
+            and (part["page"] is None or _int(part["page"]))
+            and isinstance(chars, list)
+            and len(chars) == 2
+            and all(map(_int, chars))
+            and _int(part["words"])
+        )
+    except (KeyError, TypeError, AttributeError, ValueError):  # ValueError: a lone surrogate
+        return False
 
 
 def control_token_parts(
@@ -441,7 +531,7 @@ def rebuild(root: Path, name: str) -> dict[str, Any]:
     path = folder(root, name)
     original_file = original_name(manifest["original"]["kind"])
     try:
-        original = (path / original_file).read_bytes()
+        original = read_file(name, path / original_file, manifest["original"]["bytes"])
     except OSError:
         raise OriginalChanged(name) from None
     if sha256(original) != manifest["original"]["sha256"]:
@@ -474,14 +564,14 @@ def edited_text(name: str, path: Path) -> bytes:
     """text.md's bytes, read as your input, with Rebuild's own sentences (the board walk's
     S1): each names the document and text.md, and says to save it, then rebuild."""
     try:
-        data, _ = read_path(str(path))
-    except DocumentRefused as e:
-        if str(e) == too_big("text.md"):
-            raise DocumentRefused(
-                f"{name}: text.md is too big: Clarity reads files up to {SIZE_LIMIT}. Shorten "
-                "it, then rebuild."
-            ) from None
-        raise
+        data = read_file(name, path, reading.MAX_BYTES)  # never through a link (the review's S1)
+    except OSError as e:
+        raise DocumentRefused(unreadable(name, "text.md", e.strerror or type(e).__name__)) from None
+    if len(data) > reading.MAX_BYTES:
+        raise DocumentRefused(
+            f"{name}: text.md is too big: Clarity reads files up to {SIZE_LIMIT}. Shorten it, "
+            "then rebuild."
+        )
     if b"\x00" in data:
         raise DocumentRefused(
             f"{name}: text.md isn't text Clarity can read. Save it as UTF-8 text, then rebuild."

@@ -99,8 +99,8 @@ def logged(session) -> list[dict]:
 
 @pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\x85"])
 def test_a_part_holding_a_line_separator_reads_whole(root, chat_tokenizer, separator):
-    paragraph = f"The winter wren sings{separator}a long song.\n"
-    library_add(root, f"# Wren\n\n{paragraph}".encode(), "songs.md")
+    paragraph = f"# Wren\n\nThe winter wren sings{separator}a long song."  # the chunker's part
+    library_add(root, f"{paragraph}\n".encode(), "songs.md")
     listed = {d["name"]: d for d in library_documents(root)}
     assert listed["songs"]["state"] == "ready"
     assert outcome(lambda: library_check(root, "songs")["state"]) == "ready"
@@ -160,6 +160,7 @@ def special(path: Path) -> None:
 @pytest.mark.parametrize("file", LINKABLE)
 def test_a_fifo_in_a_document_folder_never_hangs_a_reader(root, file):
     special(folder(root) / file)
+    state = library_documents(root)[0]["state"]  # before Rebuild, which replaces parts.jsonl
     sentence = (
         f"notes's {file} can't be read (it isn't a regular file). Delete the folder "
         "local/documents/notes/, then add the file again."
@@ -174,10 +175,9 @@ def test_a_fifo_in_a_document_folder_never_hangs_a_reader(root, file):
         assert done, f"{file}: a reader hung"
         if isinstance(result, DocumentRefused):
             assert str(result) in (sentence, "notes is changed.") or "parts" in file, result
-    listed = library_documents(root)[0]
-    assert listed["state"] in ("changed", "unreadable")
+    assert state in ("changed", "unreadable")
     if file == "manifest.json":
-        assert listed["why"] == sentence
+        assert library_documents(root)[0]["why"] == sentence
 
 
 # --- SS2: parts.jsonl, read as untrusted

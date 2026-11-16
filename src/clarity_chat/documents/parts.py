@@ -12,9 +12,14 @@ from bisect import bisect_right
 from pathlib import PurePath
 from typing import Any
 
-CHUNKER = {"name": "clarity-parts", "version": 1, "max_words": 250, "title_chars": 120}
-MAX_WORDS = CHUNKER["max_words"]
-TITLE_CHARS = CHUNKER["title_chars"]
+MAX_WORDS = 250
+TITLE_CHARS = 120
+CHUNKER = {
+    "name": "clarity-parts",
+    "version": 1,
+    "max_words": MAX_WORDS,
+    "title_chars": TITLE_CHARS,
+}
 HEADING = re.compile(r"(#{1,6}) (\S.*)")
 FENCE = "```"
 # A kind `text` file with one of these endings is code: a `# comment` isn't a heading there.
