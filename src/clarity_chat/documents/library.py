@@ -74,8 +74,7 @@ def default_name(filename: str) -> str | None:
 def document_name(filename: str, name: str | None) -> tuple[str, str | None]:
     """The name a file is added under (`name`, or one made from `filename`) and why it
     can't be, or None: one check for `add` and the page's name box (the C1 tripwire
-    review's should 5). `taken`: the names already in the library, as the caller reads
-    them (add from the disk, the page from /documents)."""
+    review's should 5). A name that's taken is fine: adding replaces it (cut 1)."""
     if name is None:
         name = default_name(filename) or ""
         if not name:

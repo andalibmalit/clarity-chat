@@ -1113,7 +1113,6 @@ class Session:
             conversation.head,
             tuple((a["sha256"], a["name"], tuple(a["range"])) for a in conversation.pending),
             room.max_tokens, self.backend.n_ctx, new.key if new else None, aside,
-            framing,  # this chat's line can change (/framing, C4)
         )  # fmt: skip
         if self._checked is None or self._checked[0] != key:
             before = self._room_for_a_file(room, pending, framing)

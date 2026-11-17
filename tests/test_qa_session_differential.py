@@ -2,8 +2,8 @@
 should 1): Clarity's real `/documents` and `/attach` run each step the guard allows, with the
 file read replaced by a recorder, and every path Clarity would open must be inside the
 scratch root. Run with `os.path.exists` true and false, since `/documents add` picks its
-reading by what exists. A test of strings the author thought of passed while
-`add --replace /etc/hosts` got through; this one fails on 84d0cda's driver."""
+reading by what exists. A test of strings the author thought of once let a
+flagged path through (84d0cda's driver, when /documents add took `--replace`)."""
 
 from __future__ import annotations
 
@@ -28,7 +28,6 @@ qa = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(qa)
 
 HEADS = ["/documents add", "/attach"]
-FLAGS = ["", "--replace ", "--replace  ", " --replace "]
 NAMES = ["", " made-up-name", "  made-up-name"]
 SEPARATORS = [" ", "  "]
 
@@ -82,12 +81,10 @@ def test_every_step_the_guard_allows_reads_only_inside_the_root(setup, monkeypat
     root, c = setup
     base = root.resolve()
     allowed = leaks = 0
-    for head, flag, path, name, sep in itertools.product(
-        HEADS, FLAGS, paths(root), NAMES, SEPARATORS
-    ):
-        if head == "/attach" and (flag or name):
-            continue  # /attach takes no flag or name
-        line = f"{head}{sep}{flag}{path}{name}"
+    for head, path, name, sep in itertools.product(HEADS, paths(root), NAMES, SEPARATORS):
+        if head == "/attach" and name:
+            continue  # /attach takes no name
+        line = f"{head}{sep}{path}{name}"
         try:
             qa.check_step("t", line, False, root)
         except qa.Refused:

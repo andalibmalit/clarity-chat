@@ -581,16 +581,6 @@ def _search(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 
 def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    """/documents, worded for the front end that asked: a refusal whose way out is adding
-    the file again names that front end's (the close batch: surface S2, siblings C2)."""
-    try:
-        return documents_command(c, args, emit)
-    except documents.Unreadable as e:
-        front = "chat" if c.uploads is None else "page"
-        raise documents.DocumentRefused(f"{e.said} {documents.way_out(e.name, front)}") from None
-
-
-def documents_command(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     """/documents: the library; /documents add PATH [NAME] (the page sends an upload ID for
     PATH), which replaces a document of that name (cut 1)."""
     root = c.session.root
