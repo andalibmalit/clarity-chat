@@ -257,6 +257,17 @@ def test_a_link_anywhere_in_the_root_is_refused_before_anything_is_written(
     assert not (outside / "missing.toml").exists()
 
 
+@pytest.mark.parametrize("name", ["models.toml", "models.lock"])
+def test_your_own_model_entries_are_refused_before_clarity_starts(root, repo, name):
+    """Since v0.4.0's B4, Clarity merges local/models.toml and local/models.lock, which the
+    driver doesn't rewrite: a lock entry there could point Clarity, outside the sandbox, at
+    any file. qa_browser.py prepares its root with the same prepare_root."""
+    (root / "local").mkdir(exist_ok=True)
+    (root / "local" / name).write_text("", encoding="utf-8")
+    with pytest.raises(qa.Refused, match=f"local/{name} exists"):
+        qa.prepare_root(root, repo, init=False)
+
+
 def test_the_roots_weights_are_checked_by_hash_and_replaced(root, repo):
     """Clarity checks only size and time at start, and both can be set by hand."""
     weights = root / "models" / SMOL / f"{SMOL}-bf16.gguf"
