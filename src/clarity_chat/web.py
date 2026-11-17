@@ -1010,7 +1010,8 @@ def searching_chooser(state: dict[str, Any], docs: list[dict[str, Any]] | None) 
         return chooser
     unread, docs = docs is None, docs or []  # unread: /documents waits behind a reply
     library = {d["name"]: d for d in docs}
-    chooser.update(head=SENTENCES["searching_head"], others=SENTENCES["searching_others"],
+    chooser.update(head=SENTENCES["searching_head"], applies=SENTENCES["searching_applies"],
+                   others=SENTENCES["searching_others"],
                    empty=None if docs or searching or unread
                    else SENTENCES["searching_empty"])  # fmt: skip
     chooser["origin"] = (

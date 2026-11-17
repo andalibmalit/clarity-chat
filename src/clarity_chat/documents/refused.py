@@ -16,6 +16,7 @@ NOTHING_SENT = "Nothing was sent."  # N29: a refusal at Send's first line
 WITHOUT_SEARCH = "To send without searching, stop searching every document in this chat."
 
 
+KEY = "take it out of search under [documents] in the profile's file"
 STOPPING = {  # how the terminal stops searching a document, by where the search ran
     "chat": "stop searching {it} with /search",
     "run": "take {it} out of the profile's search list",
@@ -42,12 +43,14 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
         front = "page" if not terminal else "chat" if where == "chat" else "cli"
         why = problem["why"].removeprefix(name + "'s ")
         way = f" {way_out(name, front)}" if problem.get("add_again") else ""
+        if profile := problem.get("profile"):  # a chat's start: the profile and its key
+            return f"Profile {profile} searches {name}, but its {why}{way} Or {KEY}."
         return f"Clarity can't search {name}: its {why}{way}"
     if state == "profile_missing":  # N37
         way = f"Add it with {add}" if terminal else "Add it with the paperclip's Search it"
         return (
             f"Profile {problem['profile']} searches {name}, which isn't in your documents. "
-            f"{way}, or take it out of search under [documents] in the profile's file."
+            f"{way}, or {KEY}."
         )
     stop = STOPPING[where] if terminal else "stop searching {it}"
     if state == "missing":  # N31

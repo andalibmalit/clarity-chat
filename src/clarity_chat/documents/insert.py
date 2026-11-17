@@ -84,7 +84,8 @@ SENTENCES = {
     "keeps_group": "Attachments this edit keeps",  # N76
     "stays_waiting": "{names} stays waiting for your next message.",
     "stay_waiting": "{names} stay waiting for your next message.",
-    "highlight_added": "Highlighted: the framing line and documents Clarity put in your messages.",
+    "highlight_added": "Highlighted: the framing line, documents and parts Clarity put in your "
+    "messages.",  # T20
     # Details' Attachments row, under the counts (the walkthrough's F3, as the lead ruled).
     "attachments_caption": "Your message's line counts each attachment as it cost when it was "
     "attached: its block and the blank line after it (not highlighted here). The first "
@@ -146,6 +147,8 @@ SENTENCES = {
     "searching_some": "Searching: {documents}",
     "searching_none": "Searching: no documents",
     "searching_head": "Searched for each message you send",
+    "searching_applies": "A change applies from your next message. Regenerate keeps the parts a "
+    "message already has.",  # the walkthrough's M2, T1
     "searching_profile": "From this chat's profile, {profile}. A change here applies to this "
     "chat only.",
     "searching_chat": "Changed in this chat.",
@@ -166,11 +169,12 @@ SENTENCES = {
     "chat stays in Chats.",  # N36
     "details_where": "{placement} of your message · tokens {first} to {last}",
     "details_framing": "tokens {first} to {last} · {n} tokens, counted in the budget",
-    "details_search": "words, titles count double (word rule {rule} · common words {common} · "
+    "details_search": "words, titles weighted double (word rule {rule} · common words {common} · "
     "SQLite {sqlite})",
     "details_considered": "{parts} matched; Clarity considers the best {considered} at most.",
     "details_budget": "the budget ({budget}, {origin})",
-    "details_caption": "Rank 1 is the best match; a word in a title counts twice. Searched: "
+    "details_caption": "Rank 1 is the best match; a word in a title counts more than one in the "
+    "text. Searched: "
     "{builds} (each document’s build). Each part’s text and score are in this message’s log "
     "record.",  # N66
     # What a search found, in "From documents" (N44-N53, N57-N59)
