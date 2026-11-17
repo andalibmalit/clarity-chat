@@ -11,6 +11,9 @@ Two headings are Clarity's own, used when they apply:
 ### Added
 - A model file that bans tokens from every reply (`tokenizer.ggml.suppress_tokens`, which llama.cpp writes for Gemma 4 Unified and MiniMax models) is recorded on llama.cpp: `server_start` gains `model_file.suppress_tokens` (`[]` for none), and on such a file each call's `backend_settings` lists the ban with origin `model file`, `/settings` shows it (and no longer lists the model's `suppress_tokens` as not applied), and a new `suppress_tokens` check confirms no banned token is in the reply. A list llama-server's startup log doesn't show whole refuses the start. Logs from before v0.4.0, made on a file that bans tokens, don't record the ban, which llama-server applied all the same.
 
+### Changed
+- Docs: the llama.cpp build lines no longer download llama.cpp's web UI (`-DLLAMA_USE_PREBUILT_UI=OFF`), whose download from Hugging Face fails today; Clarity runs llama-server without it.
+
 ### Output may change
 - llama.cpp moves to v1.0.0 (`b1b770d`): check out that commit and rebuild llama-server, as [Getting started](docs/getting-started.md) shows. CPU replies can differ from ones logged with the old build, since CPU flash attention now sums V in float32 (`7f24aac`); replay lists the build as the difference.
 
