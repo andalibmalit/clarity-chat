@@ -227,7 +227,7 @@ def test_the_terminal_s_no_fts5_names_search_none(root, chat_tokenizer, monkeypa
     no_fts5(monkeypatch)
     output.clear()
     loop.handle("Tell me about the wren")
-    assert "such as the one uv installs. `/search none` turns search off for this chat." in (
+    assert "whose SQLite includes it. `/search none` turns search off for this chat." in (
         "".join(output)
     )
 
