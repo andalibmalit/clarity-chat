@@ -40,7 +40,7 @@ COMMON_WORDS = frozenset(
 )
 NO_FTS5 = (
     "Word search needs SQLite's FTS5, which the Python running Clarity doesn't have. Use a "
-    "Python whose SQLite includes it, such as the one uv installs."
+    "Python whose SQLite includes it."
 )
 RUN = re.compile(r"[^\W_]+")  # Unicode letters and digits: `_` splits, as FTS5's does
 

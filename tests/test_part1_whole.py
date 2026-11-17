@@ -82,7 +82,7 @@ TERMINAL = {  # a chat's ways out are the chat's commands (the main session's PM
     "not text. Take it out of your file, then add it again: `/documents add PATH odd`. Or stop "
     "searching odd with /search.",
     "no_fts5": "Word search needs SQLite's FTS5, which the Python running Clarity doesn't "
-    "have. Use a Python whose SQLite includes it, such as the one uv installs. `/search none` "
+    "have. Use a Python whose SQLite includes it. `/search none` "
     "turns search off for this chat.",
 }
 KINDS = list(TERMINAL)

@@ -51,7 +51,8 @@ def test_a_profile_start_names_the_profile_and_its_key(root, chat_tokenizer):  #
 
 def test_a_title_word_counts_more_not_twice():
     """bm25 with the title weighted 2 and the text 1, and the heading in the text too: a
-    title word that's also in the text scores as three uses in the text (the same score),
+    title word that's also in the text counts as 3 occurrences (here, with these lengths, the
+    same score as three uses in the text),
     so "counts twice" is wrong and "counts more" is right."""
     db = sqlite3.connect(":memory:")
     db.execute("CREATE VIRTUAL TABLE p USING fts5(title, text, tokenize='porter unicode61')")
