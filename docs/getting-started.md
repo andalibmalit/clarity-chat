@@ -31,7 +31,7 @@ Clarity's live tests have run on Apple Silicon (Metal), and CI runs the SmolLM2 
 3. Build `llama-server`:
 
    ```
-   cmake -S vendor/llama.cpp -B vendor/llama.cpp/build -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF
+   cmake -S vendor/llama.cpp -B vendor/llama.cpp/build -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF -DLLAMA_USE_PREBUILT_UI=OFF
    cmake --build vendor/llama.cpp/build --config Release -j 8 --target llama-server
    ```
 

@@ -33,8 +33,8 @@ uv run ruff check && uv run ruff format --check && uv run ty check
 Build llama.cpp (checkout at the commit in `server.toml`):
 
 ```
-cmake -S vendor/llama.cpp -B vendor/llama.cpp/build -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF
-cmake --build vendor/llama.cpp/build --config Release -j 8 --target llama-server
+cmake -S vendor/llama.cpp -B vendor/llama.cpp/build -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF -DLLAMA_USE_PREBUILT_UI=OFF
+cmake --build vendor/llama.cpp/build --config Release -j 8 --target llama-server llama-quantize
 ```
 
 ## Principle
