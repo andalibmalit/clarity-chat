@@ -183,6 +183,7 @@ def test_config_files_are_found(monkeypatch, tmp_path):
 
 STARTUP_GPU = """\
 llama_model_load_from_file_impl: using device MTL0 (Apple M2 Max) (unknown id) - 25558 MiB free
+llama_model_loader: - kv   0:                       general.architecture str              = llama
 print_info: EOG token             = 100257 '<|endoftext|>'
 print_info: EOG token             = 100265 '<|im_end|>'
 load_tensors: offloaded 31/31 layers to GPU
@@ -258,6 +259,7 @@ class ExitedServer:
 
     def __init__(self) -> None:
         self.proc = ExitsAfterSending()
+        self.record = {"model_file": {"suppress_tokens": []}}  # a file that bans nothing
 
 
 def fake_backend(monkeypatch, root, lines):
@@ -478,6 +480,7 @@ def test_a_cancel_is_checked_between_stream_lines(monkeypatch, root):
 # OLMo 3 7B at ctx-size 32768, flash attention off, on an M2 Max (measured: M2).
 STARTUP_OLMO_32K = """\
 llama_prepare_model_devices: using device MTL0 (Apple M2 Max) (unknown id) - 25558 MiB free
+llama_model_loader: - kv   0:                       general.architecture str              = llama
 load_tensors:   CPU_Mapped model buffer size =   783.42 MiB
 load_tensors:  MTL0_Mapped model buffer size = 13137.44 MiB
 llama_kv_cache:       MTL0 KV buffer size =  4096.00 MiB
