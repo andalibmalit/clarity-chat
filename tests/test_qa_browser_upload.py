@@ -51,6 +51,8 @@ def test_an_upload_inside_the_root_parses_and_gives_the_page_that_file(root):
     except qa.Refused as e:  # what the driver did before it had the step
         parsed = [("refused", str(e))]
     assert parsed == [("upload", "#attach-file :: docs/notes.md")], parsed
+    # A run's root holds no link (prepare_root refuses one, and each step checks again).
+    (root / "docs" / "away.md").unlink()
     page = FakePage()
     qa.run_step(page, "upload", "#attach-file :: docs/notes.md", root.parent, 1, root=root)
     assert page.files == [("#attach-file", root.resolve() / "docs" / "notes.md")]
@@ -65,9 +67,10 @@ def test_an_upload_outside_the_root_or_of_no_file_is_refused_when_read(root, pat
 
 
 def test_a_link_planted_after_the_steps_were_read_is_refused_when_the_step_runs(root, tmp_path):
+    """Refused before the upload is judged: each step scans the root for links first."""
     (root / "docs" / "later.md").symlink_to(tmp_path / "secret.txt")
     page = FakePage()
-    with pytest.raises(qa.Refused, match="scratch root"):
+    with pytest.raises(qa.Refused, match="is a link"):
         qa.run_step(page, "upload", "#attach-file :: docs/later.md", root.parent, 1, root=root)
     assert page.files == []
 
