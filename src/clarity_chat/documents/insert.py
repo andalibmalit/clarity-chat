@@ -140,28 +140,19 @@ SENTENCES = {
     "documents_titles": "Search counts a word in a part's title twice. A part's title is the "
     "Markdown heading above it in the document's text.md: a line that starts with one to six # "
     "characters, a space and some text. A code file has no headings. A saved web page gets them "
-    "from its own headings; a PDF, or a text file without such lines, has none until you add "
-    "them to its text.md and rebuild, and a PDF whose text.md you edit and rebuild loses its "
-    "page numbers.",
+    "from its own headings; a PDF, or a text file without such lines, has none.",
     "keeps_copy": "Clarity keeps a copy in local/documents/{name}/: the file, its text, its "
     "parts and a record of them.",
-    "name_taken": "Give this one a different name.",
     "searches_next": "This chat searches {name} from your next message.",
-    "state_changed": "A file in its folder has changed since Clarity cut it into parts.",
     # "Search it" on the attach sheet and the Searching chooser (v0.3.2 C2; N2-N27, N60)
     "search_it": "For each message you send, Clarity adds the parts of this document that share "
     'a word with your message, best match first; common words such as "the" don\'t count. A '
     "message gets at most {considered} parts and {budget} tokens ({origin}), shared by every "
     "document this chat searches. Added parts stay in the chat with that message.",
-    "already_documents": "Already in your documents as {name}. Nothing new is added to them.",
-    "already_searched": "This chat already searches it.",
-    "stale_copy": "A file in its folder has changed since Clarity cut it into parts. Rebuild it "
-    "in Documents… before you send.",
     "control_before": "This file holds text this model reads as control tokens ({tokens}). "
     "Clarity won't send a message that finds a part holding one: it stops and names the part.",
-    "replace_label": "Replace {name} with this file",
-    "replace_note": "Replacing writes this file's copy, text and parts over {name}'s in "
-    "local/documents/{name}/. Anything else you put in that folder stays.",
+    "replace_note": "{name} is already in your documents. Adding this file replaces its copy, "
+    "text and parts in local/documents/{name}/. Anything else you put in that folder stays.",
     "control_count": "{n} parts hold a control token for this model. A message that finds one "
     "isn't sent.",
     "control_count_one": "1 part holds a control token for this model. A message that finds "

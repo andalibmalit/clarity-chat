@@ -1,9 +1,8 @@
 """The terminal QA driver's guard on v0.3.2's document library: `clarity document add FILE`
-and `/documents add [--replace] PATH [NAME]` read a file, and the driver runs Clarity
-outside the sandbox, so the path must name a file in the scratch root, judged as /attach's
-is (v0.3.2, the QA-driver lane). `/documents add` strips its flag, reads `PATH NAME` whole
-when that exists, and otherwise splits off the last word as the name: both readings are
-judged."""
+and `/documents add PATH [NAME]` read a file, and the driver runs Clarity outside the
+sandbox, so the path must name a file in the scratch root, judged as /attach's is (v0.3.2,
+the QA-driver lane). `/documents add` reads `PATH NAME` whole when that exists, and
+otherwise splits off the last word as the name: both readings are judged."""
 
 from __future__ import annotations
 
@@ -71,7 +70,7 @@ def test_document_add_outside_the_root_is_refused(root, path):
 
 
 def test_the_other_document_actions_are_allowed(root):
-    for argv in (["document", "list"], ["document", "check"], ["document", "rebuild", "notes"]):
+    for argv in (["document", "list"], ["document", "list", "--json"]):
         got = outcome(lambda argv=argv: qa.check_clarity_args(root, argv))
         assert not isinstance(got, BaseException), (argv, got)
 
@@ -107,7 +106,6 @@ def test_documents_steps_inside_the_root_pass_as_written(root):
         "/documents",
         "/documents add docs/notes.md",
         "/documents add docs/notes.md made-up-name",
-        "/documents rebuild made-up-name",
     ]
     assert qa.parse_steps(steps(root, *lines), json_mode=False, root=root) == lines
     line = json.dumps({"command": "documents", "args": "add docs/notes.md"})
@@ -140,41 +138,3 @@ def test_a_file_with_a_second_name_is_refused_both_ways(root, tmp_path):
         qa.parse_steps(steps(root, "/documents add docs/twin.md"), json_mode=False, root=root)
     with pytest.raises(qa.Refused, match="second name"):
         qa.check_clarity_args(root, ["document", "add", "docs/twin.md"])
-
-
-# --- --replace before PATH (since 6839b3e): every reading Clarity can make is judged
-
-
-@pytest.mark.parametrize("path", OUTSIDE)
-@pytest.mark.parametrize(
-    "line",
-    [
-        "/documents add --replace {path}",
-        "/documents add --replace {path} made-up-name",
-        "/documents add  --replace  {path} made-up-name",  # Clarity strips the spaces
-    ],
-)
-def test_a_documents_add_replace_step_outside_the_root_is_refused(root, path, line):
-    with pytest.raises(qa.Refused):
-        qa.parse_steps(steps(root, line.format(path=path)), json_mode=False, root=root)
-
-
-@pytest.mark.parametrize("path", OUTSIDE)
-def test_a_documents_add_replace_in_json_outside_the_root_is_refused(root, path):
-    line = json.dumps({"command": "documents", "args": f"add --replace {path} made-up-name"})
-    with pytest.raises(qa.Refused):
-        qa.parse_steps(steps(root, line), json_mode=True, root=root)
-
-
-def test_a_documents_add_replace_step_inside_the_root_passes(root):
-    lines = ["/documents add --replace docs/notes.md notes"]
-    assert qa.parse_steps(steps(root, *lines), json_mode=False, root=root) == lines
-
-
-@pytest.mark.parametrize("path", OUTSIDE)
-@pytest.mark.parametrize("where", ["after", "before"])
-def test_document_add_replace_outside_the_root_is_refused(root, path, where):
-    argv = ["document", "add", path, "--replace"] if where == "after" else [
-        "document", "add", "--replace", path]  # fmt: skip
-    with pytest.raises(qa.Refused, match="scratch root|'\\.\\.'|second name"):
-        qa.check_clarity_args(root, argv)

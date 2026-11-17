@@ -16,7 +16,6 @@ from clarity_chat.commands import Commands
 from clarity_chat.documents import library as library_module
 from clarity_chat.documents import (
     library_add,
-    library_check,
     library_parts,
     library_state,
     reading,
@@ -101,19 +100,13 @@ def test_read_file_reads_at_most_its_limit_and_one(tmp_path):
     assert len(library_module.read_file("big", path, 10)) == 11
 
 
-def test_an_original_that_grew_past_its_manifest_is_changed(root):
-    original = folder(root) / "original.txt"
-    original.write_bytes(original.read_bytes() + b"More.\n" * 100)
-    assert library_check(root, "glossary")["problems"] == ["original.txt has changed"]
-
-
 # --- FC1: an edit's refusal heads "Nothing was sent."
 
 
 def test_an_edit_refused_by_search_says_nothing_was_sent(root, chat_tokenizer):
     session, c, _ = chat(root, chat_tokenizer, 'search = ["glossary"]')
     c.run("say", "Tell me about the wren", quiet)
-    (folder(root) / "text.md").write_text("Edited.\n", encoding="utf-8")
+    rebuilt_elsewhere(root)
     said = refusal(lambda: c.run("edit", "Tell me more about the wren", quiet))
     assert said.startswith("Nothing was sent.\nClarity can't search glossary: ")
     assert session.conversation is not None
@@ -138,18 +131,6 @@ def test_search_s_counts_are_counted_again_for_another_tokenizer(
 # --- FC3: lstat, and a parts file's last newline
 
 
-def test_a_link_of_the_same_size_and_time_reads_changed(root, tmp_path):
-    if os.name == "nt":
-        pytest.skip("symlinks need privileges on Windows")
-    text = folder(root) / "text.md"
-    copy = tmp_path / "text.md"
-    shutil.copy2(text, copy)  # the same bytes and modification time
-    text.unlink()
-    text.symlink_to(copy)
-    os.utime(text, ns=(copy.stat().st_atime_ns, copy.stat().st_mtime_ns), follow_symlinks=False)
-    assert library_state(root, "glossary") == "changed"
-
-
 def test_a_parts_file_without_its_last_newline_is_refused(root):
     path = folder(root) / "parts.jsonl"
     retamper(root, "glossary", lambda p: None)
@@ -159,11 +140,10 @@ def test_a_parts_file_without_its_last_newline_is_refused(root):
     import hashlib
 
     manifest["build_id"] = hashlib.sha256(data).hexdigest()
-    info = path.stat()
-    manifest["files"]["parts.jsonl"] = {"bytes": info.st_size, "mtime_ns": info.st_mtime_ns}
     (folder(root) / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     assert refusal(lambda: library_parts(root, "glossary")) == (
-        "glossary's parts.jsonl isn't one Clarity writes. Rebuild it."
+        "glossary's parts.jsonl isn't one Clarity writes. Add the file again in Documents…, "
+        "with the same name."
     )
 
 
@@ -173,7 +153,7 @@ def test_a_parts_file_without_its_last_newline_is_refused(root):
 def stale(root: Path, how: str) -> str:
     """Make the searched document `how`, and return its name."""
     if how == "changed":
-        (folder(root) / "text.md").write_text("Edited.\n", encoding="utf-8")
+        rebuilt_elsewhere(root)
     elif how == "missing":
         shutil.rmtree(folder(root))
     else:
@@ -186,17 +166,17 @@ def test_the_page_keeps_the_board_s_words(root, chat_tokenizer):
     session, c, _ = chat(root, chat_tokenizer, 'search = ["glossary"]')
     stale(root, "changed")
     said = refusal(lambda: c.run("say", "Tell me about the wren", quiet))
-    assert said.endswith("Rebuild cuts them again from its text.md.")
+    assert said.endswith("Add the file again in Documents…, with the same name.")
     assert session.conversation is not None
     calls = [r for r in read_records(session.conversation.log.path) if r["type"] == "call"]
     assert calls[-1]["error"] == f"SearchRefused: {said}"
 
 
-# --- FC6: a stale parts read keeps its state; FC7: an unreadable entry says why
+# --- FC6: parts that aren't the build are unreadable; FC7: an unreadable entry says why
 
 
 def rebuilt_elsewhere(root: Path) -> None:
-    """parts.jsonl's bytes changed, its size and time kept: the quick check reads ready."""
+    """parts.jsonl's bytes changed, its size and time kept: the manifest still reads."""
     path = folder(root) / "parts.jsonl"
     info = path.stat()
     data = path.read_bytes()
@@ -204,20 +184,20 @@ def rebuilt_elsewhere(root: Path) -> None:
     os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns))
 
 
-def test_a_parts_file_changed_under_the_quick_check_reads_changed(root, chat_tokenizer):
+def test_a_parts_file_changed_under_the_quick_check_reads_unreadable(root, chat_tokenizer):
     session, c, _ = chat(root, chat_tokenizer, 'search = ["glossary"]')
     rebuilt_elsewhere(root)
     assert library_state(root, "glossary") == "ready"  # the setup: size and time kept
     (entry,) = c.run("search", "", quiet)["searching"]
-    assert entry["state"] == "changed"
+    assert entry["state"] == "unreadable" and entry["add_again"] is True
 
 
 def test_adding_a_document_whose_parts_changed_says_so(root, chat_tokenizer):
     session, c, _ = chat(root, chat_tokenizer)
     rebuilt_elsewhere(root)
     assert refusal(lambda: c.run("search", "glossary", quiet)) == (
-        "Clarity can't search glossary: a file in its folder has changed since Clarity cut "
-        "it into parts. Rebuild cuts them again from its text.md."
+        "Clarity can't search glossary: its parts.jsonl isn't the one Clarity built. Add the "
+        "file again in Documents…, with the same name."
     )
 
 
@@ -248,7 +228,7 @@ def test_when_putting_the_old_folder_back_fails_too_its_folder_is_named(root, mo
         return real(a, b)
 
     monkeypatch.setattr(library_module.os, "replace", both_fail)
-    said = refusal(lambda: library_add(root, b"# New\n\nNew.\n", "glossary.md", replace=True))
+    said = refusal(lambda: library_add(root, b"# New\n\nNew.\n", "glossary.md"))
     monkeypatch.setattr(library_module.os, "replace", real)
     hidden = calls[0][1].name
     assert said == (

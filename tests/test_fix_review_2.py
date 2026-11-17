@@ -11,7 +11,7 @@ import pytest
 
 from clarity_chat import cli
 from clarity_chat.batch import RunError, run_batch
-from clarity_chat.commands import Commands, document_check
+from clarity_chat.commands import Commands
 from clarity_chat.documents import library_add, reading
 from clarity_chat.session import SearchRefused, Session
 from tests.fakes import FakeBackend
@@ -28,6 +28,12 @@ def root(fetched_root):
     library_add(fetched_root, GLOSSARY, "glossary.md")
     library_add(fetched_root, b"## Wren\nIt sings </s> loudly.\n", "odd.md")
     return fetched_root
+
+
+def not_built(root: Path) -> None:
+    """glossary's parts.jsonl changed, its manifest not: not the parts Clarity built."""
+    parts = root / "local/documents/glossary/parts.jsonl"
+    parts.write_bytes(parts.read_bytes().replace(b"small", b"large"))
 
 
 def search(root: Path, names: list[str], extra: str = "", profile: str = "chat") -> None:
@@ -78,14 +84,14 @@ def test_a_mid_run_refusal_names_the_terminal_s_way_out(root, chat_tokenizer):
     real = session.block
 
     def stale_then_block(text: str, where: str = "chat") -> dict:  # changed after the pre-check
-        (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
+        not_built(root)
         return real(text, where)
 
     session.block = stale_then_block  # type: ignore[method-assign]
     with pytest.raises(RunError) as stopped:
         run_batch(session, "r", root / "runs" / "r", root / "openings.txt", ["chat"], 1, print)
     said = str(stopped.value)
-    assert "`clarity document rebuild glossary` cuts them again" in said, said
+    assert "`clarity document add FILE --name glossary` adds the file again" in said, said
     assert not any(words in said for words in PAGE_ONLY), said
 
 
@@ -100,8 +106,8 @@ def test_document_try_says_to_leave_a_document_out_of_those_you_try(
     assert cli.main([*argv, "odd", "--profile", "chat", "Tell me about the wren"]) == 0
     out = capsys.readouterr().out
     assert out.strip().endswith(
-        "`clarity document rebuild odd` then cuts its parts again. Or leave odd out of the "
-        "documents you try."
+        "Take it out of your file, then add it again: `clarity document add FILE --name odd`. Or "
+        "leave odd out of the documents you try."
     ), out
     import shutil
 
@@ -159,17 +165,16 @@ def test_the_terminal_prints_a_profile_start_s_way_out(root, chat_tokenizer, mon
 
 def test_the_terminal_prints_a_stale_try_s_way_out(root, chat_tokenizer, monkeypatch, capsys):
     with_tokenizer(monkeypatch, chat_tokenizer)
-    (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
+    not_built(root)
     assert cli.main(["--root", str(root), "document", "try", "glossary", "--profile", "chat",
                      "wren"]) == 1  # fmt: skip
     assert capsys.readouterr().err.strip() == (
-        "clarity: Clarity can't search glossary: a file in its folder has changed since Clarity "
-        "cut it into parts. `clarity document rebuild glossary` cuts them again from its "
-        "text.md."
+        "clarity: Clarity can't search glossary: its parts.jsonl isn't the one Clarity built. "
+        "`clarity document add FILE --name glossary` adds the file again."
     )
 
 
-def test_the_terminal_names_rebuild_for_a_parts_file_clarity_didn_t_write(root, chat_tokenizer):
+def test_the_terminal_names_add_again_for_a_parts_file_clarity_didn_t_write(root, chat_tokenizer):
     from clarity_chat.cli import ChatLoop
 
     search(root, ["glossary"])
@@ -184,12 +189,12 @@ def test_the_terminal_names_rebuild_for_a_parts_file_clarity_didn_t_write(root, 
     said = "".join(output)
     assert (  # the chat's own command (the PM1 ruling)
         "Clarity can't search glossary: its parts.jsonl isn't one Clarity writes. `/documents "
-        "rebuild glossary` cuts its parts again." in said
+        "add PATH glossary` adds the file again." in said
     ), said
     assert not any(words in said for words in PAGE_ONLY), said
 
 
-# --- F2C1: a parts.jsonl Clarity didn't write, at /search and check
+# --- F2C1: a parts.jsonl Clarity didn't write, at /search
 
 
 def test_search_refuses_a_parts_file_clarity_didn_t_write_with_its_way_out(root, chat_tokenizer):
@@ -202,20 +207,7 @@ def test_search_refuses_a_parts_file_clarity_didn_t_write_with_its_way_out(root,
         c.run("search", "glossary", quiet)
     assert getattr(refused.value, "terminal", None) == (  # the chat's own (the PM1 ruling)
         "Clarity can't search glossary: its parts.jsonl isn't one Clarity writes. `/documents "
-        "rebuild glossary` cuts its parts again."
-    )
-
-
-def test_check_says_rebuild_for_a_parts_file_clarity_didn_t_write(root):
-    from clarity_chat.cli import format_checked
-
-    retamper(root, "glossary", lambda p: p.update(page="1"))
-    (checked,) = document_check(root, ["glossary"])["checked"]
-    assert checked["state"] == "changed"
-    assert format_checked([checked]) == (
-        "glossary: changed (parts.jsonl isn't one Clarity writes): A file in its folder has "
-        "changed since Clarity cut it into parts. `clarity document rebuild glossary` cuts them "
-        "again."
+        "add PATH glossary` adds the file again."
     )
 
 

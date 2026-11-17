@@ -10,6 +10,7 @@ import pytest
 from clarity_chat.documents import (
     DocumentRefused,
     Stale,
+    Unreadable,
     cut_parts,
     library_add,
     load_document,
@@ -150,7 +151,7 @@ def test_fts5_missing_is_a_refusal(monkeypatch):
 # --- loading from the library: stale is a refusal
 
 
-def test_a_changed_or_missing_document_is_refused_before_a_search(tmp_path):
+def test_parts_not_built_or_a_missing_document_are_refused_before_a_search(tmp_path):
     import shutil
 
     reading._last = None
@@ -158,10 +159,10 @@ def test_a_changed_or_missing_document_is_refused_before_a_search(tmp_path):
     root.mkdir()
     library_add(root, b"## Wren\nA small bird.\n", "birds.md")
     assert load_document(root, "birds").parts[0]["title"] == "Wren"
-    (root / "local/documents/birds/text.md").write_text("## Wren\nEdited.\n", encoding="utf-8")
-    with pytest.raises(Stale) as refused:
+    (root / "local/documents/birds/parts.jsonl").write_text("Edited.\n", encoding="utf-8")
+    with pytest.raises(Unreadable) as unbuilt:
         load_document(root, "birds")
-    assert refused.value.state == "changed"
+    assert unbuilt.value.said == "birds's parts.jsonl isn't the one Clarity built."
     shutil.rmtree(root / "local/documents/birds")
     with pytest.raises(Stale) as refused:
         load_document(root, "birds")

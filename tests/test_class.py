@@ -354,9 +354,6 @@ TERMINAL_ONLY = {
     "Usage: /profile NAME": "the picker sends a profile's name",
     "Usage: /note [CALL_ID] TEXT": "the page's note box sends no empty note",
     ": /documents add PATH NAME.": "the page sends an upload, named in its box",
-    " /documents add PATH NAME gives this one another name.": (
-        "the page offers another name in its box"
-    ),
     "Usage: /compare [CALL_ID]": "the page sends one call ID",
     "/resume takes a conversation ID from /chats, not a path.": "the page sends a log ID",
     "Usage: /prompt [CALL_ID]": "the page sends one call ID",
@@ -380,9 +377,7 @@ TERMINAL_ONLY = {
         "the page switches to turns it drew from /branches; a stale one needs another tab, "
         "which the page refuses"
     ),
-    "Usage: /documents [add [--replace] PATH [NAME] | rebuild NAME]": (
-        "the page sends /documents, add with an upload ID, or rebuild with a listed name"
-    ),
+    "Usage: /documents [add PATH [NAME]]": ("the page sends /documents, or add with an upload ID"),
     "The Transformers backend needs torch: run `uv sync --extra hf`.": (
         "a setup step outside Clarity, not a terminal equivalent of a page control"
     ),

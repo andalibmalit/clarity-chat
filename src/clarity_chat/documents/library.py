@@ -23,7 +23,7 @@ import stat
 import tempfile
 import threading
 import unicodedata
-from collections.abc import Callable, Collection, Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,12 +34,10 @@ from clarity_chat.documents.parts import (
     CHUNKER,
     TITLE_CHARS,
     build_id,
-    closing_tag_parts,
     cut_parts,
     parts_jsonl,
 )
 from clarity_chat.documents.reading import (
-    SIZE_LIMIT,
     Document,
     DocumentRefused,
     extract,
@@ -51,6 +49,7 @@ TAKEN = "There's already a document named"  # each front end adds its way out (S
 SCHEMA = 1
 EXTENSIONS = {"pdf": "pdf", "html": "html", "text": "txt"}
 MANIFEST_BYTES = 16 * 1024 * 1024  # far past any manifest Clarity writes; a bigger one is cut
+PARTS_BYTES = 4 * reading.MAX_BYTES  # parts.jsonl, read whole; add refuses a bigger one
 
 
 def checked_library_name(name: str) -> str:
@@ -74,9 +73,7 @@ def default_name(filename: str) -> str | None:
     return name if library_name_problem(name) is None else None
 
 
-def document_name(
-    filename: str, name: str | None, taken: Collection[str]
-) -> tuple[str, str | None]:
+def document_name(filename: str, name: str | None) -> tuple[str, str | None]:
     """The name a file is added under (`name`, or one made from `filename`) and why it
     can't be, or None: one check for `add` and the page's name box (the C1 tripwire
     review's should 5). `taken`: the names already in the library, as the caller reads
@@ -87,8 +84,6 @@ def document_name(
             return "", f"Clarity can't make a document name from {filename}. Give it one."
     if (problem := library_name_problem(name)) is not None:
         return name, problem
-    if name in taken:
-        return name, f"{TAKEN} {name}."
     return name, None
 
 
@@ -125,16 +120,6 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def stats(path: Path, names: list[str]) -> dict[str, dict[str, int]]:
-    """Each file's size and modification time, which the quick check compares: of the file
-    itself, so a link put in its place reads as changed."""
-    found = {}
-    for name in names:
-        info = (path / name).lstat()
-        found[name] = {"bytes": info.st_size, "mtime_ns": info.st_mtime_ns}
-    return found
-
-
 def write(path: Path, data: bytes) -> None:
     with open(path, "wb") as f:
         f.write(data)
@@ -148,9 +133,8 @@ def built(
     original: dict[str, Any],
     extractor: dict[str, Any],
     starts: list[int] | None,
-    edited: bool,
 ) -> tuple[bytes, bytes, dict[str, Any]]:
-    """text.md's bytes, parts.jsonl's, and the manifest without its file stats."""
+    """text.md's bytes, parts.jsonl's, and the manifest."""
     parts = cut_parts(text, original["name"], starts)
     jsonl = parts_jsonl(parts)
     encoded = text.encode("utf-8")
@@ -163,7 +147,6 @@ def built(
         "text": {
             "sha256": sha256(encoded),
             "bytes": len(encoded),
-            "edited": edited,
             "page_starts": starts,
         },
         "chunker": CHUNKER,
@@ -179,30 +162,19 @@ def add(
     data: bytes,
     filename: str,
     name: str | None = None,
-    replace: bool = False,
     cancel: threading.Event | None = None,
     on_read: Callable[[], None] | None = None,
     on_write: Callable[[str, bool], None] | None = None,
 ) -> dict[str, Any]:
     """Add a file to the library: read it as v0.3.1 does (its child, its limits), then write
-    the four files. `on_write` gets the folder (relative to the project), and whether it
-    replaces a document there, just before anything is written. Nothing is written on a
-    refusal."""
-    # The same bytes under any name: nothing new is added (decision 21, for every front end:
-    # the part 2 whole-branch review's could 8). Not with `replace`: writing the same file
-    # over its copy is a refusal's way out for a changed or missing original (fix review M1).
-    sha256 = hashlib.sha256(data).hexdigest()
-    if not replace and (same := same_bytes(documents(root), sha256)) is not None:
-        return {"existing": same}
-    library = root / LIBRARY
-    on_disk = {p.name for p in library.iterdir()} if library.is_dir() else set()
-    name, why = document_name(filename, name, on_disk)
-    taken = why is not None and why.startswith(TAKEN)
-    if why is not None and not taken:
+    the four files. A document of that name is replaced: nothing in its folder is yours (the
+    simplicity cuts, cut 1). `on_write` gets the folder (relative to the project), and
+    whether it replaces a document there, just before anything is written. Nothing is
+    written on a refusal."""
+    name, why = document_name(filename, name)
+    if why is not None:
         raise DocumentRefused(why)
-    target = folder(root, name)  # a link is refused before a taken name is said
-    if taken and not replace:
-        raise DocumentRefused(why)
+    target = folder(root, name)  # a link is refused before anything is read
     if target.exists() and not target.is_dir():  # never moved aside (the security review's S4)
         raise DocumentRefused(
             f"local/documents/{name} isn't a folder, so Clarity can't replace it. Move it away, "
@@ -210,9 +182,12 @@ def add(
         )
     doc = extract(data, filename, cancel, on_read)
     original = {"name": doc.name, "kind": doc.kind, "bytes": doc.bytes, "sha256": doc.sha256}
-    text_md, jsonl, manifest = built(
-        doc.text, name, original, doc.extractor, page_starts(doc), edited=False
-    )
+    text_md, jsonl, manifest = built(doc.text, name, original, doc.extractor, page_starts(doc))
+    if len(jsonl) > PARTS_BYTES:  # what a search reads at most (cut 1)
+        raise DocumentRefused(
+            f"Clarity can't add {name}: its parts would be over {PARTS_BYTES // 2**20:,} MB. Use a "
+            "smaller file, or split it and use the part you need."
+        )
     relative = target.relative_to(root).as_posix()
     replacing = target.exists()
     if on_write is not None:
@@ -230,9 +205,8 @@ def add(
             write(building / files[0], data)
             write(building / "text.md", text_md)
             write(building / "parts.jsonl", jsonl)
-            manifest["files"] = stats(building, files[:3])
             write(building / "manifest.json", manifest_bytes(manifest))
-            swap_in(building, target, replace)
+            swap_in(building, target)
         finally:
             if building.exists():
                 shutil.rmtree(building)
@@ -255,12 +229,12 @@ def writing(name: str) -> Generator[None]:
 KNOWN = ("original.pdf", "original.html", "original.txt", "text.md", "parts.jsonl")
 
 
-def swap_in(building: Path, target: Path, replace: bool) -> None:
-    """The new folder renamed into place. Without `replace`, a folder that appeared there
-    meanwhile (another add) stays, and this one is refused (Checkpoint 1's S5). With it, a
-    document already there is renamed aside first, its four known files deleted, and
-    anything else you put in its folder moved across."""
-    if not replace or not target.exists():
+def swap_in(building: Path, target: Path) -> None:
+    """The new folder renamed into place. A folder that appeared there meanwhile (another
+    add) stays, and this one is refused (Checkpoint 1's S5). A document already there is
+    renamed aside first, its four known files deleted, and anything else you put in its
+    folder moved across."""
+    if not target.exists():
         try:
             os.rename(building, target)  # never over a folder: one there refuses it
         except OSError:
@@ -327,9 +301,9 @@ def read_manifest(root: Path, name: str) -> dict[str, Any]:
 # siblings C2): the way out of an unreadable file in a document's folder and of a changed
 # original. The page's Add offers Replace for the same file when its document isn't ready.
 WAYS = {
-    "page": "Add the file again in Documents… and choose Replace.",
-    "chat": "`/documents add --replace PATH {name}` adds the file again.",
-    "cli": "`clarity document add FILE --name {name} --replace` adds the file again.",
+    "page": "Add the file again in Documents…, with the same name.",
+    "chat": "`/documents add PATH {name}` adds the file again.",
+    "cli": "`clarity document add FILE --name {name}` adds the file again.",
 }
 
 
@@ -387,7 +361,7 @@ def typed(manifest: Any) -> bool:
     """Whether a manifest holds what the readers rely on, each of the type Clarity writes:
     read from disk, it's untrusted (Checkpoint 1's S4)."""
     try:
-        original, text, files = manifest["original"], manifest["text"], manifest["files"]
+        original, text = manifest["original"], manifest["text"]
         starts = text["page_starts"]
         return (
             manifest["schema"] == SCHEMA
@@ -397,7 +371,6 @@ def typed(manifest: Any) -> bool:
             and isinstance(original["sha256"], str)
             and isinstance(text["sha256"], str)
             and _int(text["bytes"])
-            and isinstance(text["edited"], bool)
             and (starts is None or (isinstance(starts, list) and all(map(_int, starts))))
             and isinstance(manifest["build_id"], str)
             and _int(manifest["parts"])
@@ -405,58 +378,30 @@ def typed(manifest: Any) -> bool:
             and isinstance(manifest["extractor"], dict)
             and isinstance(manifest["added"], str)
             and datetime.fromisoformat(manifest["added"]).tzinfo is not None  # a page shows it
-            and isinstance(files, dict)
-            and set(files) == {original_name(original["kind"]), "text.md", "parts.jsonl"}
-            and all(
-                isinstance(f, dict)
-                and set(f) == {"bytes", "mtime_ns"}
-                and all(map(_int, f.values()))
-                for f in files.values()
-            )
         )
     except (KeyError, TypeError, AttributeError, ValueError):  # ValueError: a bad date
         return False
 
 
-class PartsRefused(DocumentRefused):
-    """A parts.jsonl that isn't one Clarity writes (the security review's S2): Rebuild cuts
-    it again, so a search says that, not "unreadable"."""
-
-
 class Stale(DocumentRefused):
-    """A document that doesn't match its manifest (`changed`) or is gone (`missing`). Each
-    front end words it with its own way out."""
+    """A document that's gone (`missing`). Each front end words it with its own way out."""
 
-    def __init__(self, name: str, state: str) -> None:
+    def __init__(self, name: str, state: str = "missing") -> None:
         self.name, self.state = name, state
-        # One sentence for a name not in the library (the close batch: surface C9).
-        said = f"{name} isn't in your documents." if state == "missing" else f"{name} is {state}."
-        super().__init__(said)
+        super().__init__(f"{name} isn't in your documents.")
 
 
-def state(root: Path, name: str, manifest: dict[str, Any] | None = None) -> str:
-    """`ready`, `changed` (a file's size or time differs from the manifest), `missing`, or
-    `unreadable` (a manifest Clarity can't read, or a folder that's a link): the quick check
-    before each search. `manifest`: one already read."""
-    if manifest is None:
-        try:
-            manifest = read_manifest(root, name)
-        except Stale as e:
-            return e.state
-        except DocumentRefused:
-            return "unreadable"
-    path = folder(root, name)
+def state(root: Path, name: str) -> str:
+    """`ready` when its manifest reads, `missing`, or `unreadable` (a manifest Clarity can't
+    read, or a folder that's a link): the quick check before each search. A search reads
+    parts.jsonl against the build ID, and refuses one that isn't it (cut 1)."""
     try:
-        now = stats(path, list(manifest["files"]))
-    except OSError:
-        return "changed"
-    return "ready" if now == manifest["files"] else "changed"
-
-
-def same_bytes(docs: list[dict[str, Any]], sha256: str) -> str | None:
-    """The library document whose original file has these bytes, if any (decision 21):
-    `/documents add` adds nothing for it, and the sheet's "Search it" says so first."""
-    return next((d["name"] for d in docs if d.get("sha256") == sha256), None)
+        read_manifest(root, name)
+    except Stale as e:
+        return e.state
+    except DocumentRefused:
+        return "unreadable"
+    return "ready"
 
 
 def documents(root: Path) -> list[dict[str, Any]]:
@@ -484,60 +429,41 @@ def documents(root: Path) -> list[dict[str, Any]]:
                 "kind": manifest["original"]["kind"],
                 "original": manifest["original"]["name"],
                 "added": manifest["added"],
-                "sha256": manifest["original"]["sha256"],  # "Search it" knows the same file
                 "bytes": manifest["original"]["bytes"],
                 "parts": manifest["parts"],
                 "titled": manifest["titled"],
-                "edited": manifest["text"]["edited"],
-                "state": state(root, path.name, manifest),  # read once (part 1's C4)
+                "state": "ready",  # its manifest read (cut 1)
             }
         )
     return found
 
 
-def check(root: Path, name: str) -> dict[str, Any]:
-    """The full check: every file hashed against the manifest. `problems` names each file
-    that differs; the state is `ready` only with none."""
-    manifest = read_manifest(root, name)
-    path = folder(root, name)
-    expected = {
-        original_name(manifest["original"]["kind"]): manifest["original"]["sha256"],
-        "text.md": manifest["text"]["sha256"],
-        "parts.jsonl": manifest["build_id"],
-    }
-    problems = []
-    for file, digest in expected.items():
-        try:
-            if sha256(read_file(name, path / file, manifest["files"][file]["bytes"])) != digest:
-                problems.append(f"{file} has changed")
-        except OSError:
-            problems.append(f"{file} is missing")
-    found: dict[str, Any] = {"name": name, "state": "changed" if problems else "ready"}
-    found["problems"] = problems
-    if not problems:  # decision 7: listed, as v0.3.1 lists </document>
-        try:
-            found["closing_tag_parts"] = closing_tag_parts(parts_of(root, name, manifest)[0])
-        except PartsRefused:  # its hash matches a manifest made to match: rebuild (fix 2's C1)
-            found.update(state="changed", problems=["parts.jsonl isn't one Clarity writes"])
-    return found
+def parts_stamp(root: Path, name: str) -> tuple[int, int] | None:
+    """parts.jsonl's size and modification time, or None when it can't be seen: a cheap key
+    for counts kept between searches. Never a check: a search hashes the file whole."""
+    try:
+        info = (folder(root, name) / "parts.jsonl").lstat()
+    except OSError:
+        return None
+    return info.st_size, info.st_mtime_ns
 
 
 def parts_of(
     root: Path, name: str, manifest: dict[str, Any] | None = None
 ) -> tuple[list[dict[str, Any]], str]:
     """A document's parts, read from parts.jsonl, and the build ID they are: the one in
-    `manifest` (read now, if not given), or the document is `changed`. Each line is read as
-    untrusted (the security review's S2), split on "\n" only: a part's text may hold U+2028,
-    U+2029 or U+0085, which JSON writes raw (its M1)."""
+    `manifest` (read now, if not given), or the document can't be searched: add it again
+    (cut 1). Each line is read as untrusted (the security review's S2), split on "\n" only:
+    a part's text may hold U+2028, U+2029 or U+0085, which JSON writes raw (its M1)."""
     if manifest is None:
         manifest = read_manifest(root, name)
     path = folder(root, name) / "parts.jsonl"
     try:
-        data = read_file(name, path, manifest["files"]["parts.jsonl"]["bytes"])
-    except OSError:
-        raise Stale(name, "changed") from None
+        data = read_file(name, path, PARTS_BYTES)
+    except OSError as e:
+        raise unreadable(name, "parts.jsonl", e.strerror or type(e).__name__) from None
     if build_id(data) != manifest["build_id"]:
-        raise Stale(name, "changed")
+        raise Unreadable(name, f"{name}'s parts.jsonl isn't the one Clarity built.")
     try:
         *lines, end = data.decode("utf-8").split("\n")
         parts = [json.loads(line) for line in lines]
@@ -545,7 +471,7 @@ def parts_of(
     except (ValueError, RecursionError):
         ok = False
     if not ok:
-        raise PartsRefused(f"{name}'s parts.jsonl isn't one Clarity writes. Rebuild it.")
+        raise Unreadable(name, f"{name}'s parts.jsonl isn't one Clarity writes.")
     return parts, manifest["build_id"]
 
 
@@ -587,93 +513,3 @@ def control_token_parts(
         if tokens:
             found.append({"ordinal": part["ordinal"], "tokens": tokens})
     return found
-
-
-class OriginalChanged(DocumentRefused):
-    """A rebuild refused because the original isn't the file the text came from: the way
-    out is to add the file again (Checkpoint 1's S3; N72). `said` is the reason, which the
-    terminal ends with its own command."""
-
-    def __init__(self, name: str) -> None:
-        self.name = name
-        self.said = (
-            f"Clarity can't rebuild {name}: its original file has changed or is gone, so its "
-            "text.md may no longer match it."
-        )
-        super().__init__(f"{self.said} {way_out(name, 'page')}")
-
-
-def rebuild(root: Path, name: str) -> dict[str, Any]:
-    """Build a document's parts again from its text.md, which is read as your input (v0.3.1's
-    checks: UTF-8, no NUL, at most 64 MB). An edited text drops its pages; an unchanged one
-    (only its time moved: a copy, a sync, a save) keeps them and stays unedited. The
-    original must be the file the text came from, or the way out is adding it again."""
-    manifest = read_manifest(root, name)
-    path = folder(root, name)
-    original_file = original_name(manifest["original"]["kind"])
-    try:
-        original = read_file(name, path / original_file, manifest["original"]["bytes"])
-    except OSError:
-        raise OriginalChanged(name) from None
-    if sha256(original) != manifest["original"]["sha256"]:
-        raise OriginalChanged(name)
-    data = edited_text(name, path / "text.md")
-    doc = extract(data, "text.md")
-    unchanged = sha256(data) == manifest["text"]["sha256"]
-    starts = manifest["text"]["page_starts"] if unchanged else None
-    edited = manifest["text"]["edited"] if unchanged else True
-    _, jsonl, rebuilt = built(
-        doc.text, name, manifest["original"], manifest["extractor"], starts, edited
-    )
-    rebuilt["added"] = manifest["added"]
-    rebuilt["text"]["sha256"] = sha256(data)  # the file as it is, BOM and all
-    rebuilt["text"]["bytes"] = len(data)
-    with writing(name):
-        replace_file(path / "parts.jsonl", jsonl)
-        rebuilt["files"] = stats(path, [original_file, "text.md", "parts.jsonl"])
-        replace_file(path / "manifest.json", manifest_bytes(rebuilt))
-    relative = path.relative_to(root).as_posix()
-    return {
-        "rebuilt": rebuilt,
-        "written": [f"{relative}/parts.jsonl", f"{relative}/manifest.json"],
-        # The board walk's W5: an edit of a PDF's text.md loses its page numbers, said once.
-        "pages_dropped": manifest["text"]["page_starts"] is not None and starts is None,
-    }
-
-
-def edited_text(name: str, path: Path) -> bytes:
-    """text.md's bytes, read as your input, with Rebuild's own sentences (the board walk's
-    S1): each names the document and text.md, and says to save it, then rebuild."""
-    try:
-        data = read_file(name, path, reading.MAX_BYTES)  # never through a link (the review's S1)
-    except OSError as e:
-        raise unreadable(name, "text.md", e.strerror or type(e).__name__) from None
-    if len(data) > reading.MAX_BYTES:
-        raise DocumentRefused(
-            f"{name}: text.md is too big: Clarity reads files up to {SIZE_LIMIT}. Shorten it, "
-            "then rebuild."
-        )
-    if b"\x00" in data:
-        raise DocumentRefused(
-            f"{name}: text.md isn't text Clarity can read. Save it as UTF-8 text, then rebuild."
-        )
-    try:
-        data.decode("utf-8")
-    except UnicodeDecodeError:
-        raise DocumentRefused(
-            f"{name}: text.md isn't UTF-8 text. Save text.md as UTF-8 text, then rebuild."
-        ) from None
-    return data
-
-
-def replace_file(path: Path, data: bytes) -> None:
-    """`path`'s contents replaced whole: written beside it under a name of its own, then
-    renamed over it, so two rebuilds never share a half-written file."""
-    handle, temporary = tempfile.mkstemp(prefix=f".{path.name}-", dir=path.parent)
-    os.close(handle)
-    try:
-        write(Path(temporary), data)
-        os.replace(temporary, path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)

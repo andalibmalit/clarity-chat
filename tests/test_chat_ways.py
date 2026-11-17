@@ -1,5 +1,5 @@
 """The main session's PM1 ruling: in the terminal chat and --json, every refusal's way out
-is a chat command (`/documents rebuild NAME`, `/documents add [--replace] PATH NAME`);
+is a chat command (`/documents add PATH NAME`);
 `clarity document …` stays for the command line. Made-up documents, scratch roots."""
 
 from __future__ import annotations
@@ -23,30 +23,31 @@ def terminal_of(act) -> str:
     return "no refusal"
 
 
-def test_a_parts_refusal_names_the_chat_s_rebuild(root, chat_tokenizer):  # noqa: F811
+def test_a_parts_refusal_names_the_chat_s_add(root, chat_tokenizer):  # noqa: F811
     from clarity_chat.documents.refused import problem_words
 
-    problem = {"document": "glossary", "state": "parts"}
+    problem = {"document": "glossary", "state": "unreadable", "add_again": True,
+               "why": "glossary's parts.jsonl isn't the one Clarity built."}  # fmt: skip
     said = problem_words(problem, terminal=True, where="chat", at_send=True)
-    assert "`/documents rebuild glossary`" in said and "clarity document" not in said
+    assert "`/documents add PATH glossary`" in said and "clarity document" not in said
 
 
 def test_the_command_line_keeps_its_own_commands(root, chat_tokenizer):  # noqa: F811
     from clarity_chat.documents.refused import problem_words
 
     for where in ("run", "try"):
-        said = problem_words({"document": "g", "state": "changed"}, True, where, True)
-        assert "`clarity document rebuild g`" in said, (where, said)
+        said = problem_words({"document": "g", "state": "missing"}, True, where, True)
+        assert "`clarity document add FILE --name g`" in said, (where, said)
 
 
 def test_the_chat_s_search_list_names_chat_commands(root, chat_tokenizer):  # noqa: F811
     session, _ = chat(root, chat_tokenizer)
-    (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
+    shutil.rmtree(root / "local/documents/glossary")
     output: list[str] = []
     loop = ChatLoop(session, "chat", read=lambda d: "", write=output.append)
     loop.handle("/search")
     said = "".join(output)
-    assert "`/documents rebuild glossary`" in said and "clarity document" not in said, said
+    assert "/search without it" in said and "clarity document" not in said, said
 
 
 def test_the_chat_s_empty_library_names_the_chat_s_add(root, chat_tokenizer):  # noqa: F811

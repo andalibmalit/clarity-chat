@@ -175,20 +175,20 @@ def test_details_names_what_was_left_out(root, make):  # noqa: F811
 def test_a_refused_send_says_nothing_was_sent_with_a_line_and_buttons(root, make):  # noqa: F811
     library_add(root, b"## Heron\nTall.\n", "herons.md")
     client, _ = make('search = ["glossary", "herons"]')
-    (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
+    (root / "local/documents/glossary/parts.jsonl").write_text("Edited.\n", encoding="utf-8")
     shutil.rmtree(root / "local/documents/herons")
     assert command(client, "say", "Tell me about the wren").json()["type"] == "SearchRefused"
     box = re.search(r'<div class="problem refused".*?<!-- /refused -->', thread(client), re.S)
     assert box, "no refusal box"
     said = text_of(box.group(0))
-    assert said.startswith("! Nothing was sent. Clarity can't search glossary: a file in its")
-    assert 'data-action="refused-rebuild" data-name="glossary"' in box.group(0)
+    assert said.startswith("! Nothing was sent. Clarity can't search glossary: its parts.jsonl")
+    assert 'data-action="refused-stop" data-name="glossary"' in box.group(0)
     assert 'data-action="refused-stop" data-name="herons"' in box.group(0)
     assert "! Failed" not in said
     command(client, "search", "glossary")  # what herons' Stop searching it sends
     page = thread(client)
     assert "herons" not in text_of(page) and "Clarity can't search glossary" in text_of(page)
-    command(client, "documents", "rebuild glossary")
+    library_add(root, GLOSSARY, "glossary.md")  # cut 1: the file added again
     after = text_of(thread(client))  # no line left: the box goes, and Send works
     assert "Nothing was sent." not in after and "Failed" not in after
 

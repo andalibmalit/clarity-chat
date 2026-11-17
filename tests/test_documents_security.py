@@ -2,7 +2,7 @@
 rulings"): SM1 (a part holding U+2028, U+2029 or U+0085 reads whole), SS1 (no file in a
 document folder is read through a link, or as a FIFO or a folder), SS2 (parts.jsonl read as
 untrusted), SS3 (a deeply nested manifest is one unreadable document), SS4 (a failed
---replace never hides the old document) and SS5 (the terminal prints titles through
+replace never hides the old document) and SS5 (the terminal prints titles through
 shown()). Made-up documents, scratch roots; a reader that would hang runs in a thread with
 a timeout."""
 
@@ -21,10 +21,8 @@ from clarity_chat.cli import format_found
 from clarity_chat.documents import (
     DocumentRefused,
     library_add,
-    library_check,
     library_documents,
     library_parts,
-    library_rebuild,
     library_state,
     load_document,
     reading,
@@ -73,8 +71,8 @@ def outcome(act) -> object:
 
 
 def retamper(root: Path, name: str, change) -> None:
-    """parts.jsonl's lines changed by `change`, and the manifest's build ID and file stats
-    made to match: the stale check passes, so only the parts' own check can refuse."""
+    """parts.jsonl's lines changed by `change`, and the manifest's build ID made to match:
+    the build check passes, so only the parts' own check can refuse."""
     path = folder(root, name)
     lines = [json.loads(line) for line in (path / "parts.jsonl").read_bytes().split(b"\n")[:-1]]
     for part in lines:
@@ -83,9 +81,6 @@ def retamper(root: Path, name: str, change) -> None:
     (path / "parts.jsonl").write_bytes(data)
     manifest = json.loads((path / "manifest.json").read_bytes())
     manifest["build_id"] = hashlib.sha256(data).hexdigest()
-    for file in manifest["files"]:
-        info = (path / file).stat()
-        manifest["files"][file] = {"bytes": info.st_size, "mtime_ns": info.st_mtime_ns}
     (path / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
 
 
@@ -103,7 +98,7 @@ def test_a_part_holding_a_line_separator_reads_whole(root, chat_tokenizer, separ
     library_add(root, f"{paragraph}\n".encode(), "songs.md")
     listed = {d["name"]: d for d in library_documents(root)}
     assert listed["songs"]["state"] == "ready"
-    assert outcome(lambda: library_check(root, "songs")["state"]) == "ready"
+    assert outcome(lambda: load_document(root, "songs").name) == "songs"
     assert outcome(lambda: [p["text"] for p in library_parts(root, "songs")[0]]) == [paragraph]
     session, c, _ = chat(root, chat_tokenizer, 'search = ["songs"]')
     assert c.run("try", "Tell me about the wren", quiet)["found"]["parts"][0]["text"] == paragraph
@@ -134,17 +129,13 @@ def test_a_linked_file_in_a_document_folder_is_never_read(root, tmp_path, file):
     private = link(root, tmp_path, file)
     before = private.read_bytes()
     sentence = (  # the close batch (surface S2): the page's way out
-        f"notes's {file} can't be read (it's a link). Add the file again in Documents… and "
-        "choose Replace."
+        f"notes's {file} can't be read (it's a link). Add the file again in Documents…, with "
+        "the same name."
     )
-    assert library_state(root, "notes") in ("changed", "unreadable")
-    assert refusal(lambda: load_document(root, "notes")) in ("notes is changed.", sentence)
-    checked = refusal(lambda: library_check(root, "notes"))
-    assert checked == sentence or library_check(root, "notes")["state"] == "unreadable"
-    if file != "parts.jsonl":  # Rebuild replaces a linked parts.jsonl: the link, not its target
-        assert refusal(lambda: library_rebuild(root, "notes")) == sentence
+    searched = file in ("parts.jsonl", "manifest.json")  # cut 1: search reads only these
+    assert refusal(lambda: load_document(root, "notes")) == (sentence if searched else "no refusal")
     assert private.read_bytes() == before
-    if library_state(root, "notes") == "ready":
+    if not searched:
         assert all("secret" not in p["text"] for p in library_parts(root, "notes")[0])
 
 
@@ -160,22 +151,15 @@ def special(path: Path) -> None:
 @pytest.mark.parametrize("file", LINKABLE)
 def test_a_fifo_in_a_document_folder_never_hangs_a_reader(root, file):
     special(folder(root) / file)
-    state = library_documents(root)[0]["state"]  # before Rebuild, which replaces parts.jsonl
     sentence = (  # the close batch (surface S2): the page's way out
         f"notes's {file} can't be read (it isn't a regular file). Add the file again in "
-        "Documents… and choose Replace."
+        "Documents…, with the same name."
     )
-    for act in (
-        lambda: library_documents(root),
-        lambda: library_check(root, "notes"),
-        lambda: library_rebuild(root, "notes"),
-        lambda: load_document(root, "notes"),
-    ):
+    for act in (lambda: library_documents(root), lambda: load_document(root, "notes")):
         done, result = finishes(act)
         assert done, f"{file}: a reader hung"
         if isinstance(result, DocumentRefused):
-            assert str(result) in (sentence, "notes is changed.") or "parts" in file, result
-    assert state in ("changed", "unreadable")
+            assert str(result) == sentence, result
     if file == "manifest.json":  # the row's reason holds no way out (the close batch, S2)
         assert library_documents(root)[0]["why"] == sentence.split(" Add the file")[0]
 
@@ -197,25 +181,25 @@ def test_a_fifo_in_a_document_folder_never_hangs_a_reader(root, file):
 )
 def test_a_tampered_parts_file_is_refused_everywhere(root, chat_tokenizer, change):
     retamper(root, "notes", change)
-    said = "notes's parts.jsonl isn't one Clarity writes. Rebuild it."
+    way = "Add the file again in Documents…, with the same name."  # cut 1: the one way out
+    said = f"notes's parts.jsonl isn't one Clarity writes. {way}"
     assert refusal(lambda: library_parts(root, "notes")) == said
     session, c, _ = chat(root, chat_tokenizer)
     assert refusal(lambda: c.run("search", "notes", quiet)) == (  # as Send says it (fix 2's C1)
-        "Clarity can't search notes: its parts.jsonl isn't one Clarity writes. Rebuild it."
+        f"Clarity can't search notes: its parts.jsonl isn't one Clarity writes. {way}"
     )
     session, c, _ = chat(root, chat_tokenizer, 'search = ["notes"]')
-    # Rebuild fixes it, so it's changed, as Send says it (the close batch: siblings C3).
-    assert c.run("state", "", quiet)["searching"][0]["state"] == "changed"
+    assert c.run("state", "", quiet)["searching"][0]["state"] == "unreadable"
     assert refusal(lambda: c.run("try", "Tell me about the wren", quiet)) == (
-        "Clarity can't search notes: its parts.jsonl isn't one Clarity writes. Rebuild it."
+        f"Clarity can't search notes: its parts.jsonl isn't one Clarity writes. {way}"
     )
     assert refusal(lambda: c.run("say", "Tell me about the wren", quiet)) == (
-        "Nothing was sent.\nClarity can't search notes: its parts.jsonl isn't one Clarity "
-        "writes. Rebuild it."
+        f"Nothing was sent.\nClarity can't search notes: its parts.jsonl isn't one Clarity "
+        f"writes. {way}"
     )
     assert all("found" not in r for r in logged(session))  # CM1's path: the turn, no parts
-    library_rebuild(root, "notes")
-    assert library_state(root, "notes") == "ready"
+    library_add(root, (folder(root) / "original.txt").read_bytes(), "notes.md")
+    assert library_parts(root, "notes")[0]
 
 
 # --- SS3: a manifest nested too deep
@@ -242,15 +226,14 @@ def test_a_deeply_nested_parts_line_is_refused(root):
     path.write_bytes(data)
     manifest = json.loads((folder(root) / "manifest.json").read_bytes())
     manifest["build_id"] = hashlib.sha256(data).hexdigest()
-    info = path.stat()
-    manifest["files"]["parts.jsonl"] = {"bytes": info.st_size, "mtime_ns": info.st_mtime_ns}
     (folder(root) / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     assert outcome(lambda: library_parts(root, "notes")) == (
-        "PartsRefused: notes's parts.jsonl isn't one Clarity writes. Rebuild it."
+        "Unreadable: notes's parts.jsonl isn't one Clarity writes. Add the file again in "
+        "Documents…, with the same name."
     )
 
 
-# --- SS4: --replace never hides the old document
+# --- SS4: replacing never hides the old document
 
 
 def test_a_failed_rename_puts_the_old_document_back(root, monkeypatch):
@@ -265,7 +248,7 @@ def test_a_failed_rename_puts_the_old_document_back(root, monkeypatch):
         return real(a, b)
 
     monkeypatch.setattr(library_module.os, "replace", second_fails)
-    said = refusal(lambda: library_add(root, b"# New\n\nNew text.\n", "notes.md", replace=True))
+    said = refusal(lambda: library_add(root, b"# New\n\nNew text.\n", "notes.md"))
     monkeypatch.setattr(library_module.os, "replace", real)
     assert said == "Can't write notes in local/documents/: Permission denied."
     assert library_state(root, "notes") == "ready"
@@ -277,7 +260,7 @@ def test_a_failed_rename_puts_the_old_document_back(root, monkeypatch):
 def test_replace_refuses_a_target_that_isn_t_a_folder(root):
     path = root / "local/documents/plain"
     path.write_text("Not a document.\n", encoding="utf-8")
-    said = refusal(lambda: library_add(root, b"Made-up.\n", "plain.md", replace=True))
+    said = refusal(lambda: library_add(root, b"Made-up.\n", "plain.md"))
     assert said == (
         "local/documents/plain isn't a folder, so Clarity can't replace it. Move it away, then "
         "add the file again."
@@ -290,7 +273,7 @@ def test_an_old_folder_that_can_t_be_cleared_is_named(root):
     (folder(root) / "text.md").unlink()
     (folder(root) / "text.md").mkdir()
     (folder(root) / "text.md" / "kept.txt").write_text("Mine.\n", encoding="utf-8")
-    said = refusal(lambda: library_add(root, b"# New\n\nNew text.\n", "notes.md", replace=True))
+    said = refusal(lambda: library_add(root, b"# New\n\nNew text.\n", "notes.md"))
     assert said.startswith("Clarity replaced notes, but couldn't clear its old folder")
     hidden = said.rsplit("local/documents/", 1)[1].removesuffix("/.")
     assert (root / "local/documents" / hidden / "text.md" / "kept.txt").is_file()

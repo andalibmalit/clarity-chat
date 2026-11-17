@@ -14,18 +14,13 @@ from typing import Any
 from clarity_chat.backends import BackendError
 from clarity_chat.commands import (
     SENTENCES,
-    TAKEN,
     Commands,
-    OriginalChanged,
     check_lines,
     counted,
     document_add,
-    document_check,
     document_list,
-    document_rebuild,
     document_try,
     format_added,
-    format_rebuilt,
     how_words,
     read_files,
     split_drops,
@@ -729,10 +724,8 @@ class ChatLoop:
             self.write(format_searching(result) + "\n")
         elif name == "try":
             self.write(format_tried(result) + "\n")
-        elif name == "documents" and ("added" in result or "existing" in result):
+        elif name == "documents" and "added" in result:
             self.write(format_added(result) + "\n")
-        elif name == "documents" and "rebuilt" in result:
-            self.write(format_rebuilt(result) + "\n")
         elif name == "documents":
             self.write(format_documents(result["documents"], "chat") + "\n")
         elif name == "detach":
@@ -1010,14 +1003,13 @@ def cmd_verify(root: Path, names: list[str]) -> int:
 
 
 def cmd_document(root: Path, args: argparse.Namespace) -> int:
-    """`clarity document add|list|check|rebuild`: the library, with no model."""
+    """`clarity document add|list|try`: the library, with no model."""
     if args.action == "add":
         try:
             result = document_add(
                 root,
                 args.file,
                 args.name,
-                args.replace,
                 on_read=lambda: print(f"Reading {shown(Path(args.file).name)}…", flush=True),
                 on_write=lambda folder, replacing: print(
                     writing_words(folder, replacing), flush=True
@@ -1027,10 +1019,6 @@ def cmd_document(root: Path, args: argparse.Namespace) -> int:
             if str(e).endswith(" Give it one."):
                 said = str(e).removesuffix(" Give it one.")
                 raise ConfigError(f"{said} Give it one with `--name NAME`. {NAME_RULE}") from None
-            if str(e).startswith(TAKEN):  # the terminal's ways out (part 1's C7)
-                raise ConfigError(
-                    f"{e} `--replace` replaces it; `--name NAME` gives this one another name."
-                ) from None
             raise
         print(format_added(result))
         return 0
@@ -1042,15 +1030,6 @@ def cmd_document(root: Path, args: argparse.Namespace) -> int:
             print(f"Your documents, in {listed['folder']}:")
             print(format_documents(listed["documents"], "cli"))
         return 0
-    if args.action == "check":
-        tokenizer = None
-        if args.profile:
-            session = Session(root)
-            profile, model, _ = session.profile_for(args.profile)
-            tokenizer = session.tokenizers_for(profile, model)[0]
-        checked = document_check(root, args.names, tokenizer)["checked"]
-        print(format_checked(checked) if checked else "No documents yet.")
-        return 0 if all(c["state"] == "ready" for c in checked) else 1
     if args.action == "try":
         if len(args.words) < 2:
             raise ConfigError("Name at least one document, then the message.")
@@ -1058,14 +1037,7 @@ def cmd_document(root: Path, args: argparse.Namespace) -> int:
         tried = document_try(root, names, args.profile, text)
         print(json.dumps(tried) if args.json else format_tried(tried))
         return 0
-    try:
-        result = document_rebuild(root, args.name)
-    except OriginalChanged as e:  # the terminal's way out, by name (the page's deletes)
-        raise ConfigError(
-            f"{e.said} `clarity document add FILE --name {e.name} --replace` adds the file again."
-        ) from None
-    print(format_rebuilt(result))
-    return 0
+    raise AssertionError(f"unknown document action {args.action}")  # argparse refuses it
 
 
 def writing_words(folder: str, replacing: bool) -> str:
@@ -1091,42 +1063,10 @@ def format_documents(listed: list[dict[str, Any]], front: str) -> str:
             way = f" {way_out(d['name'], front)}" if d.get("add_again") else ""
             lines.append(f"{d['name']}: {d['why']}{way}")
             continue
-        edited = ", text.md edited" if d["edited"] else ""
         lines.append(
             f"{d['name']}  {d['kind']}  {d['bytes']:,} bytes  {counted(d['parts'], 'part')}, "
-            f"{d['titled']:,} titled{edited}  {d['state']}"
+            f"{d['titled']:,} titled  {d['state']}"
         )
-    return "\n".join(lines)
-
-
-def format_checked(checked: list[dict[str, Any]]) -> str:
-    """`clarity document check`: each document's state, and the way out that works: rebuild
-    for its text or parts, adding it again for its original (Checkpoint 1's S3)."""
-    lines = []
-    for c in checked:
-        name, problems = c["name"], c["problems"]
-        if c["state"] == "ready":
-            lines.append(f"{name}: ready.")
-        elif c["state"] == "missing":  # one sentence everywhere (surface C9)
-            lines.append(f"{name} isn't in your documents.")
-        elif c["state"] == "unreadable":
-            lines.append(f"{name}: {'; '.join(problems)}")
-        elif any(p.startswith("original.") for p in problems):
-            lines.append(
-                f"{name}: changed ({'; '.join(problems)}): its original isn't the file its text "
-                f"came from. `clarity document add FILE --name {name} --replace` adds it again."
-            )
-        else:
-            lines.append(
-                f"{name}: changed ({'; '.join(problems)}): A file in its folder has changed "
-                f"since Clarity cut it into parts. `clarity document rebuild {name}` cuts them "
-                "again."
-            )
-        for ordinal in c.get("closing_tag_parts", []):
-            lines.append(f"  part {ordinal} holds </part> or </document>; it's sent as it is")
-        for found in c.get("control_token_parts", []):
-            tokens = ", ".join(found["tokens"])
-            lines.append(f"  part {found['ordinal']} holds this model's control tokens: {tokens}")
     return "\n".join(lines)
 
 
@@ -1188,8 +1128,6 @@ def format_searching(result: dict[str, Any]) -> str:
     for d in result["searching"]:
         if d["state"] == "ready":
             shown_.append(d["name"])
-        elif d["state"] == "changed":  # the chat's own commands (the PM1 ruling)
-            shown_.append(f"{d['name']} (changed: `/documents rebuild {d['name']}`)")
         elif d["state"] == "unreadable":
             shown_.append(f"{d['name']} (unreadable: `/documents` says why)")
         else:
@@ -1323,15 +1261,12 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     ).add_subparsers(dest="action", required=True)
     add = document.add_parser("add", help="add a file: its copy, text and parts")
     add.add_argument("file")
-    add.add_argument("--name", help="the document's name (default: from the file's name)")
-    add.add_argument("--replace", action="store_true", help="replace a document of that name")
+    add.add_argument(
+        "--name", help="the document's name (default: from the file's name); a document of "
+        "that name is replaced"
+    )  # fmt: skip
     listed = document.add_parser("list", help="the documents, with their state")
     listed.add_argument("--json", action="store_true", help="as JSON, for scripts")
-    checked = document.add_parser("check", help="hash each document's files")
-    checked.add_argument("names", nargs="*", metavar="NAME", help="default: every document")
-    checked.add_argument("--profile", help="also list the parts holding its model's control tokens")
-    rebuilt = document.add_parser("rebuild", help="build a document's parts again from text.md")
-    rebuilt.add_argument("name")
     tried = document.add_parser(
         "try", help="what a message would find in these documents, with no model"
     )

@@ -28,8 +28,6 @@ from clarity_chat.documents import (
     Document,
     DocumentRefused,
     Fit,
-    OriginalChanged,
-    PartsRefused,
     Room,
     SearchRefused,
     Stale,
@@ -51,6 +49,7 @@ from clarity_chat.documents import (
     framing_of,
     library_manifest,
     library_parts,
+    library_parts_stamp,
     library_state,
     load_document,
     message_content,
@@ -471,7 +470,7 @@ class Session:
         self.backend = backend or self.backend_for("llama.cpp", None)
         self.conversation: Conversation | None = None
         self._checked: tuple[tuple, Counts] | None = None  # the last check's counts
-        self._scans: dict[str, dict[str, int]] = {}  # /search's counts, by build ID,
+        self._scans: dict[tuple, dict[str, int]] = {}  # /search's counts, by build ID,
         self._scanned_with: Any = None  # for this tokenizer, held: an id() can be reused
         self.model: ModelEntry | None = None
         self.model_lock: dict[str, Any] = {}
@@ -858,10 +857,10 @@ class Session:
                 try:
                     docs.append(load_document(self.root, name))
                     continue
-                except Stale as e:  # it changed since the check just now
+                except Stale as e:  # gone since the check just now
                     problem = {"document": name, "state": e.state}
-                except PartsRefused:  # not one Clarity writes (the security review's S2)
-                    problem = {"document": name, "state": "parts"}
+                except DocumentRefused as e:  # parts.jsonl isn't the one built (cut 1)
+                    problem = unreadable_problem(name, e)
             problems.append(problem)
         if problems:
             raise SearchRefused(problems, at_send, where)
@@ -890,11 +889,10 @@ class Session:
         if state == "missing":
             return {"document": name, "state": "missing"}
         try:
-            manifest = library_manifest(self.root, name)
+            library_manifest(self.root, name)
         except DocumentRefused as e:  # unreadable: the reason; each front end its way out
             return unreadable_problem(name, e)
-        pdf = manifest["original"]["kind"] == "pdf" and bool(manifest["text"]["page_starts"])
-        return {"document": name, "state": "changed", "pages_lost": pdf}
+        return None  # ready since the check just now: the search reads it
 
     def document_builds(self, names: list[str]) -> dict[str, str]:
         """Each document's build ID, as a search now would read it (a stale one refused)."""
@@ -902,6 +900,8 @@ class Session:
             return {name: load_document(self.root, name).build_id for name in names}
         except Stale as e:
             raise SearchRefused([{"document": e.name, "state": e.state}], where="run") from None
+        except Unreadable as e:  # its parts aren't the ones built: add it again (cut 1)
+            raise SearchRefused([unreadable_problem(e.name, e)], where="run") from None
 
     def block(self, text: str, where: str = "chat") -> dict[str, Any]:
         """A next message's block fields, searched now, a refusal raised (/try, and a batch
@@ -1463,10 +1463,10 @@ class Session:
             if state == "ready":
                 try:
                     library_parts(self.root, name)  # read as untrusted (the review's S2)
-                except Stale as e:  # changed under the quick check (the fix review's C6)
+                except Stale as e:  # gone under the quick check (the fix review's C6)
                     raise SearchRefused([{"document": name, "state": e.state}]) from None
-                except PartsRefused:  # its way out, as Send says it (fix 2's C1)
-                    raise SearchRefused([{"document": name, "state": "parts"}]) from None
+                except Unreadable as e:  # not the parts it built: add it again (cut 1)
+                    raise SearchRefused([unreadable_problem(name, e)]) from None
         if named_twice(names) is not None:
             raise ConfigError("Name each document once.")
         conversation.searching, conversation.searching_origin = list(names), "chat"
@@ -1505,10 +1505,8 @@ class Session:
                     entry.update(self._scanned(name))
                 elif state == "unreadable":  # why, as /documents says it (the review's C7)
                     library_manifest(self.root, name)
-            except Stale as e:  # changed under the quick check: its state (the review's C6)
+            except Stale as e:  # gone under the quick check: its state (the review's C6)
                 entry["state"] = e.state
-            except PartsRefused:  # Rebuild fixes it: changed, as Send says it (siblings C3)
-                entry["state"] = "changed"
             except DocumentRefused as e:  # a manifest Clarity can't read: the reason
                 problem = unreadable_problem(name, e)
                 entry.update(state="unreadable", why=problem["why"], add_again=problem["add_again"])
@@ -1516,13 +1514,15 @@ class Session:
         return found
 
     def _scanned(self, name: str) -> dict[str, int]:
-        """A ready document's counts for this tokenizer, kept by build ID: /state asks often."""
+        """A ready document's counts for this tokenizer, kept by build ID and parts.jsonl's
+        size and time: /state asks often, and parts that changed are read (and refused)."""
         assert self.tokenizer is not None
         manifest = library_manifest(self.root, name)
         if self._scanned_with is not self.tokenizer:  # another model: count again
             self._scans, self._scanned_with = {}, self.tokenizer
-        key = manifest["build_id"]
-        if key not in self._scans:
+        stamp = library_parts_stamp(self.root, name)  # None: the read below says why
+        key = (manifest["build_id"], stamp)
+        if stamp is None or key not in self._scans:
             parts, _ = library_parts(self.root, name, manifest)
             self._scans[key] = {
                 "control_token_parts": len(
@@ -2417,7 +2417,7 @@ def unreadable_problem(name: str, refused: DocumentRefused) -> dict[str, Any]:
 def reason(refused: DocumentRefused) -> str:
     """What a library refusal says is wrong, without a way out: each front end adds its own
     (the close batch: surface S2)."""
-    return refused.said if isinstance(refused, (Unreadable, OriginalChanged)) else str(refused)
+    return refused.said if isinstance(refused, Unreadable) else str(refused)
 
 
 def found_summary(found: dict[str, Any], framed: bool) -> dict[str, Any]:
