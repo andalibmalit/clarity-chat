@@ -59,7 +59,7 @@ CHECK_HELP: dict[str, tuple[str, str]] = {
             "llama.cpp only, on a model file that bans tokens (tokenizer.ggml.suppress_tokens):"
             " no banned token is in the reply."
         ),
-        "A token the model file bans is in the reply, so llama-server didn’t apply the ban.",
+        "A token on the recorded ban list is in the reply: llama-server didn’t apply that list.",
     ),
     "server_props": (
         (

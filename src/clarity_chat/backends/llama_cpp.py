@@ -220,27 +220,35 @@ KEY_LINE_RE = re.compile(
     r"^(?:[\d.]+ I )?llama_model_loader: - kv +\d+: +(\S+) (\S+) += (.*?)\r?$", re.MULTILINE
 )
 SUPPRESS_KEY = "tokenizer.ggml.suppress_tokens"
+# Every line naming that key, in any shape and at any level, so a line the pattern above
+# can't read is refused rather than read as no ban.
+NAMED_RE = re.compile(
+    rf"^(?:[\d.]+ \S )?llama_model_loader: - kv +\d+: +{re.escape(SUPPRESS_KEY)}\s", re.MULTILINE
+)
 
 
 def suppress_tokens(startup_output: str) -> list[int]:
-    """The token IDs the model file bans on every reply (llama-server merges them into the
-    logit bias at minus infinity, and no request can lift them), from llama-server's dump of
-    the file's keys. [] when the dump has no such key. Anything else is refused: no key line
-    read at all, two lines naming the key, another type, a list the log cut, or a count that
-    doesn't match. Every line of the whole output is searched and counted, so text from the
-    file can't hide the real key line (docs/design.md, "The model file's banned tokens")."""
+    """The token IDs the model file bans on every reply (llama-server adds minus infinity to
+    each one's logit, so no request can lift the ban), from llama-server's dump of the
+    file's keys. [] when the dump has no such key. Anything else is refused: no key line
+    read at all, two lines naming the key or one in another shape, another type, a list the
+    log cut, or a count that doesn't match. Every line of the whole output is searched and
+    counted, so text from the file can't hide the real key line (docs/design.md, "The model
+    file's banned tokens are recorded")."""
     keys = KEY_LINE_RE.findall(startup_output)
     found = [(kind, value) for name, kind, value in keys if name == SUPPRESS_KEY]
-    if keys and not found:
-        return []
-    if len(found) == 1:
-        kind, value = found[0]
-        count = re.fullmatch(r"arr\[i32,([0-9]+)\]", kind)
-        ids = value[1:-1].split(", ") if value != "[]" else []
-        whole = len(value) <= 40 and value.startswith("[") and value.endswith("]")
-        if count and whole and len(ids) == int(count[1]):
-            if all(re.fullmatch(r"-?[0-9]+", i) for i in ids):
-                return [int(i) for i in ids]
+    if len(NAMED_RE.findall(startup_output)) == len(found):
+        if keys and not found:
+            return []
+        if len(found) == 1:
+            kind, value = found[0]
+            count = re.fullmatch(r"arr\[i32,([0-9]+)\]", kind)
+            # The length first, so the pattern only ever reads 40 characters.
+            listed = len(value) <= 40 and re.fullmatch(r"\[(-?[0-9]+(?:, -?[0-9]+)*)?\]", value)
+            if count and listed:
+                ids = [int(i) for i in value[1:-1].split(", ")] if value != "[]" else []
+                if count[1] == str(len(ids)):  # as text: a count of any length can't raise
+                    return ids
     raise ConfigError(
         "llama-server's startup log doesn't give this model file's whole list of banned "
         f"tokens ({SUPPRESS_KEY}), so Clarity can't record what llama-server keeps out of "
