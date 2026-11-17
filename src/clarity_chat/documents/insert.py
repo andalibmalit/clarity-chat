@@ -133,9 +133,8 @@ SENTENCES = {
     "encrypted": "encrypted (it opens without a password)",
     "empty_units": "{count} with no text",
     # Adding a document with "Search it" (v0.3.2 C2; cuts 1 and 2)
-    "keeps_copy": "Clarity keeps a copy in local/documents/{name}/: the file, its text, its "
-    "parts and a record of them. A document that already has the name in the box is "
-    "replaced.",
+    "keeps_copy": "Clarity keeps a copy in local/documents/, under the name in the box. A "
+    "document that already has that name is replaced.",  # the page QA's should 2
     "searches_next": "This chat searches {name} from your next message.",
     "replaced": "Clarity replaced {name} in your documents with this file.",
     # "Search it" on the attach sheet and the Searching chooser (v0.3.2 C2; N2-N27, N60)
@@ -143,8 +142,6 @@ SENTENCES = {
     'a word with your message, best match first; common words such as "the" don\'t count. A '
     "message gets at most {considered} parts and {budget} tokens ({origin}), shared by every "
     "document this chat searches. Added parts stay in the chat with that message.",
-    "replace_note": "{name} is already in your documents. Adding this file replaces its copy, "
-    "text and parts in local/documents/{name}/. Anything else you put in that folder stays.",
     "searching_some": "Searching: {documents}",
     "searching_none": "Searching: no documents",
     "searching_head": "Searched for each message you send",
