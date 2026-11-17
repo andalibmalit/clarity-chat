@@ -18,6 +18,7 @@ Why Clarity works the way it does: each choice, what it costs, and what is out o
 **BOS is decided per mode and logged.** Text mode follows `add_bos_token` in `tokenizer_config.json`, cross-checked by probing the tokenizer; if they disagree, the profile won't load. Chat mode never adds BOS, because the chat template decides.
 
 **Chat templates come from a pinned repo and are logged by hash.** Each call logs the template's repo, commit, arguments and sha256, plus the `transformers`, `tokenizers` and `jinja2` versions, because rendering depends on all of them.
+- A template can write today's date: Transformers gives templates `strftime_now`, which formats the machine's current local time, and Llama-style templates call it unless given `date_string`. Then the same messages can make a different prompt on another day. Clarity warns at a conversation's start and on resume, and doesn't pin the date: each call logs the prompt it sent, and replay sends the logged token IDs. No shipped model's template calls it.
 
 **Text that looks like a control token is a control token.** If a message or prompt file contains, say, `<|im_end|>`, the tokenizer reads it as that token, as Hugging Face does everywhere. Clarity keeps this standard behaviour so both backends get the same IDs, and flags and warns about such calls instead.
 - Cost: there is no way to send such text as plain text.

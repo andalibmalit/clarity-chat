@@ -95,6 +95,7 @@ from clarity_chat.render import (
     message_spans,
     prompt_text,
     unread_kwargs,
+    writes_date,
 )
 from clarity_chat.replay import (
     REPLAY_NEEDS,
@@ -211,6 +212,7 @@ class Prepared:
     template_tokenizer: Tokenizer
     template: dict[str, Any] | None
     unread_kwargs: list[str] = field(default_factory=list)  # template_kwargs it never reads
+    writes_date: bool = False  # the chat template can write today's date
 
 
 @dataclass
@@ -572,10 +574,11 @@ class Session:
             template = chat_template_source(template_tokenizer, profile)
             text = template_tokenizer.tok.chat_template
             unread = unread_kwargs(text, profile.template_kwargs)
+            dated = writes_date(text)
         else:
-            template, unread = None, []
+            template, unread, dated = None, [], False
         return Prepared(
-            profile, model, entry, weights, tokenizer, template_tokenizer, template, unread
+            profile, model, entry, weights, tokenizer, template_tokenizer, template, unread, dated
         )
 
     def load_vector(
@@ -706,13 +709,20 @@ class Session:
     @staticmethod
     def _profile_warnings(prepared: Prepared) -> list[str]:
         """Warnings shown when a conversation starts or resumes, and logged."""
-        unread = prepared.unread_kwargs
-        if not unread:
-            return []
-        return [
-            f"The chat template never reads template_kwargs {unread}, so they change "
-            "nothing. Check their names against the template: the prompt shows its output."
-        ]
+        warnings = []
+        if prepared.unread_kwargs:
+            warnings.append(
+                f"The chat template never reads template_kwargs {prepared.unread_kwargs}, so "
+                "they change nothing. Check their names against the template: the prompt "
+                "shows its output."
+            )
+        if prepared.writes_date:
+            warnings.append(
+                "This model's chat template can write today's date, so the same messages can "
+                "make a different prompt on another day; replay sends the logged token IDs, so "
+                "it isn't affected."
+            )
+        return warnings
 
     def start_model(self, prepared: Prepared, ctx_size: Setting) -> dict[str, Any] | None:
         """Start (or keep) the model a prepared profile needs, at `ctx_size`. Returns the
