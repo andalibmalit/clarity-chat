@@ -4,7 +4,8 @@
         --root ROOT --out DIR --steps STEPS [--init]
 
 Prepares ROOT as qa_session.py does (a scratch project that loads SmolLM2 only, refused if
-it holds local/models.toml or local/models.lock), starts
+it holds local/models.toml or local/models.lock, or a link; checked again before each step,
+since Clarity reads the root while it runs), starts
 `clarity --root ROOT ui` with no browser of its own, opens its link in Chrome through
 Playwright, and runs STEPS, one per line. SELECTOR is a Playwright selector: CSS, or
 `text=Regenerate` and `role=button[name="Copy"]` (none of its engines runs script).
@@ -206,6 +207,13 @@ def shot(page: Page, out: Path, stem: str) -> None:
 
 
 def run_step(page: Page, verb: str, arg: str, out: Path, n: int, root: Path | None = None) -> None:
+    if root is not None:  # again before each step: Clarity reads the root while it runs
+        session = qa_session()
+        try:
+            session.no_links(root)
+            session.no_local_models(root)
+        except session.Refused as e:
+            raise Refused(f"step {n} not run: {e}") from e
     if verb == "click":
         page.click(arg)
     elif verb == "fill":
