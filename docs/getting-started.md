@@ -23,7 +23,7 @@ Clarity's live tests have run on Apple Silicon (Metal), and CI runs the SmolLM2 
 
    ```
    git clone https://github.com/ggml-org/llama.cpp vendor/llama.cpp
-   git -C vendor/llama.cpp checkout f477f795cb071baf5b8af6488378366a72034ac4
+   git -C vendor/llama.cpp checkout b1b770d90d94cad9e9ea5b993bdbc383a522fb28
    ```
 
    Clarity refuses to start the server if the checkout is at another commit, because a different build can give different output. If the checkout is right but the built `llama-server` comes from another commit, Clarity stops and asks you to rebuild it.

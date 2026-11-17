@@ -51,7 +51,7 @@ Needs [uv](https://docs.astral.sh/uv/), CMake, a C++ compiler and a GPU that lla
 ```
 uv sync
 git clone https://github.com/ggml-org/llama.cpp vendor/llama.cpp
-git -C vendor/llama.cpp checkout f477f795cb071baf5b8af6488378366a72034ac4
+git -C vendor/llama.cpp checkout b1b770d90d94cad9e9ea5b993bdbc383a522fb28
 cmake -S vendor/llama.cpp -B vendor/llama.cpp/build -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF
 cmake --build vendor/llama.cpp/build --config Release -j 8 --target llama-server
 

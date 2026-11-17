@@ -151,9 +151,6 @@ def test_values_of_secret_looking_variables_are_never_logged(monkeypatch):
     assert set(kept) >= {"LLAMA_CLOUD_API_KEY", "GGML_SOME_TOKEN"}  # the names are logged
 
 
-COMMIT = "f477f795cb071baf5b8af6488378366a72034ac4"
-
-
 def test_a_clean_server_has_no_start_warnings():
     assert start_warnings({"dirty": False}, {}) == []
 
@@ -165,11 +162,12 @@ def test_start_warnings_name_what_you_can_act_on():
 
 
 def test_a_server_built_from_another_commit_is_an_error(monkeypatch, root):
-    from clarity_chat.profiles import ConfigError
+    from clarity_chat.profiles import ConfigError, load_server_config
 
     with pytest.raises(ConfigError, match="rebuild llama-server"):
         started_server(monkeypatch, root, STARTUP_GPU, build_info="b1-0000000")
-    started_server(monkeypatch, root, STARTUP_GPU, build_info="b1-" + COMMIT[:7])
+    pinned = load_server_config(root).llama_cpp_commit  # the pin in server.toml
+    started_server(monkeypatch, root, STARTUP_GPU, build_info="b1-" + pinned[:7])
 
 
 def test_config_files_are_found(monkeypatch, tmp_path):
