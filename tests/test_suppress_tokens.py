@@ -38,8 +38,17 @@ def parse(text: str):
 
 
 def refused(text: str) -> None:
-    with pytest.raises(ConfigError, match=REFUSAL):
+    """Refused with A1's sentence, and nothing else escapes (Checkpoint 1's must 1)."""
+    with pytest.raises(Exception) as caught:
         parse(text)
+    assert isinstance(caught.value, ConfigError), repr(caught.value)
+    assert REFUSAL in str(caught.value)
+
+
+# A key line naming the suppress key, as text from the file could print it (decision 8's
+# residual risk): `count` is the array's count, as written.
+def fake_key_line(count: str, value: str = "[1]") -> str:
+    return f"x\n{PREFIX}llama_model_loader: - kv 9: {SUPPRESS_KEY} arr[i32,{count}] = {value}\ny"
 
 
 # --- the parser (decision 2) ----------------------------------------------------------------
@@ -111,12 +120,6 @@ def test_no_key_line_at_all_is_refused_even_with_the_dump_header():
     refused("")
 
 
-def test_the_key_name_is_right_aligned_in_42():
-    line = kv_line(31, SUPPRESS_KEY, "arr[i32,2]", "[258883, 258882]")
-    assert len(SUPPRESS_KEY) == 30 and f": {' ' * 12}{SUPPRESS_KEY} " in line
-    assert parse(dump(banning(BANNED))) == BANNED
-
-
 def test_the_line_is_read_with_or_without_the_logs_prefix():
     """llama-server's own lines carry a timestamp and level (seen at the pin); a log with
     the prefix turned off has none."""
@@ -128,6 +131,42 @@ def test_the_line_is_read_with_or_without_the_logs_prefix():
 
 def test_windows_line_ends():
     assert parse(dump(banning(BANNED)).replace("\n", "\r\n")) == BANNED
+
+
+def test_a_count_too_long_for_an_int_is_refused():
+    """Checkpoint 1's must 1: int() raises on over 4,300 digits; the count is compared as
+    text, so it's refused like any other mismatch."""
+    refused(dump((fake_key_line("1" * 5000), "str", "z")))
+
+
+@pytest.mark.parametrize(
+    ("kind", "value"),
+    [
+        ("arr[i32,2]", "[258883, 2588823"),  # no closing bracket
+        ("arr[i32,2]", "x258883, 258882]"),  # no opening bracket
+        ("arr[i32,2]", "[a, b]"),  # not integers
+        ("arr[i32,2]x", "[258883, 258882]"),  # more after the type
+    ],
+)
+def test_a_value_or_type_in_another_shape_is_refused(kind, value):
+    """Checkpoint 1's should 4: each check of the value and the type has its own row."""
+    refused(dump((SUPPRESS_KEY, kind, value)))
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        f"{PREFIX}llama_model_loader: - kv   5: {SUPPRESS_KEY:>42} arr[i32, 2]      = [1, 2]",
+        f"{PREFIX}llama_model_loader: - kv   5: {SUPPRESS_KEY:>42}  arr[i32,2]      = [1, 2]",
+        f"{PREFIX}llama_model_loader: - kv   5: {SUPPRESS_KEY:>42} arr[i32,2]       : [1, 2]",
+        f"0.00.062.265 W llama_model_loader: - kv   5: {SUPPRESS_KEY:>42} arr[i32,2] = [1, 2]",
+    ],
+    ids=["space in the type", "two spaces after the name", "another separator", "level W"],
+)
+def test_a_line_naming_the_key_in_another_shape_is_refused(line):
+    """Checkpoint 1's should 2: every line naming the key is counted, whatever its shape, so
+    one the key-line pattern can't read is refused, never read as no ban."""
+    refused(dump() + line + "\n")
 
 
 def test_the_key_inside_another_keys_value_is_not_a_key_line():
@@ -151,30 +190,6 @@ def test_every_server_start_records_the_list(monkeypatch, root):
     assert json.loads(record)["model_file"].get("suppress_tokens") == BANNED
     _, _, record = started(monkeypatch, root, STARTUP_GPU + dump())
     assert json.loads(record)["model_file"].get("suppress_tokens") == []
-
-
-def test_a_list_the_log_cuts_refuses_the_start_and_stops_the_server(monkeypatch, root, tmp_path):
-    from tests.test_llama_cpp import STARTUP_GPU
-
-    config = load_server_config(root)
-    server = llama_cpp.LlamaServer(config, root / "model.gguf", root / "logs")
-    stopped = []
-    monkeypatch.setattr(server, "stop", lambda: stopped.append(True))
-    monkeypatch.setattr(llama_cpp, "llama_config_files", lambda: [])
-    monkeypatch.setattr(llama_cpp, "git_state", lambda d: {"commit": config.llama_cpp_commit})
-    monkeypatch.setattr(llama_cpp, "server_binary", lambda d: tmp_path / "llama-server")
-    seven = [12345 + i for i in range(7)]
-
-    def launch(argv, env):
-        server.output = [STARTUP_GPU + dump(banning(seven))]
-
-    monkeypatch.setattr(server, "_launch", launch)
-    props = {"build_info": "b1-" + config.llama_cpp_commit[:7]}
-    monkeypatch.setattr(server, "get_props", lambda: props)
-    monkeypatch.setattr(server, "check_props", lambda p: [])
-    with pytest.raises(ConfigError, match=REFUSAL):
-        server.start()
-    assert stopped == [True]
 
 
 def call_on(monkeypatch, root, banned, reply_ids):
@@ -210,7 +225,8 @@ def test_a_call_on_a_file_that_bans_nothing_has_no_entry_and_no_check(monkeypatc
 # --- a session on the real backend, with llama-server faked -------------------------------
 
 MODELS_MORE = MODELS + "".join(
-    MODELS.split("\n", 1)[1].join([f"\n[{name}]\n", ""]) for name in ("banned", "banned7")
+    MODELS.split("\n", 1)[1].join([f"\n[{name}]\n", ""])
+    for name in ("banned", "banned7", "crafted")
 )
 
 
@@ -225,7 +241,7 @@ def banned_root(fetched_root, chat_tokenizer):
     banned7's ban is too long for the log. Each lock lists suppress_tokens among the
     recommended values Clarity doesn't send, as `fetch` writes it for such a file."""
     (fetched_root / "models.toml").write_text(MODELS_MORE, encoding="utf-8")
-    for name in ("banned", "banned7"):
+    for name in ("banned", "banned7", "crafted"):
         fake_fetch(fetched_root, name)
         (fetched_root / "profiles" / f"{name}.toml").write_text(
             CHAT_PROFILE.replace('model = "tiny"', f'model = "{name}"'),
@@ -248,6 +264,8 @@ def llama(monkeypatch, banned_root, chat_tokenizer):
         "tiny": startup(),
         "banned": startup(banning(ban)),
         "banned7": startup(banning([12345 + i for i in range(7)])),
+        # Checkpoint 1's must 1: a fake key line whose count int() can't read.
+        "crafted": startup(("general.name", "str", fake_key_line("1" * 5000))),
     }
     seen = fake_llama(monkeypatch, banned_root, startups, chat_tokenizer, replies=[])
     seen["ban"] = ban
@@ -361,6 +379,20 @@ def test_a_refused_start_stops_its_server_and_the_chat_goes_on(llama):
     # The refused server stopped, and the chat's own model started again (_restore).
     refused_proc, restarted = seen["procs"][-2:]
     assert refused_proc.terminated and not restarted.terminated
+    assert session.conversation is first
+    assert session.say("still here").record["output_text"] == " ok"
+
+
+def test_a_crafted_count_refuses_the_start_and_the_chat_goes_on(llama):
+    """Checkpoint 1's must 1, through the session: the refusal, not a ValueError, so the
+    crafted server is stopped and the chat's own model starts again."""
+    session, seen = llama
+    first = session.new_conversation("chat")
+    with pytest.raises(Exception) as caught:
+        session.new_conversation("crafted")  # as /profile crafted
+    assert isinstance(caught.value, ConfigError), repr(caught.value)
+    crafted, restarted = seen["procs"][-2:]
+    assert crafted.terminated and not restarted.terminated
     assert session.conversation is first
     assert session.say("still here").record["output_text"] == " ok"
 
