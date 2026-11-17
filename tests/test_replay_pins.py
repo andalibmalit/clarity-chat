@@ -207,3 +207,85 @@ def test_in_a_conversation_replay_is_as_before_with_model_used(fetched_root, tin
     session.say("Hi")
     record = session.replay_current()
     assert record["identical"] and record.get("model_used") == "tiny"
+
+
+# --- the whole-branch review's should 3 and should 4 ----------------------------------------
+
+
+def test_transformers_matches_only_an_entry_with_the_source_weights():
+    """Should 3: a source repo can hold a .gguf too, so an entry fetched as a ready-made GGUF
+    from it has the same repo and revision but not the weights Transformers loads."""
+    lock = {"a-gguf": {**PINS, "route": "gguf", "gguf": {"sha256": SHA}}, "z": PINS}
+    assert model_for_call(CALL, "transformers", lock) == "z"
+
+
+def as_transformers(log) -> None:
+    """The log's call as a Transformers call (the fake replays it all the same)."""
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        if row["type"] == "call":
+            row["backend"] = {"backend": "transformers", "device": "cpu"}
+    log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+
+
+def test_state_6_on_transformers_through_clarity_replay(
+    logged, monkeypatch, tiny_tokenizer, capsys
+):
+    """#8: two converted entries with the call's source weights but other GGUFs; the call's
+    name is gone. Transformers matches on the source weights, so the first is used."""
+    root, log, call_id = logged
+    as_transformers(log)
+    source = root / "source"
+    source.mkdir()
+    (source / "config.json").write_text("{}", encoding="utf-8")
+    models_toml(root, "aaa", "bbb")
+    set_lock(root, aaa=OTHER_SHA, bbb="2" * 64)
+    path = root / "models.lock"
+    lock = json.loads(path.read_text(encoding="utf-8"))
+    for entry in lock["models"].values():
+        entry["source_dir"] = "source"
+    path.write_text(json.dumps(lock), encoding="utf-8")
+    status, out, backend = replay(monkeypatch, tiny_tokenizer, root, log, call_id, capsys)
+    assert backend.started == ["aaa"], out.err
+    assert replays(log)[-1].get("model_used") == "aaa"
+
+
+def test_in_a_conversation_the_conversations_model_is_used(logged, tiny_tokenizer):
+    """#9 (S1): resumed after the entry's file changed, while another entry has the call's
+    old file, /replay still runs on the conversation's model and lists the file."""
+    root, log, call_id = logged
+    models_toml(root, "tiny", "twin")
+    set_lock(root, tiny=OTHER_SHA, twin=SHA)
+    backend = FakeBackend([" Hello!"], tokenizer=tiny_tokenizer)
+    session = Session(root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    session.resume(log)
+    record = session.replay(log, call_id)
+    assert backend.started[-1] == "tiny" and record.get("model_used") == "tiny"
+    assert "gguf_sha256" in record["differences"]
+
+
+def test_a_name_there_but_not_fetched_says_fetch_it(logged, monkeypatch, tiny_tokenizer, capsys):
+    """#10: only models.toml's names are searched, so a name there but unfetched gets the
+    usual "not fetched" refusal, not the pins."""
+    root, log, call_id = logged
+    models_toml(root, "tiny", "other")
+    set_lock(root, other=OTHER_SHA)
+    status, out, _ = replay(monkeypatch, tiny_tokenizer, root, log, call_id, capsys)
+    assert status == 1 and "is not fetched" in out.err and "Its pins" not in out.err
+
+
+def test_the_refusal_lists_the_tokenizer_pins_with_their_own_values(
+    logged, monkeypatch, tiny_tokenizer, capsys
+):
+    """#11: each pin is printed with its own value."""
+    root, log, call_id = logged
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        if row["type"] == "call":
+            row["model"] |= {"tokenizer_repo": "test/tok", "tokenizer_revision": "e" * 40}
+    log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    models_toml(root, "other")
+    set_lock(root, other=OTHER_SHA)
+    status, out, _ = replay(monkeypatch, tiny_tokenizer, root, log, call_id, capsys)
+    assert "tokenizer_repo test/tok" in out.err and f"tokenizer_revision {'e' * 40}" in out.err
+    assert f"repo test/tiny; revision {PINS['revision']}" in out.err
