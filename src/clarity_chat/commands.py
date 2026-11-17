@@ -1199,6 +1199,14 @@ def settings_view(session: Session) -> dict[str, Any]:
             }
     recommended = session.model_lock.get("recommended")
     model_file = (session.backend.server_record or {}).get("model_file") or {}
+    banned = model_file.get("suppress_tokens")
+    if banned:  # the running server's file bans these on every reply, whatever the last call holds
+        ban = {"value": banned, "origin": "model file"}
+        backend_settings = {**backend_settings, "suppress_tokens": ban}
+        if recommended:  # so the model's suppress_tokens is applied, not "not applied"
+            not_applied = recommended["not_applied"]
+            not_applied = {k: v for k, v in not_applied.items() if k != "suppress_tokens"}
+            recommended = {**recommended, "not_applied": not_applied}
     return {
         "profile": {"name": profile.name, "mode": profile.mode, "model": profile.model},
         "settings": {

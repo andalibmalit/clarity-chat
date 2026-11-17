@@ -54,6 +54,13 @@ CHECK_HELP: dict[str, tuple[str, str]] = {
             "the server started again."
         ),
     ),
+    "suppress_tokens": (
+        (
+            "llama.cpp only, on a model file that bans tokens (tokenizer.ggml.suppress_tokens):"
+            " no banned token is in the reply."
+        ),
+        "A token the model file bans is in the reply, so llama-server didn’t apply the ban.",
+    ),
     "server_props": (
         (
             "Logs before v0.2.1 only: after the call, /props showed the server still running, "

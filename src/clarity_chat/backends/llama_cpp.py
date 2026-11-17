@@ -213,9 +213,39 @@ def eog_tokens(startup_output: str) -> list[dict[str, Any]] | None:
     return found or None
 
 
+# llama.cpp's dump of the model file's keys: one line per key, after the log's timestamp and
+# level when it has them (src/llama-model-loader.cpp; common/log.cpp). A value is cut to 40
+# characters, an array's brackets and separators included (gguf_kv_to_str).
+KEY_LINE_RE = re.compile(
+    r"^(?:[\d.]+ I )?llama_model_loader: - kv +\d+: +(\S+) (\S+) += (.*?)\r?$", re.MULTILINE
+)
+SUPPRESS_KEY = "tokenizer.ggml.suppress_tokens"
+
+
 def suppress_tokens(startup_output: str) -> list[int]:
-    """A stub for v0.4.0 A1's tests (the next commit reads the list)."""
-    return []
+    """The token IDs the model file bans on every reply (llama-server merges them into the
+    logit bias at minus infinity, and no request can lift them), from llama-server's dump of
+    the file's keys. [] when the dump has no such key. Anything else is refused: no key line
+    read at all, two lines naming the key, another type, a list the log cut, or a count that
+    doesn't match. Every line of the whole output is searched and counted, so text from the
+    file can't hide the real key line (docs/design.md, "The model file's banned tokens")."""
+    keys = KEY_LINE_RE.findall(startup_output)
+    found = [(kind, value) for name, kind, value in keys if name == SUPPRESS_KEY]
+    if keys and not found:
+        return []
+    if len(found) == 1:
+        kind, value = found[0]
+        count = re.fullmatch(r"arr\[i32,([0-9]+)\]", kind)
+        ids = value[1:-1].split(", ") if value != "[]" else []
+        whole = len(value) <= 40 and value.startswith("[") and value.endswith("]")
+        if count and whole and len(ids) == int(count[1]):
+            if all(re.fullmatch(r"-?[0-9]+", i) for i in ids):
+                return [int(i) for i in ids]
+    raise ConfigError(
+        "llama-server's startup log doesn't give this model file's whole list of banned "
+        f"tokens ({SUPPRESS_KEY}), so Clarity can't record what llama-server keeps out of "
+        "every reply, and this version of Clarity can't run the file."
+    )
 
 
 # "graph: nodes = 1131, splits = 2, …", or "graph (pp bs=512, tg bs=1): … splits = 2 / 3, …"
@@ -525,6 +555,11 @@ class LlamaServer:
             self.stop()
             raise ConfigError(problem)
         try:
+            banned = suppress_tokens(startup)
+        except ConfigError:
+            self.stop()
+            raise
+        try:
             props = self.get_props()
         except (httpx.HTTPError, ValueError) as e:
             self.stop()
@@ -562,7 +597,7 @@ class LlamaServer:
             "build_info": build_info,
             "placement": placement,
             "memory": memory,
-            "model_file": {"eog_tokens": eog_tokens(startup)},
+            "model_file": {"eog_tokens": eog_tokens(startup), "suppress_tokens": banned},
             "graph_splits": graph_splits(startup),
             "props": props,
             "startup_output": startup,
@@ -772,6 +807,9 @@ class LlamaCppBackend:
         backend_settings = {
             k: {"value": request[k], "origin": "backend"} for k in NEUTRAL_REQUEST if k in request
         }
+        banned = self.server.record["model_file"]["suppress_tokens"]  # applied to every reply
+        if banned:
+            backend_settings["suppress_tokens"] = {"value": banned, "origin": "model file"}
         texts: list[str] = []
         ids: list[int] = []
 
@@ -869,6 +907,8 @@ class LlamaCppBackend:
         checks["server_running"] = {"ok": exit_code is None}
         if exit_code is not None:
             checks["server_running"]["exit_code"] = exit_code
+        if banned:  # the reply and the list are in the same record, so only ok is logged
+            checks["suppress_tokens"] = {"ok": not set(ids) & set(banned)}
 
         flags = []
         if final.get("truncated"):
