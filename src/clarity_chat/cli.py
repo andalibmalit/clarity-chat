@@ -973,6 +973,11 @@ def cmd_replay(
     finally:
         session.close()
     print(format_replay(record))
+    if record["model_used"] != found[0]["model"]["name"]:
+        print(
+            f"Replayed on {record['model_used']}, the models.toml entry with this call's file "
+            f"(the call used {found[0]['model']['name']})."
+        )
     return 0 if record["identical"] else 1
 
 
