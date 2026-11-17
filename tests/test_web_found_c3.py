@@ -133,7 +133,7 @@ def test_details_documents_section(root, make):  # noqa: F811
         f"Framing line tokens {framing[0]:,} to {framing[1] - 1:,} · "
         f"{framing[1] - framing[0]:,} tokens, counted in the budget" in said
     )
-    assert re.search(r"Search words, titles count double \(word rule 1 · common words 1 · "
+    assert re.search(r"Search words, titles weighted double \(word rule 1 · common words 1 · "
                      r"SQLite [\d.]+\)", said)  # fmt: skip
     assert "Considered 1 part matched; Clarity considers the best 8 at most." in said
     assert "Left out" not in said
@@ -142,7 +142,8 @@ def test_details_documents_section(root, make):  # noqa: F811
         f"text: wren {part[0]:,} to {part[1] - 1:,} · {part[1] - part[0]:,} tokens" in said
     )
     assert re.search(
-        r"Rank 1 is the best match; a word in a title counts twice\. Searched: glossary "
+        r"Rank 1 is the best match; a word in a title counts more than one in the text\. "
+        r"Searched: glossary "
         r"[0-9a-f]{8}… · herons [0-9a-f]{8}… \(each document’s build\)\. Each part’s text and "
         r"score are in this message’s log record\.",
         said,

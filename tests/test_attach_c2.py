@@ -23,7 +23,7 @@ __all__ = ["make"]  # the fixture, used by name
 # The table's new sentences, as the fact-check's rows 50-52, 53b and 56 word them.
 ATTACHED = "Attached: {name} · {how} · {tokens} tokens when attached"
 KEEPS = "Keeps: {names}. An edit can't add attachments."  # Q2's × (v0.3.2, N73)
-HIGHLIGHT = "Highlighted: the framing line and documents Clarity put in your messages."
+HIGHLIGHT = "Highlighted: the framing line, documents and parts Clarity put in your messages."
 REMOVE = (
     "Shorten your message, remove an attachment and attach a shorter part, start a new chat, "
     "or lower max_tokens."

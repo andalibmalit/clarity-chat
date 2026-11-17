@@ -1428,8 +1428,9 @@ class Session:
             if state == "unreadable":  # a link, or a manifest Clarity can't read: why
                 try:
                     library_manifest(self.root, name)
-                except Unreadable as e:  # each front end its way out (surface S2)
-                    raise SearchRefused([unreadable_problem(name, e)], where=where) from None
+                except Unreadable as e:  # each front end its way out, and the profile's key
+                    problem = {**unreadable_problem(name, e), "profile": profile.name}
+                    raise SearchRefused([problem], where=where) from None
                 except DocumentRefused as e:  # a linked folder: its own way out
                     raise ConfigError(f"Profile {profile.name} searches {name}. {e}") from None
 

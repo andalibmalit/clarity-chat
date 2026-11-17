@@ -53,7 +53,8 @@ NEW = {
     "attachment in a message also counts the framing line then in use and its blank line. A "
     "later change to the framing line, or an edit that leaves an attachment out, doesn't "
     "recount them; this table shows what each span holds.",
-    "highlight_added": "Highlighted: the framing line and documents Clarity put in your messages.",
+    "highlight_added": "Highlighted: the framing line, documents and parts Clarity put in your "
+    "messages.",  # T20
     "too_long": "It's {over} tokens too long.",
     "stop_advice": "Shorten your message, start a new chat, or lower max_tokens.",
     "remove_waiting": "Shorten your message, remove an attachment and attach a shorter part, "
