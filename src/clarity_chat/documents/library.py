@@ -2,14 +2,13 @@
 `local/documents/NAME/` as four files:
 
     original.EXT   the bytes you added (EXT by kind: pdf, html or txt)
-    text.md        the extracted text: the truth for everything after it, yours to fix
-    parts.jsonl    its parts (parts.py)
-    manifest.json  what was built from what, and each file's size and time
+    text.md        the extracted text, to read: editing it changes nothing
+    parts.jsonl    its parts (parts.py), which a search reads, checked against the build ID
+    manifest.json  what was built from what
 
 A document is built in a temporary folder beside its target and renamed into place, so a
-crash leaves no half document. Stale is an error, never a silent rebuild: a document whose
-files don't match its manifest is `changed`, a folder that's gone is `missing`, and each
-front end says the way out."""
+crash leaves no half document. Nothing in the folder is yours: a document is ready, missing
+or unreadable, and the way out of unreadable is adding the file again (cut 1)."""
 
 from __future__ import annotations
 
@@ -45,7 +44,6 @@ from clarity_chat.documents.reading import (
 from clarity_chat.profiles import library_name_problem
 
 LIBRARY = Path("local") / "documents"
-TAKEN = "There's already a document named"  # each front end adds its way out (S16)
 SCHEMA = 1
 EXTENSIONS = {"pdf": "pdf", "html": "html", "text": "txt"}
 MANIFEST_BYTES = 16 * 1024 * 1024  # far past any manifest Clarity writes; a bigger one is cut
@@ -239,7 +237,7 @@ def swap_in(building: Path, target: Path) -> None:
             os.rename(building, target)  # never over a folder: one there refuses it
         except OSError:
             if target.exists():
-                raise DocumentRefused(f"{TAKEN} {target.name}.") from None
+                raise DocumentRefused(f"There's already a document named {target.name}.") from None
             raise
         return
     # A prefix no name makes (a name holds no "."), so another document's stale-build
@@ -282,7 +280,7 @@ def read_manifest(root: Path, name: str) -> dict[str, Any]:
     manifest that isn't one Clarity writes is refused, naming it."""
     path = folder(root, name) / "manifest.json"
     if not path.parent.is_dir():
-        raise Stale(name, "missing")
+        raise Stale(name)
     try:
         manifest = json.loads(read_file(name, path, MANIFEST_BYTES))
         if not typed(manifest):
@@ -298,8 +296,7 @@ def read_manifest(root: Path, name: str) -> dict[str, Any]:
 
 
 # Adding the file again over the document, on each front end (the close batch: surface S2,
-# siblings C2): the way out of an unreadable file in a document's folder and of a changed
-# original. The page's Add offers Replace for the same file when its document isn't ready.
+# siblings C2): the way out of a file in a document's folder that Clarity can't read.
 WAYS = {
     "page": "Add the file again with the paperclip's Search it, under the same name.",
     "chat": "`/documents add PATH {name}` adds the file again.",
@@ -386,8 +383,8 @@ def typed(manifest: Any) -> bool:
 class Stale(DocumentRefused):
     """A document that's gone (`missing`). Each front end words it with its own way out."""
 
-    def __init__(self, name: str, state: str = "missing") -> None:
-        self.name, self.state = name, state
+    def __init__(self, name: str) -> None:
+        self.name, self.state = name, "missing"
         super().__init__(f"{name} isn't in your documents.")
 
 

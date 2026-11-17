@@ -32,7 +32,6 @@ from clarity_chat.documents.insert import (
 )
 from clarity_chat.documents.library import (
     LIBRARY,
-    TAKEN,
     Stale,
     Unreadable,
     checked_library_name,
@@ -82,7 +81,6 @@ __all__ = [
     "search_documents",
     "words_of",
     "LIBRARY",
-    "TAKEN",
     "SearchRefused",
     "problem_words",
     "control_token_problem",
