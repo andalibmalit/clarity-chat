@@ -52,6 +52,9 @@ def test_clarity_chat_s_start_names_the_command_line_s_way(  # noqa: F811
         cli, "Session", lambda r, **kw: Session(r, backend=backend,
                                                 tokenizer_loader=lambda r, v: chat_tokenizer)
     )  # fmt: skip
+    # No console (Windows CI has none for prompt_toolkit): a reader that's never reached,
+    # since the start is refused before the first prompt.
+    monkeypatch.setattr(cli, "prompt_reader", lambda: lambda default: "/quit")
     assert cli.main(["--root", str(root), "chat", "--profile", "chat"]) == 1
     said = capsys.readouterr().err
     assert "`clarity document add FILE --name glossary` adds the file again." in said, said
