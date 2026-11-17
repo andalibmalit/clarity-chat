@@ -75,6 +75,8 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
             out.searching = names
         elif kind == "server_start":
             out.servers.setdefault(record["server_id"], record)
+        elif kind == "framing":  # /framing, cut before v0.3.2 shipped (the cuts review's S2)
+            raise TypeError(f"{where}: a framing record, from a development build of v0.3.2")
     last = out.turns[-1] if out.turns else None
     # Your last message, if its call failed or Clarity stopped during it. Not an edit: a
     # failed edit leaves you on the reply it would have replaced, as it does live.

@@ -90,7 +90,7 @@ def test_search_it_is_the_sheet_s_third_choice_and_says_where_the_copy_goes(root
     assert said.startswith("Search it " + N2)
     assert (
         "Clarity keeps a copy in local/documents/herons/: the file, its text, its parts and a "
-        "record of them." in said
+        "record of them. A document that already has the name in the box is replaced." in said
     )
 
 
