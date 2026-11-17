@@ -52,7 +52,21 @@ def change_original(project) -> None:
 # --- surface S1: `clarity document try` with several names
 
 
-def test_document_try_takes_several_names_then_the_text(root, capsys):  # noqa: F811
+def test_document_try_takes_several_names_then_the_text(
+    root,  # noqa: F811
+    chat_tokenizer,
+    monkeypatch,
+    capsys,
+):
+    import clarity_chat.session as session_module
+
+    real = session_module.Session.__init__
+
+    def with_tokenizer(self, *args, **kwargs):  # no Hugging Face cache in a test
+        kwargs.setdefault("tokenizer_loader", lambda r, v: chat_tokenizer)
+        real(self, *args, **kwargs)
+
+    monkeypatch.setattr(session_module.Session, "__init__", with_tokenizer)
     library_add(root, b"## Owl\nA made-up owl near water.\n", "notes.md")
     argv = ["--root", str(root), "document", "try", "glossary", "notes", "--profile", "chat"]
     assert exit_code([*argv, "water"]) == 0

@@ -132,8 +132,8 @@ def test_an_unreadable_row_says_why(root, make):
     client, _ = make()
     assert row(page(client), "glossary") == (
         "glossary ! Can’t be read glossary's manifest.json can't be read (it isn't a manifest "
-        "Clarity writes). Delete the folder local/documents/glossary/, then add the file again."
-    )
+        "Clarity writes). Add the file again in Documents… and choose Replace."
+    )  # the close batch (surface S2): the page's way out
 
 
 def test_rebuild_s_notice_is_its_result_and_says_when_pages_were_dropped(root, make):

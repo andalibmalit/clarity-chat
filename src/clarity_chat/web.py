@@ -77,6 +77,7 @@ from clarity_chat.documents import (
     slow_read,
     too_big,
     visible_bidi,
+    way_out,
 )
 from clarity_chat.export import holds
 from clarity_chat.json_chat import JsonChat
@@ -1047,8 +1048,8 @@ def searching_chooser(state: dict[str, Any], docs: list[dict[str, Any]] | None) 
             row["pages"] = PAGES_LOST if doc.get("kind") == "pdf" else None
         elif d["state"] == "missing":
             row["note"] = SENTENCES["searching_missing"]
-        elif d["state"] == "unreadable":
-            row["note"] = d.get("why")
+        elif d["state"] == "unreadable":  # the reason, then the page's way out (surface S2)
+            row["note"] = page_why(d)
         elif count := d.get("control_token_parts"):
             row["control"] = (
                 SENTENCES["control_count_one"]
@@ -1058,8 +1059,10 @@ def searching_chooser(state: dict[str, Any], docs: list[dict[str, Any]] | None) 
         chooser["rows"].append(row)
     others = [d for d in docs if d["name"] not in {s["name"] for s in searching}]
     for i, doc in enumerate(others):
+        unreadable = doc["state"] == "unreadable"  # its state, as Documents… says it (C8)
         chooser["rows"].append({
-            "name": doc["name"], "checked": False, "others": i == 0, "state": None,
+            "name": doc["name"], "checked": False, "others": i == 0,
+            "state": STATE_LABELS["unreadable"] if unreadable else None, "bad": unreadable,
             "desc": f"{doc['original']} · {counted(doc['parts'], 'part')}"
             if "original" in doc else f"local/documents/{doc['name']}/",
         })  # fmt: skip
@@ -2137,11 +2140,18 @@ def documents_params(query: Any) -> dict[str, str | None]:
             "notice": query.get("notice")}  # fmt: skip
 
 
+def page_why(doc: dict[str, Any]) -> str:
+    """An unreadable document's reason, then the page's way out when it's adding the file
+    again (the close batch: surface S2)."""
+    way = f" {way_out(doc['name'], 'page')}" if doc.get("add_again") else ""
+    return f"{doc.get('why')}{way}"
+
+
 def document_row(doc: dict[str, Any]) -> dict[str, Any]:
     """A library row as the board draws it (C1)."""
     row: dict[str, Any] = {"name": doc["name"], "state": doc["state"]}
-    if doc["state"] == "unreadable":
-        return {**row, "note": doc["why"]}
+    if doc["state"] == "unreadable":  # the reason, then the page's way out (surface S2)
+        return {**row, "note": page_why(doc)}
     edited = ", text.md edited" if doc["edited"] else ""
     return {
         **row,
@@ -2383,6 +2393,8 @@ async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
         if same is not None:  # N4 before the click, as the sheet says it (fix review's C1)
             add.update(name=same, why=None, rule=None)
             add["keeps"] = SENTENCES["already_documents"].format(name=same)
+            if docs[same]["state"] != "ready":  # adding it again is the way out (surface S2)
+                add["replace"] = replace_offer(same)
         elif name in docs:  # the page's way out (N8), or Replace (Q12, the board's ⑧)
             add["why"] = f"{why} {SENTENCES['name_taken']}"
             add["replace"] = replace_offer(name)

@@ -133,9 +133,9 @@ def link(root: Path, tmp_path: Path, file: str) -> Path:
 def test_a_linked_file_in_a_document_folder_is_never_read(root, tmp_path, file):
     private = link(root, tmp_path, file)
     before = private.read_bytes()
-    sentence = (
-        f"notes's {file} can't be read (it's a link). Delete the folder local/documents/notes/, "
-        "then add the file again."
+    sentence = (  # the close batch (surface S2): the page's way out
+        f"notes's {file} can't be read (it's a link). Add the file again in Documents… and "
+        "choose Replace."
     )
     assert library_state(root, "notes") in ("changed", "unreadable")
     assert refusal(lambda: load_document(root, "notes")) in ("notes is changed.", sentence)
@@ -161,9 +161,9 @@ def special(path: Path) -> None:
 def test_a_fifo_in_a_document_folder_never_hangs_a_reader(root, file):
     special(folder(root) / file)
     state = library_documents(root)[0]["state"]  # before Rebuild, which replaces parts.jsonl
-    sentence = (
-        f"notes's {file} can't be read (it isn't a regular file). Delete the folder "
-        "local/documents/notes/, then add the file again."
+    sentence = (  # the close batch (surface S2): the page's way out
+        f"notes's {file} can't be read (it isn't a regular file). Add the file again in "
+        "Documents… and choose Replace."
     )
     for act in (
         lambda: library_documents(root),
@@ -176,8 +176,8 @@ def test_a_fifo_in_a_document_folder_never_hangs_a_reader(root, file):
         if isinstance(result, DocumentRefused):
             assert str(result) in (sentence, "notes is changed.") or "parts" in file, result
     assert state in ("changed", "unreadable")
-    if file == "manifest.json":
-        assert library_documents(root)[0]["why"] == sentence
+    if file == "manifest.json":  # the row's reason holds no way out (the close batch, S2)
+        assert library_documents(root)[0]["why"] == sentence.split(" Add the file")[0]
 
 
 # --- SS2: parts.jsonl, read as untrusted
@@ -204,7 +204,8 @@ def test_a_tampered_parts_file_is_refused_everywhere(root, chat_tokenizer, chang
         "Clarity can't search notes: its parts.jsonl isn't one Clarity writes. Rebuild it."
     )
     session, c, _ = chat(root, chat_tokenizer, 'search = ["notes"]')
-    assert c.run("state", "", quiet)["searching"][0]["state"] == "unreadable"
+    # Rebuild fixes it, so it's changed, as Send says it (the close batch: siblings C3).
+    assert c.run("state", "", quiet)["searching"][0]["state"] == "changed"
     assert refusal(lambda: c.run("try", "Tell me about the wren", quiet)) == (
         "Clarity can't search notes: its parts.jsonl isn't one Clarity writes. Rebuild it."
     )
@@ -229,8 +230,8 @@ def test_a_deeply_nested_manifest_is_one_unreadable_document(root, chat_tokenize
     assert listed["notes"]["why"].startswith("notes's manifest.json can't be read (")
     assert library_state(root, "notes") == "unreadable"
     session, c, _ = chat(root, chat_tokenizer)
-    assert refusal(lambda: c.run("search", "notes", quiet)).startswith(
-        "notes's manifest.json can't be read ("
+    assert refusal(lambda: c.run("search", "notes", quiet)).startswith(  # N32 (close batch)
+        "Clarity can't search notes: its manifest.json can't be read ("
     )
 
 

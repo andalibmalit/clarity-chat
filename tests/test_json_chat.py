@@ -135,7 +135,7 @@ def test_a_closed_output_stops_writing_and_the_log_stays_whole(make):
 # can attach before the page's file picker opens (Checkpoint 3, should 5).
 REFUSED = {
     "attach": "Attaching needs a chat-mode profile; text is in text mode.",
-    "try": "This chat searches no documents yet.",
+    "try": "Searching needs a chat-mode profile; text is in text mode.",  # N71 (surface C3)
     "framing": "The framing line needs a chat-mode profile; text is in text mode.",
 }
 EVERY_COMMAND = [

@@ -30,6 +30,7 @@ from clarity_chat.commands import (
     read_files,
     split_drops,
     summaries,
+    way_out,
 )
 from clarity_chat.logs import torn_message
 from clarity_chat.profiles import (
@@ -47,6 +48,7 @@ from clarity_chat.session import (
     ContextError,
     SearchRefused,
     Session,
+    found_summary,
 )
 
 OnServer = Callable[[dict[str, Any] | None], None]  # told each llama-server's port, PID, key
@@ -611,6 +613,14 @@ class ChatLoop:
             self.draft = "/" + args if args.startswith("/") else args
         return " Your message is back in the input to edit or send again."
 
+    def searched(self, call: dict[str, Any]) -> None:
+        """After a searched message's status line, what search added, as /history says it
+        (the close batch: siblings S2; the page's "From documents")."""
+        conversation = self.session.conversation
+        turn = conversation.turns.get(call.get("parent_id")) if conversation else None
+        if turn is not None and turn.found is not None:
+            self.write(searched_line(found_summary(turn.found, False)) + "\n")
+
     def keeps(self) -> None:
         """After /edit: the attachments the edited message keeps, as the page's Edit says."""
         conversation = self.session.conversation
@@ -642,6 +652,7 @@ class ChatLoop:
         if name in ("say", "edit"):
             self.write("\n")
             self.show_call(result)
+            self.searched(result["call"])
             if name == "edit":
                 self.keeps()
         elif name == "regen":
@@ -678,6 +689,8 @@ class ChatLoop:
                 self.write(f"! {warning}\n")
             if result.get("dropped"):
                 self.write(not_kept(result["dropped"]) + "\n")
+            if result.get("search_not_kept"):  # siblings C1
+                self.write(result["search_not_kept"] + "\n")
         elif name == "undo":
             text = result["head_text"]
             where = f"after: {text[:60]!r}" if result["head"] else "at the start"
@@ -727,7 +740,7 @@ class ChatLoop:
         elif name == "documents" and "rebuilt" in result:
             self.write(format_rebuilt(result) + "\n")
         elif name == "documents":
-            self.write(format_documents(result["documents"]) + "\n")
+            self.write(format_documents(result["documents"], "chat") + "\n")
         elif name == "detach":
             detached = names(result["detached"]) or "nothing"
             self.write(f"Detached {detached}. {format_pending(result['pending'])}\n")
@@ -1033,7 +1046,7 @@ def cmd_document(root: Path, args: argparse.Namespace) -> int:
             print(json.dumps(listed))
         else:  # the folder once, for finding it (the board's W10)
             print(f"Your documents, in {listed['folder']}:")
-            print(format_documents(listed["documents"]))
+            print(format_documents(listed["documents"], "cli"))
         return 0
     if args.action == "check":
         tokenizer = None
@@ -1045,7 +1058,10 @@ def cmd_document(root: Path, args: argparse.Namespace) -> int:
         print(format_checked(checked) if checked else "No documents yet.")
         return 0 if all(c["state"] == "ready" for c in checked) else 1
     if args.action == "try":
-        tried = document_try(root, args.names, args.profile, args.text)
+        if len(args.words) < 2:
+            raise ConfigError("Name at least one document, then the message.")
+        *names, text = args.words
+        tried = document_try(root, names, args.profile, text)
         print(json.dumps(tried) if args.json else format_tried(tried))
         return 0
     try:
@@ -1069,13 +1085,16 @@ def writing_words(folder: str, replacing: bool) -> str:
     return f"Writing {folder}/: a copy of the file, its text and its parts."
 
 
-def format_documents(listed: list[dict[str, Any]]) -> str:
+def format_documents(listed: list[dict[str, Any]], front: str) -> str:
+    """The library's rows; an unreadable one's reason ends with `front`'s way out (`chat`
+    or `cli`) when adding the file again is it (the close batch: surface S2)."""
     if not listed:
         return "No documents yet. `clarity document add FILE` adds one."
     lines = []
     for d in listed:
         if d["state"] == "unreadable":
-            lines.append(f"{d['name']}: {d['why']}")
+            way = f" {way_out(d['name'], front)}" if d.get("add_again") else ""
+            lines.append(f"{d['name']}: {d['why']}{way}")
             continue
         edited = ", text.md edited" if d["edited"] else ""
         lines.append(
@@ -1093,8 +1112,8 @@ def format_checked(checked: list[dict[str, Any]]) -> str:
         name, problems = c["name"], c["problems"]
         if c["state"] == "ready":
             lines.append(f"{name}: ready.")
-        elif c["state"] == "missing":
-            lines.append(f"{name}: isn't in your documents.")
+        elif c["state"] == "missing":  # one sentence everywhere (surface C9)
+            lines.append(f"{name} isn't in your documents.")
         elif c["state"] == "unreadable":
             lines.append(f"{name}: {'; '.join(problems)}")
         elif any(p.startswith("original.") for p in problems):
@@ -1202,12 +1221,24 @@ def main(argv: list[str] | None = None) -> int:
         if isinstance(stream, io.TextIOWrapper) and not stream.isatty():
             stream.reconfigure(encoding="utf-8")
     parser, chat = build_parser()
-    args = parser.parse_args(argv)
+    args = parse_args(parser, argv)
     if args.command == "chat" and not (args.json or args.profile or args.resume):
         chat.error("one of --profile or --resume is required (or --json, to start by command)")
     if args.command == "chat" and args.attach and not (args.profile or args.resume):
         chat.error("--attach needs --profile or --resume")
     return run_command(args)
+
+
+def parse_args(parser: argparse.ArgumentParser, argv: list[str] | None) -> argparse.Namespace:
+    """The command line, parsed. `document try NAME … --profile P TEXT` takes the words on
+    both sides of --profile, which argparse alone won't (the close batch: surface S1)."""
+    args, extra = parser.parse_known_args(argv)
+    trying = getattr(args, "command", None) == "document" and args.action == "try"
+    if extra and (not trying or any(word.startswith("-") for word in extra)):
+        parser.error(f"unrecognized arguments: {' '.join(extra)}")
+    if trying:
+        args.words += extra
+    return args
 
 
 def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
@@ -1301,9 +1332,11 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     tried = document.add_parser(
         "try", help="what a message would find in these documents, with no model"
     )
-    tried.add_argument("names", nargs="+", metavar="NAME")
+    tried.add_argument(
+        "words", nargs="+", metavar="NAME … TEXT",
+        help="the documents, then the message: quote it if it has spaces",
+    )  # fmt: skip
     tried.add_argument("--profile", required=True, help="whose tokenizer counts the budget")
-    tried.add_argument("text", help="the message: quote it if it has spaces")
     tried.add_argument("--json", action="store_true", help="the whole found object, for scripts")
     return parser, chat
 

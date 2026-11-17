@@ -1,8 +1,9 @@
 """The terminal QA driver's guard on v0.3.2's document library: `clarity document add FILE`
-and `/documents add PATH [NAME]` read a file, and the driver runs Clarity outside the
-sandbox, so the path must name a file in the scratch root, judged as /attach's is (v0.3.2,
-the QA-driver lane). `/documents add` reads `PATH NAME` whole when that exists, and
-otherwise splits off the last word as the name: both readings are judged."""
+and `/documents add [--replace] PATH [NAME]` read a file, and the driver runs Clarity
+outside the sandbox, so the path must name a file in the scratch root, judged as /attach's
+is (v0.3.2, the QA-driver lane). `/documents add` strips its flag, reads `PATH NAME` whole
+when that exists, and otherwise splits off the last word as the name: both readings are
+judged."""
 
 from __future__ import annotations
 

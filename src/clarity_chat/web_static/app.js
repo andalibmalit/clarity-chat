@@ -496,7 +496,10 @@ function notKeptSentence(dropped) {
 
 function notKept(result) {
   // New chat, a profile, a chat or Start the model again dropped what was waiting: say so.
-  if (result && result.dropped && result.dropped.length) notice(null, notKeptSentence(result.dropped));
+  const said = [];
+  if (result && result.dropped && result.dropped.length) said.push(notKeptSentence(result.dropped));
+  if (result && result.search_not_kept) said.push(result.search_not_kept); // siblings C1
+  if (said.length) notice(null, said.join(" "));
 }
 
 function act(element) {

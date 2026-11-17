@@ -286,10 +286,9 @@ def run_batch(
                 write(f"\r{len(replies)}/{total}")
     write("\n")
     for i in range(1, len(openings) + 1):  # the confound a reader of blind.md must know
-        got = {
+        got = {  # a profile that doesn't search got none (the close batch: siblings S1)
             name: [p["id"] for p in blocks[i, name].get("found", {}).get("parts", [])]
             for name in profile_names
-            if "found" in blocks[i, name]
         }
         if (notice := parts_differ(i, got, prepared)) is not None:
             warn(notice)

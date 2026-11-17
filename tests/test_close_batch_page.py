@@ -22,7 +22,8 @@ def test_documents_row_for_an_unreadable_document_says_the_page_s_way(root, make
     client, _ = make()
     garble_manifest(root)
     said = text_of(get(client, "documents"))
-    assert re.search(r"glossary's manifest\.json can't be read \([^)]*\)\. " + re.escape(PAGE_WAY),
+    # The reason can hold parentheses of its own (a JSON error's "(char 1)").
+    assert re.search(r"glossary's manifest\.json can't be read \(.*\)\. " + re.escape(PAGE_WAY),
                      said), said  # fmt: skip
     assert "Delete the folder" not in said
 
