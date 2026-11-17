@@ -182,9 +182,9 @@ def test_the_terminal_names_rebuild_for_a_parts_file_clarity_didn_t_write(root, 
     output.clear()
     loop.handle("Tell me about the wren")
     said = "".join(output)
-    assert (
-        "Clarity can't search glossary: its parts.jsonl isn't one Clarity writes. `clarity "
-        "document rebuild glossary` cuts its parts again." in said
+    assert (  # the chat's own command (the PM1 ruling)
+        "Clarity can't search glossary: its parts.jsonl isn't one Clarity writes. `/documents "
+        "rebuild glossary` cuts its parts again." in said
     ), said
     assert not any(words in said for words in PAGE_ONLY), said
 
@@ -200,9 +200,9 @@ def test_search_refuses_a_parts_file_clarity_didn_t_write_with_its_way_out(root,
     c.run("profile", "chat", quiet)
     with pytest.raises(Exception) as refused:
         c.run("search", "glossary", quiet)
-    assert getattr(refused.value, "terminal", None) == (
-        "Clarity can't search glossary: its parts.jsonl isn't one Clarity writes. `clarity "
-        "document rebuild glossary` cuts its parts again."
+    assert getattr(refused.value, "terminal", None) == (  # the chat's own (the PM1 ruling)
+        "Clarity can't search glossary: its parts.jsonl isn't one Clarity writes. `/documents "
+        "rebuild glossary` cuts its parts again."
     )
 
 

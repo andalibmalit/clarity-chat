@@ -1089,7 +1089,8 @@ def format_documents(listed: list[dict[str, Any]], front: str) -> str:
     """The library's rows; an unreadable one's reason ends with `front`'s way out (`chat`
     or `cli`) when adding the file again is it (the close batch: surface S2)."""
     if not listed:
-        return "No documents yet. `clarity document add FILE` adds one."
+        add = "`/documents add PATH`" if front == "chat" else "`clarity document add FILE`"
+        return f"No documents yet. {add} adds one."
     lines = []
     for d in listed:
         if d["state"] == "unreadable":
@@ -1193,10 +1194,10 @@ def format_searching(result: dict[str, Any]) -> str:
     for d in result["searching"]:
         if d["state"] == "ready":
             shown_.append(d["name"])
-        elif d["state"] == "changed":
-            shown_.append(f"{d['name']} (changed: `clarity document check {d['name']}` says why)")
+        elif d["state"] == "changed":  # the chat's own commands (the PM1 ruling)
+            shown_.append(f"{d['name']} (changed: `/documents rebuild {d['name']}`)")
         elif d["state"] == "unreadable":
-            shown_.append(f"{d['name']} (unreadable: `clarity document check {d['name']}`)")
+            shown_.append(f"{d['name']} (unreadable: `/documents` says why)")
         else:
             shown_.append(f"{d['name']} (missing: /search without it)")
     lines = [f"Searching ({origin}): {', '.join(shown_)}."]
@@ -1227,6 +1228,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "chat" and args.attach and not (args.profile or args.resume):
         chat.error("--attach needs --profile or --resume")
     return run_command(args)
+
+
+def outside_chat(refused: SearchRefused) -> SearchRefused:
+    """A refusal said at the shell (a `clarity chat` that didn't start): the command line's
+    ways out, as a run says them, since no chat is open for a chat command (PM1)."""
+    if refused.where != "chat":
+        return refused
+    return SearchRefused(refused.problems, refused.at_send, "run")
 
 
 def parse_args(parser: argparse.ArgumentParser, argv: list[str] | None) -> argparse.Namespace:
@@ -1403,7 +1412,7 @@ def run_command(args: argparse.Namespace) -> int:
         if args.command == "document":
             return cmd_document(root, args)
     except (ConfigError, BackendError) as e:
-        said = e.terminal if isinstance(e, SearchRefused) else e  # the terminal's commands
+        said = outside_chat(e).terminal if isinstance(e, SearchRefused) else e
         print(f"clarity: {said}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

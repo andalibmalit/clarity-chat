@@ -946,7 +946,7 @@ class Session:
         profile, model, _ = self.profile_for(profile_name)
         if profile.mode != "chat":  # N71, as /search says it
             raise ConfigError(SENTENCES["text_mode_search"].format(profile=profile.name))
-        self._profile_documents(profile)
+        self._profile_documents(profile, where)
         tokenizer, template = self.tokenizers_for(profile, model)
         new = NewChat(profile, tokenizer, template, self.ctx_size_for(profile).value, "")
         framing, origin = framing_of(profile)
@@ -1425,19 +1425,19 @@ class Session:
         assert reply.parent_id is not None
         return conversation.move_head(conversation.turns[reply.parent_id].parent_id, "undo")
 
-    def _profile_documents(self, profile: Profile) -> None:
+    def _profile_documents(self, profile: Profile, where: str = "chat") -> None:
         """A profile's `search` list names documents in the library: one that isn't there
         is refused when a chat starts, naming the key (v0.3.2 B1)."""
         for name in profile.search:
             state = library_state(self.root, name)
             if state == "missing":  # N37, each front end its way to add it
                 problem = {"document": name, "state": "profile_missing", "profile": profile.name}
-                raise SearchRefused([problem])
+                raise SearchRefused([problem], where=where)
             if state == "unreadable":  # a link, or a manifest Clarity can't read: why
                 try:
                     library_manifest(self.root, name)
                 except Unreadable as e:  # each front end its way out (surface S2)
-                    raise SearchRefused([unreadable_problem(name, e)]) from None
+                    raise SearchRefused([unreadable_problem(name, e)], where=where) from None
                 except DocumentRefused as e:  # a linked folder: its own way out
                     raise ConfigError(f"Profile {profile.name} searches {name}. {e}") from None
 

@@ -174,7 +174,15 @@ def test_a_profile_s_missing_document_names_the_terminal_command(root, chat_toke
         "Profile chat searches birds, which isn't in your documents. Add it in Documents…, or "
         "take it out of search under [documents] in the profile's file."
     )
+    # In a chat, the chat's command (the PM1 ruling); at the shell, the command line's.
     assert getattr(refused.value, "terminal", None) == (
+        "Profile chat searches birds, which isn't in your documents. Add it with `/documents "
+        "add PATH birds`, or take it out of search under [documents] in the profile's file."
+    )
+    from clarity_chat.cli import outside_chat
+
+    assert isinstance(refused.value, SearchRefused)
+    assert outside_chat(refused.value).terminal == (
         "Profile chat searches birds, which isn't in your documents. Add it with `clarity "
         "document add FILE --name birds`, or take it out of search under [documents] in the "
         "profile's file."
