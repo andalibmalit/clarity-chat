@@ -223,3 +223,10 @@ def replay_notes(record: dict[str, Any]) -> list[str]:
 def unexplained(identical: bool, diffs: dict[str, Any]) -> bool:
     """The output differs, yet nothing that could change it differs."""
     return not identical and set(diffs) <= CANNOT_CHANGE_OUTPUT
+
+
+def model_for_call(
+    call_model: dict[str, Any], backend: str, lock: dict[str, dict[str, Any]]
+) -> str | None:
+    """A stub for v0.4.0 A3's tests (the next commit finds the model by its file)."""
+    return call_model["name"] if call_model["name"] in lock else None
