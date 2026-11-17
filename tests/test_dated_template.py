@@ -141,7 +141,7 @@ def test_the_terminal_says_so_and_goes_on(broken):
 def test_json_says_so_and_goes_on(broken):
     events = run(broken, [line("profile", "chat"), line("profile", "broken"), line("state")])
     assert not any(e.get("stopped") for e in events), events
-    assert any(FAILED in str(e.get("error", "")) for e in events), events
+    assert any(e.get("event") == "error" and FAILED in e["message"] for e in events), events
     assert any(e.get("command") == "state" and e.get("result") for e in events)
 
 

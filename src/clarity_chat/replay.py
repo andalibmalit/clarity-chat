@@ -236,9 +236,13 @@ def model_for_call(
     weights' repo and revision on Transformers, which loads those. Tokenizer pins aren't
     compared: replay loads the call's own. `lock`: each models.toml name's lock entry, {}
     if it isn't fetched."""
-    if backend == "transformers":
-        wanted = (call_model.get("repo"), call_model.get("revision"))
-        found = [n for n, e in lock.items() if e and (e.get("repo"), e.get("revision")) == wanted]
+    if backend == "transformers":  # the source weights, which only a converted entry has
+        wanted = ("convert", call_model.get("repo"), call_model.get("revision"))
+        found = [
+            n
+            for n, e in lock.items()
+            if (e.get("route"), e.get("repo"), e.get("revision")) == wanted
+        ]
     else:
         sha = call_model.get("gguf_sha256")  # another program's log may lack it: by name
         found = [n for n, e in lock.items() if sha and e.get("gguf", {}).get("sha256") == sha]

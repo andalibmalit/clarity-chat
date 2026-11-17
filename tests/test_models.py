@@ -10,7 +10,7 @@ import pytest
 
 from clarity_chat import models
 from clarity_chat.models import check_weights_quick, lock_entry, portable_path, weights_path
-from clarity_chat.profiles import ConfigError, load_models, load_server_config
+from clarity_chat.profiles import ConfigError, load_models, load_server_config, read_models
 
 
 def test_portable_path_hides_the_home_folder_and_the_repo_location(tmp_path):
@@ -171,10 +171,10 @@ def test_verify_records_a_new_time_when_the_bytes_match(gguf_root):
 
 
 def test_the_shipped_models_toml_loads():
-    from clarity_chat.profiles import load_models
+    from clarity_chat.profiles import read_models
 
     repo = Path(__file__).resolve().parents[1]
-    models = load_models(repo)
+    models = read_models(repo / "models.toml")  # the shipped file only, never local/
     assert "bge-small-en-v1.5" in models and "olmo-3-7b-instruct" in models
 
 
@@ -214,7 +214,7 @@ def test_the_converter_runs_isolated_from_clarity_s_environment(tmp_path, monkey
 
     repo = Path(__file__).resolve().parents[1]
     server = load_server_config(repo)
-    model = load_models(repo)["smollm2-135m-instruct"]
+    model = read_models(repo / "models.toml")["smollm2-135m-instruct"]  # shipped only
     monkeypatch.setattr(models, "git_state", lambda path: {"commit": server.llama_cpp_commit})
     monkeypatch.setattr(models, "_download", lambda repo, revision, patterns: tmp_path)
     started: list[list[str]] = []

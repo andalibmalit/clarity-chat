@@ -107,15 +107,17 @@ def test_both_llama_profiles_take_meta_s_values_from_the_committed_lock():
     gives temperature 0.6 and top_p 0.9 (Meta's generation_config.json), origin "model"."""
     from pathlib import Path
 
-    from clarity_chat.models import lock_entry
-    from clarity_chat.profiles import load_defaults, load_models, load_profile, resolve_settings
+    from clarity_chat.models import read_lock_file
+    from clarity_chat.profiles import load_defaults, load_profile, read_models, resolve_settings
 
     repo = Path(__file__).resolve().parents[1]
-    defaults, models = load_defaults(repo), load_models(repo)
+    # The shipped files only, never the owner's local/models.toml or local/models.lock.
+    defaults, models = load_defaults(repo), read_models(repo / "models.toml")
+    lock = read_lock_file(repo / "models.lock")["models"]
     for name in ("llama-3.1-8b-chat", "llama-3.1-8b-base"):
         profile = load_profile(repo, name, defaults)
         assert profile.use_recommended, name
-        recommended = lock_entry(repo, models[profile.model])["recommended"]["values"]
+        recommended = lock[models[profile.model].name]["recommended"]["values"]
         settings = resolve_settings(profile.raw_settings, defaults, name, recommended)
         assert (settings["temperature"].value, settings["top_p"].value) == (0.6, 0.9), name
         assert settings["temperature"].origin == settings["top_p"].origin == "model", name
