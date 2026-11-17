@@ -2379,7 +2379,11 @@ async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
         name, why = document_name(filename, None, docs)
         add = {"upload": upload, "file": filename, "size": size_words(len(data)), "name": name,
                "why": why, "rule": None if name else NAME_RULE}  # fmt: skip
-        if name in docs:  # the page's way out (N8), or Replace (Q12, the board's ⑧)
+        same = library_same_bytes(list(docs.values()), hashlib.sha256(data).hexdigest())
+        if same is not None:  # N4 before the click, as the sheet says it (fix review's C1)
+            add.update(name=same, why=None, rule=None)
+            add["keeps"] = SENTENCES["already_documents"].format(name=same)
+        elif name in docs:  # the page's way out (N8), or Replace (Q12, the board's ⑧)
             add["why"] = f"{why} {SENTENCES['name_taken']}"
             add["replace"] = replace_offer(name)
         elif why is None:

@@ -186,8 +186,10 @@ def add(
     replaces a document there, just before anything is written. Nothing is written on a
     refusal."""
     # The same bytes under any name: nothing new is added (decision 21, for every front end:
-    # the part 2 whole-branch review's could 8).
-    if (same := same_bytes(documents(root), hashlib.sha256(data).hexdigest())) is not None:
+    # the part 2 whole-branch review's could 8). Not with `replace`: writing the same file
+    # over its copy is a refusal's way out for a changed or missing original (fix review M1).
+    sha256 = hashlib.sha256(data).hexdigest()
+    if not replace and (same := same_bytes(documents(root), sha256)) is not None:
         return {"existing": same}
     library = root / LIBRARY
     on_disk = {p.name for p in library.iterdir()} if library.is_dir() else set()
