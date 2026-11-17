@@ -74,9 +74,9 @@ MISSING = (
     "Clarity can't search {name}: its folder in local/documents/ is gone. Stop searching it, "
     "or add the file again in Documents…."
 )
-UNREADABLE = (
+UNREADABLE = (  # the close batch (surface S2): the page's way out, as the log keeps it
     "Clarity can't search {name}: its manifest.json can't be read (it isn't a manifest Clarity "
-    "writes). Delete the folder local/documents/{name}/, then add the file again."
+    "writes). Add the file again in Documents… and choose Replace."
 )
 
 
@@ -99,8 +99,8 @@ def test_a_document_being_added_must_be_there_and_readable(root, chat_tokenizer)
     session, c, _ = chat(root, chat_tokenizer)
     unreadable(root, "notes")
     assert refusal(lambda: c.run("search", "birds", quiet)) == "birds isn't in your documents."
-    assert refusal(lambda: c.run("search", "notes", quiet)).startswith(
-        "notes's manifest.json can't be read"
+    assert refusal(lambda: c.run("search", "notes", quiet)).startswith(  # N32 (close batch)
+        "Clarity can't search notes: its manifest.json can't be read"
     )
 
 
@@ -110,9 +110,9 @@ def test_a_document_being_added_must_be_there_and_readable(root, chat_tokenizer)
 def test_an_unreadable_manifest_says_delete_the_folder_then_add_again(root):
     unreadable(root, "notes")
     (checked,) = cli.document_check(root, ["notes"])["checked"]
-    assert checked["problems"] == [
-        "notes's manifest.json can't be read (it isn't a manifest Clarity writes). Delete the "
-        "folder local/documents/notes/, then add the file again."
+    assert checked["problems"] == [  # `clarity document check`'s way out (close batch S2)
+        "notes's manifest.json can't be read (it isn't a manifest Clarity writes). `clarity "
+        "document add FILE --name notes --replace` adds the file again."
     ]
 
 
@@ -242,9 +242,8 @@ def test_rebuild_of_a_changed_original_says_delete_then_add_and_the_terminal_rep
     (root / "local/documents/glossary/original.txt").write_bytes(b"Other bytes.\n")
     assert refusal(lambda: document_rebuild(root, "glossary")) == (
         "Clarity can't rebuild glossary: its original file has changed or is gone, so its "
-        "text.md may no longer match it. Delete the folder local/documents/glossary/, then add "
-        "the file again."
-    )
+        "text.md may no longer match it. Add the file again in Documents… and choose Replace."
+    )  # the close batch (surface S2): the page's way out
     assert cli.main(["--root", str(root), "document", "rebuild", "glossary"]) == 1
     assert capsys.readouterr().err.strip() == (
         "clarity: Clarity can't rebuild glossary: its original file has changed or is gone, "

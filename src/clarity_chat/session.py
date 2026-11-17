@@ -28,10 +28,12 @@ from clarity_chat.documents import (
     Document,
     DocumentRefused,
     Fit,
+    OriginalChanged,
     PartsRefused,
     Room,
     SearchRefused,
     Stale,
+    Unreadable,
     added_ranges,
     attached_in,
     checked_attachments,
@@ -892,8 +894,8 @@ class Session:
             return {"document": name, "state": "missing"}
         try:
             manifest = library_manifest(self.root, name)
-        except DocumentRefused as e:  # unreadable: its own sentence, as its row says it
-            return {"document": name, "state": "unreadable", "why": str(e)}
+        except DocumentRefused as e:  # unreadable: the reason; each front end its way out
+            return unreadable_problem(name, e)
         pdf = manifest["original"]["kind"] == "pdf" and bool(manifest["text"]["page_starts"])
         return {"document": name, "state": "changed", "pages_lost": pdf}
 
@@ -958,7 +960,8 @@ class Session:
             where=where,
         )
         problem = self._control_token_problem(found, tokenizer)
-        return found, problem, framing_in_first_part(framing, False)  # nothing attached
+        framed = framing_in_first_part(framing, False) and bool(found["parts"])  # surface C7
+        return found, problem, framed  # nothing attached: a first message
 
     def room(
         self,
@@ -1433,7 +1436,9 @@ class Session:
             if state == "unreadable":  # a link, or a manifest Clarity can't read: why
                 try:
                     library_manifest(self.root, name)
-                except DocumentRefused as e:
+                except Unreadable as e:  # each front end its way out (surface S2)
+                    raise SearchRefused([unreadable_problem(name, e)]) from None
+                except DocumentRefused as e:  # a linked folder: its own way out
                     raise ConfigError(f"Profile {profile.name} searches {name}. {e}") from None
 
     def set_search(self, names: list[str]) -> dict[str, Any]:
@@ -1453,8 +1458,11 @@ class Session:
             state = library_state(self.root, name)
             if state == "missing":
                 raise DocumentRefused(f"{name} isn't in your documents.")
-            if state == "unreadable":
-                library_manifest(self.root, name)  # refused, saying why (a link, say)
+            if state == "unreadable":  # refused, saying why, and each front end its way out
+                try:
+                    library_manifest(self.root, name)  # a linked folder: its own refusal
+                except Unreadable as e:
+                    raise SearchRefused([unreadable_problem(name, e)]) from None
             if state == "ready":
                 try:
                     library_parts(self.root, name)  # read as untrusted (the review's S2)
@@ -1529,8 +1537,11 @@ class Session:
                     library_manifest(self.root, name)
             except Stale as e:  # changed under the quick check: its state (the review's C6)
                 entry["state"] = e.state
-            except DocumentRefused as e:  # a manifest, or a parts.jsonl, not Clarity's
-                entry.update(state="unreadable", why=str(e))
+            except PartsRefused:  # Rebuild fixes it: changed, as Send says it (siblings C3)
+                entry["state"] = "changed"
+            except DocumentRefused as e:  # a manifest Clarity can't read: the reason
+                problem = unreadable_problem(name, e)
+                entry.update(state="unreadable", why=problem["why"], add_again=problem["add_again"])
             found.append(entry)
         return found
 
@@ -2430,6 +2441,24 @@ def left_out_counts(found: dict[str, Any]) -> dict[str, int]:
     return {**counts, **({"not considered": unconsidered} if unconsidered else {})}
 
 
+def unreadable_problem(name: str, refused: DocumentRefused) -> dict[str, Any]:
+    """A document search can't read, as a problem: its reason, and whether adding the file
+    again is the way out (`add_again`), which each front end words (surface S2). A linked
+    folder's sentence holds its own."""
+    return {
+        "document": name,
+        "state": "unreadable",
+        "why": reason(refused),
+        "add_again": isinstance(refused, Unreadable),
+    }
+
+
+def reason(refused: DocumentRefused) -> str:
+    """What a library refusal says is wrong, without a way out: each front end adds its own
+    (the close batch: surface S2)."""
+    return refused.said if isinstance(refused, (Unreadable, OriginalChanged)) else str(refused)
+
+
 def found_summary(found: dict[str, Any], framed: bool) -> dict[str, Any]:
     """/history's view of a turn's `found`, which /state's turns repeat: counts, tokens,
     words, the budget, what was left out by why, and each part's ID, title, page and why it
@@ -2449,7 +2478,7 @@ def found_summary(found: dict[str, Any], framed: bool) -> dict[str, Any]:
         "left_out": left_out_counts(found),
         "already": [{"id": o["id"], "rank": o["rank"]} for o in already],
         "considered": found["considered"],
-        "framed": framed,
+        "framed": framed and bool(found["parts"]),  # no part, no line (surface C7)
     }
 
 

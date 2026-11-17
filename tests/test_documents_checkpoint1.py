@@ -97,9 +97,8 @@ def test_rebuild_refuses_when_the_original_is_missing_or_changed(root, tmp_path,
     said = answer(lambda: document_rebuild(root, "notes"))
     assert said == (  # one sentence for both (the board's N72)
         "Clarity can't rebuild notes: its original file has changed or is gone, so its text.md "
-        "may no longer match it. Delete the folder local/documents/notes/, then add the file "
-        "again."
-    )
+        "may no longer match it. Add the file again in Documents… and choose Replace."
+    )  # the close batch (surface S2): the page's way out
     assert library_state(root, "notes") == "changed"
 
 
@@ -295,7 +294,7 @@ def test_check_lists_the_parts_holding_a_closing_tag(root, tmp_path):
 def test_check_of_a_name_never_added_says_it_isn_t_in_the_library(root, capsys):
     (root / "local/documents").mkdir(parents=True)
     assert cli.main(["--root", str(root), "document", "check", "birds"]) == 1
-    assert capsys.readouterr().out.strip() == "birds: isn't in your documents."
+    assert capsys.readouterr().out.strip() == "birds isn't in your documents."  # surface C9
 
 
 # --- C1: load reads the manifest once, so its build ID is the one it read

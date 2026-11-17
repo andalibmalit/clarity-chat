@@ -72,8 +72,8 @@ TERMINAL = {
     "searching it with /search, or add the file again: `clarity document add FILE --name "
     "glossary`.",
     "unreadable": "Clarity can't search glossary: its manifest.json can't be read (it isn't a "
-    "manifest Clarity writes). Delete the folder local/documents/glossary/, then add the file "
-    "again.",
+    "manifest Clarity writes). `/documents add --replace PATH glossary` adds the file again.",
+    # the chat's own way out (the close batch: surface S2)
     "control": 'Part 1 of odd ("Wren") holds </s>, which this model reads as a control token, '
     "not text. Take it out of local/documents/odd/text.md; `clarity document rebuild odd` then "
     "cuts its parts again. Or stop searching odd with /search.",

@@ -37,10 +37,12 @@ from clarity_chat.documents.library import (
     OriginalChanged,
     PartsRefused,
     Stale,
+    Unreadable,
     checked_library_name,
     control_token_parts,
     default_name,
     document_name,
+    way_out,
 )
 from clarity_chat.documents.library import add as library_add
 from clarity_chat.documents.library import check as library_check
@@ -104,6 +106,8 @@ __all__ = [
     "library_check",
     "library_documents",
     "library_manifest",
+    "Unreadable",
+    "way_out",
     "library_same_bytes",
     "library_parts",
     "library_rebuild",

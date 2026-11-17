@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from clarity_chat.documents.library import way_out
 from clarity_chat.documents.search import NO_FTS5
 from clarity_chat.profiles import ConfigError, shown
 
@@ -34,8 +35,11 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
         if terminal:  # the command that turns it off (fix 2's C2)
             return f"{NO_FTS5} `/search none` turns search off for this chat."
         return f"{NO_FTS5} {WITHOUT_SEARCH}"
-    if state == "unreadable":  # N32: its own way out, the same everywhere
-        return f"Clarity can't search {name}: its {problem['why'].removeprefix(name + "'s ")}"
+    if state == "unreadable":  # N32: the reason, then this front end's way out (surface S2)
+        front = "page" if not terminal else "chat" if where == "chat" else "cli"
+        why = problem["why"].removeprefix(name + "'s ")
+        way = f" {way_out(name, front)}" if problem.get("add_again") else ""
+        return f"Clarity can't search {name}: its {why}{way}"
     if state == "profile_missing":  # N37
         way = (
             f"Add it with `clarity document add FILE --name {name}`"

@@ -22,6 +22,7 @@ import shutil
 import stat
 import tempfile
 import threading
+import unicodedata
 from collections.abc import Callable, Collection, Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -65,7 +66,9 @@ def default_name(filename: str) -> str | None:
     """A file's default name: its stem lowercased, other characters as `-`, from its first
     letter or digit, at most 64 characters. None when no letter or digit is left (a name in
     another script, say), or the result is reserved: then you name it."""
-    stem = Path(filename).stem.lower()
+    # Accents folded first, so été.md is ete, not t- (the close batch: surface C6).
+    folded = unicodedata.normalize("NFKD", Path(filename).stem).encode("ascii", "ignore")
+    stem = folded.decode("ascii").lower()
     name = re.sub(r"[^a-z0-9_-]", "-", stem)
     name = re.sub(r"^[^a-z0-9]+", "", name)[:64]
     return name if library_name_problem(name) is None else None
@@ -312,21 +315,40 @@ def read_manifest(root: Path, name: str) -> dict[str, Any]:
             raise ValueError("it isn't a manifest Clarity writes")
     except OSError as e:  # the reason, never the path (str(e) holds it)
         why = e.strerror or type(e).__name__
-        raise DocumentRefused(unreadable(name, "manifest.json", why)) from None
+        raise unreadable(name, "manifest.json", why) from None
     except RecursionError:  # nested too deep: this document only (the security review's S3)
-        raise DocumentRefused(unreadable(name, "manifest.json", "it's nested too deep")) from None
+        raise unreadable(name, "manifest.json", "it's nested too deep") from None
     except ValueError as e:
-        raise DocumentRefused(unreadable(name, "manifest.json", str(e))) from None
+        raise unreadable(name, "manifest.json", str(e)) from None
     return manifest
 
 
-def unreadable(name: str, file: str, why: str) -> str:
-    """The way out of a file in a document's folder that Clarity can't read (the board
-    walk's W4): the folder goes, then the file is added again."""
-    return (
-        f"{name}'s {file} can't be read ({why}). Delete the folder local/documents/{name}/, "
-        "then add the file again."
-    )
+# Adding the file again over the document, on each front end (the close batch: surface S2,
+# siblings C2): the way out of an unreadable file in a document's folder and of a changed
+# original. The page's Add offers Replace for the same file when its document isn't ready.
+WAYS = {
+    "page": "Add the file again in Documents… and choose Replace.",
+    "chat": "`/documents add --replace PATH {name}` adds the file again.",
+    "cli": "`clarity document add FILE --name {name} --replace` adds the file again.",
+}
+
+
+def way_out(name: str, front: str) -> str:
+    """Adding the file again, worded for the front end that says it."""
+    return WAYS[front].format(name=name)
+
+
+class Unreadable(DocumentRefused):
+    """A file in a document's folder Clarity can't read (the board walk's W4). `said` is the
+    reason, which each front end ends with its own way out; str() is the page's words."""
+
+    def __init__(self, name: str, said: str) -> None:
+        self.name, self.said = name, said
+        super().__init__(f"{said} {way_out(name, 'page')}")
+
+
+def unreadable(name: str, file: str, why: str) -> Unreadable:
+    return Unreadable(name, f"{name}'s {file} can't be read ({why}).")
 
 
 def read_file(name: str, path: Path, limit: int) -> bytes:
@@ -336,7 +358,7 @@ def read_file(name: str, path: Path, limit: int) -> bytes:
     can't fill memory: its hash then differs from the manifest's."""
     link = unreadable(name, path.name, "it's a link")
     if path.is_symlink() or path.is_junction():
-        raise DocumentRefused(link)
+        raise link
     flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
     flags |= getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
     special = unreadable(name, path.name, "it isn't a regular file")
@@ -344,13 +366,13 @@ def read_file(name: str, path: Path, limit: int) -> bytes:
         fd = os.open(path, flags)
     except OSError as e:
         if e.errno == errno.ELOOP:  # a link put there since the check above
-            raise DocumentRefused(link) from None
+            raise link from None
         if path.is_dir():  # Windows won't open a folder; POSIX opens it, and fstat says
-            raise DocumentRefused(special) from None
+            raise special from None
         raise
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
-            raise DocumentRefused(special)
+            raise special
         with os.fdopen(fd, "rb", closefd=False) as f:
             return f.read(limit + 1)
     finally:
@@ -407,7 +429,9 @@ class Stale(DocumentRefused):
 
     def __init__(self, name: str, state: str) -> None:
         self.name, self.state = name, state
-        super().__init__(f"{name} is {state}.")
+        # One sentence for a name not in the library (the close batch: surface C9).
+        said = f"{name} isn't in your documents." if state == "missing" else f"{name} is {state}."
+        super().__init__(said)
 
 
 def state(root: Path, name: str, manifest: dict[str, Any] | None = None) -> str:
@@ -448,7 +472,11 @@ def documents(root: Path) -> list[dict[str, Any]]:
         try:
             manifest = read_manifest(root, path.name)
         except DocumentRefused as e:
-            found.append({"name": path.name, "state": "unreadable", "why": str(e)})
+            # The reason; `add_again`: adding the file again is the way out, which each
+            # front end words (the close batch: surface S2). A linked folder's holds its own.
+            again = isinstance(e, Unreadable)
+            why = e.said if again else str(e)
+            found.append({"name": path.name, "state": "unreadable", "why": why, "add_again": again})
             continue
         found.append(
             {
@@ -572,9 +600,7 @@ class OriginalChanged(DocumentRefused):
             f"Clarity can't rebuild {name}: its original file has changed or is gone, so its "
             "text.md may no longer match it."
         )
-        super().__init__(
-            f"{self.said} Delete the folder local/documents/{name}/, then add the file again."
-        )
+        super().__init__(f"{self.said} {way_out(name, 'page')}")
 
 
 def rebuild(root: Path, name: str) -> dict[str, Any]:
@@ -621,7 +647,7 @@ def edited_text(name: str, path: Path) -> bytes:
     try:
         data = read_file(name, path, reading.MAX_BYTES)  # never through a link (the review's S1)
     except OSError as e:
-        raise DocumentRefused(unreadable(name, "text.md", e.strerror or type(e).__name__)) from None
+        raise unreadable(name, "text.md", e.strerror or type(e).__name__) from None
     if len(data) > reading.MAX_BYTES:
         raise DocumentRefused(
             f"{name}: text.md is too big: Clarity reads files up to {SIZE_LIMIT}. Shorten it, "

@@ -228,8 +228,9 @@ def test_an_unreadable_entry_says_why(root, chat_tokenizer):
     assert entry == {
         "name": "glossary",
         "state": "unreadable",
-        "why": "glossary's manifest.json can't be read (it isn't a manifest Clarity writes). "
-        "Delete the folder local/documents/glossary/, then add the file again.",
+        # The reason only: each front end adds its way out (the close batch: surface S2).
+        "why": "glossary's manifest.json can't be read (it isn't a manifest Clarity writes).",
+        "add_again": True,
     }
 
 

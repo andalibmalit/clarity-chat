@@ -486,13 +486,15 @@ def _text_or_file(
             text = logged[value["file"]]
         else:
             path = base / value["file"]
-            if not path.is_file():
-                raise ConfigError(f"{where}: {key} file {value['file']!r} not found ({path}).")
+            # Outside first, before the file is touched, so a profile can't learn whether a
+            # file elsewhere exists (the QA-driver review's could 3), as steering_path does.
             if not path.resolve().is_relative_to(root.resolve()):
                 raise ConfigError(
                     f"{where}: {key} file {value['file']!r} is outside the project folder "
                     f"({root}). Copy it into the project, for example into local/."
                 )
+            if not path.is_file():
+                raise ConfigError(f"{where}: {key} file {value['file']!r} not found ({path}).")
             text = read_text(path)
         files[value["file"]] = text
         return text

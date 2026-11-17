@@ -333,7 +333,7 @@ def attach_args(args: str) -> tuple[str, str | None, int, int, bool]:
 
 # The sheet's sentences and range words, for the terminal: only these modules import the
 # documents package.
-SENTENCES, how_words = documents.SENTENCES, documents.how_words
+SENTENCES, how_words, way_out = documents.SENTENCES, documents.how_words, documents.way_out
 OriginalChanged = documents.OriginalChanged
 
 
@@ -558,7 +558,9 @@ def document_check(root: Path, names: list[str], tokenizer: Any = None) -> dict[
             checked.append({"name": name, "state": e.state, "problems": []})
             continue
         except documents.DocumentRefused as e:  # one unreadable document stops no other
-            checked.append({"name": name, "state": "unreadable", "problems": [str(e)]})
+            said = f"{e.said} {documents.way_out(name, 'cli')}" if isinstance(
+                e, documents.Unreadable) else str(e)  # fmt: skip
+            checked.append({"name": name, "state": "unreadable", "problems": [said]})
             continue
         if tokenizer is not None and found["state"] == "ready":
             parts = documents.library_parts(root, name)[0]
@@ -583,16 +585,18 @@ def document_list(root: Path) -> dict[str, Any]:
 
 def _try(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     """/try TEXT: what a message with TEXT would find now, with no model call (v0.3.2 B4)."""
+    conversation = c.session.conversation
+    if conversation is not None and conversation.profile.mode != "chat":  # N71 (surface C3)
+        raise ConfigError(SENTENCES["text_mode_search"].format(profile=conversation.profile.name))
     found, problem = c.session.try_search(needs(args, "/try TEXT"))
     # The one result worded by the front end that asked (fix 2's C6): the page serves
     # uploads, so its Commands has them; the terminal and --json name their commands.
     terminal = c.uploads is None
     refused = SearchRefused([problem]).words(terminal) if problem else None
-    conversation = c.session.conversation
     assert conversation is not None  # try_search needs one
     framing, _ = c.session.framing()
     framed = documents.framing_in_first_part(framing, bool(conversation.pending))
-    return {"found": found, "refused": refused, "framed": framed}
+    return {"found": found, "refused": refused, "framed": framed and bool(found["parts"])}
 
 
 def document_try(root: Path, names: list[str], profile: str, text: str) -> dict[str, Any]:
@@ -625,14 +629,25 @@ def _search(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 def add_flag(rest: str) -> tuple[bool, str]:
     """/documents add's `--replace` (the owner's Q12) and what follows it. The flag goes
     before the file, so a name typed in the page's box can't carry it (the part 2
-    whole-branch review's could 9). The QA driver reads the path the same way."""
-    replace = rest.startswith("--replace ")
-    return replace, rest.removeprefix("--replace ").strip()
+    whole-branch review's could 9); alone, it leaves nothing, so the usage line says what's
+    missing (surface C1). The QA driver reads the path the same way."""
+    replace = rest == "--replace" or rest.startswith("--replace ")
+    return replace, rest.removeprefix("--replace").strip() if replace else rest
 
 
 def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    """/documents: the library; /documents add PATH [NAME] (the page sends an upload ID
-    for PATH); /documents rebuild NAME."""
+    """/documents, worded for the front end that asked: a refusal whose way out is adding
+    the file again names that front end's (the close batch: surface S2, siblings C2)."""
+    try:
+        return documents_command(c, args, emit)
+    except (documents.Unreadable, OriginalChanged) as e:
+        front = "chat" if c.uploads is None else "page"
+        raise documents.DocumentRefused(f"{e.said} {documents.way_out(e.name, front)}") from None
+
+
+def documents_command(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
+    """/documents: the library; /documents add [--replace] PATH [NAME] (the page sends an
+    upload ID for PATH); /documents rebuild NAME."""
     root = c.session.root
     action, _, rest = args.partition(" ")
     rest = rest.strip()
@@ -665,7 +680,9 @@ def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
             c.uploads.pop(source, None)  # used: dropped, as /attach drops one (a refusal keeps it)
             return added
         if not os.path.exists(os.path.expanduser(source)) and " " in rest:
-            source, name = rest.rsplit(" ", 1)  # a path, then the name
+            path, last = rest.rsplit(" ", 1)  # a path, then the name, when that path is one
+            if os.path.exists(os.path.expanduser(path)):  # else the whole is named (surface C2)
+                source, name = path, last
         filename = os.path.basename(source)
         try:
             return document_add(
@@ -1090,6 +1107,8 @@ def named_profile(c: Commands, name: str) -> str:
 
 def _start(c: Commands, profile: str, emit: Emit) -> dict[str, Any]:
     before = waiting(c)
+    old = c.session.conversation
+    chosen = list(old.searching) if old is not None and old.searching_origin == "chat" else None
     emit({"event": "status", "status": "starting", "profile": Path(profile).stem})
     new = c.session.new_conversation(profile)
     emit({"event": "status", "status": "ready", "conversation_id": new.conversation_id})
@@ -1100,7 +1119,22 @@ def _start(c: Commands, profile: str, emit: Emit) -> dict[str, Any]:
         "mode": new.profile.mode,
         "warnings": [*(new.started_server or {}).get("warnings", []), *new.warnings],
         **dropped(c, before),
+        **search_not_kept(chosen, new.searching),
     }
+
+
+def search_not_kept(chosen: list[str] | None, now: list[str]) -> dict[str, str]:
+    """The search list a chat chose with /search, when a new chat doesn't keep it, said as
+    a dropped attachment is (the close batch: siblings C1)."""
+    if chosen is None or chosen == now:
+        return {}
+    names = joined_names(chosen) if chosen else "none"
+    searched = joined_names(now) if now else "no documents"
+    return {"search_not_kept": SENTENCES["search_not_kept"].format(names=names, searched=searched)}
+
+
+def joined_names(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
 
 
 def waiting(c: Commands) -> list[dict[str, Any]]:

@@ -128,6 +128,8 @@ SENTENCES = {
     "origin_default": "Clarity's default",
     "origin_profile": "this profile",
     "origin_chat": "this chat",  # N81: /framing's line (C4)
+    "search_not_kept": "Not kept: this chat's search list ({names}). The new chat searches "
+    "its profile's: {searched}.",  # the close batch: siblings C1
     "framing_hint": "For this chat's messages from now on; the profile keeps its own line. "
     "Leave it empty to send no framing line.",  # N79
     "encrypted": "encrypted (it opens without a password)",
