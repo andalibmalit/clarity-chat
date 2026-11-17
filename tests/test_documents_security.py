@@ -129,8 +129,8 @@ def test_a_linked_file_in_a_document_folder_is_never_read(root, tmp_path, file):
     private = link(root, tmp_path, file)
     before = private.read_bytes()
     sentence = (  # the close batch (surface S2): the page's way out
-        f"notes's {file} can't be read (it's a link). Add the file again in Documents…, with "
-        "the same name."
+        f"notes's {file} can't be read (it's a link). Add the file again with the paperclip's "
+        "Search it, under the same name."
     )
     searched = file in ("parts.jsonl", "manifest.json")  # cut 1: search reads only these
     assert refusal(lambda: load_document(root, "notes")) == (sentence if searched else "no refusal")
@@ -152,8 +152,8 @@ def special(path: Path) -> None:
 def test_a_fifo_in_a_document_folder_never_hangs_a_reader(root, file):
     special(folder(root) / file)
     sentence = (  # the close batch (surface S2): the page's way out
-        f"notes's {file} can't be read (it isn't a regular file). Add the file again in "
-        "Documents…, with the same name."
+        f"notes's {file} can't be read (it isn't a regular file). Add the file again with "
+        "the paperclip's Search it, under the same name."
     )
     for act in (lambda: library_documents(root), lambda: load_document(root, "notes")):
         done, result = finishes(act)
@@ -181,7 +181,7 @@ def test_a_fifo_in_a_document_folder_never_hangs_a_reader(root, file):
 )
 def test_a_tampered_parts_file_is_refused_everywhere(root, chat_tokenizer, change):
     retamper(root, "notes", change)
-    way = "Add the file again in Documents…, with the same name."  # cut 1: the one way out
+    way = "Add the file again with the paperclip's Search it, under the same name."  # cut 1
     said = f"notes's parts.jsonl isn't one Clarity writes. {way}"
     assert refusal(lambda: library_parts(root, "notes")) == said
     session, c, _ = chat(root, chat_tokenizer)
@@ -228,8 +228,8 @@ def test_a_deeply_nested_parts_line_is_refused(root):
     manifest["build_id"] = hashlib.sha256(data).hexdigest()
     (folder(root) / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     assert outcome(lambda: library_parts(root, "notes")) == (
-        "Unreadable: notes's parts.jsonl isn't one Clarity writes. Add the file again in "
-        "Documents…, with the same name."
+        "Unreadable: notes's parts.jsonl isn't one Clarity writes. Add the file again with "
+        "the paperclip's Search it, under the same name."
     )
 
 

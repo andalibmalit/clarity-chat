@@ -23,7 +23,7 @@ from tests.fakes import FakeBackend
 from tests.test_documents_board import chat, quiet, refusal
 
 GLOSSARY = b"## Wren\nThe wren is a small brown bird.\n"
-PAGE_ONLY = ("Documents…", "with the same name")
+PAGE_ONLY = ("paperclip",)
 
 
 @pytest.fixture
@@ -147,7 +147,7 @@ def test_the_page_and_the_log_keep_the_board_s_words(root, chat_tokenizer):
     said = refusal(lambda: c.run("say", "Tell me about the wren", quiet))
     assert said == (
         "Nothing was sent.\nClarity can't search glossary: its folder in local/documents/ is "
-        "gone. Stop searching it, or add the file again in Documents…."
+        "gone. Stop searching it, or add the file again with the paperclip's Search it."
     )
 
 
@@ -176,8 +176,8 @@ def test_a_profile_s_missing_document_names_the_terminal_command(root, chat_toke
     with pytest.raises(ConfigError) as refused:
         session.new_conversation("chat")
     assert str(refused.value) == (
-        "Profile chat searches birds, which isn't in your documents. Add it in Documents…, or "
-        "take it out of search under [documents] in the profile's file."
+        "Profile chat searches birds, which isn't in your documents. Add it with the "
+        "paperclip's Search it, or take it out of search under [documents] in the profile's file."
     )
     # In a chat, the chat's command (the PM1 ruling); at the shell, the command line's.
     assert getattr(refused.value, "terminal", None) == (
@@ -269,7 +269,8 @@ def test_try_says_a_part_s_control_token_would_refuse_the_message(root, chat_tok
     assert result["refused"] == TERMINAL["control"]
     page = Commands(session, uploads={})
     assert page.run("try", "Tell me about the wren", quiet)["refused"].endswith(
-        "then add it again in Documents…, with the same name. Or stop searching odd."
+        "then add it again with the paperclip's Search it, under the same name. Or stop "
+        "searching odd."
     )
     assert c.run("search", "glossary", quiet)
     assert c.run("try", "Tell me about the wren", quiet)["refused"] is None

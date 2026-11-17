@@ -196,11 +196,12 @@ def test_the_chooser_says_each_state_and_its_way_out(root, make):
     said = text_of(chooser(client))
     assert (
         "glossary glossary.md · 2 parts ! Can’t be read glossary's parts.jsonl isn't the one "
-        "Clarity built. Add the file again in Documents…, with the same name." in said
+        "Clarity built. Add the file again with the paperclip's Search it, under the same "
+        "name." in said
     ), said
     assert (
         "herons not in your documents ! Missing Its folder in local/documents/ is gone. To "
-        "search it again, add the file again in Documents…." in said
+        "search it again, add the file again with the paperclip's Search it." in said
     )
     assert "owls local/documents/owls/ ! Can’t be read owls's manifest.json can't be read" in said
 
@@ -217,9 +218,8 @@ def test_the_chooser_shows_a_control_token_count(root, make):
 def test_the_chooser_with_an_empty_library(root, make):
     shutil.rmtree(root / "local/documents/glossary")
     client, _ = make()
-    assert (
-        'No documents yet. Add one in Documents…, or press the paperclip and choose "Search it".'
-        in text_of(chooser(client))
+    assert 'No documents yet. Press the paperclip and choose "Search it".' in text_of(
+        chooser(client)
     )
 
 

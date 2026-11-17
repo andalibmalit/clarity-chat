@@ -1562,22 +1562,19 @@ document.addEventListener("change", (event) => {
   if (["attach-from", "attach-to"].includes(event.target.id)) rangeChanged();
 });
 
-function addCommand(upload, box) {
-  // /documents add for an upload and the name in its box (one of that name is replaced).
-  const name = box ? box.value.trim() : "";
-  return ["add", upload, name].join(" ").trim();
-}
-
 async function searchIt(choice) {
   // "Search it" (v0.3.2 C2): the file into your documents, then /search with the chat's
   // list and it; the notice says so, with its control-token count from /search's answer.
-  const added = await command("documents", addCommand(choice.dataset.args, $("attach-search-name"))).catch(unanswered);
+  // /documents add for the upload and the name in its box (one of that name is replaced).
+  const args = ["add", choice.dataset.args, $("attach-search-name").value.trim()].join(" ").trim();
+  const added = await command("documents", args).catch(unanswered);
   if (added.error || added.handled) return added;
   const name = added.result.added.name;
   const answer = await command("search", [...new Set([...searchedNames(), name])].join(" ")).catch(unanswered);
   if (answer.error || answer.handled) return answer;
   const box = $("attach-search-note");
   const lines = [box.dataset.searched.replace("{name}", () => name)];
+  if (added.result.replaced) lines.unshift(box.dataset.replaced.replace("{name}", () => name)); // said after (cut 1)
   const count = (answer.result.searching.find((d) => d.name === name) || {}).control_token_parts;
   if (count) lines.push(count === 1 ? box.dataset.controlOne : box.dataset.control.replace("{n}", () => String(count)));
   clarity.searchNotice = lines;
@@ -1779,74 +1776,6 @@ async function rename() {
   renaming(false, true);
   await refresh(); // first: a redraw that fails says so, and the sentence below stays
   if (answer.error) notice("!", answer.error);
-}
-
-async function openDocuments(params = {}, focus = "documents-title") {
-  // The Documents… page (v0.3.2 C1), drawn by the documents view: the library, Add's
-  // panel (an upload and its name), a notice, and the try box (a message to try).
-  closeDrawer(false);
-  let html;
-  try {
-    html = await view("documents", params);
-  } catch (error) {
-    notice("!", error.message);
-    return;
-  }
-  swap($("documents-body"), html);
-  if (!$("documents-sheet").open) $("documents-sheet").showModal();
-  ($(focus) || $("documents-title")).focus();
-}
-
-function documentsRefused(sentence) {
-  // A command's refusal, shown in the page above the library; the rest stays as drawn.
-  const refused = $("documents-body").querySelector(".refused");
-  refused.textContent = `! ${sentence}`;
-  refused.hidden = false;
-  refused.scrollIntoView({ block: "nearest" });
-}
-
-async function documentsCommand(name, args, after) {
-  // A command from the page; its refusal shows there, its result redraws the page.
-  const answer = await command(name, args).catch(unanswered);
-  if (answer.handled) return;
-  if (answer.error) {
-    documentsRefused(answer.error);
-    return;
-  }
-  await openDocuments({ ...after(answer.result), ...(name === "documents" ? { notice: "1" } : {}) });
-  if (name === "search") refresh();
-}
-
-async function documentsUpload(file) {
-  // Add…: the file goes to /upload as the paperclip's does, then the page draws Add's panel.
-  const query = new URLSearchParams({ tab: TAB, name: file.name }).toString();
-  let response;
-  try {
-    response = await request(`/upload?${query}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
-      body: file,
-    });
-  } catch (error) {
-    const lost = unanswered(error);
-    if (!lost.handled) documentsRefused(lost.error);
-    return;
-  }
-  if (!response.ok) {
-    const text = await response.text();
-    if (text === "Clarity is open in another tab.") notLive();
-    else documentsRefused(text);
-    return;
-  }
-  await openDocuments({ upload: (await response.json()).upload }, "documents-name");
-}
-
-function documentsAdd(form) {
-  documentsCommand("documents", addCommand(form.dataset.upload, $("documents-name")), () => ({})); // the notice is its result
-}
-
-function documentsSearch(names, after) {
-  documentsCommand("search", names.length ? names.join(" ") : "none", after);
 }
 
 async function openChooser() {
@@ -2111,10 +2040,6 @@ const THREAD = {
   "rename-cancel": () => renaming(false, true),
   export: () => exportChat(),
   "export-close": () => $("export-sheet").close(),
-  documents: () => {
-    hideMenu(false);
-    openDocuments();
-  },
   "search-menu": (element) => {
     if (openMenu && openMenu.button === element) hideMenu(true);
     else openChooser();
@@ -2139,23 +2064,6 @@ const THREAD = {
     // A full context: a new chat on this profile, then /search with this chat's documents.
     const answer = await start("new", "");
     if (answer && !answer.error && !answer.handled) await fixCommand("search", element.dataset.names);
-  },
-  "documents-close": () => $("documents-sheet").close(),
-  "documents-add": () => {
-    // A fresh input each press, as the paperclip's (Firefox keeps a used one's file).
-    const input = $("documents-file").cloneNode();
-    $("documents-file").replaceWith(input);
-    input.click();
-  },
-  "documents-add-cancel": () => openDocuments(),
-  "documents-search-here": (element) => {
-    const name = element.dataset.name;
-    documentsSearch([...searchedNames(), name], () => ({ searched: name }));
-  },
-  "documents-stop": (element) => {
-    const name = element.dataset.name;
-    const tried = $("documents-try").value;
-    documentsSearch(searchedNames().filter((n) => n !== name), () => ({ try: tried }));
   },
   "attach-pick": () => pickFile(),
   "attach-choose": (element) => {
@@ -2231,11 +2139,6 @@ document.addEventListener("submit", (event) => {
   } else if (form.matches("[data-note]")) {
     const text = form.querySelector("textarea").value.trim();
     if (text) annotate("note", form.closest("[data-call]").dataset.call, text);
-  } else if (form.id === "documents-add-form") {
-    documentsAdd(form);
-  } else if (form.id === "documents-try-form") {
-    const tried = $("documents-try").value.trim(); // an empty try runs nothing
-    if (!$("documents-try").disabled && tried) openDocuments({ try: tried }, "documents-try");
   }
 });
 
@@ -2266,11 +2169,6 @@ document.addEventListener("DOMContentLoaded", () => {
   $("appearance").addEventListener("close", () => $("clarity-button").focus());
   $("stop").addEventListener("click", () => command("cancel"));
   document.addEventListener("change", (event) => {
-    if (event.target.id === "documents-file") {
-      const file = event.target.files[0];
-      if (file) documentsUpload(file);
-      return;
-    }
     // #attach-file is replaced on each press (pickFile), so its change is heard here.
     if (event.target.id !== "attach-file") return;
     const file = event.target.files[0];

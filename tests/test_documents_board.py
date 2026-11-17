@@ -68,15 +68,15 @@ def unreadable(root: Path, name: str) -> None:
 
 NOT_BUILT = (  # cut 1: parts that aren't the build, and the one way out
     "Clarity can't search {name}: its parts.jsonl isn't the one Clarity built. Add the file "
-    "again in Documents…, with the same name."
+    "again with the paperclip's Search it, under the same name."
 )
 MISSING = (
     "Clarity can't search {name}: its folder in local/documents/ is gone. Stop searching it, "
-    "or add the file again in Documents…."
+    "or add the file again with the paperclip's Search it."
 )
 UNREADABLE = (  # the close batch (surface S2): the page's way out, as the log keeps it
     "Clarity can't search {name}: its manifest.json can't be read (it isn't a manifest Clarity "
-    "writes). Add the file again in Documents…, with the same name."
+    "writes). Add the file again with the paperclip's Search it, under the same name."
 )
 
 
@@ -148,8 +148,8 @@ def test_a_control_token_in_an_added_part_names_it_and_the_way_out(root, chat_to
     said = refusal(lambda: c.run("say", "Tell me about the wren", quiet))
     assert said == (
         'Nothing was sent.\nPart 1 of odd ("Wren") holds </s>, which this model reads as a '
-        "control token, not text. Take it out of your file, then add it again in Documents…, "
-        "with the same name. Or stop searching odd."
+        "control token, not text. Take it out of your file, then add it again with the "
+        "paperclip's Search it, under the same name. Or stop searching odd."
     )
 
 
@@ -244,8 +244,8 @@ def test_a_profile_naming_a_missing_document_in_the_page_s_terms(root, chat_toke
     backend = FakeBackend([" R."], tokenizer=chat_tokenizer)
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
     assert refusal(lambda: Commands(session).run("profile", "chat", quiet)) == (
-        "Profile chat searches birds, which isn't in your documents. Add it in Documents…, or "
-        "take it out of search under [documents] in the profile's file."
+        "Profile chat searches birds, which isn't in your documents. Add it with the "
+        "paperclip's Search it, or take it out of search under [documents] in the profile's file."
     )
 
 

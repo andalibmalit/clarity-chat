@@ -131,19 +131,11 @@ SENTENCES = {
     "its profile's: {searched}.",  # the close batch: siblings C1
     "encrypted": "encrypted (it opens without a password)",
     "empty_units": "{count} with no text",
-    # The Documents… page (v0.3.2 C1; the board's N3, N8, N11, N23, N68-N70)
-    "documents_intro": "Documents Clarity can search. A chat searches only the ones chosen in "
-    "its Searching list. Clarity cuts each document into parts of at most 250 words, and a "
-    "heading starts a new part.",
-    "documents_folder": "Each is kept in a folder of its own in {folder}. The copy of your "
-    "file is named original, with .pdf, .html or .txt for its kind.",
-    "documents_titles": "Search counts a word in a part's title twice. A part's title is the "
-    "Markdown heading above it in the document's text.md: a line that starts with one to six # "
-    "characters, a space and some text. A code file has no headings. A saved web page gets them "
-    "from its own headings; a PDF, or a text file without such lines, has none.",
+    # Adding a document with "Search it" (v0.3.2 C2; cuts 1 and 2)
     "keeps_copy": "Clarity keeps a copy in local/documents/{name}/: the file, its text, its "
     "parts and a record of them.",
     "searches_next": "This chat searches {name} from your next message.",
+    "replaced": "Clarity replaced {name} in your documents with this file.",
     # "Search it" on the attach sheet and the Searching chooser (v0.3.2 C2; N2-N27, N60)
     "search_it": "For each message you send, Clarity adds the parts of this document that share "
     'a word with your message, best match first; common words such as "the" don\'t count. A '
@@ -165,9 +157,8 @@ SENTENCES = {
     "searching_chat": "Changed in this chat.",
     "searching_others": "Your other documents",
     "searching_missing": "Its folder in local/documents/ is gone. To search it again, add the "
-    "file again in Documents….",
-    "searching_empty": "No documents yet. Add one in Documents…, or press the paperclip and "
-    'choose "Search it".',
+    "file again with the paperclip's Search it.",
+    "searching_empty": 'No documents yet. Press the paperclip and choose "Search it".',
     "edit_searched": "The new text will be searched again. The parts found before stay with the "
     "old version.",
     "text_mode_search": "Searching needs a chat-mode profile; {profile} is in text mode.",
@@ -188,15 +179,7 @@ SENTENCES = {
     "details_caption": "Rank 1 is the best match; a word in a title counts twice. Searched: "
     "{builds} (each document’s build). Each part’s text and score are in this message’s log "
     "record.",  # N66
-    "try_open": "Type a message. Clarity shows the parts it would add if you sent it next in "
-    "this chat, which searches {names}. Token counts are for this chat's profile, {profile}. "
-    "Nothing is sent to the model, and nothing is logged.",
-    "try_no_chat": "Open a chat to try a search. A try searches that chat's documents and "
-    "counts tokens for its profile.",
-    "try_none": "This chat searches no documents. Choose one in Searching to try a search.",
-    "try_no_documents": "No documents yet. Add a file, or press the paperclip in a chat and "
-    'choose "Search it".',
-    # What a search found, in the try box and "From documents" (N44-N53, N57-N59)
+    # What a search found, in "From documents" (N44-N53, N57-N59)
     "found_parts": "{parts} · {tokens} tokens",
     "found_already_more": "{n} more already in the chat",
     "found_nothing_words": "nothing to search for",

@@ -142,8 +142,8 @@ def test_a_parts_file_without_its_last_newline_is_refused(root):
     manifest["build_id"] = hashlib.sha256(data).hexdigest()
     (folder(root) / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     assert refusal(lambda: library_parts(root, "glossary")) == (
-        "glossary's parts.jsonl isn't one Clarity writes. Add the file again in Documents…, "
-        "with the same name."
+        "glossary's parts.jsonl isn't one Clarity writes. Add the file again with the "
+        "paperclip's Search it, under the same name."
     )
 
 
@@ -166,7 +166,7 @@ def test_the_page_keeps_the_board_s_words(root, chat_tokenizer):
     session, c, _ = chat(root, chat_tokenizer, 'search = ["glossary"]')
     stale(root, "changed")
     said = refusal(lambda: c.run("say", "Tell me about the wren", quiet))
-    assert said.endswith("Add the file again in Documents…, with the same name.")
+    assert said.endswith("Add the file again with the paperclip's Search it, under the same name.")
     assert session.conversation is not None
     calls = [r for r in read_records(session.conversation.log.path) if r["type"] == "call"]
     assert calls[-1]["error"] == f"SearchRefused: {said}"
@@ -197,7 +197,7 @@ def test_adding_a_document_whose_parts_changed_says_so(root, chat_tokenizer):
     rebuilt_elsewhere(root)
     assert refusal(lambda: c.run("search", "glossary", quiet)) == (
         "Clarity can't search glossary: its parts.jsonl isn't the one Clarity built. Add the "
-        "file again in Documents…, with the same name."
+        "file again with the paperclip's Search it, under the same name."
     )
 
 

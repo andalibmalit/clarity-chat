@@ -257,7 +257,9 @@ def test_parts_that_aren_t_the_build_are_refused_with_add_again(root, tmp_path, 
     with pytest.raises(Unreadable) as refused:
         load_document(root, "notes")
     assert refused.value.said.startswith("notes"), refused.value.said
-    assert str(refused.value).endswith("Add the file again in Documents…, with the same name.")
+    assert str(refused.value).endswith(
+        "Add the file again with the paperclip's Search it, under the same name."
+    )
 
 
 def test_an_edited_original_or_text_md_changes_nothing(root, tmp_path):

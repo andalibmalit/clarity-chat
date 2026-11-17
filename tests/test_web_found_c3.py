@@ -213,19 +213,18 @@ HOSTILE = (
 )
 
 
-def test_a_hostile_part_stays_text_in_the_line_details_try_box_and_chooser(root, make):  # noqa: F811
+def test_a_hostile_part_stays_text_in_the_line_details_and_chooser(root, make):  # noqa: F811
     library_add(root, HOSTILE, "odd.md")
     client, _ = make('search = ["glossary", "odd"]')
     command(client, "say", "Tell me about the wren")
     pages = [
         thread(client),
         get(client, "details", call=last_call(client)),
-        get(client, "documents", **{"try": "wren sings"}),
         get(client, "picker", library="1"),
     ]
     for page in pages:
         assert "<img src=x" not in page and "<script>x()" not in page and "<b>sings" not in page
-    assert "&lt;img src=x onerror=alert(1)&gt;" in pages[0] + pages[2]
+    assert "&lt;img src=x onerror=alert(1)&gt;" in pages[0] + pages[1]
     assert 'odd · "Wren <img src=x onerror=alert(1)>"' in found_line(client)
 
 
