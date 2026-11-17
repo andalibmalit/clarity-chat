@@ -420,6 +420,11 @@ def test_found_view_s_nothing_new_and_nothing_fit():  # should 2
     assert fit["notes"][0].startswith("2 matched but were left out:")
 
 
+def test_already_and_budget_together_say_nothing_fit():  # the part 2 runner's #309
+    found = made_up_found([], [(1, "already in the chat"), (2, "budget")], 2)
+    assert web.found_view(found)["summary"] == "nothing added · 1 didn't fit the budget"
+
+
 def test_a_part_s_label_names_its_page():  # should 2
     assert web.part_label(made_up_part(5, page=3)) == "g · page 3 · part 5"
     assert web.part_label(made_up_part(5, page=3, title="Wren")) == 'g · "Wren", page 3'
