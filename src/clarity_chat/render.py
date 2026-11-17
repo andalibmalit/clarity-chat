@@ -508,5 +508,13 @@ def _within(
 
 
 def writes_date(template_text: str) -> bool:
-    """A stub for v0.4.0 A5's tests (the next commit walks the template's names)."""
-    return False
+    """Whether the chat template can write today's date: it calls strftime_now, which
+    Transformers gives templates as a global (the machine's local time). Its globals are left
+    out of find_undeclared_variables, so the parse's names are walked instead. "Can": a
+    Llama-style template skips the call when given date_string."""
+    from jinja2 import nodes
+    from transformers.utils.chat_template_utils import _compile_jinja_template
+
+    environment = _compile_jinja_template(template_text).environment
+    tree = environment.parse(template_text)
+    return any(name.name == "strftime_now" for name in tree.find_all(nodes.Name))

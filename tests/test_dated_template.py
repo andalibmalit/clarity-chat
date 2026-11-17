@@ -87,4 +87,4 @@ def test_the_pages_thread_shows_it(dated):
     app = web.make_app(dated, SECRET.encode(), port=PORT)
     with TestClient(app, base_url=ORIGIN) as client:
         command(client, "profile", "chat")
-        assert WARNING in client.get("/view/thread", headers=GET).text
+        assert "can write today&#39;s date" in client.get("/view/thread", headers=GET).text
