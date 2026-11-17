@@ -302,6 +302,66 @@ def test_a_malformed_stream_chunk_is_a_backend_error_with_the_partial_reply(monk
     assert caught.value.partial is not None and caught.value.partial.text == "Hi"
 
 
+# QA's must (notes/qa/v0.4.0/report.md, finding 4): llama-server writes U+2028, U+2029 and
+# U+0085 raw inside its JSON, and httpx's iter_lines splits on them as str.splitlines does.
+SEPARATORS = ["\u2028", "\u2029", "\u0085"]
+
+
+def real_response(monkeypatch, chunks: list[bytes]):
+    """httpx.stream returns a real httpx.Response whose body arrives in these chunks, so the
+    backend's own reading of it is what's tested."""
+    import contextlib
+
+    import httpx
+
+    from clarity_chat.backends import llama_cpp
+
+    class Chunks(httpx.SyncByteStream):
+        def __iter__(self):
+            yield from chunks
+
+    @contextlib.contextmanager
+    def stream(*args, **kwargs):
+        yield httpx.Response(200, stream=Chunks())
+
+    monkeypatch.setattr(llama_cpp.httpx, "stream", stream)
+
+
+def read_whole(backend):
+    """The call's result; the reader refusing the stream fails the test on its own terms."""
+    try:
+        return backend.complete([1, 2], SETTINGS, [])
+    except BackendError as e:
+        pytest.fail(f"the stream was refused: {e}")
+
+
+def sse(chunk: dict) -> bytes:
+    import json
+
+    return b"data: " + json.dumps(chunk, ensure_ascii=False).encode("utf-8") + b"\n\n"
+
+
+@pytest.mark.parametrize("separator", SEPARATORS, ids=["U+2028", "U+2029", "U+0085"])
+def test_a_reply_holding_a_unicode_line_separator_is_read_whole(monkeypatch, root, separator):
+    backend = fake_backend(monkeypatch, root, [])
+    text = f"one{separator}two"
+    final = {**FINAL, "prompt": f"asked{separator}here"}
+    real_response(monkeypatch, [sse({"content": text, "tokens": [5, 6]}), sse(final)])
+    result = read_whole(backend)
+    assert result.text == text and result.token_ids == [5, 6]
+    assert result.response["prompt"] == f"asked{separator}here"
+
+
+def test_a_chunk_boundary_inside_a_character_and_crlf_line_ends(monkeypatch, root):
+    """The body's chunks fall anywhere, inside a UTF-8 character too; a line may end "\r\n"."""
+    backend = fake_backend(monkeypatch, root, [])
+    body = (sse({"content": "a\u2028b", "tokens": [5]}) + sse(FINAL)).replace(b"\n", b"\r\n")
+    cut = body.index("\u2028".encode()) + 1  # one byte into U+2028's three
+    real_response(monkeypatch, [body[:cut], body[cut:]])
+    result = read_whole(backend)
+    assert result.text == "a\u2028b" and result.token_ids == [5]
+
+
 def started_server(monkeypatch, root, startup, props_ok=True, on_change=None, build_info=None):
     """A LlamaServer.start() with every outside step faked: what it launched, and the record."""
     import json

@@ -449,6 +449,20 @@ def test_a_file_that_bans_tokens_is_recorded_and_applied(session, tmp_path):
         (tmp_path / f"{MODEL}-banned.gguf").unlink(missing_ok=True)  # about 270 MB
 
 
+def test_a_message_holding_unicode_line_separators_completes_and_replays(session):
+    """QA's must (v0.4.0, finding 4): the call's final chunk carries the prompt, so a message
+    holding U+2028, U+2029 or U+0085 reaches the stream raw whatever the model replies."""
+    from clarity_chat.backends import BackendError
+
+    session.new_conversation("smol-chat")
+    try:
+        record = session.say("Reply ok. ls:\u2028 ps:\u2029 nel:\u0085 end").record
+    except BackendError as e:
+        pytest.fail(f"the stream was refused: {e}")
+    all_checks_ok(record)
+    assert session.replay_current()["identical"]
+
+
 def test_converting_twice_gives_the_same_file(tmp_path, capsys):
     """fetch's convert step, run twice on SmolLM2 into scratch folders, writes the same bytes.
     Whether they also equal models.lock's hash is printed, not asserted: the converter's
