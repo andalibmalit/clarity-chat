@@ -44,14 +44,15 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
         way = f" {way_out(name, front)}" if problem.get("add_again") else ""
         return f"Clarity can't search {name}: its {why}{way}"
     if state == "profile_missing":  # N37
-        way = f"Add it with {add}" if terminal else "Add it in Documents…"
+        way = f"Add it with {add}" if terminal else "Add it with the paperclip's Search it"
         return (
             f"Profile {problem['profile']} searches {name}, which isn't in your documents. "
             f"{way}, or take it out of search under [documents] in the profile's file."
         )
     stop = STOPPING[where] if terminal else "stop searching {it}"
     if state == "missing":  # N31
-        way = f"add the file again: {add}" if terminal else "add the file again in Documents…"
+        page = "add the file again with the paperclip's Search it"
+        way = f"add the file again: {add}" if terminal else page
         return (
             f"Clarity can't search {name}: its folder in local/documents/ is gone. "
             f"{stop.format(it='it').capitalize()}, or {way}."
@@ -68,7 +69,7 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
         else ""
     )
     # Out of your own file, then added again (cut 1: the library's copy isn't edited).
-    again = f": {add}" if terminal else " in Documents…, with the same name"
+    again = f": {add}" if terminal else " with the paperclip's Search it, under the same name"
     return (
         f"Part {problem['ordinal']} of {name}{where} holds {held}, which this model reads as "
         f"{one}, not text. Take {it} out of your file, then add it again{again}. Or "

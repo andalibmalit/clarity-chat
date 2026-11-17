@@ -80,8 +80,8 @@ def test_a_profile_naming_a_document_not_in_the_library_is_refused_naming_the_ke
     with pytest.raises(ConfigError) as refused:
         chat(root, chat_tokenizer)
     assert str(refused.value) == (
-        "Profile chat searches birds, which isn't in your documents. Add it in Documents…, or "
-        "take it out of search under [documents] in the profile's file."
+        "Profile chat searches birds, which isn't in your documents. Add it with the "
+        "paperclip's Search it, or take it out of search under [documents] in the profile's file."
     )
 
 

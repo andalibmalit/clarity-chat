@@ -301,7 +301,7 @@ def read_manifest(root: Path, name: str) -> dict[str, Any]:
 # siblings C2): the way out of an unreadable file in a document's folder and of a changed
 # original. The page's Add offers Replace for the same file when its document isn't ready.
 WAYS = {
-    "page": "Add the file again in Documents…, with the same name.",
+    "page": "Add the file again with the paperclip's Search it, under the same name.",
     "chat": "`/documents add PATH {name}` adds the file again.",
     "cli": "`clarity document add FILE --name {name}` adds the file again.",
 }

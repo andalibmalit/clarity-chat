@@ -1,30 +1,18 @@
 """The v0.3.2 close fix batch on the page: each refusal's way out stays inside Clarity
-(Documents… → Add with Replace), and the chooser's other documents show their state.
-Made-up documents, scratch roots."""
+(the paperclip's Search it, under the same name), and the chooser's other documents show
+their state. Made-up documents, scratch roots."""
 
 from __future__ import annotations
-
-import re
 
 from clarity_chat.documents import library_add
 from tests.test_web import command
 from tests.test_web_search_c2 import GLOSSARY, get, make, root, text_of  # noqa: F401
 
-PAGE_WAY = "Add the file again in Documents…, with the same name."
+PAGE_WAY = "Add the file again with the paperclip's Search it, under the same name."
 
 
 def garble_manifest(project) -> None:
     (project / "local/documents/glossary/manifest.json").write_text("{garbage", encoding="utf-8")
-
-
-def test_documents_row_for_an_unreadable_document_says_the_page_s_way(root, make):  # noqa: F811
-    client, _ = make()
-    garble_manifest(root)
-    said = text_of(get(client, "documents"))
-    # The reason can hold parentheses of its own (a JSON error's "(char 1)").
-    assert re.search(r"glossary's manifest\.json can't be read \(.*\)\. " + re.escape(PAGE_WAY),
-                     said), said  # fmt: skip
-    assert "Delete the folder" not in said
 
 
 def test_send_with_an_unreadable_document_says_the_page_s_way(root, make):  # noqa: F811

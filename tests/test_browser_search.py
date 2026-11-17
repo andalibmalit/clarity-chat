@@ -54,8 +54,26 @@ def test_a_taken_name_is_replaced(clarity, page, fetched_root):  # noqa: F811
     assert "glossary is already in your documents." in page.inner_text("#attach-search-note")
     page.click("[data-action=attach-add]")
     page.wait_for_selector("#notice:has-text('from your next message')")
+    assert "Clarity replaced glossary in your documents with this file." in page.inner_text(
+        "#notice"
+    )  # said after, too (cut 2)
     (doc,) = library_documents(fetched_root)
     assert doc["original"] == "glossary.md" and doc["parts"] == 1
+
+
+def test_a_name_typed_in_the_box_keeps_both(clarity, page, fetched_root):  # noqa: F811
+    library_add(fetched_root, GLOSSARY, "glossary.md")
+    redirect, _ = clarity
+    chat(page, redirect)
+    choose(page, "glossary.md", b"## Owl\nMade-up.\n")
+    page.wait_for_selector("#attach-search")
+    page.click("#attach-search")
+    assert page.input_value("#attach-search-name") == "glossary"  # filled in (cut 2)
+    page.fill("#attach-search-name", "owls")
+    page.click("[data-action=attach-add]")
+    page.wait_for_selector("#notice:has-text('This chat searches owls')")
+    assert "replaced" not in page.inner_text("#notice")
+    assert sorted(d["name"] for d in library_documents(fetched_root)) == ["glossary", "owls"]
 
 
 def test_unticking_a_missing_document_lets_send_go(clarity, page, fetched_root):  # noqa: F811

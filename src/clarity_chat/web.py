@@ -27,7 +27,7 @@ import sys
 import threading
 import webbrowser
 from collections.abc import AsyncIterator, Callable
-from datetime import date, datetime, tzinfo
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -55,7 +55,6 @@ from clarity_chat.commands import (
     REPLY_COMMANDS,
     UPLOAD_ID,
     Commands,
-    format_added,
 )
 from clarity_chat.documents import (
     CONSIDERED,
@@ -84,10 +83,9 @@ from clarity_chat.profiles import (
     SETTING_HELP,
     SETTING_RANGES,
     ConfigError,
-    library_name_problem,
 )
 from clarity_chat.replay import CANNOT_CHANGE_OUTPUT, cancelled_refusal, replay_notes
-from clarity_chat.session import CONTEXT_WARN_FRACTION, ContextError, Session, found_summary
+from clarity_chat.session import CONTEXT_WARN_FRACTION, ContextError, Session
 
 PORT = 8765  # fixed, a constant: server.toml describes llama-server only
 STATIC = Path(__file__).parent / "web_static"
@@ -145,9 +143,6 @@ class Worker:
         # for (by its file name: a copied log has the same conversation ID).
         self.exported: tuple[str, dict[str, Any]] | None = None
         self.probs: dict[str, dict[str, Any]] = {}  # /probs by call ID, for Details
-        # The last /documents add or rebuild's result, drawn once as the Documents… page's
-        # notice, so what it says is the command's result (the C1 tripwire review's S1).
-        self.documented: dict[str, Any] | None = None
         # The last refused send's sentence and problems: the failed box's lines and buttons
         # (W6), which a call record's error, a sentence, doesn't carry.
         self.refused: tuple[str, list[dict[str, Any]]] | None = None
@@ -231,8 +226,6 @@ class Worker:
         if name == "export":
             assert conversation is not None
             self.exported = (conversation.log.path.stem, {"result": result})
-        if name == "documents" and args.split(" ", 1)[0] == "add":
-            self.documented = result
         return {"result": result}
 
 
@@ -494,8 +487,6 @@ def make_app(
             params: dict[str, str | None] = {"call": call}
             if request.path_params["name"] == "attach":
                 params.update(attach_params(request.query_params))
-            if request.path_params["name"] == "documents":
-                params.update(documents_params(request.query_params))
             if request.path_params["name"] == "picker":
                 params["library"] = request.query_params.get("library")
             try:
@@ -1052,7 +1043,7 @@ def searching_chooser(state: dict[str, Any], docs: list[dict[str, Any]] | None) 
         chooser["rows"].append(row)
     others = [d for d in docs if d["name"] not in {s["name"] for s in searching}]
     for i, doc in enumerate(others):
-        unreadable = doc["state"] == "unreadable"  # its state, as Documents… says it (C8)
+        unreadable = doc["state"] == "unreadable"  # its state, as /documents says it (C8)
         chooser["rows"].append({
             "name": doc["name"], "checked": False, "others": i == 0,
             "state": STATE_LABELS["unreadable"] if unreadable else None, "bad": unreadable,
@@ -1796,6 +1787,7 @@ async def _attach(worker: Worker, params: dict[str, str | None]) -> str:
         docs = (await result_of(worker, "documents"))["documents"]
         sheet["search"] = search_choice(check, worker.uploads[upload][1], docs, state)
         sheet.update(searched_sentence=SENTENCES["searches_next"],
+                     replaced_sentence=SENTENCES["replaced"],
                      control_count=SENTENCES["control_count"],
                      control_count_one=SENTENCES["control_count_one"])  # fmt: skip
     return templates.get_template("attach.html").render(error=None, s=sheet)
@@ -2085,26 +2077,9 @@ def json_response(content: dict[str, Any]) -> Response:
     return Response(body, media_type="application/json")
 
 
-def date_words(added: str, zone: tzinfo | None = None) -> str:
-    """A manifest's `added` time (UTC, checked by the library) as the page says a date, in
-    local time as a chat's row is (`zone`: another, for a test): 10 Nov 2026."""
-    moment = datetime.fromisoformat(added).astimezone(zone)
-    return f"{moment.day} {moment.strftime('%b')} {moment.year}"  # as chat_date says it
-
-
 def joined(names: list[str], last: str = "and") -> str:
     """Names in a sentence: "a", "a and b", "a, b and c"."""
     return f"{', '.join(names[:-1])} {last} {names[-1]}" if len(names) > 1 else "".join(names)
-
-
-def documents_params(query: Any) -> dict[str, str | None]:
-    """/view/documents' parameters: a message to try, an upload being added, and a document
-    "Search it in this chat" just searched (its notice)."""
-    searched = query.get("searched")
-    if searched is not None and library_name_problem(searched):
-        raise Refused(400, "That isn't a document's name.")
-    return {"try": query.get("try"), "upload": query.get("upload"), "searched": searched,
-            "notice": query.get("notice")}  # fmt: skip
 
 
 def page_why(doc: dict[str, Any]) -> str:
@@ -2112,21 +2087,6 @@ def page_why(doc: dict[str, Any]) -> str:
     again (the close batch: surface S2)."""
     way = f" {way_out(doc['name'], 'page')}" if doc.get("add_again") else ""
     return f"{doc.get('why')}{way}"
-
-
-def document_row(doc: dict[str, Any]) -> dict[str, Any]:
-    """A library row as the board draws it (C1)."""
-    row: dict[str, Any] = {"name": doc["name"], "state": doc["state"]}
-    if doc["state"] == "unreadable":  # the reason, then the page's way out (surface S2)
-        return {**row, "note": page_why(doc)}
-    return {
-        **row,
-        "sub": f"{doc['original']} · added {date_words(doc['added'])}; "
-        f"{counted(doc['parts'], 'part')}, {doc['titled']:,} with a title",
-        "kind": KINDS[doc["kind"]],
-        "size": size_words(doc["bytes"]),
-        "parts": f"{doc['parts']:,}",
-    }
 
 
 def found_view(found: dict[str, Any]) -> dict[str, Any]:
@@ -2303,14 +2263,6 @@ def send_refusal_lines(
     return lines
 
 
-def refusal_lines(answer: dict[str, Any]) -> list[dict[str, Any]]:
-    """A search's refusal as the page draws it: each problem's line with its buttons (the
-    board's W6), or a refusal with no problems as one line."""
-    if not answer.get("problems"):
-        return [{"text": answer["error"]}]
-    return [refusal_line(p, at_send=False) for p in answer["problems"]]
-
-
 def refusal_line(problem: dict[str, Any], at_send: bool) -> dict[str, Any]:
     """One problem's line and its button: Stop searching it, for any document (the board's
     W6)."""
@@ -2318,74 +2270,6 @@ def refusal_line(problem: dict[str, Any], at_send: bool) -> dict[str, Any]:
         "text": problem_words(problem, terminal=False, where="chat", at_send=at_send),
         "stop": problem.get("document"),
     }
-
-
-async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
-    """The Documents… page (v0.3.2 C1): the library from /documents, Add (an upload, then
-    /documents add), each row's Rebuild, and the try box (/try with the open chat)."""
-    listed = await result_of(worker, "documents")
-    state = await result_of(worker, "state")
-    docs = {d["name"]: d for d in listed["documents"]}
-    chat_open = state["conversation_id"] is not None
-    in_chat = chat_open and state["mode"] == "chat"
-    searching = [d["name"] for d in state["searching"]]
-    notice = search_here = None
-    # Drawn once, and only after the page's own Add or Rebuild (`notice=1`): Search it and
-    # the chooser send them too (the part 2 whole-branch review's S2).
-    done, worker.documented = worker.documented, None
-    if params["notice"] != "1":
-        done = None
-    if done is not None:
-        name = done["added"]["name"]
-        notice = f"Added {name}. " + format_added(done)
-        search_here = name if in_chat and name not in searching else None
-    elif params["searched"]:
-        notice = SENTENCES["searches_next"].format(name=params["searched"])
-    add = None
-    if (upload := params["upload"]) and upload in worker.uploads:
-        data, filename = worker.uploads[upload]
-        name, why = document_name(filename, None)
-        add = {"upload": upload, "file": filename, "size": size_words(len(data)), "name": name,
-               "why": why, "rule": None if name else NAME_RULE}  # fmt: skip
-        if why is None:  # where the copy goes, or that it replaces one (cut 1)
-            key = "replace_note" if name in docs else "keeps_copy"
-            add["keeps"] = SENTENCES[key].format(name=name)
-    if not chat_open:
-        sub = SENTENCES["try_no_chat"]
-    elif not in_chat:  # a chat that can't search (N71)
-        sub = SENTENCES["text_mode_search"].format(profile=state["profile"])
-    elif not docs:
-        sub = SENTENCES["try_no_documents"]
-    elif not searching:
-        sub = SENTENCES["try_none"]
-    else:
-        sub = SENTENCES["try_open"].format(names=joined(searching), profile=state["profile"])
-    tried = refused = None
-    message = params["try"] or ""
-    if in_chat and searching and message.strip():  # never an empty /try (its usage line)
-        answer = await read_or_refusal(worker, "try", message)
-        if "error" in answer:
-            refused = refusal_lines(answer)
-        else:
-            result = answer["result"]
-            tried = found_view(found_summary(result["found"], result["framed"]))
-            if answer["result"]["refused"]:
-                refused = [{"text": answer["result"]["refused"]}]
-    return templates.get_template("documents.html").render(
-        intro=SENTENCES["documents_intro"],
-        folder=SENTENCES["documents_folder"].format(folder=listed["folder"]),
-        titles=SENTENCES["documents_titles"],
-        rows=[document_row(d) for d in listed["documents"]],
-        labels=STATE_LABELS,  # the chooser's (could 6)
-        notice=notice,
-        search_here=search_here,
-        add=add,
-        try_sub=sub,
-        try_enabled=in_chat and bool(searching),
-        try_text=params["try"] or "",
-        tried=tried,
-        refused=refused,
-    )
 
 
 VIEW_RENDERERS = {
@@ -2401,5 +2285,4 @@ VIEW_RENDERERS = {
     "export": _export,
     "attach": _attach,
     "pending": _pending,
-    "documents": _documents,
 }

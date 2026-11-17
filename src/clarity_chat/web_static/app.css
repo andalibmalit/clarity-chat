@@ -523,43 +523,17 @@ dialog.sheet.attach { width: min(620px, calc(100vw - 32px)); max-height: calc(10
 #panel .att-caption { margin-top: 6px; }
 .reading-line { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
 
-/* The Documents… page (v0.3.2 C1, the board's ④) */
-dialog.sheet.documents { width: min(760px, calc(100vw - 32px)); max-height: calc(100vh - 64px); overflow-y: auto; }
-.documents .hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
-.documents .hd h2 { margin: 0; }
-.documents .hd .row { display: flex; gap: 8px; align-items: center; }
-.documents .intro { color: var(--muted); font-size: 13px; margin: 0 0 8px; overflow-wrap: anywhere; }
-.documents .refused { color: var(--warn); margin: 0 0 10px; }
-.documents .addp { border: 1px solid var(--rule); border-radius: var(--r-md); padding: 12px 14px; margin: 0 0 12px; display: flex; flex-direction: column; gap: 8px; background: var(--paper); font-size: 13px; }
-.documents .addp h3 { margin: 0; font-size: 14px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
-.documents .addp p { margin: 0; }
-.documents .addp .warn, .documents .bad { color: var(--warn); }
-.documents .addp .actions { gap: 8px; margin-top: 0; }
-.documents .in { display: flex; gap: 8px; align-items: center; }
-.documents .in input { flex: 1; padding: 7px 10px; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--paper); color: var(--ink); font: 14px var(--sans); }
-.documents .notice { font-size: 13px; color: var(--muted); background: var(--sunken); border-radius: var(--r-sm); padding: 6px 10px; margin: 0 0 12px; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-.documents .notice p { margin: 0; flex: 1; min-width: 220px; }
-.documents table.docs { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 10px; }
-.documents .docs th { text-align: left; font-weight: 400; color: var(--muted); font-size: 12.5px; padding: 4px 10px 6px 0; border-bottom: 1px solid var(--rule); }
-.documents .docs td { padding: 8px 10px 8px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
-.documents .docs td.n { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; }
-.documents .docs .nm { font-weight: 500; font-family: var(--mono); font-size: 13px; }
-.documents .docs .d2 { overflow-wrap: anywhere; margin: 2px 0 0; max-width: 260px; }
-.documents .docs .btn { margin-top: 6px; }
-.documents .try { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--rule); padding-top: 12px; margin-top: 12px; }
-.documents .try p { margin: 0; }
-.documents .try .lbl { font-weight: 500; }
-.documents .try .problem .ln, .problem.refused .ln { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-:is(.documents, .found) .parts { background: var(--sunken); border-radius: var(--r-md); padding: 6px 12px 8px; font-size: 13px; display: flex; flex-direction: column; }
-:is(.documents, .found) .phead { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; color: var(--muted); font-size: 12px; padding: 2px 0 4px; border-bottom: 1px solid var(--rule); }
-:is(.documents, .found) .part { display: grid; grid-template-columns: 22px 1fr auto; gap: 1px 8px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
-:is(.documents, .found) .part .rk { grid-row: span 2; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; padding-top: 1px; }
-:is(.documents, .found) .part .pt { overflow-wrap: anywhere; }
-:is(.documents, .found) .part .tk { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
-:is(.documents, .found) .part .why { grid-column: 2 / -1; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
-:is(.documents, .found) .part.already .pt { color: var(--muted); }
-.documents .pnote, .documents .words, .found .pnote, .found .words { color: var(--muted); font-size: 12.5px; padding-top: 6px; }
-:is(.documents, .found) .empty { padding: 4px 0 2px; }
+.found .parts { background: var(--sunken); border-radius: var(--r-md); padding: 6px 12px 8px; font-size: 13px; display: flex; flex-direction: column; }
+.found .phead { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; color: var(--muted); font-size: 12px; padding: 2px 0 4px; border-bottom: 1px solid var(--rule); }
+.found .part { display: grid; grid-template-columns: 22px 1fr auto; gap: 1px 8px; padding: 6px 0; border-bottom: 1px solid var(--rule); }
+.found .part .rk { grid-row: span 2; color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12.5px; padding-top: 1px; }
+.found .part .pt { overflow-wrap: anywhere; }
+.found .part .tk { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; }
+.found .part .why { grid-column: 2 / -1; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.found .part.already .pt { color: var(--muted); }
+.found .empty { padding: 4px 0 2px; }
+.found .pnote, .found .words { color: var(--muted); font-size: 12.5px; padding-top: 6px; }
+.problem.refused .ln { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 
 /* "Search it" and the Searching chooser (v0.3.2 C2, the board's ①) */
 .srchbtn { font-variant-numeric: tabular-nums; }

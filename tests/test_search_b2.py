@@ -180,8 +180,8 @@ def test_a_control_token_in_a_found_part_refuses_the_call(root, chat_tokenizer):
         run(c, "say Tell me about the wren")
     assert str(refused.value) == (
         'Nothing was sent.\nPart 1 of odd ("Wren") holds </s>, which this model reads as a '
-        "control token, not text. Take it out of your file, then add it again in Documents…, "
-        "with the same name. Or stop searching odd."
+        "control token, not text. Take it out of your file, then add it again with the "
+        "paperclip's Search it, under the same name. Or stop searching odd."
     )
     call = turns(session, "call")[-1]
     assert call["error"].startswith('SearchRefused: Nothing was sent.\nPart 1 of odd ("Wren")')
@@ -211,9 +211,11 @@ def test_a_stale_document_refuses_the_call_with_its_way_out(root, chat_tokenizer
         str(refused.value)
         == {
             "not_built": "Nothing was sent.\nClarity can't search glossary: its parts.jsonl isn't "
-            "the one Clarity built. Add the file again in Documents…, with the same name.",
+            "the one Clarity built. Add the file again with the paperclip's Search it, under the "
+            "same name.",
             "missing": "Nothing was sent.\nClarity can't search glossary: its folder in "
-            "local/documents/ is gone. Stop searching it, or add the file again in Documents….",
+            "local/documents/ is gone. Stop searching it, or add the file again with the "
+            "paperclip's Search it.",
         }[how]
     )
     assert turns(session, "call")[-1]["error"].startswith(
