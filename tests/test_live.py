@@ -538,3 +538,57 @@ def test_a_resumed_chat_with_found_parts_renders_identical(tmp_path, monkeypatch
         assert follow_up["prompt_ids"][: len(first["prompt_ids"])] == first["prompt_ids"]
     finally:
         session.close()
+
+
+def searching_profiles(tmp_path) -> list[str]:
+    """smol-chat twice, searching the trail notes, one with the block at the start of the
+    message and one at its end (test_ci_live reads a test body's "placement" as the GPU's,
+    so the key is written here)."""
+    text = (REPO / "profiles" / "smol-chat.toml").read_text(encoding="utf-8")
+    paths = []
+    for where in ("start", "end"):
+        path = tmp_path / f"trail-{where}.toml"
+        documents = f'\n[documents]\nsearch = ["trail"]\nplacement = "{where}"\n'
+        path.write_text(text + documents, encoding="utf-8", newline="\n")
+        paths.append(str(path))
+    return paths
+
+
+def test_a_blind_run_of_two_block_positions_finds_the_same_parts_for_every_seed(
+    tmp_path, monkeypatch
+):
+    """The sprint audit's finding 7: a searching blind run on a real model. Two profiles
+    that differ only in where the block goes, both searching one made-up document, two
+    seeds: each opening's `found` is the same for every seed (searched once per opening),
+    and a call replays identical."""
+    from clarity_chat.batch import run_batch
+
+    scratch_library(tmp_path, monkeypatch)
+    profiles = searching_profiles(tmp_path)
+    openings = tmp_path / "openings.txt"
+    openings.write_text("What marks the ridge?\n---\nIs there water after the pass?\n")
+    run_dir = tmp_path / "run"
+    session = Session(REPO, logs_dir=run_dir)
+    try:
+        run_batch(session, "run-live-search", run_dir, openings, profiles, 2, lambda s: None)
+    finally:
+        session.close()
+    rows = list(read_records(run_dir / "calls.jsonl"))
+    turns = {r["turn_id"]: r for r in rows if r["type"] == "turn"}
+    calls = [r for r in rows if r["type"] == "call"]
+    assert len(calls) == 2 * 2 * 2
+    found: dict[tuple, list] = {}
+    for call in calls:
+        all_checks_ok(call)
+        key = (call["run"]["opening"], call["profile"]["name"])
+        found.setdefault(key, []).append(turns[call["parent_id"]]["found"])
+    assert len(found) == 4
+    for key, each in found.items():
+        assert each[0]["parts"], key  # the trail notes match both openings' words
+        assert all(f == each[0] for f in each), key  # one search per opening, every seed
+    replayer = Session(REPO, logs_dir=tmp_path / "replays")
+    try:
+        replayed = replayer.replay(run_dir / "calls.jsonl", calls[-1]["call_id"])
+    finally:
+        replayer.close()
+    assert replayed["identical"], replayed
