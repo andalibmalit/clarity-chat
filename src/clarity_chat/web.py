@@ -55,6 +55,7 @@ from clarity_chat.commands import (
     REPLY_COMMANDS,
     UPLOAD_ID,
     Commands,
+    joined,
 )
 from clarity_chat.documents import (
     CONSIDERED,
@@ -2064,11 +2065,6 @@ def json_response(content: dict[str, Any]) -> Response:
             500,
         )
     return Response(body, media_type="application/json")
-
-
-def joined(names: list[str], last: str = "and") -> str:
-    """Names in a sentence: "a", "a and b", "a, b and c"."""
-    return f"{', '.join(names[:-1])} {last} {names[-1]}" if len(names) > 1 else "".join(names)
 
 
 def page_why(doc: dict[str, Any]) -> str:

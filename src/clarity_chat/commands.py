@@ -1064,13 +1064,14 @@ def search_not_kept(chosen: list[str] | None, now: list[str]) -> dict[str, str]:
     a dropped attachment is (the close batch: siblings C1)."""
     if chosen is None or chosen == now:
         return {}
-    names = joined_names(chosen) if chosen else "none"
-    searched = joined_names(now) if now else "no documents"
+    names = joined(chosen) if chosen else "none"
+    searched = joined(now) if now else "no documents"
     return {"search_not_kept": SENTENCES["search_not_kept"].format(names=names, searched=searched)}
 
 
-def joined_names(names: list[str]) -> str:
-    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+def joined(names: list[str], last: str = "and") -> str:
+    """Names in a sentence: "a", "a and b", "a, b and c" (the page's too: fix review C2)."""
+    return f"{', '.join(names[:-1])} {last} {names[-1]}" if len(names) > 1 else "".join(names)
 
 
 def waiting(c: Commands) -> list[dict[str, Any]]:
