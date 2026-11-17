@@ -622,6 +622,14 @@ def _search(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return {"searching": c.session.searching(), "origin": conversation.searching_origin}
 
 
+def add_flag(rest: str) -> tuple[bool, str]:
+    """/documents add's `--replace` (the owner's Q12) and what follows it. The flag goes
+    before the file, so a name typed in the page's box can't carry it (the part 2
+    whole-branch review's could 9). The QA driver reads the path the same way."""
+    replace = rest.startswith("--replace ")
+    return replace, rest.removeprefix("--replace ").strip()
+
+
 def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     """/documents: the library; /documents add PATH [NAME] (the page sends an upload ID
     for PATH); /documents rebuild NAME."""
@@ -632,10 +640,7 @@ def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         return document_list(root)
     if action == "rebuild" and rest:
         return document_rebuild(root, rest)
-    # The owner's Q12: Replace. The flag goes before the file, so a name typed in the page's
-    # box can't carry it (the part 2 whole-branch review's could 9).
-    replace = rest.startswith("--replace ")
-    rest = rest.removeprefix("--replace ").strip()
+    replace, rest = add_flag(rest)
     if action == "add" and rest:
         # Said before and after (S11): reading the file, then where it's written.
         def told(name: str) -> Callable[[], None]:

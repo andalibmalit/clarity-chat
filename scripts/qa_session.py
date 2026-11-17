@@ -237,14 +237,20 @@ def attach_problem(root: Path, value: str) -> str | None:
 
 
 def documents_problem(root: Path, args: str) -> str | None:
-    """Why `/documents ARGS` may not run here; None when it may. `/documents add PATH [NAME]`
-    reads PATH (v0.3.2): Clarity takes the rest whole when that exists, and otherwise splits
-    off the last word as the name, so both readings are judged."""
+    """Why `/documents ARGS` may not run here; None when it may. `/documents add [--replace]
+    PATH [NAME]` reads PATH (v0.3.2): Clarity strips a leading --replace (its own add_flag,
+    reused here), takes the rest whole when that exists, and otherwise splits off the last
+    word as the name, so every reading, with the flag and without, is judged."""
+    from clarity_chat.commands import add_flag
+
     action, _, rest = args.strip().partition(" ")
     if not (action and "add".startswith(action)):  # list and rebuild NAME read no path
         return None
     rest = rest.strip()
-    readings = {rest, rest.rsplit(" ", 1)[0], *rest.rsplit(None, 1)[:1]}
+    _, unflagged = add_flag(rest)  # string slicing: it can't fail, so nothing to refuse
+    readings = set()
+    for text in (rest, unflagged):
+        readings |= {text, text.rsplit(" ", 1)[0], *text.rsplit(None, 1)[:1]}
     return path_problem(root, rest, readings)
 
 
