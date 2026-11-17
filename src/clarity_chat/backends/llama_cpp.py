@@ -16,7 +16,7 @@ import struct
 import subprocess
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -184,6 +184,19 @@ def check_generation_settings(request: dict, gs: dict) -> dict[str, dict[str, An
         "settings_echo": {"ok": not mismatched, "mismatched": mismatched},
         "unaccounted_settings": {"ok": not unaccounted, "keys": unaccounted},
     }
+
+
+def sse_lines(chunks: Iterable[bytes]) -> Iterator[str]:
+    """The event stream's lines, split on "\\n" only, a "\\r" before it dropped. llama-server
+    writes U+2028, U+2029 and U+0085 raw inside its JSON, where httpx's iter_lines would
+    split as str.splitlines does. Each line is decoded whole, so a chunk can end anywhere."""
+    pending = b""
+    for chunk in chunks:
+        *lines, pending = (pending + chunk).split(b"\n")
+        for line in lines:
+            yield line.removesuffix(b"\r").decode("utf-8", errors="replace")
+    if pending:
+        yield pending.removesuffix(b"\r").decode("utf-8", errors="replace")
 
 
 def parse_sse_line(line: str) -> dict[str, Any] | None:
@@ -854,7 +867,7 @@ class LlamaCppBackend:
                         f"llama-server returned HTTP {response.status_code}: {response.text}",
                         partial("none", []),
                     )
-                for line in response.iter_lines():
+                for line in sse_lines(response.iter_bytes()):
                     if cancel is not None and cancel.is_set():
                         # Leaving the stream closes it, which tells llama-server to stop.
                         return partial("cancelled", ["cancelled"])
