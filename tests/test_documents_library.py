@@ -1,5 +1,5 @@
 """A1 (v0.3.2): the library, `local/documents/NAME/` (decisions 5, 6 and 20), and the
-`clarity document add|list|check|rebuild` subcommands. Each test works in its own scratch
+`clarity document add|list` subcommands. Each test works in its own scratch
 root, with made-up documents only."""
 
 from __future__ import annotations
@@ -12,13 +12,14 @@ from pathlib import Path
 import pytest
 
 from clarity_chat import cli
-from clarity_chat.commands import document_add, document_check, document_rebuild
+from clarity_chat.commands import document_add
 from clarity_chat.documents import (
     DocumentRefused,
     checked_library_name,
     default_name,
     library_documents,
     library_state,
+    load_document,
     reading,
 )
 from tests.pdfs import aes_pdf, make_pdf
@@ -70,7 +71,7 @@ def test_add_writes_the_four_files_and_says_so(root, tmp_path):
     assert manifest == result["added"]
     assert list(manifest) == [
         "schema", "name", "added", "original", "extractor", "text", "chunker", "build_id",
-        "parts", "titled", "files",
+        "parts", "titled",
     ]  # fmt: skip
     assert manifest["original"] == {
         "name": "Glossary.md",
@@ -81,12 +82,10 @@ def test_add_writes_the_four_files_and_says_so(root, tmp_path):
     assert manifest["text"] == {
         "sha256": hashlib.sha256(GLOSSARY.encode()).hexdigest(),
         "bytes": len(GLOSSARY.encode()),
-        "edited": False,
         "page_starts": None,
     }
     assert manifest["build_id"] == hashlib.sha256((path / "parts.jsonl").read_bytes()).hexdigest()
     assert (manifest["parts"], manifest["titled"]) == (3, 3)
-    assert set(manifest["files"]) == {"original.txt", "text.md", "parts.jsonl"}
     assert manifest["chunker"] == {
         "name": "clarity-parts",
         "version": 1,
@@ -117,27 +116,14 @@ def test_a_pdf_keeps_its_page_starts(root, tmp_path):
     assert [text[s:].startswith(page) for s, page in zip(starts, pages, strict=True)] == [True] * 3
 
 
-# --- add twice, --replace, a crash mid-add
+# --- add twice, a crash mid-add
 
 
-def test_add_twice_is_refused_without_replace(root, tmp_path):
-    path = file(tmp_path, "notes.md", "Made-up.\n")
-    document_add(root, path)
-    before = library(root)
-    with pytest.raises(DocumentRefused, match="^There's already a document named notes."):
-        document_add(
-            root,
-            file(tmp_path, "notes.md", "Made-up again.\n"),
-            # Other bytes: the same bytes add nothing (the part 2 whole-branch review's could 8).
-        )
-    assert library(root) == before
-
-
-def test_replace_replaces_the_four_files_and_keeps_anything_else(root, tmp_path):
+def test_adding_a_taken_name_replaces_the_four_files_and_keeps_anything_else(root, tmp_path):
     document_add(root, file(tmp_path, "notes.md", "Made-up first.\n"))
     mine = root / "local/documents/notes/my-own.txt"
     mine.write_text("Made-up, mine.\n", encoding="utf-8")
-    result = document_add(root, file(tmp_path, "notes.md", "Made-up second.\n"), replace=True)
+    result = document_add(root, file(tmp_path, "notes.md", "Made-up second.\n"))
     path = root / "local/documents/notes"
     assert (path / "text.md").read_text(encoding="utf-8") == "Made-up second.\n"
     assert mine.read_text(encoding="utf-8") == "Made-up, mine.\n"
@@ -146,6 +132,20 @@ def test_replace_replaces_the_four_files_and_keeps_anything_else(root, tmp_path)
     )
     assert result["added"]["text"]["bytes"] == len(b"Made-up second.\n")
     assert [p.name for p in path.parent.iterdir()] == ["notes"]  # nothing left aside
+
+
+def test_parts_over_what_a_search_reads_are_refused_at_add(root, tmp_path, monkeypatch):
+    from clarity_chat.documents import library as library_module
+
+    monkeypatch.setattr(library_module, "PARTS_BYTES", 2**20)  # 1 MB, for a small file
+    data = "".join(f"## Made-up {n}\nA made-up line.\n\n" for n in range(20_000))
+    with pytest.raises(DocumentRefused) as refused:
+        document_add(root, file(tmp_path, "notes.md", data))
+    assert str(refused.value) == (
+        "Clarity can't add notes: its parts would be over 1 MB. Use a smaller file, or split it "
+        "and use the part you need."
+    )
+    assert library(root) == []
 
 
 def test_a_crash_mid_add_leaves_no_folder(root, tmp_path, monkeypatch):
@@ -240,42 +240,34 @@ def test_too_big_is_refused_before_it_s_read(root, tmp_path, monkeypatch):
     assert library(root) == []
 
 
-# --- staleness and rebuild
+# --- state
 
 
-def test_an_edited_text_md_is_changed_and_rebuild_takes_it(root, tmp_path):
-    document_add(root, file(tmp_path, "guide.pdf", make_pdf(["Made-up one.", "Made-up two."])))
-    assert library_state(root, "guide") == "ready"
-    text = root / "local/documents/guide/text.md"
-    text.write_text("# Fixed by hand\nMade-up one, fixed.\n", encoding="utf-8")
-    assert library_state(root, "guide") == "changed"
-    result = document_rebuild(root, "guide")
-    manifest = result["rebuilt"]
-    assert manifest["text"]["edited"] is True and manifest["text"]["page_starts"] is None
-    parts = (root / "local/documents/guide/parts.jsonl").read_text(encoding="utf-8")
-    assert [json.loads(line)["page"] for line in parts.splitlines()] == [None]
-    assert json.loads(parts)["title"] == "Fixed by hand"
-    assert result["written"] == [
-        "local/documents/guide/parts.jsonl",
-        "local/documents/guide/manifest.json",
-    ]
-    assert library_state(root, "guide") == "ready"
-    assert manifest["original"]["kind"] == "pdf"  # the original is still the PDF
+@pytest.mark.parametrize("how", ["parts deleted", "parts grown"])
+def test_parts_that_aren_t_the_build_are_refused_with_add_again(root, tmp_path, how):
+    from clarity_chat.documents import Unreadable
 
-
-@pytest.mark.parametrize("how", ["parts deleted", "parts grown", "original changed"])
-def test_a_file_that_differs_from_the_manifest_is_changed(root, tmp_path, how):
     document_add(root, file(tmp_path, "notes.md", "Made-up.\n"))
     path = root / "local/documents/notes"
     if how == "parts deleted":
         (path / "parts.jsonl").unlink()
-    elif how == "parts grown":
+    else:
         with open(path / "parts.jsonl", "ab") as f:
             f.write(b"\n")
-    else:
-        (path / "original.txt").write_bytes(b"Made-up, other.\n")
-    assert library_state(root, "notes") == "changed"
-    assert document_check(root, ["notes"])["checked"][0]["state"] == "changed"
+    with pytest.raises(Unreadable) as refused:
+        load_document(root, "notes")
+    assert refused.value.said.startswith("notes"), refused.value.said
+    assert str(refused.value).endswith("Add the file again in Documents…, with the same name.")
+
+
+def test_an_edited_original_or_text_md_changes_nothing(root, tmp_path):
+    document_add(root, file(tmp_path, "notes.md", "Made-up.\n"))
+    path = root / "local/documents/notes"
+    before = load_document(root, "notes")
+    (path / "original.txt").write_bytes(b"Made-up, other.\n")
+    (path / "text.md").write_bytes(b"Made-up, edited.\n")
+    assert library_state(root, "notes") == "ready"
+    assert load_document(root, "notes") == before
 
 
 def test_a_folder_that_s_gone_is_missing(root, tmp_path):
@@ -284,45 +276,6 @@ def test_a_folder_that_s_gone_is_missing(root, tmp_path):
     document_add(root, file(tmp_path, "notes.md", "Made-up.\n"))
     shutil.rmtree(root / "local/documents/notes")
     assert library_state(root, "notes") == "missing"
-    assert document_check(root, ["notes"])["checked"] == [
-        {"name": "notes", "state": "missing", "problems": []}
-    ]
-
-
-def test_the_full_check_hashes_what_the_quick_one_can_t_see(root, tmp_path):
-    document_add(root, file(tmp_path, "notes.md", "Made-up text.\n"))
-    path = root / "local/documents/notes/text.md"
-    info = path.stat()
-    path.write_bytes(b"Made-up TEXT.\n")  # the same size
-    os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns))  # and the same time
-    assert library_state(root, "notes") == "ready"
-    checked = document_check(root, ["notes"])["checked"][0]
-    assert checked == {"name": "notes", "state": "changed", "problems": ["text.md has changed"]}
-
-
-@pytest.mark.parametrize(
-    ("data", "starts"),
-    [
-        (b"caf\xe9\n", "notes: text.md isn't UTF-8 text."),
-        (b"Made\x00up\n", "notes: text.md isn't text"),
-    ],
-)
-def test_rebuild_reads_text_md_as_your_input(root, tmp_path, data, starts):
-    document_add(root, file(tmp_path, "notes.md", "Made-up.\n"))
-    path = root / "local/documents/notes"
-    before = (path / "manifest.json").read_bytes()
-    (path / "text.md").write_bytes(data)
-    with pytest.raises(DocumentRefused) as refused:
-        document_rebuild(root, "notes")
-    assert str(refused.value).startswith(starts), refused.value
-    assert (path / "manifest.json").read_bytes() == before
-
-
-def test_rebuild_of_a_text_md_over_the_limit_is_refused(root, tmp_path, monkeypatch):
-    document_add(root, file(tmp_path, "notes.md", "Made-up.\n"))
-    monkeypatch.setattr(reading, "MAX_BYTES", 4)
-    with pytest.raises(DocumentRefused, match="^notes: text.md is too big"):
-        document_rebuild(root, "notes")
 
 
 def test_list_gives_each_document_and_skips_other_folders(root, tmp_path):
@@ -331,7 +284,6 @@ def test_list_gives_each_document_and_skips_other_folders(root, tmp_path):
     (root / "local/documents/Not A Name").mkdir()
     (listed,) = library_documents(root)
     assert listed.pop("added").endswith("Z")  # the manifest's time, the page's row date (C1)
-    assert len(listed.pop("sha256")) == 64  # the original's, for "Search it" (C2)
     assert [listed] == [
         {
             "name": "glossary",
@@ -340,7 +292,6 @@ def test_list_gives_each_document_and_skips_other_folders(root, tmp_path):
             "bytes": len(GLOSSARY.encode()),
             "parts": 3,
             "titled": 3,
-            "edited": False,
             "state": "ready",
         }
     ]
@@ -350,14 +301,8 @@ def test_a_manifest_another_program_wrote_is_refused_naming_it(root, tmp_path):
     document_add(root, file(tmp_path, "notes.md", "Made-up.\n"))
     (root / "local/documents/notes/manifest.json").write_text('{"schema": 1}', encoding="utf-8")
     with pytest.raises(DocumentRefused, match="^notes's manifest.json can't be read"):
-        document_rebuild(root, "notes")
+        load_document(root, "notes")
     assert library_documents(root)[0]["state"] == "unreadable"
-
-
-def test_check_with_a_tokenizer_lists_control_token_parts(root, tmp_path, chat_tokenizer):
-    document_add(root, file(tmp_path, "odd.md", "Safe.\n\n## T\nHolds </s> here.\n"))
-    (checked,) = document_check(root, ["odd"], chat_tokenizer)["checked"]
-    assert checked["control_token_parts"] == [{"ordinal": 2, "tokens": ["</s>"]}]
 
 
 # --- the subcommands
@@ -373,31 +318,18 @@ def test_the_subcommands_say_what_they_write(root, tmp_path, capsys):
         "Clarity wrote local/documents/glossary/: original.txt, text.md, parts.jsonl and "
         "manifest.json (3 parts, 3 with a title).",
     ]
-    other = file(
-        tmp_path,
-        "Glossary.md",
-        "## Other\nMade-up.\n",
-        # Other bytes: the same bytes add nothing (the part 2 whole-branch review's could 8).
-    )
-    assert cli.main(["--root", str(root), "document", "add", other]) == 1
-    assert "There's already a document named glossary." in capsys.readouterr().err
-    file(tmp_path, "Glossary.md", GLOSSARY)  # back, for the rest
+    # Replaced, said before and after (the same bytes: the text read last is used again)
+    assert cli.main(["--root", str(root), "document", "add", path]) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        "Replacing glossary in local/documents/glossary/: a copy of the file, its text and its "
+        "parts, in place of the ones there.",
+        "Clarity replaced local/documents/glossary/: original.txt, text.md, parts.jsonl and "
+        "manifest.json (3 parts, 3 with a title).",
+    ]
     assert cli.main(["--root", str(root), "document", "list"]) == 0
     assert capsys.readouterr().out.strip().endswith("3 parts, 3 titled  ready")
     assert cli.main(["--root", str(root), "document", "list", "--json"]) == 0
     assert json.loads(capsys.readouterr().out)["documents"][0]["name"] == "glossary"
-    (root / "local/documents/glossary/text.md").write_text("# New\nMade-up.\n", encoding="utf-8")
-    assert cli.main(["--root", str(root), "document", "check"]) == 1
-    out = capsys.readouterr().out
-    assert out.startswith("glossary: changed (text.md has changed): ")
-    assert "`clarity document rebuild glossary` cuts them again." in out
-    assert cli.main(["--root", str(root), "document", "rebuild", "glossary"]) == 0
-    assert capsys.readouterr().out.strip() == (
-        "Rebuilt glossary from its text.md: 1 part, 1 with a title. Wrote parts.jsonl and "
-        "manifest.json in local/documents/glossary/."
-    )
-    assert cli.main(["--root", str(root), "document", "check", "glossary"]) == 0
-    assert capsys.readouterr().out.strip() == "glossary: ready."
 
 
 # --- Checkpoint 1's M1: a document folder that's a link
@@ -406,7 +338,6 @@ def test_the_subcommands_say_what_they_write(root, tmp_path, capsys):
 @pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
 def test_a_linked_document_folder_is_refused_and_nothing_outside_changes(root, tmp_path):
     from clarity_chat.commands import document_list
-    from clarity_chat.documents import library_state, load_document
 
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
@@ -418,10 +349,8 @@ def test_a_linked_document_folder_is_refused_and_nothing_outside_changes(root, t
     says = "notes's folder in local/documents/ is a link, which Clarity doesn't follow."
     answers = []
     for act in (
-        lambda: document_rebuild(root, "notes"),
         lambda: load_document(root, "notes"),
         lambda: document_add(root, file(tmp_path, "notes.md", "Made-up.\n")),
-        lambda: document_add(root, file(tmp_path, "notes.md", "Made-up.\n"), replace=True),
     ):
         try:
             act()
@@ -431,9 +360,7 @@ def test_a_linked_document_folder_is_refused_and_nothing_outside_changes(root, t
         except Exception as e:  # noqa: BLE001 - what the bug raised, as the test's answer
             answers.append(type(e).__name__)
     assert sorted((p.name, p.read_bytes()) for p in elsewhere.iterdir()) == before
-    assert [a.startswith(says) for a in answers] == [True] * 4, answers
-    (checked,) = document_check(root, ["notes"])["checked"]  # listed, since S4: one stops none
-    assert checked["state"] == "unreadable" and checked["problems"][0].startswith(says)
+    assert [a.startswith(says) for a in answers] == [True] * 2, answers
     assert library_state(root, "notes") == "unreadable"
     assert document_list(root)["documents"][0]["state"] == "unreadable"
     assert sorted((p.name, p.read_bytes()) for p in elsewhere.iterdir()) == before

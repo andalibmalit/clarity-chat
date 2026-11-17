@@ -4,8 +4,6 @@ documents, scratch roots."""
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
 from clarity_chat import cli
@@ -18,8 +16,7 @@ from tests.conftest import CHAT_PROFILE
 from tests.fakes import FakeBackend
 from tests.test_search_b4 import chat, quiet, root, run  # noqa: F401
 
-CHAT_WAY = "`/documents add --replace PATH glossary` adds the file again."
-CLI_WAY = "`clarity document add FILE --name glossary --replace` adds the file again."
+CHAT_WAY = "`/documents add PATH glossary` adds the file again."
 
 
 def exit_code(argv: list[str]) -> int:
@@ -107,14 +104,6 @@ def test_a_missing_file_outside_the_project_says_outside_not_missing(root):  # n
 # --- surface S2 + siblings C2: each front end's way out
 
 
-def test_chat_rebuild_of_a_changed_original_names_the_chat_s_command(root, chat_tokenizer):  # noqa: F811
-    _, c = chat(root, chat_tokenizer)
-    change_original(root)
-    said = refusal(lambda: c.run("documents", "rebuild glossary", quiet))
-    assert said.endswith(CHAT_WAY), said
-    assert "Delete the folder" not in said
-
-
 def test_chat_send_with_an_unreadable_document_names_the_chat_s_command(root, chat_tokenizer):  # noqa: F811
     from clarity_chat.session import SearchRefused
 
@@ -126,14 +115,6 @@ def test_chat_send_with_an_unreadable_document_names_the_chat_s_command(root, ch
     assert "Delete the folder" not in e.value.terminal
 
 
-def test_document_check_of_an_unreadable_document_names_the_cli_s_command(root, capsys):  # noqa: F811
-    garble_manifest(root)
-    cli.main(["--root", str(root), "document", "check", "glossary"])
-    out = capsys.readouterr().out
-    assert out.strip().endswith(CLI_WAY), out
-    assert "Delete the folder" not in out
-
-
 def test_the_library_s_reason_holds_no_way_out(root):  # noqa: F811
     garble_manifest(root)
     (row,) = [d for d in library_documents(root) if d["name"] == "glossary"]
@@ -142,13 +123,6 @@ def test_the_library_s_reason_holds_no_way_out(root):  # noqa: F811
 
 
 # --- surface coulds
-
-
-def test_documents_add_replace_with_no_path_says_its_usage(root, chat_tokenizer):  # noqa: F811
-    _, c = chat(root, chat_tokenizer)
-    assert refusal(lambda: c.run("documents", "add --replace", quiet)) == (
-        "Usage: /documents [add [--replace] PATH [NAME] | rebuild NAME]"
-    )
 
 
 def test_a_missing_spaced_path_is_named_whole(root, chat_tokenizer, tmp_path):  # noqa: F811
@@ -170,7 +144,7 @@ def test_try_in_a_text_mode_chat_says_n71(root, chat_tokenizer):  # noqa: F811
 def test_a_default_name_folds_accents():
     from clarity_chat.documents.library import document_name
 
-    assert document_name("été.md", None, set()) == ("ete", None)
+    assert document_name("été.md", None) == ("ete", None)
 
 
 def test_framed_is_false_when_nothing_was_added(root, chat_tokenizer):  # noqa: F811
@@ -182,15 +156,6 @@ def test_framed_is_false_when_nothing_was_added(root, chat_tokenizer):  # noqa: 
     found = [t["found"] for t in turns if t["role"] == "user"][-1]
     assert found["parts"] == [] and found.get("framed") is False
     assert c.run("try", "Tell me about the wren", quiet)["framed"] is False
-
-
-def test_a_name_not_in_the_library_is_said_one_way(root, chat_tokenizer, capsys):  # noqa: F811
-    _, c = chat(root, chat_tokenizer)
-    assert refusal(lambda: c.run("documents", "rebuild nope", quiet)) == (
-        "nope isn't in your documents."
-    )
-    cli.main(["--root", str(root), "document", "check", "zzz"])
-    assert "zzz isn't in your documents." in capsys.readouterr().out
 
 
 # --- siblings S2: the terminal says what search added, after the status line
@@ -228,31 +193,3 @@ def test_new_says_nothing_when_the_list_is_the_profile_s(root, chat_tokenizer): 
 
 
 # --- siblings C3: parts.jsonl Clarity didn't write is `changed` in the search list too
-
-
-def test_searching_reports_a_parts_refusal_as_changed(root, chat_tokenizer, monkeypatch):  # noqa: F811
-    from clarity_chat.documents import PartsRefused
-
-    session, c = chat(root, chat_tokenizer)
-
-    def refuse(self, name):
-        raise PartsRefused("glossary's parts.jsonl isn't one Clarity writes.")
-
-    monkeypatch.setattr(Session, "_scanned", refuse)
-    (entry,) = c.run("search", "", quiet)["searching"]
-    assert entry["state"] == "changed", entry
-
-
-def test_json_documents_rebuild_names_the_chat_s_command(root, chat_tokenizer):  # noqa: F811
-    import io
-
-    from clarity_chat.json_chat import JsonChat
-
-    session, _ = chat(root, chat_tokenizer)
-    change_original(root)
-    out = io.StringIO()
-    JsonChat(session, io.BytesIO(), out).execute(
-        {"command": "documents", "args": "rebuild glossary"}
-    )
-    last = json.loads(out.getvalue().splitlines()[-1])
-    assert last.get("message", last.get("error", "")).endswith(CHAT_WAY), last

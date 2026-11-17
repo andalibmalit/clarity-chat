@@ -15,7 +15,6 @@ from clarity_chat import web
 from clarity_chat.documents import library_add, reading
 from clarity_chat.session import Session, found_summary
 from tests.fakes import FakeBackend
-from tests.pdfs import make_pdf
 from tests.test_web import GET, ORIGIN, PORT, SECRET, command
 from tests.test_web_upload import upload
 
@@ -108,23 +107,8 @@ def test_the_rows_equal_documents(root, make):
         "Search counts a word in a part's title twice. A part's title is the Markdown heading "
         "above it in the document's text.md: a line that starts with one to six # characters, a "
         "space and some text. A code file has no headings. A saved web page gets them from its "
-        "own headings; a PDF, or a text file without such lines, has none until you add them to "
-        "its text.md and rebuild, and a PDF whose text.md you edit and rebuild loses its page "
-        "numbers." in words
+        "own headings; a PDF, or a text file without such lines, has none." in words
     )
-
-
-def test_a_changed_row_says_why_and_offers_rebuild(root, make):
-    library_add(root, make_pdf(["The wren.", "The dipper."]), "guide.pdf")
-    (root / "local/documents/guide/text.md").write_text("Edited.\n", encoding="utf-8")
-    client, _ = make()
-    fragment = page(client)
-    assert row(fragment, "guide").endswith(
-        "! Changed A file in its folder has changed since Clarity cut it into parts. Rebuild If "
-        "you edited text.md, its parts will lose their page numbers."
-    )
-    assert re.search(r'data-action="documents-rebuild" data-name="guide"', fragment)
-    assert "Rebuild" not in row(fragment, "glossary")
 
 
 def test_an_unreadable_row_says_why(root, make):
@@ -132,25 +116,8 @@ def test_an_unreadable_row_says_why(root, make):
     client, _ = make()
     assert row(page(client), "glossary") == (
         "glossary ! Can’t be read glossary's manifest.json can't be read (it isn't a manifest "
-        "Clarity writes). Add the file again in Documents… and choose Replace."
+        "Clarity writes). Add the file again in Documents…, with the same name."
     )  # the close batch (surface S2): the page's way out
-
-
-def test_rebuild_s_notice_is_its_result_and_says_when_pages_were_dropped(root, make):
-    """The notice is drawn from the command's result (the C1 tripwire review's should 1),
-    once: the next drawing has none."""
-    from clarity_chat.commands import format_rebuilt
-
-    library_add(root, make_pdf(["The wren.", "The dipper."]), "guide.pdf")
-    text = root / "local/documents/guide/text.md"
-    text.write_text(text.read_text(encoding="utf-8") + "Edited.\n", encoding="utf-8")
-    client, _ = make()
-    result = command(client, "documents", "rebuild guide").json()["result"]
-    assert result["pages_dropped"] is True
-    said = text_of(page(client, notice="1"))  # the page's own Rebuild (part 2 review's S2)
-    assert format_rebuilt(result) in said
-    assert said.count("Its parts no longer have page numbers.") == 1
-    assert "Rebuilt guide" not in text_of(page(client, notice="1"))
 
 
 # --- Add
@@ -169,36 +136,11 @@ def test_add_says_where_the_copy_goes_with_the_name_box(root, make):
     assert re.search(r'<input[^>]*id="documents-name"[^>]*value="herons"', fragment)
 
 
-def test_a_taken_name_asks_for_another(root, make):
+def test_a_taken_name_says_it_replaces(root, make):  # cut 1
     client, _ = make()
     upload_id = upload(client, b"## Wren\nAgain.\n", "glossary.md").json()["upload"]
     said = text_of(page(client, upload=upload_id))
-    assert "There's already a document named glossary. Give this one a different name." in said
-
-
-def test_a_taken_name_offers_replace(root, make):  # Q12 on Add (the board's ⑧)
-    client, _ = make()
-    upload_id = upload(client, b"## Wren\nAgain.\n", "glossary.md").json()["upload"]
-    fragment = page(client, upload=upload_id)
-    assert re.search(
-        r'<button[^>]*data-action="documents-replace"[^>]*aria-expanded="false"', fragment
-    )
-    said = text_of(fragment)
-    assert "Replace glossary with this file" in said
-    assert re.search(r'<p[^>]*id="documents-replace-note"[^>]*hidden', fragment)
-    assert (
-        "Replacing writes this file's copy, text and parts over glossary's in "
-        "local/documents/glossary/. Anything else you put in that folder stays." in said
-    )
-
-
-def test_add_s_panel_says_the_same_file_is_already_there(root, make):  # fix review's C1
-    client, _ = make()
-    upload_id = upload(client, GLOSSARY, "glossary.md").json()["upload"]
-    fragment = page(client, upload=upload_id)
-    said = text_of(fragment)
-    assert "Already in your documents as glossary. Nothing new is added to them." in said
-    assert "There's already a document named" not in said and "documents-replace" not in fragment
+    assert "glossary is already in your documents. Adding this file replaces its copy" in said
 
 
 def test_a_name_clarity_can_t_make_offers_no_replace(root, make):
@@ -337,13 +279,12 @@ def test_the_try_box_s_empty_states(root, make, message, said):
 
 def test_the_try_box_s_refusal_has_its_buttons(root, make):
     client, _ = make('search = ["glossary"]')
-    (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
+    (root / "local/documents/glossary/parts.jsonl").write_text("Edited.\n", encoding="utf-8")
     fragment = page(client, **{"try": "Tell me about the wren"})
     assert (
-        "Clarity can't search glossary: a file in its folder has changed since Clarity cut it "
-        "into parts. Rebuild cuts them again from its text.md." in text_of(fragment)
+        "Clarity can't search glossary: its parts.jsonl isn't the one Clarity built. Add the "
+        "file again in Documents…, with the same name." in text_of(fragment)
     )
-    assert 'data-action="documents-rebuild" data-name="glossary"' in fragment
     assert 'data-action="documents-stop" data-name="glossary"' in fragment
 
 
@@ -442,16 +383,11 @@ def test_a_part_s_label_names_its_page():  # should 2
 def test_a_refusal_s_buttons_follow_its_problem():  # could 5
     lines = web.refusal_lines({"error": "x", "problems": [
         {"document": "a", "state": "missing"},
-        {"document": "b", "state": "changed", "pages_lost": False},
-        {"document": "c", "state": "parts"},
+        {"document": "b", "state": "unreadable", "why": "b's parts.jsonl isn't one Clarity "
+         "writes.", "add_again": True},
         {"state": "no_fts5"},
     ]})  # fmt: skip
-    assert [(line["rebuild"], line["stop"]) for line in lines] == [
-        (None, "a"),
-        ("b", "b"),
-        ("c", "c"),
-        (None, None),
-    ]
+    assert [line["stop"] for line in lines] == ["a", "b", None]
 
 
 # --- the C1 fix check's should A: when the first part's count holds the framing line

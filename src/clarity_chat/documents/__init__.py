@@ -34,8 +34,6 @@ from clarity_chat.documents.insert import (
 from clarity_chat.documents.library import (
     LIBRARY,
     TAKEN,
-    OriginalChanged,
-    PartsRefused,
     Stale,
     Unreadable,
     checked_library_name,
@@ -45,12 +43,10 @@ from clarity_chat.documents.library import (
     way_out,
 )
 from clarity_chat.documents.library import add as library_add
-from clarity_chat.documents.library import check as library_check
 from clarity_chat.documents.library import documents as library_documents
 from clarity_chat.documents.library import parts_of as library_parts
+from clarity_chat.documents.library import parts_stamp as library_parts_stamp
 from clarity_chat.documents.library import read_manifest as library_manifest
-from clarity_chat.documents.library import rebuild as library_rebuild
-from clarity_chat.documents.library import same_bytes as library_same_bytes
 from clarity_chat.documents.library import state as library_state
 from clarity_chat.documents.parts import (
     build_id,
@@ -72,7 +68,6 @@ from clarity_chat.documents.reading import (
 )
 from clarity_chat.documents.refused import (
     NOTHING_SENT,
-    PAGES_LOST,
     SearchRefused,
     control_token_problem,
     problem_words,
@@ -90,11 +85,8 @@ __all__ = [
     "search_documents",
     "words_of",
     "LIBRARY",
-    "OriginalChanged",
-    "PartsRefused",
     "TAKEN",
     "SearchRefused",
-    "PAGES_LOST",
     "problem_words",
     "control_token_problem",
     "Stale",
@@ -103,14 +95,12 @@ __all__ = [
     "default_name",
     "document_name",
     "library_add",
-    "library_check",
     "library_documents",
     "library_manifest",
     "Unreadable",
     "way_out",
-    "library_same_bytes",
     "library_parts",
-    "library_rebuild",
+    "library_parts_stamp",
     "library_state",
     "build_id",
     "closing_tag_parts",

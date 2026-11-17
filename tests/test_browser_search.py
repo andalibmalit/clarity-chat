@@ -44,35 +44,18 @@ def test_search_it_adds_the_file_and_searches_it(clarity, page, fetched_root):  
     assert page.get_attribute("#search-menu [data-name=herons]", "aria-checked") == "true"
 
 
-def test_replace_writes_over_a_taken_name(clarity, page, fetched_root):  # noqa: F811
+def test_a_taken_name_is_replaced(clarity, page, fetched_root):  # noqa: F811
     library_add(fetched_root, GLOSSARY, "glossary.md")
     redirect, _ = clarity
     chat(page, redirect)
     choose(page, "glossary.md", b"## Owl\nMade-up.\n")
     page.wait_for_selector("#attach-search")
     page.click("#attach-search")
-    page.click("[data-action=attach-replace]")
-    assert page.is_visible("#attach-replace-note")
+    assert "glossary is already in your documents." in page.inner_text("#attach-search-note")
     page.click("[data-action=attach-add]")
     page.wait_for_selector("#notice:has-text('from your next message')")
     (doc,) = library_documents(fetched_root)
     assert doc["original"] == "glossary.md" and doc["parts"] == 1
-
-
-def test_a_name_typed_after_replace_isn_t_replaced(clarity, page, fetched_root):  # noqa: F811
-    library_add(fetched_root, GLOSSARY, "glossary.md")
-    library_add(fetched_root, b"## Heron\nTall.\n", "herons.md")
-    redirect, _ = clarity
-    chat(page, redirect)
-    choose(page, "glossary.md", b"## Owl\nMade-up.\n")
-    page.wait_for_selector("#attach-search")
-    page.click("#attach-search")
-    page.click("[data-action=attach-replace]")
-    page.fill("#attach-search-name", "herons")  # the note named glossary, not herons
-    page.click("[data-action=attach-add]")
-    page.wait_for_selector("#attach-body .sheet-error:has-text('already a document named herons')")
-    herons = next(d for d in library_documents(fetched_root) if d["name"] == "herons")
-    assert herons["original"] == "herons.md"
 
 
 def test_unticking_a_missing_document_lets_send_go(clarity, page, fetched_root):  # noqa: F811

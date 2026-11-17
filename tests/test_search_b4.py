@@ -73,10 +73,19 @@ def test_try_in_a_chat_that_searches_nothing_says_so(root, chat_tokenizer):
         c.run("try", "Tell me about the wren", quiet)
 
 
-def test_try_on_a_changed_document_is_refused_with_the_way_out(root, chat_tokenizer):
+def not_built(root) -> None:
+    """glossary's parts.jsonl changed, its manifest not: not the parts Clarity built."""
+    parts = root / "local/documents/glossary/parts.jsonl"
+    parts.write_bytes(parts.read_bytes().replace(b"small", b"large"))
+
+
+NOT_BUILT = "^Clarity can't search glossary: its parts.jsonl isn't the one Clarity built."
+
+
+def test_try_on_a_document_not_built_is_refused_with_the_way_out(root, chat_tokenizer):
     session, c = chat(root, chat_tokenizer)
-    (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
-    with pytest.raises(ConfigError, match="^Clarity can't search glossary: a file in its"):
+    not_built(root)
+    with pytest.raises(ConfigError, match=NOT_BUILT):
         c.run("try", "Tell me about the wren", quiet)
 
 
@@ -175,10 +184,10 @@ def test_a_run_searches_once_per_opening_and_profile_and_reuses_it_for_every_see
 
 
 def test_the_pre_check_refuses_a_stale_document_before_any_model_loads(root, chat_tokenizer):
-    (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
+    not_built(root)
     backend = FakeBackend([" A reply."], tokenizer=chat_tokenizer)
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
-    with pytest.raises(ConfigError, match="^Clarity can't search glossary: a file in its"):
+    with pytest.raises(ConfigError, match=NOT_BUILT):
         run_batch(
             session, "run-x", root / "runs" / "run-x", root / "openings.txt", ["chat"], 1, print
         )
@@ -192,12 +201,8 @@ def test_a_build_that_changes_mid_run_stops_it(root, chat_tokenizer):
 
         def block(text, where="chat"):
             calls.append(text)
-            if len(calls) == 2:  # the second opening: the document was rebuilt meanwhile
-                from clarity_chat.commands import document_rebuild
-
-                path = root / "local/documents/glossary/text.md"
-                path.write_text(path.read_text(encoding="utf-8") + "\n## Owl\nNew.\n")
-                document_rebuild(root, "glossary")
+            if len(calls) == 2:  # the second opening: the document was added again meanwhile
+                library_add(root, GLOSSARY + b"\n## Owl\nNew.\n", "glossary.md")
             return real(text, where)
 
         session.block = block

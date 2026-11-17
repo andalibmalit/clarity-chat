@@ -47,7 +47,7 @@ def users(session) -> list[dict]:
 def test_replacing_a_pdf_document_with_a_text_file_leaves_no_original_pdf(root):  # 9
     library_add(root, make_pdf(["The wren.", "The dipper."]), "guide.pdf")
     (root / "local/documents/guide/mine.txt").write_text("Mine.\n", encoding="utf-8")
-    library_add(root, b"# Text\n\nNow text.\n", "guide.md", replace=True)
+    library_add(root, b"# Text\n\nNow text.\n", "guide.md")
     assert sorted(p.name for p in (root / "local/documents/guide").iterdir()) == [
         "manifest.json",
         "mine.txt",
@@ -165,16 +165,8 @@ def test_replace_leaves_the_new_manifest(root):  # 262
     import hashlib
 
     data = b"## Heron\nTall.\n\n## Egret\nWhite.\n\n## Crane\nGrey.\n"
-    library_add(root, data, "glossary.md", replace=True)
+    library_add(root, data, "glossary.md")
     manifest = json.loads((root / "local/documents/glossary/manifest.json").read_bytes())
     assert manifest["original"]["sha256"] == hashlib.sha256(data).hexdigest()
     assert manifest["parts"] == 3
     assert library_state(root, "glossary") == "ready"
-
-
-def test_a_manifest_whose_files_name_other_files_is_unreadable(root):  # 265
-    path = root / "local/documents/glossary/manifest.json"
-    manifest = json.loads(path.read_bytes())
-    manifest["files"]["other.txt"] = manifest["files"].pop("text.md")
-    path.write_text(json.dumps(manifest), encoding="utf-8")
-    assert library_state(root, "glossary") == "unreadable"

@@ -103,44 +103,15 @@ def test_search_it_is_offered_for_a_file_that_doesn_t_fit_whole(root, make):  # 
     assert re.search(r'data-choice="search"[^>]*data-ok="true"', sheet)
 
 
-def test_the_same_file_is_already_in_your_documents(root, make):
-    client, _ = make()
-    upload_id = upload(client, GLOSSARY, "glossary-copy.md").json()["upload"]
-    said = text_of(search_option(get(client, "attach", upload=upload_id)))
-    assert "Already in your documents as glossary. Nothing new is added to them." in said
-    assert "Clarity keeps a copy" not in said
-
-
-def test_the_same_file_already_searched_is_said_and_can_t_be_chosen(root, make):
-    client, _ = make('search = ["glossary"]')
-    upload_id = upload(client, GLOSSARY, "glossary.md").json()["upload"]
-    sheet = get(client, "attach", upload=upload_id)
-    assert "This chat already searches it." in text_of(search_option(sheet))
-    assert re.search(r'data-choice="search"[^>]*data-ok="false"', sheet)
-
-
-def test_the_same_file_whose_copy_changed_says_rebuild(root, make):
-    (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
-    client, _ = make()
-    upload_id = upload(client, GLOSSARY, "glossary.md").json()["upload"]
-    assert (
-        "! A file in its folder has changed since Clarity cut it into parts. Rebuild it in "
-        "Documents… before you send." in text_of(search_option(get(client, "attach",
-                                                                  upload=upload_id)))
-    )  # fmt: skip
-
-
-def test_a_taken_name_shows_the_name_box_and_replace(root, make):
+def test_a_taken_name_says_it_will_be_replaced(root, make):  # cut 1
     client, _ = make()
     upload_id = upload(client, b"## Owl\nMade-up.\n", "glossary.md").json()["upload"]
     option = search_option(get(client, "attach", upload=upload_id))
     said = text_of(option)
-    assert "There's already a document named glossary. Give this one a different name." in said
     assert re.search(r'<input[^>]*id="attach-search-name"[^>]*value="glossary"', option)
-    assert 'data-action="attach-replace"' in option and "Replace glossary with this file" in said
     assert (
-        "Replacing writes this file's copy, text and parts over glossary's in "
-        "local/documents/glossary/. Anything else you put in that folder stays." in said
+        "glossary is already in your documents. Adding this file replaces its copy, text and "
+        "parts in local/documents/glossary/. Anything else you put in that folder stays." in said
     )
 
 
@@ -168,11 +139,10 @@ def test_a_text_mode_chat_offers_no_search_it(root, make):
     assert 'data-choice="search"' not in get(client, "attach", upload=upload_id)
 
 
-def test_documents_add_replace_writes_over_the_document(root, make):  # Q12
+def test_documents_add_of_a_taken_name_writes_over_the_document(root, make):  # cut 1
     client, _ = make()
     upload_id = upload(client, b"## Owl\nMade-up.\n", "owls.md").json()["upload"]
-    # The flag before the upload (the part 2 review's could 9).
-    answer = command(client, "documents", f"add --replace {upload_id} glossary").json()
+    answer = command(client, "documents", f"add {upload_id} glossary").json()
     assert answer.get("result", {}).get("replaced") is True, answer
     (doc,) = library_documents(root)
     assert doc["original"] == "owls.md"
@@ -218,22 +188,21 @@ def test_the_chooser_says_each_state_and_its_way_out(root, make):
     library_add(root, b"## Heron\nTall.\n", "herons.md")
     library_add(root, b"## Owl\nMade-up.\n", "owls.md")
     client, _ = make('search = ["glossary", "herons", "owls"]')
-    (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
+    (root / "local/documents/glossary/parts.jsonl").write_text("Edited.\n", encoding="utf-8")
     shutil.rmtree(root / "local/documents/herons")
     (root / "local/documents/owls/manifest.json").write_text('{"schema": 1}', encoding="utf-8")
     picker = get(client, "picker")
     assert "! Searching: 3 documents" in text_of(picker)
     said = text_of(chooser(client))
     assert (
-        "glossary glossary.md · 2 parts ! Changed A file in its folder has changed since "
-        "Clarity cut it into parts. Rebuild" in said
-    )
+        "glossary glossary.md · 2 parts ! Can’t be read glossary's parts.jsonl isn't the one "
+        "Clarity built. Add the file again in Documents…, with the same name." in said
+    ), said
     assert (
         "herons not in your documents ! Missing Its folder in local/documents/ is gone. To "
         "search it again, add the file again in Documents…." in said
     )
     assert "owls local/documents/owls/ ! Can’t be read owls's manifest.json can't be read" in said
-    assert 'data-action="search-rebuild" data-name="glossary"' in chooser(client)
 
 
 def test_the_chooser_shows_a_control_token_count(root, make):

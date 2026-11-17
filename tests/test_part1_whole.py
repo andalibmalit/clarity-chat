@@ -23,7 +23,7 @@ from tests.fakes import FakeBackend
 from tests.test_documents_board import chat, quiet, refusal
 
 GLOSSARY = b"## Wren\nThe wren is a small brown bird.\n"
-PAGE_ONLY = ("Documents…", "Rebuild cuts", "with Rebuild", "Rebuild it.")
+PAGE_ONLY = ("Documents…", "with the same name")
 
 
 @pytest.fixture
@@ -51,10 +51,15 @@ def no_fts5(monkeypatch) -> None:
     monkeypatch.setattr(search_module.sqlite3, "connect", lambda *a, **k: NoFts5())
 
 
+def not_built(root: Path) -> None:
+    parts = folder(root) / "parts.jsonl"
+    parts.write_bytes(parts.read_bytes().replace(b"small", b"large"))
+
+
 def make(root: Path, how: str, monkeypatch) -> None:
     """Make the searched document `how`, after the chat started."""
-    if how == "changed":
-        (folder(root) / "text.md").write_text("Edited.\n", encoding="utf-8")
+    if how == "not_built":  # cut 1: parts that aren't the ones Clarity built
+        not_built(root)
     elif how == "missing":
         shutil.rmtree(folder(root))
     elif how == "unreadable":
@@ -63,19 +68,19 @@ def make(root: Path, how: str, monkeypatch) -> None:
         no_fts5(monkeypatch)
 
 
-NAME = {"changed": "glossary", "missing": "glossary", "unreadable": "glossary",
+NAME = {"not_built": "glossary", "missing": "glossary", "unreadable": "glossary",
         "control": "odd", "no_fts5": "glossary"}  # fmt: skip
 TERMINAL = {  # a chat's ways out are the chat's commands (the main session's PM1 ruling)
-    "changed": "Clarity can't search glossary: a file in its folder has changed since Clarity "
-    "cut it into parts. `/documents rebuild glossary` cuts them again from its text.md.",
+    "not_built": "Clarity can't search glossary: its parts.jsonl isn't the one Clarity built. "
+    "`/documents add PATH glossary` adds the file again.",
     "missing": "Clarity can't search glossary: its folder in local/documents/ is gone. Stop "
     "searching it with /search, or add the file again: `/documents add PATH glossary`.",
     "unreadable": "Clarity can't search glossary: its manifest.json can't be read (it isn't a "
-    "manifest Clarity writes). `/documents add --replace PATH glossary` adds the file again.",
+    "manifest Clarity writes). `/documents add PATH glossary` adds the file again.",
     # the chat's own way out (the close batch: surface S2)
     "control": 'Part 1 of odd ("Wren") holds </s>, which this model reads as a control token, '
-    "not text. Take it out of local/documents/odd/text.md; `/documents rebuild odd` then cuts "
-    "its parts again. Or stop searching odd with /search.",
+    "not text. Take it out of your file, then add it again: `/documents add PATH odd`. Or stop "
+    "searching odd with /search.",
     "no_fts5": "Word search needs SQLite's FTS5, which the Python running Clarity doesn't "
     "have. Use a Python whose SQLite includes it, such as the one uv installs. `/search none` "
     "turns search off for this chat.",
@@ -119,7 +124,7 @@ def test_json_gets_the_terminal_s_words_and_the_problems(root, chat_tokenizer, m
     assert error["type"] == "SearchRefused"
     assert error["message"] == f"Nothing was sent.\n{TERMINAL[how]}"
     (problem,) = error.get("problems") or [{}]
-    state = "control_tokens" if how == "control" else how
+    state = {"control": "control_tokens", "not_built": "unreadable"}.get(how, how)
     assert problem.get("state") == state
     assert problem.get("document") == (None if how == "no_fts5" else NAME[how])
 
@@ -147,7 +152,7 @@ def test_the_page_and_the_log_keep_the_board_s_words(root, chat_tokenizer):
 
 
 def test_a_run_s_pre_check_names_the_terminal_command(root, chat_tokenizer):
-    (folder(root) / "text.md").write_text("Edited.\n", encoding="utf-8")
+    not_built(root)
     path = root / "profiles" / "chat.toml"
     path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nsearch = ["glossary"]\n')
     (root / "openings.txt").write_text("Tell me about the wren.\n", encoding="utf-8")
@@ -157,8 +162,8 @@ def test_a_run_s_pre_check_names_the_terminal_command(root, chat_tokenizer):
         run_batch(session, "run-x", root / "runs" / "run-x", root / "openings.txt", ["chat"], 1,
                   print)  # fmt: skip
     assert refused.value.terminal == (
-        "Clarity can't search glossary: a file in its folder has changed since Clarity cut it "
-        "into parts. `clarity document rebuild glossary` cuts them again from its text.md."
+        "Clarity can't search glossary: its parts.jsonl isn't the one Clarity built. `clarity "
+        "document add FILE --name glossary` adds the file again."
     )
     assert backend.calls == []
 
@@ -264,7 +269,7 @@ def test_try_says_a_part_s_control_token_would_refuse_the_message(root, chat_tok
     assert result["refused"] == TERMINAL["control"]
     page = Commands(session, uploads={})
     assert page.run("try", "Tell me about the wren", quiet)["refused"].endswith(
-        "Clarity then shows the document as Changed, with Rebuild. Or stop searching odd."
+        "then add it again in Documents…, with the same name. Or stop searching odd."
     )
     assert c.run("search", "glossary", quiet)
     assert c.run("try", "Tell me about the wren", quiet)["refused"] is None
@@ -285,8 +290,8 @@ def test_document_try_says_it_too(root, chat_tokenizer):
         monkey["Session"] = real
     assert result.get("refused") == (
         'Part 1 of odd ("Wren") holds </s>, which this model reads as a control token, not '
-        "text. Take it out of local/documents/odd/text.md; `clarity document rebuild odd` then "
-        "cuts its parts again. Or leave odd out of the documents you try."
+        "text. Take it out of your file, then add it again: `clarity document add FILE --name "
+        "odd`. Or leave odd out of the documents you try."
     )
 
 
@@ -307,7 +312,7 @@ def test_document_try_refuses_a_text_mode_profile(root, tiny_tokenizer):
 def test_adding_a_name_ending_in_old_keeps_another_document_s_leftovers(root):
     library = root / "local/documents"
     library_add(root, b"## A\nMade-up.\n", "a.md")
-    # a failed --replace of `a` left its old folder aside, under the aside prefix
+    # a failed replace of `a` left its old folder aside, under the aside prefix
     aside = library / ".a.old-abcd1234"
     aside.mkdir()
     (aside / "mine.txt").write_text("Mine.\n", encoding="utf-8")
@@ -326,33 +331,8 @@ def test_replace_puts_the_old_folder_aside_under_a_prefix_no_name_makes(root, mo
         return real(a, b)
 
     monkeypatch.setattr(library_module.os, "replace", watch)
-    library_add(root, b"## New\nNew.\n", "glossary.md", replace=True)
+    library_add(root, b"## New\nNew.\n", "glossary.md")
     assert seen[0].startswith(".glossary.old-"), seen
-
-
-# --- PC7: a taken name's way out in the terminal
-
-
-def test_a_taken_name_says_how_to_replace_or_rename_in_the_terminal(root, tmp_path, capsys):
-    from clarity_chat import cli
-
-    path = tmp_path / "glossary.md"
-    path.write_bytes(b"## Wren\nAgain.\n")
-    assert cli.main(["--root", str(root), "document", "add", str(path)]) == 1
-    assert capsys.readouterr().err.strip().splitlines()[-1] == (
-        "clarity: There's already a document named glossary. `--replace` replaces it; "
-        "`--name NAME` gives this one another name."
-    )
-
-
-def test_in_a_chat_a_taken_name_says_how_to_rename(root, chat_tokenizer, tmp_path):
-    path = tmp_path / "glossary.md"
-    path.write_bytes(b"## Wren\nAgain.\n")
-    session, c, _ = chat(root, chat_tokenizer)
-    assert refusal(lambda: c.run("documents", f"add {path}", quiet)) == (
-        "There's already a document named glossary. /documents add PATH NAME gives this one "
-        "another name."
-    )
 
 
 # --- PC8, PC9: format_found's left-out lines and an empty parenthesis

@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-import hashlib
 import html
 import json
 import math
@@ -57,13 +56,11 @@ from clarity_chat.commands import (
     UPLOAD_ID,
     Commands,
     format_added,
-    format_rebuilt,
 )
 from clarity_chat.documents import (
     CONSIDERED,
     MAX_BYTES,
     NOTHING_SENT,
-    PAGES_LOST,
     SENTENCES,
     DocumentRefused,
     SearchRefused,
@@ -71,7 +68,6 @@ from clarity_chat.documents import (
     counted,
     document_name,
     how_words,
-    library_same_bytes,
     more_than,
     problem_words,
     slow_read,
@@ -235,7 +231,7 @@ class Worker:
         if name == "export":
             assert conversation is not None
             self.exported = (conversation.log.path.stem, {"result": result})
-        if name == "documents" and args.split(" ", 1)[0] in ("add", "rebuild"):
+        if name == "documents" and args.split(" ", 1)[0] == "add":
             self.documented = result
         return {"result": result}
 
@@ -1004,7 +1000,7 @@ async def _picker(worker: Worker, params: dict[str, str | None]) -> str:
     )
 
 
-STATE_LABELS = {"ready": "Ready", "changed": "! Changed", "missing": "! Missing",
+STATE_LABELS = {"ready": "Ready", "missing": "! Missing",
                 "unreadable": "! Can’t be read"}  # fmt: skip
 
 
@@ -1033,7 +1029,7 @@ def searching_chooser(state: dict[str, Any], docs: list[dict[str, Any]] | None) 
     )
     for d in searching:
         row = {"name": d["name"], "checked": True, "state": STATE_LABELS[d["state"]],
-               "bad": d["state"] != "ready", "note": None, "rebuild": False,
+               "bad": d["state"] != "ready", "note": None,
                "control": None}  # fmt: skip
         doc = library.get(d["name"], {})
         row["desc"] = (
@@ -1043,10 +1039,7 @@ def searching_chooser(state: dict[str, Any], docs: list[dict[str, Any]] | None) 
             if d["state"] == "missing"
             else f"local/documents/{d['name']}/"
         )
-        if d["state"] == "changed":
-            row.update(note=SENTENCES["state_changed"], rebuild=True)
-            row["pages"] = PAGES_LOST if doc.get("kind") == "pdf" else None
-        elif d["state"] == "missing":
+        if d["state"] == "missing":
             row["note"] = SENTENCES["searching_missing"]
         elif d["state"] == "unreadable":  # the reason, then the page's way out (surface S2)
             row["note"] = page_why(d)
@@ -1801,64 +1794,40 @@ async def _attach(worker: Worker, params: dict[str, str | None]) -> str:
     sheet = attach_sheet(check, upload, state["pending"], part_error, typed)
     if state["mode"] == "chat" and upload in worker.uploads:  # C2: "Search it"
         docs = (await result_of(worker, "documents"))["documents"]
-        sheet["search"] = search_choice(check, *worker.uploads[upload], docs, state)
+        sheet["search"] = search_choice(check, worker.uploads[upload][1], docs, state)
         sheet.update(searched_sentence=SENTENCES["searches_next"],
                      control_count=SENTENCES["control_count"],
                      control_count_one=SENTENCES["control_count_one"])  # fmt: skip
     return templates.get_template("attach.html").render(error=None, s=sheet)
 
 
-def replace_offer(name: str) -> dict[str, str]:
-    """Q12's Replace for a taken name, on the sheet's Search it and on Documents… → Add:
-    its label, and the note that says what's overwritten before you confirm."""
-    return {
-        "label": SENTENCES["replace_label"].format(name=name),
-        "note": SENTENCES["replace_note"].format(name=name),
-    }
-
-
 def search_choice(
     check: dict[str, Any],
-    data: bytes,
     filename: str,
     docs: list[dict[str, Any]],
     state: dict[str, Any],
 ) -> dict[str, Any]:
     """The sheet's third choice, "Search it" (v0.3.2 C2): what it does (N2), and where the
-    copy goes (N3), or the library's copy of the same file (N4-N6), or the name box (N7-N9,
-    with the owner's Q12 Replace); control tokens before the click (N10)."""
+    copy goes (N3), or that it replaces the document of that name (cut 1), or the name box
+    (N9); control tokens before the click (N10)."""
     budget = state["budget"]
     origin = SENTENCES["budget_profile" if budget["origin"] == "profile" else "budget_default"]
     note = SENTENCES["search_it"].format(considered=CONSIDERED, budget=f"{budget['tokens']:,}",
                                          origin=origin)  # fmt: skip
-    choice: dict[str, Any] = {"note": note, "ok": True, "name": "", "existing": None,
-                              "lines": [], "warn": None, "why": None, "rule": None,
-                              "replace": None}  # fmt: skip
+    choice: dict[str, Any] = {"note": note, "ok": True, "name": "", "lines": [], "warn": None,
+                              "why": None, "rule": None}  # fmt: skip
     if check["control_tokens"]:
         choice["warn"] = SENTENCES["control_before"].format(
             tokens=", ".join(dict.fromkeys(check["control_tokens"]))
         )
-    searching = {d["name"] for d in state["searching"]}
-    same_name = library_same_bytes(docs, hashlib.sha256(data).hexdigest())
-    same = next((d for d in docs if d["name"] == same_name), None)
-    if same is not None:  # the same bytes: /documents add adds nothing (could 8)
-        choice.update(existing=same["name"], name=same["name"])
-        choice["lines"].append(SENTENCES["already_documents"].format(name=same["name"]))
-        if same["name"] in searching:
-            choice["lines"].append(SENTENCES["already_searched"])
-            choice["ok"] = False
-        elif same["state"] == "changed":
-            choice["stale"] = SENTENCES["stale_copy"]
-        return choice
-    name, why = document_name(filename, None, {d["name"] for d in docs})
+    name, why = document_name(filename, None)
     choice.update(name=name, why=why)
-    if why is None:
+    if why is not None:
+        choice["rule"] = None if name else NAME_RULE
+    elif name in {d["name"] for d in docs}:  # replaced, said before (cut 1)
+        choice["lines"].append(SENTENCES["replace_note"].format(name=name))
+    else:
         choice["lines"].append(SENTENCES["keeps_copy"].format(name=name))
-    elif name in {d["name"] for d in docs}:  # taken: another name, or Replace (Q12)
-        choice["why"] = f"{why} {SENTENCES['name_taken']}"
-        choice["replace"] = replace_offer(name)
-    elif not name:
-        choice["rule"] = NAME_RULE
     return choice
 
 
@@ -2150,16 +2119,13 @@ def document_row(doc: dict[str, Any]) -> dict[str, Any]:
     row: dict[str, Any] = {"name": doc["name"], "state": doc["state"]}
     if doc["state"] == "unreadable":  # the reason, then the page's way out (surface S2)
         return {**row, "note": page_why(doc)}
-    edited = ", text.md edited" if doc["edited"] else ""
     return {
         **row,
-        "sub": f"{doc['original']} · added {date_words(doc['added'])}{edited}; "
+        "sub": f"{doc['original']} · added {date_words(doc['added'])}; "
         f"{counted(doc['parts'], 'part')}, {doc['titled']:,} with a title",
         "kind": KINDS[doc["kind"]],
         "size": size_words(doc["bytes"]),
         "parts": f"{doc['parts']:,}",
-        "note": SENTENCES["state_changed"] if doc["state"] == "changed" else None,
-        "pages": PAGES_LOST if doc["state"] == "changed" and doc["kind"] == "pdf" else None,
     }
 
 
@@ -2346,13 +2312,11 @@ def refusal_lines(answer: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def refusal_line(problem: dict[str, Any], at_send: bool) -> dict[str, Any]:
-    """One problem's line and its buttons: Rebuild for a changed document, Stop searching
-    it for any document (the board's W6)."""
-    name = problem.get("document")
+    """One problem's line and its button: Stop searching it, for any document (the board's
+    W6)."""
     return {
         "text": problem_words(problem, terminal=False, where="chat", at_send=at_send),
-        "rebuild": name if problem["state"] in ("changed", "parts") else None,
-        "stop": name,
+        "stop": problem.get("document"),
     }
 
 
@@ -2371,33 +2335,21 @@ async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
     done, worker.documented = worker.documented, None
     if params["notice"] != "1":
         done = None
-    if done is not None and ("added" in done or "existing" in done):
-        name = done["existing"] if "existing" in done else done["added"]["name"]
-        notice = (
-            format_added(done) if "existing" in done else f"Added {name}. " + format_added(done)
-        )
+    if done is not None:
+        name = done["added"]["name"]
+        notice = f"Added {name}. " + format_added(done)
         search_here = name if in_chat and name not in searching else None
-    elif done is not None:
-        notice = format_rebuilt(done)
     elif params["searched"]:
         notice = SENTENCES["searches_next"].format(name=params["searched"])
     add = None
     if (upload := params["upload"]) and upload in worker.uploads:
         data, filename = worker.uploads[upload]
-        name, why = document_name(filename, None, docs)
+        name, why = document_name(filename, None)
         add = {"upload": upload, "file": filename, "size": size_words(len(data)), "name": name,
                "why": why, "rule": None if name else NAME_RULE}  # fmt: skip
-        same = library_same_bytes(list(docs.values()), hashlib.sha256(data).hexdigest())
-        if same is not None:  # N4 before the click, as the sheet says it (fix review's C1)
-            add.update(name=same, why=None, rule=None)
-            add["keeps"] = SENTENCES["already_documents"].format(name=same)
-            if docs[same]["state"] != "ready":  # adding it again is the way out (surface S2)
-                add["replace"] = replace_offer(same)
-        elif name in docs:  # the page's way out (N8), or Replace (Q12, the board's ⑧)
-            add["why"] = f"{why} {SENTENCES['name_taken']}"
-            add["replace"] = replace_offer(name)
-        elif why is None:
-            add["keeps"] = SENTENCES["keeps_copy"].format(name=name)
+        if why is None:  # where the copy goes, or that it replaces one (cut 1)
+            key = "replace_note" if name in docs else "keeps_copy"
+            add["keeps"] = SENTENCES[key].format(name=name)
     if not chat_open:
         sub = SENTENCES["try_no_chat"]
     elif not in_chat:  # a chat that can't search (N71)

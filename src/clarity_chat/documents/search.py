@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from clarity_chat.documents.library import Stale, parts_of, read_manifest, state
+from clarity_chat.documents.library import parts_of, read_manifest
 from clarity_chat.documents.reading import DocumentRefused
 
 WORD_RULE = 1
@@ -78,12 +78,9 @@ class Loaded:
 
 
 def load(root: Path, name: str) -> Loaded:
-    """A document ready to search: refused as `changed` or `missing` (Stale) when its files
-    don't match its manifest, and its parts read and checked against its build ID."""
+    """A document ready to search: refused as `missing` (Stale) or unreadable, and its parts
+    read and checked against its build ID (one that isn't is refused: cut 1)."""
     manifest = read_manifest(root, name)  # missing, or a refusal that says why
-    now = state(root, name, manifest)
-    if now != "ready":
-        raise Stale(name, now)
     parts, build = parts_of(root, name, manifest)  # one read: its build is the one searched
     return Loaded(name, build, manifest["original"]["sha256"], parts)
 

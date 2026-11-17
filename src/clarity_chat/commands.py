@@ -24,7 +24,6 @@ from typing import Any
 from clarity_chat import documents
 from clarity_chat.backends import BackendError
 from clarity_chat.documents import (
-    TAKEN,
     DocumentRefused,
     SearchRefused,
     counted,
@@ -334,7 +333,6 @@ def attach_args(args: str) -> tuple[str, str | None, int, int, bool]:
 # The sheet's sentences and range words, for the terminal: only these modules import the
 # documents package.
 SENTENCES, how_words, way_out = documents.SENTENCES, documents.how_words, documents.way_out
-OriginalChanged = documents.OriginalChanged
 
 
 def _attach(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -532,48 +530,15 @@ def document_add(
     root: Path,
     path: str,
     name: str | None = None,
-    replace: bool = False,
     on_read: Callable[[], None] | None = None,
     on_write: Callable[[str, bool], None] | None = None,
 ) -> dict[str, Any]:
-    """`clarity document add`: a file into the library (v0.3.2 A1). ~ is the home folder."""
+    """`clarity document add`: a file into the library (v0.3.2 A1). ~ is the home folder. A
+    document of that name is replaced (cut 1)."""
     data, filename = documents.read_path(os.path.expanduser(path))
     if name is not None:
         name = documents.checked_library_name(name)
-    return documents.library_add(
-        root, data, filename, name, replace, on_read=on_read, on_write=on_write
-    )
-
-
-def document_check(root: Path, names: list[str], tokenizer: Any = None) -> dict[str, Any]:
-    """`clarity document check`: each document's files hashed against its manifest; with a
-    profile's tokenizer, the parts holding its control tokens too."""
-    if not names:
-        names = [d["name"] for d in documents.library_documents(root)]
-    checked = []
-    for name in names:
-        try:
-            found = documents.library_check(root, documents.checked_library_name(name))
-        except documents.Stale as e:
-            checked.append({"name": name, "state": e.state, "problems": []})
-            continue
-        except documents.DocumentRefused as e:  # one unreadable document stops no other
-            said = f"{e.said} {documents.way_out(name, 'cli')}" if isinstance(
-                e, documents.Unreadable) else str(e)  # fmt: skip
-            checked.append({"name": name, "state": "unreadable", "problems": [said]})
-            continue
-        if tokenizer is not None and found["state"] == "ready":
-            parts = documents.library_parts(root, name)[0]
-            found["control_token_parts"] = documents.control_token_parts(
-                parts, tokenizer.special_tokens_in
-            )
-        checked.append(found)
-    return {"checked": checked}
-
-
-def document_rebuild(root: Path, name: str) -> dict[str, Any]:
-    """`clarity document rebuild`: a document's parts again from its text.md."""
-    return documents.library_rebuild(root, documents.checked_library_name(name))
+    return documents.library_add(root, data, filename, name, on_read=on_read, on_write=on_write)
 
 
 def document_list(root: Path) -> dict[str, Any]:
@@ -618,36 +583,24 @@ def _search(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return {"searching": c.session.searching(), "origin": conversation.searching_origin}
 
 
-def add_flag(rest: str) -> tuple[bool, str]:
-    """/documents add's `--replace` (the owner's Q12) and what follows it. The flag goes
-    before the file, so a name typed in the page's box can't carry it (the part 2
-    whole-branch review's could 9); alone, it leaves nothing, so the usage line says what's
-    missing (surface C1). The QA driver reads the path the same way."""
-    replace = rest == "--replace" or rest.startswith("--replace ")
-    return replace, rest.removeprefix("--replace").strip() if replace else rest
-
-
 def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     """/documents, worded for the front end that asked: a refusal whose way out is adding
     the file again names that front end's (the close batch: surface S2, siblings C2)."""
     try:
         return documents_command(c, args, emit)
-    except (documents.Unreadable, OriginalChanged) as e:
+    except documents.Unreadable as e:
         front = "chat" if c.uploads is None else "page"
         raise documents.DocumentRefused(f"{e.said} {documents.way_out(e.name, front)}") from None
 
 
 def documents_command(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    """/documents: the library; /documents add [--replace] PATH [NAME] (the page sends an
-    upload ID for PATH); /documents rebuild NAME."""
+    """/documents: the library; /documents add PATH [NAME] (the page sends an upload ID for
+    PATH), which replaces a document of that name (cut 1)."""
     root = c.session.root
     action, _, rest = args.partition(" ")
     rest = rest.strip()
     if not args:
         return document_list(root)
-    if action == "rebuild" and rest:
-        return document_rebuild(root, rest)
-    replace, rest = add_flag(rest)
     if action == "add" and rest:
         # Said before and after (S11): reading the file, then where it's written.
         def told(name: str) -> Callable[[], None]:
@@ -667,7 +620,7 @@ def documents_command(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
             data, filename = uploaded
             name = documents.checked_library_name(typed.strip()) if typed.strip() else None
             added = documents.library_add(
-                root, data, filename, name, replace, on_read=told(filename), on_write=writing
+                root, data, filename, name, on_read=told(filename), on_write=writing
             )
             c.uploads.pop(source, None)  # used: dropped, as /attach drops one (a refusal keeps it)
             return added
@@ -677,19 +630,13 @@ def documents_command(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
                 source, name = path, last
         filename = os.path.basename(source)
         try:
-            return document_add(
-                root, source, name, replace, on_read=told(filename), on_write=writing
-            )
+            return document_add(root, source, name, on_read=told(filename), on_write=writing)
         except documents.DocumentRefused as e:  # a chat's way to name it (the page: its box)
             if str(e).endswith(" Give it one."):
                 said = str(e).removesuffix(".")
                 raise documents.DocumentRefused(f"{said}: /documents add PATH NAME.") from None
-            if str(e).startswith(TAKEN):  # the chat's way out (part 1's C7)
-                raise documents.DocumentRefused(
-                    f"{e} /documents add PATH NAME gives this one another name."
-                ) from None
             raise
-    raise ConfigError("Usage: /documents [add [--replace] PATH [NAME] | rebuild NAME]")
+    raise ConfigError("Usage: /documents [add PATH [NAME]]")
 
 
 def read_files(
@@ -1354,9 +1301,8 @@ COMMANDS: dict[str, Command] = {
         _try,
     ),
     "documents": Command(
-        "/documents [add [--replace] PATH [NAME] | rebuild NAME]",
-        "the documents Clarity can search; add: add a file; rebuild: build a document's parts "
-        "again from its text.md",
+        "/documents [add PATH [NAME]]",
+        "the documents Clarity can search; add: add a file (one of that name is replaced)",
         _documents,
         needs_conversation=False,
     ),
@@ -1457,8 +1403,6 @@ COMMANDS: dict[str, Command] = {
 
 
 def format_added(result: dict[str, Any]) -> str:
-    if "existing" in result:  # the same bytes: nothing added (could 8)
-        return SENTENCES["already_documents"].format(name=result["existing"])
     manifest = result["added"]
     folder = result["written"][0].rsplit("/", 1)[0]
     *rest, last = (path.rsplit("/", 1)[1] for path in result["written"])
@@ -1466,15 +1410,4 @@ def format_added(result: dict[str, Any]) -> str:
     return (  # the point first (the board walk's S17; N12)
         f"Clarity {done} {folder}/: {', '.join(rest)} and {last} "
         f"({counted(manifest['parts'], 'part')}, {manifest['titled']:,} with a title)."
-    )
-
-
-def format_rebuilt(result: dict[str, Any]) -> str:
-    manifest = result["rebuilt"]
-    files = " and ".join(path.rsplit("/", 1)[1] for path in result["written"])
-    folder = result["written"][0].rsplit("/", 1)[0]
-    dropped = " Its parts no longer have page numbers." if result["pages_dropped"] else ""
-    return (
-        f"Rebuilt {manifest['name']} from its text.md: {counted(manifest['parts'], 'part')}, "
-        f"{manifest['titled']:,} with a title. Wrote {files} in {folder}/.{dropped}"
     )

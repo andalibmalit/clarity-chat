@@ -112,7 +112,8 @@ def test_the_context_figure_skips_a_refused_send(root, chat_tokenizer):
         command(client, "profile", "chat")
         command(client, "say", "Hello")
         sent = command(client, "prompt").json()["result"]["call"]
-        (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
+        parts = root / "local/documents/glossary/parts.jsonl"
+        parts.write_bytes(parts.read_bytes().replace(b"small", b"large"))
         assert command(client, "say", "Tell me about the wren").json()["type"] == "SearchRefused"
         picker = client.get("/view/picker", headers=GET).text
     n, ctx = sent["n_prompt_client"], sent["n_ctx"]
@@ -168,7 +169,7 @@ def test_a_junction_in_place_of_a_document_folder_is_refused(root, monkeypatch):
     monkeypatch.setattr(Path, "is_junction", lambda p: p == target or real(p))
     assert library_state(root, "glossary") == "unreadable"
     with pytest.raises(DocumentRefused, match="^glossary's folder in local/documents/ is a link"):
-        library_add(root, b"Made-up.\n", "glossary.md", replace=True)
+        library_add(root, b"Made-up.\n", "glossary.md")
 
 
 def test_add_removes_a_stale_temporary_folder_of_its_own_name(root):
@@ -204,8 +205,7 @@ def test_a_refused_page_add_keeps_the_upload(root, chat_tokenizer):
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
     uploads = {"u-1": (b"## Wren\nAgain.\n", "glossary.md")}
     page = Commands(session, uploads=uploads)
-    assert refusal(lambda: page.run("documents", "add u-1", quiet)).startswith(
-        "There's already a document named glossary."
-    )
+    said = refusal(lambda: page.run("documents", "add u-1 none", quiet))  # a reserved name
+    assert said != "no refusal", said
     assert "u-1" in uploads  # Give this one a different name: the same upload
     assert isinstance(ConfigError("x"), Exception)

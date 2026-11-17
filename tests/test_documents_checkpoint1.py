@@ -4,13 +4,11 @@ the main session ruled them in the status file). Scratch roots, made-up document
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 import pytest
 
-from clarity_chat import cli
-from clarity_chat.commands import document_add, document_check, document_rebuild
+from clarity_chat.commands import document_add
 from clarity_chat.documents import (
     FRAMING,
     Attached,
@@ -25,7 +23,6 @@ from clarity_chat.documents import (
     search_documents,
     words_of,
 )
-from tests.pdfs import make_pdf
 from tests.test_documents_found import counting_room, matches
 from tests.test_documents_search import loaded
 
@@ -66,58 +63,12 @@ def test_contraction_fragments_aren_t_searched_for():
     assert {"don", "re", "ll", "ve", "isn", "won", "doesn"} <= set(ignored)
 
 
-# --- S2: rebuild of an unchanged text keeps what it was
-
-
-def test_rebuild_of_an_untouched_text_keeps_edited_and_pages(root, tmp_path):
-    pages = ["Made-up page one.", "Made-up page two."]
-    added = document_add(root, file(tmp_path, "guide.pdf", make_pdf(pages)))["added"]
-    text = root / "local/documents/guide/text.md"
-    info = text.stat()
-    os.utime(text, ns=(info.st_atime_ns, info.st_mtime_ns + 10**9))  # a copy, a sync, a save
-    assert library_state(root, "guide") == "changed"
-    rebuilt = document_rebuild(root, "guide")["rebuilt"]
-    assert rebuilt["text"] == added["text"]  # edited false, page_starts kept
-    parts = (root / "local/documents/guide/parts.jsonl").read_text(encoding="utf-8")
-    assert [json.loads(line)["page"] for line in parts.splitlines()] == [1]
-    assert library_state(root, "guide") == "ready"
-
-
-# --- S3: a changed or missing original isn't rebuilt
-
-
-@pytest.mark.parametrize("how", ["deleted", "changed"])
-def test_rebuild_refuses_when_the_original_is_missing_or_changed(root, tmp_path, how):
-    document_add(root, file(tmp_path, "notes.md", "Made-up.\n"))
-    original = root / "local/documents/notes/original.txt"
-    if how == "deleted":
-        original.unlink()
-    else:
-        original.write_bytes(b"Made-up, other bytes.\n")
-    said = answer(lambda: document_rebuild(root, "notes"))
-    assert said == (  # one sentence for both (the board's N72)
-        "Clarity can't rebuild notes: its original file has changed or is gone, so its text.md "
-        "may no longer match it. Add the file again in Documents… and choose Replace."
-    )  # the close batch (surface S2): the page's way out
-    assert library_state(root, "notes") == "changed"
-
-
-def test_the_changed_sentence_names_rebuild_only_for_text_or_parts(root, tmp_path, capsys):
-    document_add(root, file(tmp_path, "notes.md", "Made-up.\n"))
-    (root / "local/documents/notes/original.txt").write_bytes(b"Made-up, other.\n")
-    assert cli.main(["--root", str(root), "document", "check", "notes"]) == 1
-    out = capsys.readouterr().out
-    assert "clarity document rebuild" not in out
-    assert "`clarity document add FILE --name notes --replace`" in out
-
-
 # --- S4: the manifest's types, and no path in a sentence
 
 
 @pytest.mark.parametrize(
     "change",
     [
-        lambda m: m.update(files=5),
         lambda m: m.update(original="x"),
         lambda m: m["original"].update(kind="exe"),
         lambda m: m["text"].update(page_starts="x"),
@@ -136,9 +87,8 @@ def test_a_manifest_with_a_wrong_type_is_unreadable_not_a_crash(root, tmp_path, 
     listed = answer(lambda: library_documents(root))
     assert listed == "no refusal", listed
     assert [d["state"] for d in library_documents(root)] == ["unreadable", "ready"]
-    (checked,) = document_check(root, ["notes"])["checked"]  # one stops no other: listed
-    assert checked["state"] == "unreadable"
-    assert checked["problems"][0].startswith("notes's manifest.json can't be read")
+    said = answer(lambda: load_document(root, "notes"))
+    assert said.startswith("notes's manifest.json can't be read"), said
 
 
 def test_a_manifest_that_can_t_be_opened_says_why_without_a_path(root, tmp_path):
@@ -146,31 +96,12 @@ def test_a_manifest_that_can_t_be_opened_says_why_without_a_path(root, tmp_path)
     path = root / "local/documents/notes/manifest.json"
     path.unlink()
     path.mkdir()
-    (checked,) = document_check(root, ["notes"])["checked"]
-    said = checked["problems"][0]
+    said = answer(lambda: load_document(root, "notes"))
     assert said.startswith("notes's manifest.json can't be read"), said
     assert str(root) not in said and "/" not in said.split("(")[1].split(")")[0]
 
 
-# --- S5: a race can't replace, and a write that fails is a refusal
-
-
-def test_an_add_without_replace_can_t_replace_through_a_race(root, tmp_path, monkeypatch):
-    from clarity_chat.documents import library as library_module
-
-    real = library_module.extract
-
-    def meanwhile(*args, **kwargs):  # another add lands while this one reads
-        found = real(*args, **kwargs)
-        (root / "local/documents/notes").mkdir(parents=True)
-        (root / "local/documents/notes/theirs.txt").write_text("Theirs.\n", encoding="utf-8")
-        return found
-
-    monkeypatch.setattr(library_module, "extract", meanwhile)
-    said = answer(lambda: document_add(root, file(tmp_path, "notes.md", "Made-up.\n")))
-    assert said == "There's already a document named notes."
-    assert sorted(p.name for p in (root / "local/documents/notes").iterdir()) == ["theirs.txt"]
-    assert [p.name for p in (root / "local/documents").iterdir()] == ["notes"]
+# --- S5: a write that fails is a refusal
 
 
 def test_a_write_that_fails_is_a_refusal_without_a_path(root, tmp_path, monkeypatch):
@@ -274,29 +205,6 @@ def test_sixty_word_sentences_pack_to_two_hundred_and_forty():
     assert [p["words"] for p in cut_parts(text, "notes.md")] == [240, 240, 120]
 
 
-def test_a_change_of_time_alone_is_changed(root, tmp_path):
-    document_add(root, file(tmp_path, "notes.md", "Made-up.\n"))
-    path = root / "local/documents/notes/parts.jsonl"
-    info = path.stat()
-    os.utime(path, ns=(info.st_atime_ns, info.st_mtime_ns + 10**9))
-    assert library_state(root, "notes") == "changed"
-
-
-# --- S10: closing tags listed; C5: a name never added
-
-
-def test_check_lists_the_parts_holding_a_closing_tag(root, tmp_path):
-    document_add(root, file(tmp_path, "odd.md", "Safe.\n\n## T\nHolds </part> here.\n"))
-    (checked,) = document_check(root, ["odd"])["checked"]
-    assert checked["closing_tag_parts"] == [2]
-
-
-def test_check_of_a_name_never_added_says_it_isn_t_in_the_library(root, capsys):
-    (root / "local/documents").mkdir(parents=True)
-    assert cli.main(["--root", str(root), "document", "check", "birds"]) == 1
-    assert capsys.readouterr().out.strip() == "birds isn't in your documents."  # surface C9
-
-
 # --- C1: load reads the manifest once, so its build ID is the one it read
 
 
@@ -338,24 +246,6 @@ def test_an_unknown_placement_raises():
         content("Q", [Attached("n.md", "x\n", None)], FRAMING, [], "middle")
 
 
-# --- C6: --replace says it replaced
-
-
-def test_replace_says_it_replaces_before_and_after(root, tmp_path, capsys):
-    path = file(tmp_path, "notes.md", "Made-up.\n")
-    assert cli.main(["--root", str(root), "document", "add", path]) == 0
-    capsys.readouterr()
-    # The same file: --replace replaces even the same bytes (the part 2 fix review's M1).
-    assert cli.main(["--root", str(root), "document", "add", path, "--replace"]) == 0
-    out = capsys.readouterr().out.splitlines()  # "Reading …" only if it's read again
-    assert len(out) >= 2, out
-    assert out[-2] == (
-        "Replacing notes in local/documents/notes/: a copy of the file, its text and its parts, "
-        "in place of the ones there."
-    )
-    assert out[-1].startswith("Clarity replaced local/documents/notes/: ")
-
-
 # --- "For B1 and B2": a turn at placement "end" reads back
 
 
@@ -376,30 +266,3 @@ def test_a_turn_at_placement_end_is_read_back():
         "placement": "end",
     }  # fmt: skip
     assert checked_attachments(record)["placement"] == "end"
-
-
-# --- the part 2 fix review's M1: --replace is the way out even for the same file
-
-
-def test_add_replace_of_the_same_file_restores_a_missing_original(root, tmp_path):
-    path = file(tmp_path, "notes.md", "## Wren\nMade-up.\n")
-    document_add(root, path)
-    folder = root / "local/documents/notes"
-    (folder / "original.txt").unlink()
-    with pytest.raises(DocumentRefused, match="^Clarity can't rebuild notes: its original"):
-        document_rebuild(root, "notes")
-    result = document_add(root, path, "notes", replace=True)
-    assert result.get("replaced") is True, result
-    assert (folder / "original.txt").is_file() and library_state(root, "notes") == "ready"
-
-
-def test_add_replace_of_the_same_file_resets_a_garbled_text(root, tmp_path):
-    path = file(tmp_path, "notes.md", "## Wren\nMade-up.\n")
-    document_add(root, path)
-    text = root / "local/documents/notes/text.md"
-    text.write_bytes(b"\xff\xfe not text")
-    with pytest.raises(DocumentRefused):
-        document_rebuild(root, "notes")
-    document_add(root, path, "notes", replace=True)
-    assert text.read_bytes().startswith(b"## Wren")
-    assert library_state(root, "notes") == "ready"

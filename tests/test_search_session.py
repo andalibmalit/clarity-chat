@@ -175,14 +175,16 @@ def test_a_search_record_with_a_name_clarity_wouldn_t_write_is_refused_by_resume
         session.resume(log)
 
 
-def test_a_changed_or_missing_document_is_listed_and_search_without_it_works(root, chat_tokenizer):
+def test_an_unreadable_or_missing_document_is_listed_and_search_without_it_works(
+    root, chat_tokenizer
+):
     session, c = chat(root, chat_tokenizer)
     run(c, "search glossary notes")
-    (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
+    (root / "local/documents/glossary/parts.jsonl").write_text("Edited.\n", encoding="utf-8")
     shutil.rmtree(root / "local/documents/notes")
-    assert run(c, "search")["searching"] == [
-        {"name": "glossary", "state": "changed"},
-        {"name": "notes", "state": "missing"},
+    assert [(d["name"], d["state"]) for d in run(c, "search")["searching"]] == [
+        ("glossary", "unreadable"),
+        ("notes", "missing"),
     ]
     assert run(c, "search none")["searching"] == []
 
@@ -199,7 +201,7 @@ def test_a_text_mode_chat_can_t_search(root, tiny_tokenizer):
 # --- /documents
 
 
-def test_documents_lists_adds_and_rebuilds_and_says_where_it_writes(root, chat_tokenizer, tmp_path):
+def test_documents_lists_adds_and_replaces_and_says_where_it_writes(root, chat_tokenizer, tmp_path):
     session, c = chat(root, chat_tokenizer)
     assert [d["name"] for d in run(c, "documents")["documents"]] == ["glossary", "notes"]
     path = tmp_path / "Birds.md"
@@ -211,14 +213,11 @@ def test_documents_lists_adds_and_rebuilds_and_says_where_it_writes(root, chat_t
         {"event": "reading", "name": "Birds.md"},
         {"event": "writing", "folder": "local/documents/birds", "replacing": False},
     ]
-    path.write_bytes(
-        b"## Heron\nTaller.\n"
-        # Other bytes: the same bytes add nothing (the part 2 whole-branch review's could 8).
-    )
     named = run(c, f"documents add {path} herons")
     assert named["added"]["name"] == "herons"
-    (root / "local/documents/birds/text.md").write_text("## Heron\nEdited.\n", encoding="utf-8")
-    assert run(c, "documents rebuild birds")["rebuilt"]["text"]["edited"] is True
+    events.clear()
+    assert run(c, f"documents add {path}", events.append)["replaced"] is True  # cut 1
+    assert events[-1] == {"event": "writing", "folder": "local/documents/birds", "replacing": True}
 
 
 def test_documents_add_from_the_page_takes_an_upload_and_gives_the_same_manifest(
@@ -230,13 +229,12 @@ def test_documents_add_from_the_page_takes_an_upload_and_gives_the_same_manifest
     page = Commands(session, uploads=uploads)
     page.run("profile", "chat", quiet)
     from_page = page.run("documents", "add u-1", quiet)["added"]
-    shutil.rmtree(root / "local/documents/birds")  # the same bytes would add nothing (could 8)
     path = tmp_path / "Birds.md"
     path.write_bytes(b"## Heron\nTall.\n")
     _, terminal = chat(root, chat_tokenizer)
     from_terminal = run(terminal, f"documents add {path} birds-again")["added"]
     for manifest in (from_page, from_terminal):
-        manifest.pop("added"), manifest.pop("name"), manifest.pop("files")
+        manifest.pop("added"), manifest.pop("name")
     assert from_page == from_terminal
     with pytest.raises(ConfigError, match="^That file isn't uploaded any more"):
         page.run("documents", "add u-2", quiet)

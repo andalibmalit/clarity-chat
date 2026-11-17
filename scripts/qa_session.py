@@ -26,10 +26,9 @@ command; each step is judged alone, see check_command) must name a file in the r
 path as given and as Clarity's own attach_args reads it, with `~` expanded, resolved from
 the root with links followed, with no `..` and not a file with a second name. Otherwise
 Clarity, outside the sandbox, could read a file the sandbox denies into the transcript.
-The document library's reads (v0.3.2: `clarity document add FILE`, `/documents add
-[--replace] PATH [NAME]` typed, inside a message or in `--json`) are judged by the same
-rule; `/documents add` is judged without its flag, as Clarity's own add_flag strips it, both
-whole and with its last word taken as the name, as Clarity may read it.
+The document library's reads (v0.3.2: `clarity document add FILE`, `/documents add PATH
+[NAME]` typed, inside a message or in `--json`) are judged by the same rule; `/documents
+add` is judged both whole and with its last word taken as the name, as Clarity may read it.
 Each step is checked again, and the root scanned for links again, just before it's typed;
 a step over 1,000 bytes is refused.
 `--init` also resets server.toml. Arguments are parsed with Clarity's own parser and
@@ -238,20 +237,14 @@ def attach_problem(root: Path, value: str) -> str | None:
 
 
 def documents_problem(root: Path, args: str) -> str | None:
-    """Why `/documents ARGS` may not run here; None when it may. `/documents add [--replace]
-    PATH [NAME]` reads PATH (v0.3.2): Clarity strips a leading --replace (its own add_flag,
-    reused here), takes the rest whole when that exists, and otherwise splits off the last
-    word as the name, so both readings are judged. With the flag left on, a reading is a
-    relative name under the root, which can't change a verdict (the QA-driver review's
-    could 2), so only the unflagged text is read."""
-    from clarity_chat.commands import add_flag
-
+    """Why `/documents ARGS` may not run here; None when it may. `/documents add PATH
+    [NAME]` reads PATH (v0.3.2): Clarity takes the rest whole when that exists, and
+    otherwise splits off the last word as the name, so both readings are judged."""
     action, _, rest = args.strip().partition(" ")
-    if not (action and "add".startswith(action)):  # list and rebuild NAME read no path
+    if not (action and "add".startswith(action)):  # the list reads no path
         return None
     rest = rest.strip()
-    _, text = add_flag(rest)  # string slicing: it can't fail, so nothing to refuse
-    readings = {text, text.rsplit(" ", 1)[0], *text.rsplit(None, 1)[:1]}
+    readings = {rest, rest.rsplit(" ", 1)[0], *rest.rsplit(None, 1)[:1]}
     return path_problem(root, rest, readings)
 
 

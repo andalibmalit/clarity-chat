@@ -1562,30 +1562,18 @@ document.addEventListener("change", (event) => {
   if (["attach-from", "attach-to"].includes(event.target.id)) rangeChanged();
 });
 
-function showReplace(button, holder, box) {
-  // Q12's Replace (the sheet's Search it, Documents… → Add): the note says what's
-  // overwritten, and the next add replaces the name it named.
-  $(button.getAttribute("aria-controls")).hidden = false;
-  button.setAttribute("aria-expanded", "true");
-  holder.dataset.replace = "true";
-  box.value = box.defaultValue;
-}
-
-function addCommand(holder, upload, box) {
-  // /documents add for an upload and the name in its box; --replace only after Replace and
-  // while the box still holds the name its note named (the flag goes first: could 9).
+function addCommand(upload, box) {
+  // /documents add for an upload and the name in its box (one of that name is replaced).
   const name = box ? box.value.trim() : "";
-  const replace = holder.dataset.replace === "true" && box && name === box.defaultValue;
-  return ["add", ...(replace ? ["--replace"] : []), upload, name].join(" ").trim();
+  return ["add", upload, name].join(" ").trim();
 }
 
 async function searchIt(choice) {
   // "Search it" (v0.3.2 C2): the file into your documents, then /search with the chat's
   // list and it; the notice says so, with its control-token count from /search's answer.
-  // The same bytes are already there: /documents add says so (`existing`, could 8).
-  const added = await command("documents", addCommand(choice, choice.dataset.args, $("attach-search-name"))).catch(unanswered);
+  const added = await command("documents", addCommand(choice.dataset.args, $("attach-search-name"))).catch(unanswered);
   if (added.error || added.handled) return added;
-  const name = added.result.existing || added.result.added.name;
+  const name = added.result.added.name;
   const answer = await command("search", [...new Set([...searchedNames(), name])].join(" ")).catch(unanswered);
   if (answer.error || answer.handled) return answer;
   const box = $("attach-search-note");
@@ -1854,7 +1842,7 @@ async function documentsUpload(file) {
 }
 
 function documentsAdd(form) {
-  documentsCommand("documents", addCommand(form, form.dataset.upload, $("documents-name")), () => ({})); // the notice is its result
+  documentsCommand("documents", addCommand(form.dataset.upload, $("documents-name")), () => ({})); // the notice is its result
 }
 
 function documentsSearch(names, after) {
@@ -2138,13 +2126,11 @@ const THREAD = {
     const next = element.getAttribute("aria-checked") === "true" ? names.filter((n) => n !== name) : [...names, name];
     chooserCommand("search", next.length ? next.join(" ") : "none");
   },
-  "search-rebuild": (element) => chooserCommand("documents", `rebuild ${element.dataset.name}`),
   found: (element) => {
     const key = element.closest("[data-found]").dataset.found;
     showFound(key, element.getAttribute("aria-expanded") !== "true");
   },
   // A refused Send's buttons (W6): each fixes its own line; the box goes with the last.
-  "refused-rebuild": (element) => fixCommand("documents", `rebuild ${element.dataset.name}`),
   "refused-stop": (element) => {
     const rest = searchedNames().filter((n) => n !== element.dataset.name);
     fixCommand("search", rest.length ? rest.join(" ") : "none");
@@ -2162,12 +2148,6 @@ const THREAD = {
     input.click();
   },
   "documents-add-cancel": () => openDocuments(),
-  "documents-rebuild": (element) => {
-    const name = element.dataset.name;
-    // The notice is its result; a message being tried stays (the review's could 4).
-    const tried = $("documents-try").value;
-    documentsCommand("documents", `rebuild ${name}`, () => (tried.trim() ? { try: tried } : {}));
-  },
   "documents-search-here": (element) => {
     const name = element.dataset.name;
     documentsSearch([...searchedNames(), name], () => ({ searched: name }));
@@ -2189,8 +2169,6 @@ const THREAD = {
     if (element.dataset.counted === "false") rangeChanged(); // the part: count its boxes (should 4)
   },
   "attach-preview": () => showPreview($("attach-preview").hidden),
-  "attach-replace": (element) => showReplace(element, $("attach-search"), $("attach-search-name")),
-  "documents-replace": (element) => showReplace(element, $("documents-add-form"), $("documents-name")),
   "attach-add": () => addAttachment(),
   "attach-cancel": () => cancelRead(),
   "reading-cancel": async (element) => {

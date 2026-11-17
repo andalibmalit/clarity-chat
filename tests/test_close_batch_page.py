@@ -9,9 +9,8 @@ import re
 from clarity_chat.documents import library_add
 from tests.test_web import command
 from tests.test_web_search_c2 import GLOSSARY, get, make, root, text_of  # noqa: F401
-from tests.test_web_upload import upload
 
-PAGE_WAY = "Add the file again in Documents… and choose Replace."
+PAGE_WAY = "Add the file again in Documents…, with the same name."
 
 
 def garble_manifest(project) -> None:
@@ -34,33 +33,6 @@ def test_send_with_an_unreadable_document_says_the_page_s_way(root, make):  # no
     answer = command(client, "say", "Tell me about the wren").json()
     assert answer.get("error", "").endswith(PAGE_WAY), answer
     assert PAGE_WAY in text_of(get(client, "thread"))
-
-
-def test_page_rebuild_of_a_changed_original_says_the_page_s_way(root, make):  # noqa: F811
-    client, _ = make()
-    folder = root / "local/documents/glossary"
-    original = next(folder.glob("original.*"))
-    original.write_bytes(original.read_bytes() + b"Made-up change.\n")
-    (folder / "text.md").write_text("## Wren\nEdited.\n", encoding="utf-8")
-    answer = command(client, "documents", "rebuild glossary").json()
-    assert answer.get("error", "").endswith(PAGE_WAY), answer
-
-
-def test_add_of_the_same_file_offers_replace_when_its_document_isn_t_ready(root, make):  # noqa: F811
-    client, _ = make()
-    (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
-    upload_id = upload(client, GLOSSARY, "glossary.md").json()["upload"]
-    fragment = get(client, "documents", upload=upload_id)
-    said = text_of(fragment)
-    assert "Already in your documents as glossary. Nothing new is added to them." in said
-    assert 'data-action="documents-replace"' in fragment
-    assert "Replace glossary with this file" in said
-
-
-def test_add_of_the_same_file_offers_no_replace_when_its_document_is_ready(root, make):  # noqa: F811
-    client, _ = make()
-    upload_id = upload(client, GLOSSARY, "glossary.md").json()["upload"]
-    assert 'data-action="documents-replace"' not in get(client, "documents", upload=upload_id)
 
 
 def test_the_chooser_shows_an_unreadable_other_document_s_state(root, make):  # noqa: F811

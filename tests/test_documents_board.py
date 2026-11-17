@@ -1,7 +1,7 @@
 """v0.3.2's board walk and fact-check, in code (notes/plans/v0.3.2-status.md: "board walk
 rulings", "board redraw's open points", "board fact-check rulings"): WB1 (adding to the
 search list checks only what's added), WB2 (an unreadable document, its own way out), point
-6 (one refusal for every stale document), WB3 (rebuild says when pages were dropped), WB4
+6 (one refusal for every stale document), WB4
 (the sentences, as V32Search-notes.md gives them) and WB6 (/documents names its folder).
 Made-up documents, scratch roots."""
 
@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from clarity_chat import cli
-from clarity_chat.commands import Commands, check_lines, document_add, document_rebuild
+from clarity_chat.commands import Commands, check_lines, document_add
 from clarity_chat.documents import (
     DocumentRefused,
     checked_library_name,
@@ -66,9 +66,9 @@ def unreadable(root: Path, name: str) -> None:
     (root / f"local/documents/{name}/manifest.json").write_text('{"schema": 1}', encoding="utf-8")
 
 
-CHANGED = (
-    "Clarity can't search {name}: a file in its folder has changed since Clarity cut it into "
-    "parts. Rebuild cuts them again from its text.md."
+NOT_BUILT = (  # cut 1: parts that aren't the build, and the one way out
+    "Clarity can't search {name}: its parts.jsonl isn't the one Clarity built. Add the file "
+    "again in Documents…, with the same name."
 )
 MISSING = (
     "Clarity can't search {name}: its folder in local/documents/ is gone. Stop searching it, "
@@ -76,7 +76,7 @@ MISSING = (
 )
 UNREADABLE = (  # the close batch (surface S2): the page's way out, as the log keeps it
     "Clarity can't search {name}: its manifest.json can't be read (it isn't a manifest Clarity "
-    "writes). Add the file again in Documents… and choose Replace."
+    "writes). Add the file again in Documents…, with the same name."
 )
 
 
@@ -109,11 +109,11 @@ def test_a_document_being_added_must_be_there_and_readable(root, chat_tokenizer)
 
 def test_an_unreadable_manifest_says_delete_the_folder_then_add_again(root):
     unreadable(root, "notes")
-    (checked,) = cli.document_check(root, ["notes"])["checked"]
-    assert checked["problems"] == [  # `clarity document check`'s way out (close batch S2)
-        "notes's manifest.json can't be read (it isn't a manifest Clarity writes). `clarity "
-        "document add FILE --name notes --replace` adds the file again."
-    ]
+    listed = cli.format_documents(cli.document_list(root)["documents"], "cli")
+    assert listed.splitlines()[-1] == (  # `clarity document list`'s way out (close batch S2)
+        "notes: notes's manifest.json can't be read (it isn't a manifest Clarity writes). "
+        "`clarity document add FILE --name notes` adds the file again."
+    )
 
 
 def test_send_refuses_an_unreadable_document_as_unreadable(root, chat_tokenizer):
@@ -129,29 +129,17 @@ def test_send_refuses_an_unreadable_document_as_unreadable(root, chat_tokenizer)
 def test_one_refusal_names_every_stale_document(root, chat_tokenizer):
     library_add(root, b"## Heron\nTall.\n", "herons.md")
     session, c, _ = chat(root, chat_tokenizer, 'search = ["glossary", "notes", "herons"]')
-    (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
+    parts = root / "local/documents/glossary/parts.jsonl"
+    parts.write_bytes(parts.read_bytes().replace(b"small", b"large"))
     shutil.rmtree(root / "local/documents/notes")
     unreadable(root, "herons")
     said = refusal(lambda: c.run("say", "Tell me about the wren", quiet))
     assert said.split("\n") == [
         "Nothing was sent.",
-        CHANGED.format(name="glossary"),
+        NOT_BUILT.format(name="glossary"),
         MISSING.format(name="notes"),
         UNREADABLE.format(name="herons"),
     ]
-
-
-def test_a_changed_pdf_says_its_parts_may_lose_their_page_numbers(root, chat_tokenizer):
-    library_add(root, make_pdf(["The wren sings.", "The dipper walks."]), "guide.pdf")
-    session, c, _ = chat(root, chat_tokenizer, 'search = ["guide"]')
-    text = root / "local/documents/guide/text.md"
-    text.write_text(text.read_text(encoding="utf-8") + "More.\n", encoding="utf-8")
-    said = refusal(lambda: c.run("say", "Tell me about the wren", quiet))
-    assert said == (
-        "Nothing was sent.\n"
-        + CHANGED.format(name="guide")
-        + " If you edited text.md, its parts will lose their page numbers."
-    )
 
 
 def test_a_control_token_in_an_added_part_names_it_and_the_way_out(root, chat_tokenizer):
@@ -160,8 +148,8 @@ def test_a_control_token_in_an_added_part_names_it_and_the_way_out(root, chat_to
     said = refusal(lambda: c.run("say", "Tell me about the wren", quiet))
     assert said == (
         'Nothing was sent.\nPart 1 of odd ("Wren") holds </s>, which this model reads as a '
-        "control token, not text. Take it out of local/documents/odd/text.md; Clarity then "
-        "shows the document as Changed, with Rebuild. Or stop searching odd."
+        "control token, not text. Take it out of your file, then add it again in Documents…, "
+        "with the same name. Or stop searching odd."
     )
 
 
@@ -177,18 +165,7 @@ def test_a_control_token_in_a_part_left_out_doesn_t_refuse(root, chat_tokenizer)
     assert [o["id"] for o in user.found["left_out"]] == ["odd:2"]
 
 
-# --- WB3: rebuild says when pages were dropped
-
-
-def test_rebuild_says_whether_pages_were_dropped(root, tmp_path):
-    library_add(root, make_pdf(["One.", "Two."]), "guide.pdf")
-    text = root / "local/documents/guide/text.md"
-    os.utime(text, ns=(text.stat().st_atime_ns, text.stat().st_mtime_ns + 10**9))
-    assert document_rebuild(root, "guide")["pages_dropped"] is False
-    text.write_text(text.read_text(encoding="utf-8") + "Edited.\n", encoding="utf-8")
-    assert document_rebuild(root, "guide")["pages_dropped"] is True
-    text.write_text(text.read_text(encoding="utf-8") + "Again.\n", encoding="utf-8")
-    assert document_rebuild(root, "guide")["pages_dropped"] is False  # none left to drop
+# --- v0.3.1's reader sentences
 
 
 # --- WB4: the sentences
@@ -214,51 +191,6 @@ def test_v0_3_1_s_reader_sentences_say_use_not_attach(name, data, said):
 
 def test_the_shared_size_sentence_says_use():
     assert reading.SMALLER == "Use a smaller file, or split it and use the part you need."
-
-
-@pytest.mark.parametrize(
-    ("data", "said"),
-    [
-        (b"caf\xe9\n", "glossary: text.md isn't UTF-8 text. Save text.md as UTF-8 text, then "
-         "rebuild."),
-        (b"Made\x00up\n", "glossary: text.md isn't text Clarity can read. Save it as UTF-8 "
-         "text, then rebuild."),
-    ],
-)  # fmt: skip
-def test_rebuild_s_own_sentences_name_the_document_and_text_md(root, data, said):
-    (root / "local/documents/glossary/text.md").write_bytes(data)
-    assert refusal(lambda: document_rebuild(root, "glossary")) == said
-
-
-def test_rebuild_of_a_text_md_that_s_too_big(root, monkeypatch):
-    monkeypatch.setattr(reading, "MAX_BYTES", 4)
-    assert refusal(lambda: document_rebuild(root, "glossary")) == (
-        "glossary: text.md is too big: Clarity reads files up to 64 MB (67,108,864 bytes). "
-        "Shorten it, then rebuild."
-    )
-
-
-def test_rebuild_of_a_changed_original_says_delete_then_add_and_the_terminal_replace(root, capsys):
-    (root / "local/documents/glossary/original.txt").write_bytes(b"Other bytes.\n")
-    assert refusal(lambda: document_rebuild(root, "glossary")) == (
-        "Clarity can't rebuild glossary: its original file has changed or is gone, so its "
-        "text.md may no longer match it. Add the file again in Documents… and choose Replace."
-    )  # the close batch (surface S2): the page's way out
-    assert cli.main(["--root", str(root), "document", "rebuild", "glossary"]) == 1
-    assert capsys.readouterr().err.strip() == (
-        "clarity: Clarity can't rebuild glossary: its original file has changed or is gone, "
-        "so its text.md may no longer match it. `clarity document add FILE --name glossary "
-        "--replace` adds the file again."
-    )
-
-
-def test_the_changed_state_s_words_in_the_terminal(root, capsys):
-    (root / "local/documents/glossary/text.md").write_text("Edited.\n", encoding="utf-8")
-    assert cli.main(["--root", str(root), "document", "check", "glossary"]) == 1
-    assert capsys.readouterr().out.strip() == (
-        "glossary: changed (text.md has changed): A file in its folder has changed since "
-        "Clarity cut it into parts. `clarity document rebuild glossary` cuts them again."
-    )
 
 
 def test_a_searching_chat_s_sheet_and_check_fold_the_budget_in(root, chat_tokenizer, tmp_path):
@@ -476,25 +408,7 @@ def test_a_web_page_gets_paragraphs_and_titled_parts():
     ]
 
 
-# --- WB3's display, and the in-chat way to name a file
-
-
-def test_the_terminal_s_rebuilt_line_says_when_pages_were_dropped(root, capsys):
-    library_add(root, make_pdf(["One.", "Two."]), "guide.pdf")
-    text = root / "local/documents/guide/text.md"
-    text.write_text(text.read_text(encoding="utf-8") + "Edited.\n", encoding="utf-8")
-    assert cli.main(["--root", str(root), "document", "rebuild", "guide"]) == 0
-    assert (
-        capsys.readouterr()
-        .out.strip()
-        .endswith(
-            "Wrote parts.jsonl and manifest.json in local/documents/guide/. Its parts no longer "
-            "have page numbers."
-        )
-    )
-    text.write_text(text.read_text(encoding="utf-8") + "Again.\n", encoding="utf-8")
-    assert cli.main(["--root", str(root), "document", "rebuild", "guide"]) == 0
-    assert "page numbers" not in capsys.readouterr().out
+# --- the in-chat way to name a file
 
 
 def test_in_a_chat_an_unnamable_file_says_how_to_name_it(root, chat_tokenizer, tmp_path):

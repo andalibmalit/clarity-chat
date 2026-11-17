@@ -12,7 +12,6 @@ from clarity_chat.documents.library import way_out
 from clarity_chat.documents.search import NO_FTS5
 from clarity_chat.profiles import ConfigError, shown
 
-PAGES_LOST = "If you edited text.md, its parts will lose their page numbers."  # N24
 NOTHING_SENT = "Nothing was sent."  # N29: a refusal at Send's first line
 WITHOUT_SEARCH = "To send without searching, stop searching every document in this chat."
 
@@ -32,7 +31,6 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
     # A chat's way out is the chat's own command; `clarity document …` is the command
     # line's, for a run and `document try` (the main session's PM1 ruling).
     chat = where == "chat"
-    rebuild = f"`/documents rebuild {name}`" if chat else f"`clarity document rebuild {name}`"
     add = f"`/documents add PATH {name}`" if chat else f"`clarity document add FILE --name {name}`"
     if state == "no_fts5":
         if not at_send:
@@ -51,20 +49,6 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
             f"Profile {problem['profile']} searches {name}, which isn't in your documents. "
             f"{way}, or take it out of search under [documents] in the profile's file."
         )
-    if state == "changed":  # N30, N24
-        way = (
-            f"{rebuild} cuts them again from its text.md."
-            if terminal
-            else "Rebuild cuts them again from its text.md."
-        )
-        lost = f" {PAGES_LOST}" if problem.get("pages_lost") else ""
-        return (
-            f"Clarity can't search {name}: a file in its folder has changed since Clarity cut "
-            f"it into parts. {way}{lost}"
-        )
-    if state == "parts":  # parts.jsonl isn't one Clarity writes (the security review's S2)
-        way = f"{rebuild} cuts its parts again." if terminal else "Rebuild it."
-        return f"Clarity can't search {name}: its parts.jsonl isn't one Clarity writes. {way}"
     stop = STOPPING[where] if terminal else "stop searching {it}"
     if state == "missing":  # N31
         way = f"add the file again: {add}" if terminal else "add the file again in Documents…"
@@ -83,14 +67,11 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
         if problem["page"]
         else ""
     )
-    way = (
-        f"{rebuild} then cuts its parts again"
-        if terminal
-        else "Clarity then shows the document as Changed, with Rebuild"
-    )
+    # Out of your own file, then added again (cut 1: the library's copy isn't edited).
+    again = f": {add}" if terminal else " in Documents…, with the same name"
     return (
         f"Part {problem['ordinal']} of {name}{where} holds {held}, which this model reads as "
-        f"{one}, not text. Take {it} out of local/documents/{name}/text.md; {way}. Or "
+        f"{one}, not text. Take {it} out of your file, then add it again{again}. Or "
         f"{stop.format(it=name)}."
     )
 
