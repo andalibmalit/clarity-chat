@@ -48,6 +48,7 @@ from clarity_chat.documents.library import documents as library_documents
 from clarity_chat.documents.library import parts_of as library_parts
 from clarity_chat.documents.library import read_manifest as library_manifest
 from clarity_chat.documents.library import rebuild as library_rebuild
+from clarity_chat.documents.library import same_bytes as library_same_bytes
 from clarity_chat.documents.library import state as library_state
 from clarity_chat.documents.parts import (
     build_id,
@@ -103,6 +104,7 @@ __all__ = [
     "library_check",
     "library_documents",
     "library_manifest",
+    "library_same_bytes",
     "library_parts",
     "library_rebuild",
     "library_state",

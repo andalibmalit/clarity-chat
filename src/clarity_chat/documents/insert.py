@@ -88,8 +88,9 @@ SENTENCES = {
     # Details' Attachments row, under the counts (the walkthrough's F3, as the lead ruled).
     "attachments_caption": "Your message's line counts each attachment as it cost when it was "
     "attached: its block and the blank line after it (not highlighted here). The first "
-    "attachment in a message also counts the framing line and its blank line, when the "
-    "profile has one.",
+    "attachment in a message also counts the framing line then in use and its blank line. A "
+    "later change to the framing line, or an edit that leaves an attachment out, doesn't "
+    "recount them; this table shows what each span holds.",
     # The stop (the final fact-check's FIX 1, F8, ruling 9 and row 53b).
     "too_long": "It's {over} tokens too long.",
     "stop_advice": "Shorten your message, start a new chat, or lower max_tokens.",
@@ -212,6 +213,7 @@ SENTENCES = {
     "found_nothing_matched": "nothing matched",
     "found_nothing_new": "nothing new · {n} already in the chat",
     "found_nothing_fit": "nothing added · {n} didn't fit the budget",
+    "found_nothing_added": "nothing added",  # Details' header (N61)
     "found_in_title": "in its title: {words}",
     "found_in_text": "in its text: {words}",
     "found_already": "already in the chat: not added again",

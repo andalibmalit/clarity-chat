@@ -211,6 +211,10 @@ def test_documents_lists_adds_and_rebuilds_and_says_where_it_writes(root, chat_t
         {"event": "reading", "name": "Birds.md"},
         {"event": "writing", "folder": "local/documents/birds", "replacing": False},
     ]
+    path.write_bytes(
+        b"## Heron\nTaller.\n"
+        # Other bytes: the same bytes add nothing (the part 2 whole-branch review's could 8).
+    )
     named = run(c, f"documents add {path} herons")
     assert named["added"]["name"] == "herons"
     (root / "local/documents/birds/text.md").write_text("## Heron\nEdited.\n", encoding="utf-8")
@@ -226,6 +230,7 @@ def test_documents_add_from_the_page_takes_an_upload_and_gives_the_same_manifest
     page = Commands(session, uploads=uploads)
     page.run("profile", "chat", quiet)
     from_page = page.run("documents", "add u-1", quiet)["added"]
+    shutil.rmtree(root / "local/documents/birds")  # the same bytes would add nothing (could 8)
     path = tmp_path / "Birds.md"
     path.write_bytes(b"## Heron\nTall.\n")
     _, terminal = chat(root, chat_tokenizer)

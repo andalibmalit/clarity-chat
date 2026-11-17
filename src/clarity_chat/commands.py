@@ -284,15 +284,28 @@ def regen_replies(c: Commands, emit: Emit, seeds: list[int | None]) -> dict[str,
 def _edit(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     """The message again with new text, keeping its attachments but those `--drop N` names
     (N its place in the message, from 1: the owner's Q2, Edit's ×)."""
-    drop = []
-    while (found := DROP.match(args)) is not None:
-        drop.append(int(found[1]))
-        args = args[found.end() :]
-    text = needs(args, "/edit [--drop N]... TEXT")
+    drop, text = split_drops(args)
+    text = needs(text, "/edit [--drop N]... TEXT")
     return c.call(emit, lambda **kw: c.session.edit(text, drop=drop, **kw))
 
 
-DROP = re.compile(r"--drop ([0-9]{1,9})(?: +|$)")  # then the text, or none (prefill)
+# One space after N, then the text exactly as typed, or none (the terminal prefills).
+DROP = re.compile(r"--drop ([0-9]{1,9})(?: |$)")
+
+
+def split_drops(args: str) -> tuple[list[int], str]:
+    """/edit's `--drop N`s and the text after them. A --drop that isn't one (not a number,
+    or a place given twice) is refused, never sent as your message (the part 2 whole-branch
+    review's S1)."""
+    drops: list[int] = []
+    while (found := DROP.match(args)) is not None:
+        if int(found[1]) in drops:
+            raise ConfigError("Drop each attachment once.")
+        drops.append(int(found[1]))
+        args = args[found.end() :]
+    if re.match(r"--drop\b", args):
+        raise ConfigError("Usage: /edit [--drop N]... TEXT")
+    return drops, args
 
 
 UPLOAD_ID = re.compile(r"upload-[0-9a-f]{12}")
@@ -585,21 +598,9 @@ def _try(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 def document_try(root: Path, names: list[str], profile: str, text: str) -> dict[str, Any]:
     """`clarity document try`: what a first message would find in a new chat on `profile`."""
     session = Session(root)
-    found, problem = session.try_documents(names, profile, text)
+    found, problem, framed = session.try_documents(names, profile, text)
     refused = SearchRefused([problem], where="try").terminal if problem else None
-    framing, _ = documents.framing_of(session.profile_for(profile)[0])
-    framed = documents.framing_in_first_part(framing, False)  # a first message, nothing attached
     return {"found": found, "refused": refused, "framed": framed}
-
-
-def framing_now(conversation: Any) -> tuple[str | None, str | None]:
-    """/state's framing line and its origin for the conversation it holds (another thread
-    can be switching the session's): this chat's, else the profile's; none in text mode."""
-    if conversation.profile.mode != "chat":
-        return None, None
-    if conversation.chat_framing is not None:
-        return conversation.chat_framing, "chat"
-    return documents.framing_of(conversation.profile)
 
 
 def _framing(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -631,8 +632,10 @@ def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         return document_list(root)
     if action == "rebuild" and rest:
         return document_rebuild(root, rest)
-    replace = rest.endswith(" --replace")  # the owner's Q12: Replace on the page
-    rest = rest.removesuffix(" --replace")
+    # The owner's Q12: Replace. The flag goes before the file, so a name typed in the page's
+    # box can't carry it (the part 2 whole-branch review's could 9).
+    replace = rest.startswith("--replace ")
+    rest = rest.removeprefix("--replace ").strip()
     if action == "add" and rest:
         # Said before and after (S11): reading the file, then where it's written.
         def told(name: str) -> Callable[[], None]:
@@ -672,7 +675,7 @@ def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
                     f"{e} /documents add PATH NAME gives this one another name."
                 ) from None
             raise
-    raise ConfigError("Usage: /documents [add PATH [NAME] [--replace] | rebuild NAME]")
+    raise ConfigError("Usage: /documents [add [--replace] PATH [NAME] | rebuild NAME]")
 
 
 def read_files(
@@ -853,19 +856,17 @@ def _prompt(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     conversation = c.session.conversation
     assert conversation is not None
     call = call or conversation.last_call
+    # What search found for the message the call answered, as its turn logged it, and where
+    # its block went (Details' Documents section, v0.3.2 C3); None when it wasn't searched.
+    turn = conversation.turns.get(call.get("parent_id")) if call else None
+    found = turn.found if turn is not None else None
     return {
         "call": call,
         "replays": replays_of(conversation.log.path, call) if call else [],
         "prompt_attachments": prompt_attachments(conversation, call) if call else [],
-        "found": message_found(conversation, call) if call else None,
+        "found": found,
+        "placement": turn.placement if turn is not None and found is not None else None,
     }
-
-
-def message_found(conversation: Any, call: dict[str, Any]) -> dict[str, Any] | None:
-    """What search found for the message a call answered, as its turn logged it (Details'
-    Documents section, v0.3.2 C3), or None for a message that wasn't searched."""
-    turn = conversation.turns.get(call.get("parent_id"))
-    return turn.found if turn is not None else None
 
 
 def prompt_attachments(conversation: Any, call: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1171,6 +1172,8 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         # The reply is in the turns now (read after the snapshot, so it can't be in neither):
         # not also as the reply being written.
         out["reply_so_far"], out["reply_end"] = "", 0
+    chat = conversation.profile.mode == "chat"  # a text-mode chat has no framing line
+    framed = session.framing(conversation) if chat else (None, None)
     return {
         **out,
         "conversation_id": conversation.conversation_id,
@@ -1178,10 +1181,11 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "title": chat_summary(conversation.log.path)["title"],
         "profile": conversation.profile.name,
         "mode": conversation.profile.mode,  # the paperclip opens the picker in the press
-        "searching": session.searching(),
+        "searching": session.searching(conversation),
         "searching_origin": conversation.searching_origin,
-        **dict(zip(("framing", "framing_origin"), framing_now(conversation), strict=True)),
-        "budget": dict(zip(("tokens", "origin"), session.budget(), strict=True)),
+        # One conversation for every field (the part 2 whole-branch review's could 1).
+        **dict(zip(("framing", "framing_origin"), framed, strict=True)),
+        "budget": dict(zip(("tokens", "origin"), session.budget(conversation), strict=True)),
         "head": conversation.head,
         "turns": turns,
         "unanswered": conversation.unanswered,
@@ -1330,7 +1334,7 @@ COMMANDS: dict[str, Command] = {
         _try,
     ),
     "documents": Command(
-        "/documents [add PATH [NAME] [--replace] | rebuild NAME]",
+        "/documents [add [--replace] PATH [NAME] | rebuild NAME]",
         "the documents Clarity can search; add: add a file; rebuild: build a document's parts "
         "again from its text.md",
         _documents,
@@ -1433,6 +1437,8 @@ COMMANDS: dict[str, Command] = {
 
 
 def format_added(result: dict[str, Any]) -> str:
+    if "existing" in result:  # the same bytes: nothing added (could 8)
+        return SENTENCES["already_documents"].format(name=result["existing"])
     manifest = result["added"]
     folder = result["written"][0].rsplit("/", 1)[0]
     *rest, last = (path.rsplit("/", 1)[1] for path in result["written"])

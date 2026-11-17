@@ -185,6 +185,10 @@ def add(
     the four files. `on_write` gets the folder (relative to the project), and whether it
     replaces a document there, just before anything is written. Nothing is written on a
     refusal."""
+    # The same bytes under any name: nothing new is added (decision 21, for every front end:
+    # the part 2 whole-branch review's could 8).
+    if (same := same_bytes(documents(root), hashlib.sha256(data).hexdigest())) is not None:
+        return {"existing": same}
     library = root / LIBRARY
     on_disk = {p.name for p in library.iterdir()} if library.is_dir() else set()
     name, why = document_name(filename, name, on_disk)
@@ -421,6 +425,12 @@ def state(root: Path, name: str, manifest: dict[str, Any] | None = None) -> str:
     except OSError:
         return "changed"
     return "ready" if now == manifest["files"] else "changed"
+
+
+def same_bytes(docs: list[dict[str, Any]], sha256: str) -> str | None:
+    """The library document whose original file has these bytes, if any (decision 21):
+    `/documents add` adds nothing for it, and the sheet's "Search it" says so first."""
+    return next((d["name"] for d in docs if d.get("sha256") == sha256), None)
 
 
 def documents(root: Path) -> list[dict[str, Any]]:

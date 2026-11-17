@@ -171,7 +171,8 @@ def test_a_text_mode_chat_offers_no_search_it(root, make):
 def test_documents_add_replace_writes_over_the_document(root, make):  # Q12
     client, _ = make()
     upload_id = upload(client, b"## Owl\nMade-up.\n", "owls.md").json()["upload"]
-    answer = command(client, "documents", f"add {upload_id} glossary --replace").json()
+    # The flag before the upload (the part 2 review's could 9).
+    answer = command(client, "documents", f"add --replace {upload_id} glossary").json()
     assert answer.get("result", {}).get("replaced") is True, answer
     (doc,) = library_documents(root)
     assert doc["original"] == "owls.md"

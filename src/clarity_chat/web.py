@@ -71,6 +71,7 @@ from clarity_chat.documents import (
     counted,
     document_name,
     how_words,
+    library_same_bytes,
     more_than,
     problem_words,
     slow_read,
@@ -924,7 +925,7 @@ async def _thread(worker: Worker, params: dict[str, str | None]) -> str:
             writing = {**found_line(turns[-1]["found"]), "key": turns[-1]["turn_id"]}
     refused = None
     if failed and failed["kind"] == "SearchRefused":
-        refused = refused_lines(worker.refused, failed["message"], state["searching"])
+        refused = send_refusal_lines(worker.refused, failed["message"], state["searching"])
     users = [i for i, turn in enumerate(turns) if turn["role"] == "user"]
     return templates.get_template("thread.html").render(
         writing=writing,
@@ -1616,7 +1617,7 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
         not_highlighted=unhighlighted(call),
         highlight_added=SENTENCES["highlight_added"],
         attachments=attachment_rows(call, read["prompt_attachments"]),
-        documents=documents_section(call, read["found"]),
+        documents=documents_section(call, read["found"], read["placement"]),
         attachments_caption=SENTENCES["attachments_caption"],
         attached=bool(read["prompt_attachments"]),  # a message in this prompt had some
         text_mode=(call.get("bos") or {}).get("mode") == "text",
@@ -1835,8 +1836,9 @@ def search_choice(
             tokens=", ".join(dict.fromkeys(check["control_tokens"]))
         )
     searching = {d["name"] for d in state["searching"]}
-    same = next((d for d in docs if d.get("sha256") == hashlib.sha256(data).hexdigest()), None)
-    if same is not None:  # the same bytes: nothing new is added
+    same_name = library_same_bytes(docs, hashlib.sha256(data).hexdigest())
+    same = next((d for d in docs if d["name"] == same_name), None)
+    if same is not None:  # the same bytes: /documents add adds nothing (could 8)
         choice.update(existing=same["name"], name=same["name"])
         choice["lines"].append(SENTENCES["already_documents"].format(name=same["name"]))
         if same["name"] in searching:
@@ -2113,14 +2115,11 @@ def json_response(content: dict[str, Any]) -> Response:
     return Response(body, media_type="application/json")
 
 
-MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
-
-
 def date_words(added: str, zone: tzinfo | None = None) -> str:
     """A manifest's `added` time (UTC, checked by the library) as the page says a date, in
     local time as a chat's row is (`zone`: another, for a test): 10 Nov 2026."""
     moment = datetime.fromisoformat(added).astimezone(zone)
-    return f"{moment.day} {MONTHS[moment.month - 1]} {moment.year}"
+    return f"{moment.day} {moment.strftime('%b')} {moment.year}"  # as chat_date says it
 
 
 def joined(names: list[str], last: str = "and") -> str:
@@ -2134,7 +2133,8 @@ def documents_params(query: Any) -> dict[str, str | None]:
     searched = query.get("searched")
     if searched is not None and library_name_problem(searched):
         raise Refused(400, "That isn't a document's name.")
-    return {"try": query.get("try"), "upload": query.get("upload"), "searched": searched}
+    return {"try": query.get("try"), "upload": query.get("upload"), "searched": searched,
+            "notice": query.get("notice")}  # fmt: skip
 
 
 def document_row(doc: dict[str, Any]) -> dict[str, Any]:
@@ -2228,7 +2228,9 @@ def part_label(part: dict[str, Any]) -> str:
     return f"{document} · {where}part {ordinal}"
 
 
-def documents_section(call: dict[str, Any], found: dict[str, Any] | None) -> dict[str, Any] | None:
+def documents_section(
+    call: dict[str, Any], found: dict[str, Any] | None, placement: str | None
+) -> dict[str, Any] | None:
     """Details' Documents section (C3, N61-N66): what search found for this call's message,
     as its turn logged it (/prompt's `found`), and where its framing line and parts sit in
     the prompt (the spans' `added`)."""
@@ -2252,7 +2254,7 @@ def documents_section(call: dict[str, Any], found: dict[str, Any] | None) -> dic
     elif not words:
         head = SENTENCES["found_nothing_words"]
     else:
-        head = "nothing added" if found["matched"] else SENTENCES["found_nothing_matched"]
+        head = SENTENCES["found_nothing_added" if found["matched"] else "found_nothing_matched"]
     rows = [("Searched for", f"“{found['searched_for']}”")]
     if words:
         rows.append(("Words searched", ", ".join(words)))
@@ -2261,7 +2263,7 @@ def documents_section(call: dict[str, Any], found: dict[str, Any] | None) -> dic
     if at:
         ranges = [*([framing] if framing else []), *at.values()]
         where = span(min(a for a, _ in ranges), max(b for _, b in ranges))
-        where["placement"] = "end" if added[0]["chars"][0] > entry["chars"][0] else "start"
+        where["placement"] = placement or "start"  # as the turn logged it (could 4)
         rows.append(("Where", SENTENCES["details_where"].format(**where)))
         if framing is not None:
             rows.append(("Framing line", SENTENCES["details_framing"].format(**span(*framing))))
@@ -2276,7 +2278,7 @@ def documents_section(call: dict[str, Any], found: dict[str, Any] | None) -> dic
             parts=counted(found["matched"], "part"), considered=found["considered"]
         )
         rows.append(("Considered", considered))
-        origin = "Clarity's default" if found["budget_origin"] == "default" else "this profile"
+        origin = SENTENCES[f"origin_{found['budget_origin']}"]
         reasons = {
             "budget": SENTENCES["details_budget"].format(budget=f"{budget:,}", origin=origin),
             "already in the chat": "already in the chat",
@@ -2303,7 +2305,7 @@ def documents_section(call: dict[str, Any], found: dict[str, Any] | None) -> dic
     return {"head": head, "rows": rows, "table": table, "caption": caption}
 
 
-def refused_lines(
+def send_refusal_lines(
     refused: tuple[str, list[dict[str, Any]]] | None, message: str, searching: list[dict[str, Any]]
 ) -> list[dict[str, Any]] | None:
     """A refused Send's box (W6): a line for each problem the chat still has, with its
@@ -2356,10 +2358,16 @@ async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
     in_chat = chat_open and state["mode"] == "chat"
     searching = [d["name"] for d in state["searching"]]
     notice = search_here = None
-    done, worker.documented = worker.documented, None  # drawn once
-    if done is not None and "added" in done:
-        name = done["added"]["name"]
-        notice = f"Added {name}. " + format_added(done)
+    # Drawn once, and only after the page's own Add or Rebuild (`notice=1`): Search it and
+    # the chooser send them too (the part 2 whole-branch review's S2).
+    done, worker.documented = worker.documented, None
+    if params["notice"] != "1":
+        done = None
+    if done is not None and ("added" in done or "existing" in done):
+        name = done["existing"] if "existing" in done else done["added"]["name"]
+        notice = (
+            format_added(done) if "existing" in done else f"Added {name}. " + format_added(done)
+        )
         search_here = name if in_chat and name not in searching else None
     elif done is not None:
         notice = format_rebuilt(done)
@@ -2402,6 +2410,7 @@ async def _documents(worker: Worker, params: dict[str, str | None]) -> str:
         folder=SENTENCES["documents_folder"].format(folder=listed["folder"]),
         titles=SENTENCES["documents_titles"],
         rows=[document_row(d) for d in listed["documents"]],
+        labels=STATE_LABELS,  # the chooser's (could 6)
         notice=notice,
         search_here=search_here,
         add=add,
