@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
+import jinja2
+
 from clarity_chat import steering
 from clarity_chat.backends import Backend, BackendError, Result
 from clarity_chat.documents import (
@@ -576,8 +578,13 @@ class Session:
         if profile.mode == "chat":
             template = chat_template_source(template_tokenizer, profile)
             text = template_tokenizer.tok.chat_template
-            unread = unread_kwargs(text, profile.template_kwargs)
-            dated = writes_date(text)
+            try:  # each parses the template: refused here, as the first message's would be
+                unread = unread_kwargs(text, profile.template_kwargs)
+                dated = writes_date(text)
+            except jinja2.TemplateError as e:
+                raise ConfigError(
+                    f"Profile {profile.name}: the chat template failed: {type(e).__name__}: {e}"
+                ) from e
         else:
             template, unread, dated = None, [], False
         return Prepared(

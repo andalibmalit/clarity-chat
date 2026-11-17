@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import pytest
 
-from clarity_chat.models import read_lock
-from clarity_chat.profiles import load_defaults, load_models, load_profile, load_server_config
+from clarity_chat.models import read_lock_file
+from clarity_chat.profiles import load_defaults, load_profile, load_server_config, read_models
 from tests.conftest import REPO
 
 PROFILES = sorted((REPO / "profiles").glob("*.toml"))
@@ -20,10 +20,11 @@ SHIPPED = (
 
 
 def test_the_config_files_load():
+    """Shipped files only: never the owner's local/models.toml or local/models.lock."""
     load_defaults(REPO)
-    assert load_models(REPO)
+    assert read_models(REPO / "models.toml")
     load_server_config(REPO)
-    read_lock(REPO)
+    read_lock_file(REPO / "models.lock")
 
 
 @pytest.mark.parametrize("path", PROFILES, ids=lambda p: p.stem)

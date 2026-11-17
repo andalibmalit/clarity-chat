@@ -77,9 +77,14 @@ def split_command(line: str) -> tuple[str, str]:
 # Control characters (Unicode's Cc: U+0000 to U+001F and U+007F to U+009F) but newline and
 # tab, and the text-direction controls (documents' BIDI, which cli can't import: a test
 # holds the two lists together).
-CONTROLS = [*range(0x20), *range(0x7F, 0xA0), 0x061C, 0x200E, 0x200F, *range(0x202A, 0x202F)]
 SHOWN_CONTROLS = {
-    i: f"⟨U+{i:04X}⟩" for i in [*CONTROLS, *range(0x2066, 0x206A)] if chr(i) not in "\n\t"
+    i: f"⟨U+{i:04X}⟩"
+    for i in [
+        *range(0x20),
+        *range(0x7F, 0xA0),
+        *(0x061C, 0x200E, 0x200F, *range(0x202A, 0x202F), *range(0x2066, 0x206A)),
+    ]
+    if chr(i) not in "\n\t"
 }
 
 
@@ -1265,9 +1270,13 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     )
     export.add_argument("conversation", help="its ID (from `clarity chats`) or log file")
     export.add_argument("--out", type=Path, help="where to write it instead")
-    fetch = commands.add_parser("fetch", help="download (and convert) a model from models.toml")
+    fetch = commands.add_parser(
+        "fetch", help="download (and convert) a model from models.toml or local/models.toml"
+    )
     fetch.add_argument("name")
-    verify = commands.add_parser("verify", help="re-hash fetched models against models.lock")
+    verify = commands.add_parser(
+        "verify", help="re-hash fetched models against models.lock and local/models.lock"
+    )
     verify.add_argument("names", nargs="*")
     document = commands.add_parser(
         "document", help="the documents Clarity searches (local/documents/)"
