@@ -228,5 +228,36 @@ def unexplained(identical: bool, diffs: dict[str, Any]) -> bool:
 def model_for_call(
     call_model: dict[str, Any], backend: str, lock: dict[str, dict[str, Any]]
 ) -> str | None:
-    """A stub for v0.4.0 A3's tests (the next commit finds the model by its file)."""
-    return call_model["name"] if call_model["name"] in lock else None
+    """The models.toml entry `clarity replay` runs a call on (v0.4.0, decision 9): the call's
+    own name if its lock entry has the call's file; else the first name, in sorted order,
+    whose entry has it (equal pins mean the same bytes, so the choice can't change the
+    output); else the call's name if it's still there (replay then lists the file as a
+    difference); else None. The file is the GGUF's sha256 on llama.cpp, and the source
+    weights' repo and revision on Transformers, which loads those. Tokenizer pins aren't
+    compared: replay loads the call's own. `lock`: each models.toml name's lock entry, {}
+    if it isn't fetched."""
+    if backend == "transformers":
+        wanted = (call_model.get("repo"), call_model.get("revision"))
+        found = [n for n, e in lock.items() if e and (e.get("repo"), e.get("revision")) == wanted]
+    else:
+        sha = call_model.get("gguf_sha256")  # another program's log may lack it: by name
+        found = [n for n, e in lock.items() if sha and e.get("gguf", {}).get("sha256") == sha]
+    name = call_model["name"]
+    if name in found or not found:
+        return name if name in lock else None
+    return min(found)
+
+
+def no_model_for_call(call_id: str, call_model: dict[str, Any]) -> str:
+    """The refusal when no models.toml entry has a call's name or file: its pins, and the way
+    out, in words. Nothing is fetched or added."""
+    keys = ("route", "repo", "revision", "file", "tokenizer_repo", "tokenizer_revision")
+    pins = [f"{k} {call_model[k]}" for k in (*keys, "gguf_sha256") if k in call_model]
+    commit = ((call_model.get("converted_with") or {}).get("llama_cpp") or {}).get("commit")
+    if commit:
+        pins.append(f"converted with llama.cpp {commit}")
+    return (
+        f"Call {call_id} used model {call_model['name']!r}, and no entry in models.toml has "
+        f"that name or its file. Its pins: {'; '.join(pins)}. To replay it, add an entry "
+        "with these pins to models.toml and fetch it."
+    )

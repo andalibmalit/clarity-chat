@@ -59,7 +59,7 @@ from clarity_chat.documents import (
     with_text,
 )
 from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records, unreadable
-from clarity_chat.models import check_weights_quick, lock_entry, source_weights
+from clarity_chat.models import check_weights_quick, lock_entry, read_lock, source_weights
 from clarity_chat.profiles import (
     BUDGET,
     SEED_MAX,
@@ -104,6 +104,8 @@ from clarity_chat.replay import (
     facts_from_call,
     find_call,
     first_difference,
+    model_for_call,
+    no_model_for_call,
     not_recorded,
     unexplained,
 )
@@ -1934,6 +1936,15 @@ class Session:
                 f"Call {call_id} can't be replayed: its record has no {', '.join(missing)}."
             )
         name = call["model"]["name"]
+        described = call.get("backend") or {}
+        backend_name = described.get("backend", "llama.cpp")
+        if self.conversation is None:  # clarity replay: the call's file, under any name
+            lock = read_lock(self.root)["models"]
+            lock = {n: lock.get(n, {}) for n in self.models}
+            used = model_for_call(call["model"], backend_name, lock)
+            if used is None:
+                raise ConfigError(no_model_for_call(call_id, call["model"]))
+            name = used
         if name not in self.models:
             raise ConfigError(f"Call {call_id} used model {name!r}, which isn't in models.toml.")
         model = self.models[name]
@@ -1949,14 +1960,12 @@ class Session:
                 f"conversation uses {self.backend.n_ctx}. Resume the conversation it's from "
                 "to replay it there."
             )
-        described = call.get("backend") or {}
-        name = described.get("backend", "llama.cpp")
-        device = described.get("device") if name == "transformers" else None
-        weights = self.weights_for(name, entry)
-        steer = self.logged_steering(call, name, weights)
+        device = described.get("device") if backend_name == "transformers" else None
+        weights = self.weights_for(backend_name, entry)
+        steer = self.logged_steering(call, backend_name, weights)
         previous = self.backend
         try:
-            backend = self.use_backend(name, device)
+            backend = self.use_backend(backend_name, device)
             backend.start(model, weights, call["n_ctx"])  # the call's own size, as logged
         except (ConfigError, BackendError) as e:
             # as start_model does: the conversation stays usable
@@ -1990,6 +1999,7 @@ class Session:
             "conversation_id": call["conversation_id"],
             "replay_id": new_id("replay"),
             "call_id": call_id,
+            "model_used": model.name,  # the models.toml entry it ran on
             "server_id": (now_server or {}).get("server_id"),
             "flags_from": flags_from or "server.toml",
             "n_ctx_from": "the call's log",
