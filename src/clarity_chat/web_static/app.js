@@ -1529,30 +1529,6 @@ function showPreview(on) {
   button.textContent = on ? "Hide extracted text" : "Show extracted text";
 }
 
-function framingForm(on) {
-  $("framing-form").hidden = !on;
-  if ($("framing-shown")) $("framing-shown").hidden = on; // the box holds it while editing (⑦)
-  const edit = $("attach-body").querySelector("[data-action=framing-edit]");
-  edit.hidden = on;
-  edit.setAttribute("aria-expanded", String(on));
-  if (on) $("framing-line").focus();
-  else edit.focus();
-}
-
-async function framingCommand(args) {
-  // /framing for this chat, then the sheet again, counted with the line it now sends.
-  const answer = await command("framing", args).catch(unanswered);
-  if (answer.handled) return;
-  if (answer.error) {
-    notice("!", answer.error);
-    return;
-  }
-  const choice = checkedChoice();
-  const part = choice && choice.dataset.choice === "part" && $("attach-from") && rangeTyped();
-  const unit = part ? $("attach-body").querySelector(".range").dataset.unit : null;
-  await loadSheet(part ? { unit, first: $("attach-from").value, last: $("attach-to").value } : {});
-}
-
 function rangeTyped() {
   return /^[0-9]{1,9}$/.test($("attach-from").value) && /^[0-9]{1,9}$/.test($("attach-to").value);
 }
@@ -2243,9 +2219,6 @@ const THREAD = {
   },
   edit: (element) => editing(element.closest("li"), true),
   "edit-cancel": (element) => editing(element.closest("li"), false),
-  "framing-edit": () => framingForm(true),
-  "framing-cancel": () => framingForm(false),
-  "framing-back": () => framingCommand(""),
   "edit-drop": (element) => {
     // Q2's ×: the chip leaves this edit only; Send names it with --drop (the board's ⑥).
     const keeps = element.closest(".keeps");
@@ -2269,10 +2242,6 @@ document.addEventListener("submit", (event) => {
     send();
   } else if (form.id === "rename") {
     rename();
-  } else if (form.id === "framing-form") {
-    // The framing line's Edit (C4, the board's ⑦): an empty line saves as none.
-    const line = $("framing-line").value.trim();
-    framingCommand(line || "none");
   } else if (form.matches("[data-edit]")) {
     const text = form.querySelector("textarea").value;
     const dropped = [...form.querySelectorAll(".keeps .chip[hidden] .x")].flatMap((x) => ["--drop", x.dataset.n]);

@@ -136,7 +136,6 @@ def test_a_closed_output_stops_writing_and_the_log_stays_whole(make):
 REFUSED = {
     "attach": "Attaching needs a chat-mode profile; text is in text mode.",
     "try": "Searching needs a chat-mode profile; text is in text mode.",  # N71 (surface C3)
-    "framing": "The framing line needs a chat-mode profile; text is in text mode.",
 }
 EVERY_COMMAND = [
     ("help", lambda s: ""),
@@ -152,7 +151,6 @@ EVERY_COMMAND = [
     ("attach", lambda s: ""),  # alone: what's waiting; in text mode, refused (REFUSED)
     ("detach", lambda s: ""),
     ("search", lambda s: ""),
-    ("framing", lambda s: "made-up line"),  # C4; in text mode, refused (REFUSED)
     ("try", lambda s: "made-up words"),
     ("documents", lambda s: ""),
     ("history", lambda s: ""),

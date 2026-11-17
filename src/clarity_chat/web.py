@@ -2031,8 +2031,6 @@ def attach_sheet(
         "framing_label": SENTENCES["framing_label"].format(origin=origin),
         "framing": check["framing"],
         "no_framing": SENTENCES["no_framing"].format(origin=origin),
-        "framing_chat": check["framing_origin"] == "chat",  # Back to the profile's line (C4)
-        "framing_hint": SENTENCES["framing_hint"],
         "marker_label": SENTENCES["marker_label"].format(origin=marker_origin),
         "marker": marker,
         "preview": preview(chosen["text"] if chosen else check["text"]),

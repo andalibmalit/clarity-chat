@@ -594,7 +594,7 @@ def _try(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     terminal = c.uploads is None
     refused = SearchRefused([problem]).words(terminal) if problem else None
     assert conversation is not None  # try_search needs one
-    framing, _ = c.session.framing()
+    framing, _ = documents.framing_of(conversation.profile)
     framed = documents.framing_in_first_part(framing, bool(conversation.pending))
     return {"found": found, "refused": refused, "framed": framed and bool(found["parts"])}
 
@@ -605,14 +605,6 @@ def document_try(root: Path, names: list[str], profile: str, text: str) -> dict[
     found, problem, framed = session.try_documents(names, profile, text)
     refused = SearchRefused([problem], where="try").terminal if problem else None
     return {"found": found, "refused": refused, "framed": framed}
-
-
-def _framing(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
-    """/framing TEXT: this chat's framing line from now on; /framing none: no line;
-    /framing alone: the profile's again (v0.3.2 C4, like /set)."""
-    record = c.session.set_framing(None if not args else "" if args == "none" else args)
-    framing, origin = c.session.framing()
-    return {"framing": framing, "framing_origin": origin, "record": record}
 
 
 def _search(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -1201,8 +1193,6 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "searching": [],
         "searching_origin": None,
         "budget": None,
-        "framing": None,
-        "framing_origin": None,
     }
     if conversation is None:
         return out
@@ -1211,8 +1201,6 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         # The reply is in the turns now (read after the snapshot, so it can't be in neither):
         # not also as the reply being written.
         out["reply_so_far"], out["reply_end"] = "", 0
-    chat = conversation.profile.mode == "chat"  # a text-mode chat has no framing line
-    framed = session.framing(conversation) if chat else (None, None)
     return {
         **out,
         "conversation_id": conversation.conversation_id,
@@ -1223,7 +1211,6 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "searching": session.searching(conversation),
         "searching_origin": conversation.searching_origin,
         # One conversation for every field (the part 2 whole-branch review's could 1).
-        **dict(zip(("framing", "framing_origin"), framed, strict=True)),
         "budget": dict(zip(("tokens", "origin"), session.budget(conversation), strict=True)),
         "head": conversation.head,
         "turns": turns,
@@ -1355,12 +1342,6 @@ COMMANDS: dict[str, Command] = {
         cancellable=True,  # /cancel stops the reading
     ),
     "detach": Command("/detach [N]", "remove waiting attachment N, or all of them", _detach),
-    "framing": Command(
-        "/framing [TEXT | none]",
-        "the line before this chat's documents from now on; none: no line; alone: the "
-        "profile's again",
-        _framing,
-    ),
     "search": Command(
         "/search [NAME … | none]",
         "the documents this chat searches for each message; names: search these from now on; "

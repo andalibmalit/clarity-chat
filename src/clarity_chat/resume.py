@@ -24,7 +24,6 @@ class Rebuilt:
     head_guessed: bool = False  # a log from before head records (v0.1.0)
     chat_settings: dict[str, Any] = field(default_factory=dict)
     searching: list[str] | None = None  # the last `search` record's list (v0.3.2)
-    framing: str | None = None  # the last `framing` record's line (v0.3.2 C4)
     servers: dict[str, dict[str, Any]] = field(default_factory=dict)  # server_start by ID
     last_call: dict[str, Any] | None = None  # the last call that has a reply
     unanswered: dict[str, Any] | None = None  # the last message, if it got no reply
@@ -74,11 +73,6 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
             if not isinstance(names, list):
                 raise TypeError(f"{where}: a search record's documents isn't a list")
             out.searching = names
-        elif kind == "framing":
-            line = record["framing"]
-            if line is not None and not isinstance(line, str):
-                raise TypeError(f"{where}: a framing record's framing isn't a string")
-            out.framing = line
         elif kind == "server_start":
             out.servers.setdefault(record["server_id"], record)
     last = out.turns[-1] if out.turns else None
