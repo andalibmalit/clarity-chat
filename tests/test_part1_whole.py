@@ -65,18 +65,17 @@ def make(root: Path, how: str, monkeypatch) -> None:
 
 NAME = {"changed": "glossary", "missing": "glossary", "unreadable": "glossary",
         "control": "odd", "no_fts5": "glossary"}  # fmt: skip
-TERMINAL = {
+TERMINAL = {  # a chat's ways out are the chat's commands (the main session's PM1 ruling)
     "changed": "Clarity can't search glossary: a file in its folder has changed since Clarity "
-    "cut it into parts. `clarity document rebuild glossary` cuts them again from its text.md.",
+    "cut it into parts. `/documents rebuild glossary` cuts them again from its text.md.",
     "missing": "Clarity can't search glossary: its folder in local/documents/ is gone. Stop "
-    "searching it with /search, or add the file again: `clarity document add FILE --name "
-    "glossary`.",
+    "searching it with /search, or add the file again: `/documents add PATH glossary`.",
     "unreadable": "Clarity can't search glossary: its manifest.json can't be read (it isn't a "
     "manifest Clarity writes). `/documents add --replace PATH glossary` adds the file again.",
     # the chat's own way out (the close batch: surface S2)
     "control": 'Part 1 of odd ("Wren") holds </s>, which this model reads as a control token, '
-    "not text. Take it out of local/documents/odd/text.md; `clarity document rebuild odd` then "
-    "cuts its parts again. Or stop searching odd with /search.",
+    "not text. Take it out of local/documents/odd/text.md; `/documents rebuild odd` then cuts "
+    "its parts again. Or stop searching odd with /search.",
     "no_fts5": "Word search needs SQLite's FTS5, which the Python running Clarity doesn't "
     "have. Use a Python whose SQLite includes it, such as the one uv installs. `/search none` "
     "turns search off for this chat.",
