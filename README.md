@@ -77,7 +77,7 @@ uv run clarity note logs/CONVERSATION_ID.jsonl CALL_ID "TEXT"      # add a note 
 
 ## Configuration
 
-You set up every experiment in these files. Clarity doesn't edit the ones it ships; your own go in `local/`, which git ignores. What `fetch` resolves goes to `models.lock`; what each call resolves goes to its log.
+You set up every experiment in these files. Clarity doesn't edit the ones it ships; your own go in `local/`, which git ignores. What `fetch` resolves goes to `models.lock`, or `local/models.lock` for your own; what each call resolves goes to its log.
 
 - `models.toml`: the models, each pinned to a commit. Put your own in `local/models.toml`; their lock entries go to `local/models.lock`.
 - `server.toml`: every llama-server flag.

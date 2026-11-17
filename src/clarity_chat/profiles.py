@@ -819,8 +819,8 @@ def load_models(root: Path) -> dict[str, ModelEntry]:
         both = sorted(set(models) & set(yours))
         if both:
             raise ConfigError(
-                f"Model {both[0]!r} is in both models.toml and local/models.toml. Rename one "
-                "of them."
+                f"Model {both[0]!r} is in both models.toml and local/models.toml. Rename the "
+                "one in local/models.toml."
             )
         models |= yours
     return models

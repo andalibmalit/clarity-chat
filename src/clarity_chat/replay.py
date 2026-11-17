@@ -263,5 +263,7 @@ def no_model_for_call(call_id: str, call_model: dict[str, Any]) -> str:
     return (
         f"Call {call_id} used model {call_model['name']!r}, and no entry in models.toml or "
         f"local/models.toml has that name or its file. Its pins: {'; '.join(pins)}. To replay "
-        "it, add an entry with these pins to local/models.toml and fetch it."
+        "it, add an entry with this route, repo, revision, tokenizer_repo and "
+        "tokenizer_revision (and, for a downloaded GGUF, its file and sha256) to "
+        "local/models.toml and fetch it."
     )
