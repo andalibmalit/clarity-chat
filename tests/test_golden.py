@@ -14,6 +14,7 @@ import pytest
 
 from clarity_chat.logs import SCHEMA_VERSION, read_records
 from clarity_chat.session import Session, annotate_log
+from tests.conftest import MODELS
 from tests.fakes import FakeBackend
 
 GOLDEN = Path(__file__).parent / "fixtures" / "golden"
@@ -41,6 +42,12 @@ def steerable(fetched_root) -> Path:
     (weights / "config.json").write_text(json.dumps(config), encoding="utf-8")
     entry = read_lock(fetched_root)["models"]["tiny"]
     write_lock_entry(fetched_root, "tiny", {**entry, "source_dir": "models/tiny-hf"})
+    # v0.4.0's log is on your own entry, `mine` (B4): tiny's pins, in local/models.toml.
+    (fetched_root / "local").mkdir()
+    (fetched_root / "local" / "models.toml").write_text(
+        MODELS.replace("[tiny]", "[mine]"), encoding="utf-8"
+    )
+    write_lock_entry(fetched_root, "mine", {**entry, "name": "mine"})
     (fetched_root / "local" / "vectors").mkdir(parents=True)
     shutil.copy(VECTOR, fetched_root / "local" / "vectors" / VECTOR.name)
     return fetched_root
@@ -234,3 +241,24 @@ def test_the_v0_3_2_golden_log_holds_a_search_found_parts_and_a_miss():
     assert any(a["what"] == "part" for s in calls[0]["message_spans"] for a in s.get("added", []))
     replay = next(r for r in rows if r["type"] == "replay")
     assert replay["identical"] and replay["call_id"] == calls[0]["call_id"]
+
+
+def test_the_v0_4_0_golden_log_holds_a_ban_its_check_and_your_own_entry():
+    """A1's three fields (the file's ban on server_start; each call's backend_settings entry
+    with origin `model file`, and its check, failed once), on your own entry `mine` (B4),
+    and a replay that names the entry it ran on (A3's model_used)."""
+    rows = list(read_records(GOLDEN / "v0.4.0.jsonl"))
+    (start,) = [r for r in rows if r["type"] == "server_start"]
+    banned = start["model_file"]["suppress_tokens"]
+    assert len(banned) == 2
+    calls = [r for r in rows if r["type"] == "call"]
+    assert {c["model"]["name"] for c in calls} == {"mine"}
+    for call in calls:
+        assert call["backend_settings"]["suppress_tokens"] == {
+            "value": banned,
+            "origin": "model file",
+        }
+    assert [c["checks"]["suppress_tokens"]["ok"] for c in calls] == [True, False]
+    assert "check_failed:suppress_tokens" in calls[1]["flags"]
+    replay = next(r for r in rows if r["type"] == "replay")
+    assert replay["identical"] and replay["model_used"] == "mine"

@@ -8,6 +8,10 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-17
+
+Live tests on an M2 Max (macOS), 2026-11-17, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 29 passed and `-m browser` 160 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit) at the last source commit; `-m hf` 20 passed, `-m olmo` 12 passed and `-m llama` 3 passed at the last commit to change their paths, the stream fix.
+
 ### Added
 - Your own model entries go in `local/models.toml`, with the same keys as `models.toml`; `clarity fetch` and `clarity verify` write their lock entries to `local/models.lock`, and chat, `/profiles` and replay use them as they use the shipped ones. A name in both files is refused. Sentences about one model's entry name its own files.
 - Clarity warns, at a conversation's start and on resume, when the chat template can write today's date (it calls `strftime_now`), since the same messages can then make a different prompt on another day. The date isn't pinned; replay sends the logged token IDs.
