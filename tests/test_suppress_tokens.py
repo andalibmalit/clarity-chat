@@ -358,7 +358,9 @@ def test_a_refused_start_stops_its_server_and_the_chat_goes_on(llama):
     first = session.new_conversation("chat")
     with pytest.raises(ConfigError, match=REFUSAL):
         session.new_conversation("banned7")  # as /profile banned7 in a running chat
-    assert seen["procs"][-1].terminated
+    # The refused server stopped, and the chat's own model started again (_restore).
+    refused_proc, restarted = seen["procs"][-2:]
+    assert refused_proc.terminated and not restarted.terminated
     assert session.conversation is first
     assert session.say("still here").record["output_text"] == " ok"
 
