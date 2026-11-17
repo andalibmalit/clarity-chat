@@ -244,8 +244,8 @@ def test_a_profile_naming_a_missing_document_in_the_page_s_terms(root, chat_toke
     backend = FakeBackend([" R."], tokenizer=chat_tokenizer)
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
     assert refusal(lambda: Commands(session).run("profile", "chat", quiet)) == (
-        "Profile chat searches birds, which isn't in your documents. Add it with the "
-        "paperclip's Search it, or take it out of search under [documents] in the profile's file."
+        "Profile chat searches birds, which isn't in your documents. Take it out of search "
+        "under [documents] in the profile's file."  # the page's start: no chat to add it in
     )
 
 

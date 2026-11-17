@@ -43,15 +43,13 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
         front = "page" if not terminal else "chat" if where == "chat" else "cli"
         why = problem["why"].removeprefix(name + "'s ")
         way = f" {way_out(name, front)}" if problem.get("add_again") else ""
-        if profile := problem.get("profile"):  # a chat's start: the profile and its key
-            return f"Profile {profile} searches {name}, but its {why}{way} Or {KEY}."
+        if profile := problem.get("profile"):  # a start: the page has no chat to add it in
+            said = f"Profile {profile} searches {name}, but its {why}"
+            return f"{said}{way} Or {KEY}." if terminal else f"{said} {KEY.capitalize()}."
         return f"Clarity can't search {name}: its {why}{way}"
-    if state == "profile_missing":  # N37
-        way = f"Add it with {add}" if terminal else "Add it with the paperclip's Search it"
-        return (
-            f"Profile {problem['profile']} searches {name}, which isn't in your documents. "
-            f"{way}, or {KEY}."
-        )
+    if state == "profile_missing":  # N37; the page's start has no chat to add it in
+        said = f"Profile {problem['profile']} searches {name}, which isn't in your documents."
+        return f"{said} Add it with {add}, or {KEY}." if terminal else f"{said} {KEY.capitalize()}."
     stop = STOPPING[where] if terminal else "stop searching {it}"
     if state == "missing":  # N31
         page = "add the file again with the paperclip's Search it"

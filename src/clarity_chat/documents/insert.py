@@ -134,7 +134,8 @@ SENTENCES = {
     "empty_units": "{count} with no text",
     # Adding a document with "Search it" (v0.3.2 C2; cuts 1 and 2)
     "keeps_copy": "Clarity keeps a copy in local/documents/{name}/: the file, its text, its "
-    "parts and a record of them.",
+    "parts and a record of them. A document that already has the name in the box is "
+    "replaced.",
     "searches_next": "This chat searches {name} from your next message.",
     "replaced": "Clarity replaced {name} in your documents with this file.",
     # "Search it" on the attach sheet and the Searching chooser (v0.3.2 C2; N2-N27, N60)

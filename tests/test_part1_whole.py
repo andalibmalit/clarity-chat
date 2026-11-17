@@ -176,8 +176,8 @@ def test_a_profile_s_missing_document_names_the_terminal_command(root, chat_toke
     with pytest.raises(ConfigError) as refused:
         session.new_conversation("chat")
     assert str(refused.value) == (
-        "Profile chat searches birds, which isn't in your documents. Add it with the "
-        "paperclip's Search it, or take it out of search under [documents] in the profile's file."
+        "Profile chat searches birds, which isn't in your documents. Take it out of search "
+        "under [documents] in the profile's file."  # the page's start: no chat to add it in
     )
     # In a chat, the chat's command (the PM1 ruling); at the shell, the command line's.
     assert getattr(refused.value, "terminal", None) == (
