@@ -213,6 +213,11 @@ def eog_tokens(startup_output: str) -> list[dict[str, Any]] | None:
     return found or None
 
 
+def suppress_tokens(startup_output: str) -> list[int]:
+    """A stub for v0.4.0 A1's tests (the next commit reads the list)."""
+    return []
+
+
 # "graph: nodes = 1131, splits = 2, …", or "graph (pp bs=512, tg bs=1): … splits = 2 / 3, …"
 # when prompt processing and generation differ (src/llama-context.cpp).
 SPLITS_RE = re.compile(r"graph(?: \(.*?\))?: nodes = [^,]+, splits = (\d+)(?: / (\d+))?")

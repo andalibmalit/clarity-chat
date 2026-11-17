@@ -404,6 +404,51 @@ def test_a_quantized_copy_repeats_and_replays(session, tmp_path):
         backend.close()
 
 
+def test_shipped_smollm2_bans_no_tokens(session):
+    """v0.4.0 A1: llama-server's key dump is read, and SmolLM2's file has no
+    tokenizer.ggml.suppress_tokens. A llama.cpp update that changes the dump's lines
+    refuses the start, which shows here."""
+    assert session.backend.server_record["model_file"]["suppress_tokens"] == []
+    session.new_conversation("smol-text")
+    record = session.say("Say hello.").record
+    assert "suppress_tokens" not in record["backend_settings"]
+    assert "suppress_tokens" not in record["checks"]
+
+
+def test_a_file_that_bans_tokens_is_recorded_and_applied(session, tmp_path):
+    """v0.4.0 A1: a copy of SmolLM2's file banning the first token of its greedy reply, and
+    one more ID. The record lists both, the reply starts differently, and the check passes:
+    the only real-file evidence that llama-server applies the ban the log shows."""
+    from tests.gguf_ban import with_suppress_tokens
+
+    session.new_conversation("smol-text")
+    first = session.say("Say hello.").record
+    ids, stop = first["prompt_ids"], first["stop"]
+    greedy = {**{name: s["value"] for name, s in first["settings"].items()}, "temperature": 0.0}
+    assert session.model is not None
+    config = load_server_config(REPO)
+    bf16 = check_weights_quick(REPO, session.model_lock)
+    backend = LlamaCppBackend(config, tmp_path / "logs")
+    try:
+        backend.start(session.model, bf16, 8192)
+        before = backend.complete(ids, greedy, stop).token_ids[0]
+        backend.close()
+        banned = [before, (before + 1) % 49152]
+        copy = with_suppress_tokens(bf16, tmp_path / f"{MODEL}-banned.gguf", banned)
+        record = backend.start(session.model, copy, 8192)
+        assert record is not None and record["model_file"]["suppress_tokens"] == banned
+        result = backend.complete(ids, greedy, stop)
+        assert result.token_ids[0] != before
+        assert result.backend_settings["suppress_tokens"] == {
+            "value": banned,
+            "origin": "model file",
+        }
+        assert result.checks["suppress_tokens"] == {"ok": True}
+    finally:
+        backend.close()
+        (tmp_path / f"{MODEL}-banned.gguf").unlink(missing_ok=True)  # about 270 MB
+
+
 def test_converting_twice_gives_the_same_file(tmp_path, capsys):
     """fetch's convert step, run twice on SmolLM2 into scratch folders, writes the same bytes.
     Whether they also equal models.lock's hash is printed, not asserted: the converter's
