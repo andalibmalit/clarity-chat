@@ -371,7 +371,7 @@ The Transformers backend applies its samplers in a fixed order: penalties, tempe
 
 ## models.toml
 
-Each table is one model, and its name is the model's name in profiles and `clarity fetch`. Quote a name with a dot in it, such as `["bge-small-en-v1.5"]`: in TOML, a bare dot starts a nested table. Every revision is a full 40-character commit hash.
+Each table is one model, and its name is the model's name in profiles and `clarity fetch`. Your own entries go in `local/models.toml`, with the same keys; `clarity fetch` and `clarity verify` write their lock entries to `local/models.lock`, in the same JSON as `models.lock`. A name in both files is an error. Quote a name with a dot in it, such as `["bge-small-en-v1.5"]`: in TOML, a bare dot starts a nested table. Every revision is a full 40-character commit hash.
 
 | Key | Routes | Value |
 |---|---|---|

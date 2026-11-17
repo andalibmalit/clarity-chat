@@ -780,6 +780,8 @@ def load_profile(
 
 # --- models.toml ------------------------------------------------------------------------
 
+LOCAL_MODELS = Path("local") / "models.toml"  # your own entries; the same keys
+
 
 def check_commit(value: object, where: str) -> str:
     if not isinstance(value, str) or not COMMIT_RE.match(value):
@@ -809,7 +811,31 @@ class ModelEntry:
 
 
 def load_models(root: Path) -> dict[str, ModelEntry]:
-    path = root / "models.toml"
+    """models.toml's entries, and your own from local/models.toml (v0.4.0 B4). A name in
+    both is an error: a name must say which entry it means."""
+    models = read_models(root / "models.toml")
+    if (root / LOCAL_MODELS).is_file():
+        yours = read_models(root / LOCAL_MODELS)
+        both = sorted(set(models) & set(yours))
+        if both:
+            raise ConfigError(
+                f"Model {both[0]!r} is in both models.toml and local/models.toml. Rename one "
+                "of them."
+            )
+        models |= yours
+    return models
+
+
+def model_files(root: Path, name: str) -> tuple[str, str]:
+    """The models.toml and lock file that hold a model's entry, for the sentences that name
+    them: local/models.toml and local/models.lock for your own entries."""
+    local = root / LOCAL_MODELS
+    if local.is_file() and name in read_toml(local):
+        return "local/models.toml", "local/models.lock"
+    return "models.toml", "models.lock"
+
+
+def read_models(path: Path) -> dict[str, ModelEntry]:
     data = read_toml(path)
     models = {}
     for name, entry in data.items():

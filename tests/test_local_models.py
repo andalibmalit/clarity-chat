@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -55,14 +57,14 @@ def mine(fetched_root, tmp_path, monkeypatch):
             outfile = Path(command[command.index("--outfile") + 1])
             outfile.write_bytes(b"GGUF converted")
             versions = {"python": "3.13", "packages": {"torch": "0", "transformers": "0"}}
-            Path(command[command.index("--outtype") - 2]).parent.mkdir(exist_ok=True)
             (outfile.parent / "converter-versions.json").write_text(json.dumps(versions))
             self.stdout = iter(())
 
         def wait(self):
             return 0
 
-    monkeypatch.setattr(models.subprocess, "Popen", Converted)
+    stub = SimpleNamespace(Popen=Converted, PIPE=subprocess.PIPE, STDOUT=subprocess.STDOUT)
+    monkeypatch.setattr(models, "subprocess", stub)  # models' own: git and the rest run as usual
     return root
 
 
@@ -139,7 +141,7 @@ def test_a_name_in_both_files_is_refused_naming_both(mine, capsys):
 
 def test_a_bad_entry_of_yours_is_refused_with_its_path(mine):
     (mine / LOCAL_TOML).write_text('[broken]\nroute = "magnet"\n', encoding="utf-8")
-    with pytest.raises(ConfigError, match=r"local/models\.toml \[broken\]: route must be"):
+    with pytest.raises(ConfigError, match=r"local.models\.toml \[broken\]: route must be"):
         load_models(mine)
 
 
