@@ -363,6 +363,29 @@ def test_a_chunk_boundary_inside_a_character_and_crlf_line_ends(monkeypatch, roo
     assert result.text == "a\u2028b" and result.token_ids == [5]
 
 
+def test_a_final_line_with_no_newline_is_read(monkeypatch, root):
+    """The stream-fix review's should 1, parity with httpx's iter_lines: a body whose last
+    line has no "\\n" is still read."""
+    backend = fake_backend(monkeypatch, root, [])
+    real_response(monkeypatch, [sse({"content": "Hi", "tokens": [5]}), sse(FINAL).rstrip(b"\n")])
+    assert read_whole(backend).text == "Hi"
+
+
+def test_an_invalid_byte_reads_as_the_replacement_character(monkeypatch, root):
+    """As httpx's decoder did (errors="replace"): U+FFFD in the text, never an exception."""
+    backend = fake_backend(monkeypatch, root, [])
+    real_response(monkeypatch, [b'data: {"content": "a\xffb", "tokens": [5]}\n\n', sse(FINAL)])
+    assert read_whole(backend).text == "a\ufffdb"
+
+
+def test_a_done_line_in_a_crlf_body_is_skipped(monkeypatch, root):
+    """A "\\r" before "\\n" is dropped, so "data: [DONE]" reads as the end marker it is."""
+    backend = fake_backend(monkeypatch, root, [])
+    body = sse({"content": "Hi", "tokens": [5]}) + b"data: [DONE]\n\n" + sse(FINAL)
+    real_response(monkeypatch, [body.replace(b"\n", b"\r\n")])
+    assert read_whole(backend).text == "Hi"
+
+
 def started_server(monkeypatch, root, startup, props_ok=True, on_change=None, build_info=None):
     """A LlamaServer.start() with every outside step faked: what it launched, and the record."""
     import json
