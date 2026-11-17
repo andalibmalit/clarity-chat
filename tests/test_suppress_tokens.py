@@ -144,6 +144,7 @@ def test_a_count_too_long_for_an_int_is_refused():
     [
         ("arr[i32,2]", "[258883, 2588823"),  # no closing bracket
         ("arr[i32,2]", "x258883, 258882]"),  # no opening bracket
+        ("arr[i32,2]", "258883, 258882]"),  # no opening bracket, nothing in its place
         ("arr[i32,2]", "[a, b]"),  # not integers
         ("arr[i32,2]x", "[258883, 258882]"),  # more after the type
     ],
