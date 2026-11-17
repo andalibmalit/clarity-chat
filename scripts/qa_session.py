@@ -14,23 +14,24 @@ CLARITY_ARGS are relative to ROOT.
 
 The owner allowlists this script to run outside the sandbox, which blocks
 pseudo-terminals and hides the GPU, so it keeps Clarity to the scratch root and to
-SmolLM2 whatever the steps say. Every run rewrites the root's models.toml, models.lock
-and profiles from this checkout, listing SmolLM2 only (Clarity loads models by name
-through models.lock), plus `smol-steer-hf`, steered by the repeng test vector that
-`--init` copies into the root's local/vectors/. It checks that server.toml differs from the
-checkout's in its flags only, that the weights match models.lock's sha256, and that
-nothing in the root is a link (Clarity and the driver follow links, so one could reach a
-private folder). An attachment (`--attach PATH`, a `/attach PATH` step, `attach` in
-`--json`, or a message such as `//attach PATH` that a cancel would put back as that
-command; each step is judged alone, see check_command) must name a file in the root: the
-path as given and as Clarity's own attach_args reads it, with `~` expanded, resolved from
-the root with links followed, with no `..` and not a file with a second name. Otherwise
-Clarity, outside the sandbox, could read a file the sandbox denies into the transcript.
-The document library's reads (v0.3.2: `clarity document add FILE`, `/documents add PATH
-[NAME]` typed, inside a message or in `--json`) are judged by the same rule; `/documents
-add` is judged both whole and with its last word taken as the name, as Clarity may read it.
-Each step is checked again, and the root scanned for links again, just before it's typed;
-a step over 1,000 bytes is refused.
+SmolLM2 whatever the steps say. Every run rewrites the root's models.toml, models.lock and
+profiles from this checkout, listing SmolLM2 only (Clarity loads models by name through
+models.lock), plus `smol-steer-hf`, steered by the repeng test vector that `--init` copies
+into the root's local/vectors/. It checks that server.toml differs from the checkout's in
+its flags only, that the weights match models.lock's sha256, that nothing in the root is a
+link (Clarity and the driver follow links, so one could reach a private folder), and that
+the root has no local/models.toml or local/models.lock (Clarity merges your own model
+entries from them, which a run doesn't rewrite). An attachment (`--attach PATH`, a `/attach
+PATH` step, `attach` in `--json`, or a message such as `//attach PATH` that a cancel would
+put back as that command; each step is judged alone, see check_command) must name a file in
+the root: the path as given and as Clarity's own attach_args reads it, with `~` expanded,
+resolved from the root with links followed, with no `..` and not a file with a second name.
+Otherwise Clarity, outside the sandbox, could read a file the sandbox denies into the
+transcript. The document library's reads (v0.3.2: `clarity document add FILE`, `/documents
+add PATH [NAME]` typed, inside a message or in `--json`) are judged by the same rule;
+`/documents add` is judged both whole and with its last word taken as the name, as Clarity
+may read it. Each step is checked again, and the root scanned for links and your own model
+entries again, just before it's typed; a step over 1,000 bytes is refused.
 `--init` also resets server.toml. Arguments are parsed with Clarity's own parser and
 steps with its own command splitter, so they are checked as Clarity will read them.
 """
@@ -81,6 +82,7 @@ def prepare_root(root: Path, repo: Path = REPO, init: bool = False) -> None:
             (root / name).unlink()
     no_links(root)
     left_server(root)
+    no_local_models(root)
     shutil.copy(repo / "defaults.toml", root / "defaults.toml")
     models = tomllib.loads((repo / "models.toml").read_text(encoding="utf-8"))[QA_MODEL]
     lines = [f"[{QA_MODEL}]", *(f"{k} = {json.dumps(v)}" for k, v in models.items())]
@@ -143,6 +145,16 @@ def no_links(root: Path) -> None:
                 continue
             if stat.S_ISLNK(info.st_mode) or (stat.S_ISREG(info.st_mode) and info.st_nlink > 1):
                 raise Refused(f"{Path(folder) / name} is a link; the root holds plain files only.")
+
+
+def no_local_models(root: Path) -> None:
+    """Clarity merges the root's local/models.toml and local/models.lock (v0.4.0), which this
+    driver doesn't rewrite: a lock entry there could point Clarity at any file. Neither may
+    exist, as a file or a link."""
+    for name in ("models.toml", "models.lock"):
+        path = root / "local" / name
+        if path.exists() or path.is_symlink():
+            raise Refused(f"{path} exists; QA runs on SmolLM2's shipped entry only. Delete it.")
 
 
 def left_server(root: Path) -> None:
@@ -474,6 +486,7 @@ def main() -> int:
                 # planted during the run (say, in a long wait) isn't read.
                 try:
                     no_links(root)
+                    no_local_models(root)
                     check_step(f"step {n}", step, json_mode, root)
                 except Refused as e:
                     log.write(f"[qa: not typed: {e}]\n".encode())
