@@ -36,3 +36,30 @@ def test_no_shipped_file_holds_a_placeholder(path):
     text = path.read_text(encoding="utf-8").lower()
     for word in ("placeholder", "todo", "fixme", "lorem ipsum"):
         assert word not in text, f"{path.name} contains {word!r}"
+
+
+def test_the_tests_of_shipped_files_never_read_your_local_models(monkeypatch, tmp_path):
+    """The whole-branch review's should 2: since B4, load_models and read_lock merge
+    local/models.toml and local/models.lock, which are the owner's own files. The offline
+    tests that read the repo's models read only the shipped ones. Here local/models.toml
+    seems to exist, and reading it fails the test."""
+    from pathlib import Path
+
+    from clarity_chat import models, profiles
+    from tests import test_models, test_recommended
+
+    planted = REPO / "local" / "models.toml"
+    is_file = Path.is_file
+    monkeypatch.setattr(Path, "is_file", lambda p: p == planted or is_file(p))
+    read_toml = profiles.read_toml
+
+    def read(path):
+        assert Path(path) != planted, f"read the owner's {planted}"
+        return read_toml(path)
+
+    monkeypatch.setattr(profiles, "read_toml", read)
+    monkeypatch.setattr(models, "read_toml", read)
+    test_the_config_files_load()
+    test_models.test_the_shipped_models_toml_loads()
+    test_recommended.test_both_llama_profiles_take_meta_s_values_from_the_committed_lock()
+    test_models.test_the_converter_runs_isolated_from_clarity_s_environment(tmp_path, monkeypatch)

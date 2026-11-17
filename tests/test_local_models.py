@@ -212,3 +212,69 @@ def test_a_name_in_neither_file_names_both(mine, chat_tokenizer):
         session.new_conversation("lost")
     (listed,) = [p for p in list_profiles(mine) if p["name"] == "lost"]
     assert "isn't in models.toml or local/models.toml" in listed["error"]
+
+
+# --- the whole-branch review's should 4 (#14) and should 5 ----------------------------------
+
+
+def chat_on_mine(root: Path, tokenizer) -> tuple[Session, Path, str]:
+    """A chat on your my-tiny, with one call: (session, its log, the call's ID)."""
+    fetch(root, "my-tiny")
+    (root / "local" / "profiles").mkdir(exist_ok=True)
+    (root / "local" / "profiles" / "mine.toml").write_text(
+        CHAT_PROFILE.replace('"tiny"', '"my-tiny"'), encoding="utf-8"
+    )
+    backend = FakeBackend([" A.", " A."], tokenizer=tokenizer)
+    session = Session(root, backend=backend, tokenizer_loader=lambda r, v: tokenizer)
+    conversation = session.new_conversation("mine")
+    return session, conversation.log.path, session.say("Hi").record["call_id"]
+
+
+def test_state_6_names_your_file_for_your_entry(mine, chat_tokenizer, monkeypatch, capsys):
+    """#14: the call's entry renamed in local/models.toml; the line names that file."""
+    session, log, call_id = chat_on_mine(mine, chat_tokenizer)
+    session.close()
+    (mine / LOCAL_TOML).write_text(MINE.replace("[my-tiny]", "[my-renamed]"), encoding="utf-8")
+    path = mine / LOCAL_LOCK
+    lock = json.loads(path.read_text(encoding="utf-8"))
+    lock["models"] = {"my-renamed": {**lock["models"]["my-tiny"], "name": "my-renamed"}}
+    path.write_text(json.dumps(lock), encoding="utf-8")
+    again = FakeBackend([" A."], tokenizer=chat_tokenizer)
+    monkeypatch.setattr(
+        cli,
+        "Session",
+        lambda root, logs_dir, on_server=None: Session(
+            root, backend=again, logs_dir=logs_dir, tokenizer_loader=lambda r, v: chat_tokenizer
+        ),
+    )
+    assert cli.main(["--root", str(mine), "replay", str(log), call_id]) == 0
+    assert "Replayed on my-renamed, the local/models.toml entry with this call's file" in (
+        capsys.readouterr().out
+    )
+
+
+def test_a_name_moved_to_your_file_reads_your_lock_only(mine):
+    """#21 (decision 12): tiny is fetched into models.lock; moved to local/models.toml, its
+    entry is read from local/models.lock, where it isn't."""
+    (mine / LOCAL_TOML).write_text(MODELS, encoding="utf-8")
+    (mine / "models.toml").write_text("", encoding="utf-8")
+    assert "tiny" in json.loads((mine / "models.lock").read_text(encoding="utf-8"))["models"]
+    with pytest.raises(ConfigError, match="is not fetched"):
+        lock_entry(mine, loaded(mine, "tiny"))
+
+
+def test_a_stray_entry_in_your_lock_does_not_override_a_shipped_one(mine):
+    """#22: local/models.lock holds tiny (left from an entry since removed), but tiny isn't
+    in local/models.toml: models.lock's entry is the one read."""
+    shipped = json.loads((mine / "models.lock").read_text(encoding="utf-8"))["models"]["tiny"]
+    stray = {**shipped, "gguf": {**shipped["gguf"], "sha256": "9" * 64}}
+    (mine / LOCAL_LOCK).write_text(json.dumps({"models": {"tiny": stray}}), encoding="utf-8")
+    assert read_lock(mine)["models"]["tiny"] == shipped
+
+
+def test_resuming_a_chat_on_your_entry_finds_no_change(mine, chat_tokenizer):
+    """Checks: "resume reports no 'entry has changed'" (where an entry came from isn't
+    logged, so the logged entry and today's compare equal)."""
+    session, log, _ = chat_on_mine(mine, chat_tokenizer)
+    session.new_conversation("chat")
+    assert session.resume(log)["model_entry"] == []
