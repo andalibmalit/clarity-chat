@@ -117,17 +117,6 @@ def test_an_edit_refused_by_search_says_nothing_was_sent(root, chat_tokenizer):
 # --- FC2: /search's counts follow the model's tokenizer
 
 
-def test_search_s_counts_are_counted_again_for_another_tokenizer(
-    root, chat_tokenizer, olmo_tokenizer
-):
-    library_add(root, b"## Wren\nIt sings </s>.\n", "odd.md")
-    session, c, _ = chat(root, chat_tokenizer, 'search = ["odd"]')
-    assert c.run("search", "", quiet)["searching"][0]["control_token_parts"] == 1
-    assert olmo_tokenizer.special_tokens_in("It sings </s>.") == []  # the setup
-    session.tokenizer = olmo_tokenizer
-    assert c.run("search", "", quiet)["searching"][0]["control_token_parts"] == 0
-
-
 # --- FC3: lstat, and a parts file's last newline
 
 

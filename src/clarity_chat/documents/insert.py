@@ -141,14 +141,8 @@ SENTENCES = {
     'a word with your message, best match first; common words such as "the" don\'t count. A '
     "message gets at most {considered} parts and {budget} tokens ({origin}), shared by every "
     "document this chat searches. Added parts stay in the chat with that message.",
-    "control_before": "This file holds text this model reads as control tokens ({tokens}). "
-    "Clarity won't send a message that finds a part holding one: it stops and names the part.",
     "replace_note": "{name} is already in your documents. Adding this file replaces its copy, "
     "text and parts in local/documents/{name}/. Anything else you put in that folder stays.",
-    "control_count": "{n} parts hold a control token for this model. A message that finds one "
-    "isn't sent.",
-    "control_count_one": "1 part holds a control token for this model. A message that finds "
-    "it isn't sent.",
     "searching_some": "Searching: {documents}",
     "searching_none": "Searching: no documents",
     "searching_head": "Searched for each message you send",
@@ -189,14 +183,12 @@ SENTENCES = {
     "found_nothing_added": "nothing added",  # Details' header (N61)
     "found_in_title": "in its title: {words}",
     "found_in_text": "in its text: {words}",
-    "found_already": "already in the chat: not added again",
     "found_left_budget": "{n} more matched but were left out: Clarity adds parts in order and "
     "stops at the first that doesn't fit the budget of {budget} tokens.",
     "found_left_budget_none": "{n} matched but were left out: Clarity adds parts in order and "
     "stops at the first that doesn't fit the budget of {budget} tokens.",
     "found_unconsidered": "{n} more matched but weren't considered: Clarity considers only the "
     "best {considered} matches.",
-    "found_first_count": "The first part's count includes the line Clarity puts before the parts.",
     "found_words": "Words searched: {words}.",
     "found_ignored": "Ignored (common words and single letters or digits): {words}.",
     "found_all_common": "Every word in your message is a common word or a single letter or "
@@ -264,14 +256,6 @@ class Fit:
     fits: bool
     # Not counted, because it surely doesn't fit: the least it can cost (tokens is None).
     at_least: int | None = None
-
-
-def framing_in_first_part(framing: str, attached: bool) -> bool:
-    """Whether a message's first found part counts the framing line in its tokens (the fill
-    adds parts one at a time, so the first part's increment holds what goes before it):
-    only with a framing line and nothing attached, since an attachment already brought the
-    line in (the C1 fix check's should A). C1's try box and C3's list both say it."""
-    return bool(framing) and not attached
 
 
 def framing_of(profile: Profile) -> tuple[str, str]:
@@ -477,7 +461,6 @@ FOUND_PART_TYPES: dict[str, Callable[[Any], bool]] = {
 FOUND_TYPES: dict[str, Callable[[Any], bool]] = {
     "method": lambda v: v == "words",
     "searched_for": lambda v: isinstance(v, str),
-    "scan_depth": _whole_number,
     "words": _strings,
     "ignored": _strings,
     "documents": _dicts(

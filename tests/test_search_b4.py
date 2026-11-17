@@ -99,12 +99,7 @@ def test_document_try_equals_a_new_chat_s_first_message(root, chat_tokenizer):
         if r["type"] == "turn" and r["role"] == "user"
     )
     other = Session(root, tokenizer_loader=lambda r, v: chat_tokenizer)
-    # (found, problem, framed): framed since the part 2 whole-branch review's could 5
-    assert other.try_documents(["glossary"], "chat", "What lives near water?") == (
-        first,
-        None,
-        True,
-    )
+    assert other.try_documents(["glossary"], "chat", "What lives near water?") == (first, None)
 
 
 def test_the_terminal_prints_try_without_the_parts_text(root, chat_tokenizer):

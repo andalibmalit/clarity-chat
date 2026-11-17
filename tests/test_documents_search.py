@@ -92,11 +92,7 @@ def test_the_engine_and_query_are_recorded():
     assert found["documents"] == [
         {"name": "birds", "build_id": DOCS[0].build_id, "original_sha256": "sha-birds"}
     ]
-    assert (found["method"], found["scan_depth"], found["searched_for"]) == (
-        "words",
-        1,
-        'Wren "x" dipper',
-    )
+    assert (found["method"], found["searched_for"]) == ("words", 'Wren "x" dipper')
 
 
 # --- the order and the reasons

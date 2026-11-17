@@ -56,7 +56,7 @@ def test_the_list_gives_one_number_per_part(root, make):  # noqa: F811
     page = thread(client)
     assert "<span>Tokens</span>" not in page and 'class="tk"' not in page
     assert 'class="part already"' not in page
-    assert "1 more already in the chat" in text_of(page)
+    assert "nothing new · 1 already in the chat" in text_of(page)  # the count stays
 
 
 def test_the_cut_sentences_are_gone():

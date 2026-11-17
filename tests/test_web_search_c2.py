@@ -123,16 +123,6 @@ def test_a_file_clarity_can_t_name_asks_for_one(root, make):
     assert "A document's name is 1 to 64 characters" in said
 
 
-def test_control_tokens_are_said_before_the_click(root, make):
-    client, _ = make()
-    upload_id = upload(client, b"## Wren\nIt sings </s>.\n", "odd.md").json()["upload"]
-    assert (
-        "! This file holds text this model reads as control tokens (</s>). Clarity won't send a "
-        "message that finds a part holding one: it stops and names the part."
-        in text_of(search_option(get(client, "attach", upload=upload_id)))
-    )
-
-
 def test_a_text_mode_chat_offers_no_search_it(root, make):
     client, _ = make(profile="text")
     upload_id = upload(client, b"## Heron\nTall.\n", "herons.md").json()["upload"]
@@ -204,15 +194,6 @@ def test_the_chooser_says_each_state_and_its_way_out(root, make):
         "search it again, add the file again with the paperclip's Search it." in said
     )
     assert "owls local/documents/owls/ ! Can’t be read owls's manifest.json can't be read" in said
-
-
-def test_the_chooser_shows_a_control_token_count(root, make):
-    library_add(root, b"## Wren\nIt sings </s>.\n\n## Lark\nIt sings </s> too.\n", "odd.md")
-    client, _ = make('search = ["odd"]')
-    assert (
-        "! 2 parts hold a control token for this model. A message that finds one isn't sent."
-        in text_of(chooser(client))
-    )
 
 
 def test_the_chooser_with_an_empty_library(root, make):

@@ -1034,12 +1034,6 @@ def searching_chooser(state: dict[str, Any], docs: list[dict[str, Any]] | None) 
             row["note"] = SENTENCES["searching_missing"]
         elif d["state"] == "unreadable":  # the reason, then the page's way out (surface S2)
             row["note"] = page_why(d)
-        elif count := d.get("control_token_parts"):
-            row["control"] = (
-                SENTENCES["control_count_one"]
-                if count == 1
-                else SENTENCES["control_count"].format(n=f"{count:,}")
-            )
         chooser["rows"].append(row)
     others = [d for d in docs if d["name"] not in {s["name"] for s in searching}]
     for i, doc in enumerate(others):
@@ -1787,9 +1781,7 @@ async def _attach(worker: Worker, params: dict[str, str | None]) -> str:
         docs = (await result_of(worker, "documents"))["documents"]
         sheet["search"] = search_choice(check, worker.uploads[upload][1], docs, state)
         sheet.update(searched_sentence=SENTENCES["searches_next"],
-                     replaced_sentence=SENTENCES["replaced"],
-                     control_count=SENTENCES["control_count"],
-                     control_count_one=SENTENCES["control_count_one"])  # fmt: skip
+                     replaced_sentence=SENTENCES["replaced"])  # fmt: skip
     return templates.get_template("attach.html").render(error=None, s=sheet)
 
 
@@ -1800,18 +1792,14 @@ def search_choice(
     state: dict[str, Any],
 ) -> dict[str, Any]:
     """The sheet's third choice, "Search it" (v0.3.2 C2): what it does (N2), and where the
-    copy goes (N3), or that it replaces the document of that name (cut 1), or the name box
-    (N9); control tokens before the click (N10)."""
+    copy goes (N3), or that it replaces the document of that name (cut 1), and the name box
+    (N9). A control token is said when a message finds its part (cut 5)."""
     budget = state["budget"]
     origin = SENTENCES["budget_profile" if budget["origin"] == "profile" else "budget_default"]
     note = SENTENCES["search_it"].format(considered=CONSIDERED, budget=f"{budget['tokens']:,}",
                                          origin=origin)  # fmt: skip
-    choice: dict[str, Any] = {"note": note, "ok": True, "name": "", "lines": [], "warn": None,
-                              "why": None, "rule": None}  # fmt: skip
-    if check["control_tokens"]:
-        choice["warn"] = SENTENCES["control_before"].format(
-            tokens=", ".join(dict.fromkeys(check["control_tokens"]))
-        )
+    choice: dict[str, Any] = {"note": note, "ok": True, "name": "", "lines": [], "why": None,
+                              "rule": None}  # fmt: skip
     name, why = document_name(filename, None)
     choice.update(name=name, why=why)
     if why is not None:
@@ -2090,9 +2078,9 @@ def page_why(doc: dict[str, Any]) -> str:
 
 
 def found_view(found: dict[str, Any]) -> dict[str, Any]:
-    """What a search found, from /history's summary of it (session.found_summary), as the
-    try box (C1) and "From documents" (C3) show it: the count, each part with its rank and
-    why, the notes on what was left out, the words."""
+    """What a search found, from /history's summary of it (session.found_summary), as "From
+    documents" (C3) shows it: the count, each part with its rank and why (its tokens are in
+    Details: cut 4), the notes on what was left out, the words."""
     counts = found["left_out"]
     already, budget = counts.get("already in the chat", 0), counts.get("budget", 0)
     words = SENTENCES["found_words"].format(words=", ".join(found["words"]))
@@ -2108,20 +2096,13 @@ def found_view(found: dict[str, Any]) -> dict[str, Any]:
         empty = SENTENCES["found_no_match"].format(documents=documents)
         return {**view, "summary": SENTENCES["found_nothing_matched"], "empty": empty}
     for p in found["parts"]:
-        row = {"rank": p["rank"], "label": part_label(p), "tokens": f"{p['tokens']:,}",
-               "why": match_words(p)}  # fmt: skip
-        view["rows"].append(row)
-    for o in found["already"]:
-        view["rows"].append({"rank": o["rank"], "label": part_label(o), "tokens": "",
-                             "why": SENTENCES["found_already"], "already": True})  # fmt: skip
+        view["rows"].append({"rank": p["rank"], "label": part_label(p), "why": match_words(p)})
     if budget:
         key = "found_left_budget" if found["parts"] else "found_left_budget_none"
         view["notes"].append(SENTENCES[key].format(n=f"{budget:,}", budget=f"{found['budget']:,}"))
     if unconsidered := counts.get("not considered", 0):
         view["notes"].append(SENTENCES["found_unconsidered"].format(
             n=f"{unconsidered:,}", considered=found["considered"]))  # fmt: skip
-    if found["parts"] and found["framed"]:  # the fill's increments: the first holds the line
-        view["notes"].append(SENTENCES["found_first_count"])
     if found["parts"]:
         summary = SENTENCES["found_parts"].format(
             parts=counted(len(found["parts"]), "part"), tokens=f"{found['tokens']:,}"
@@ -2254,8 +2235,8 @@ def send_refusal_lines(
         doc = states.get(p.get("document", ""))
         if p["state"] == "no_fts5":
             still = bool(searching)
-        elif p["state"] == "control_tokens":
-            still = doc is not None and doc.get("control_token_parts", 0) > 0
+        elif p["state"] == "control_tokens":  # no count in advance (cut 5): while searched
+            still = doc is not None
         else:
             still = doc is not None and doc["state"] != "ready"
         if still:

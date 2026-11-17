@@ -15,7 +15,7 @@ import pytest
 
 import clarity_chat
 from clarity_chat.backends import BackendError
-from clarity_chat.cli import ChatLoop, format_history
+from clarity_chat.cli import format_history
 from clarity_chat.commands import Commands
 from clarity_chat.documents import library_add
 from clarity_chat.profiles import ConfigError
@@ -96,23 +96,6 @@ def root(fetched_root):
 
 
 # --- S6: /search's counts in the terminal
-
-
-def test_the_terminal_s_search_line_counts_control_tokens_and_closing_tags(root, chat_tokenizer):
-    library_add(root, b"## Wren\nIt sings </s>.\n\n## Lark\nIt sings </s> too.\n", "odd.md")
-    library_add(root, b"## Heron\nIt stands </part> still.\n", "tags.md")
-    backend = FakeBackend([" R."], tokenizer=chat_tokenizer)
-    session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
-    output: list[str] = []
-    loop = ChatLoop(session, "chat", lambda d: "", output.append)
-    loop.start()
-    output.clear()
-    loop.handle("/search odd tags glossary")
-    assert "".join(output).splitlines() == [
-        "Searching (set in this chat): odd, tags, glossary.",
-        "  odd: 2 parts hold a control token for this model. A message that finds one isn't sent.",
-        "  tags: 1 part holds </part> or </document>; it's sent as it is.",
-    ]
 
 
 # --- S7: /history shows what search added

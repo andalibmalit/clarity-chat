@@ -28,7 +28,6 @@ CODE_EXTENSIONS = frozenset(
     "yaml yml toml".split()
 )
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
-CLOSING_TAGS = ("</part>", "</document>")
 
 
 def is_code(name: str) -> bool:
@@ -130,9 +129,3 @@ def parts_jsonl(parts: list[dict[str, Any]]) -> bytes:
 def build_id(jsonl: bytes) -> str:
     """A build's ID: the sha256 of its parts.jsonl, so it changes iff a part does."""
     return hashlib.sha256(jsonl).hexdigest()
-
-
-def closing_tag_parts(parts: list[dict[str, Any]]) -> list[int]:
-    """The ordinals of parts holding `</part>` or `</document>`, which end Clarity's wrapper
-    early: listed, as v0.3.1 lists `</document>`, and sent as they are."""
-    return [p["ordinal"] for p in parts if any(tag in p["text"] for tag in CLOSING_TAGS)]

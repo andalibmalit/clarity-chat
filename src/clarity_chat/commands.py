@@ -558,18 +558,15 @@ def _try(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     # uploads, so its Commands has them; the terminal and --json name their commands.
     terminal = c.uploads is None
     refused = SearchRefused([problem]).words(terminal) if problem else None
-    assert conversation is not None  # try_search needs one
-    framing, _ = documents.framing_of(conversation.profile)
-    framed = documents.framing_in_first_part(framing, bool(conversation.pending))
-    return {"found": found, "refused": refused, "framed": framed and bool(found["parts"])}
+    return {"found": found, "refused": refused}
 
 
 def document_try(root: Path, names: list[str], profile: str, text: str) -> dict[str, Any]:
     """`clarity document try`: what a first message would find in a new chat on `profile`."""
     session = Session(root)
-    found, problem, framed = session.try_documents(names, profile, text)
+    found, problem = session.try_documents(names, profile, text)
     refused = SearchRefused([problem], where="try").terminal if problem else None
-    return {"found": found, "refused": refused, "framed": framed}
+    return {"found": found, "refused": refused}
 
 
 def _search(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
