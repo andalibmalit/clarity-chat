@@ -221,3 +221,26 @@ def test_a_sleep_lets_the_page_s_requests_through(tmp_path, monkeypatch):
     monkeypatch.setattr(time, "sleep", lambda seconds: waited.append(-seconds))
     qa.run_step(page, "sleep", "2.5", tmp_path, 1)
     assert waited == [2500]
+
+
+@pytest.mark.parametrize("planted", ["local/models.toml", "local/models.lock", "a link"])
+def test_a_file_planted_during_a_run_refuses_the_next_step(tmp_path, planted):
+    """The QA-driver review's must 1 and its link should: Clarity reads the lock afresh at
+    each model start and each time the picker opens, so before each step the root is
+    checked again, as qa_session.py does before typing one. Step 1 runs; something is
+    planted meanwhile; step 2 is refused before the page is touched."""
+    root = tmp_path / "root"
+    root.mkdir()
+    page = FakePage()
+    qa.run_step(page, "fill", "#m :: one", tmp_path, 1, root=root)
+    (root / "local").mkdir()
+    if planted == "a link":
+        try:
+            (root / "local" / "elsewhere").symlink_to(tmp_path)
+        except OSError:
+            pytest.skip("symlinks need privileges on Windows")
+    else:
+        (root / planted).write_text("", encoding="utf-8")
+    with pytest.raises(qa.Refused):
+        qa.run_step(page, "fill", "#m :: two", tmp_path, 2, root=root)
+    assert page.fills == [("#m", "one")]
