@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Output may change
+- llama.cpp moves to v1.0.0 (`b1b770d`): check out that commit and rebuild llama-server, as [Getting started](docs/getting-started.md) shows. CPU replies can differ from ones logged with the old build, since CPU flash attention now sums V in float32 (`7f24aac`); replay lists the build as the difference.
+
 ## [0.3.2] - 2026-11-17
 
 Live tests on an M2 Max (macOS), 2026-11-17, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 25 passed, `-m hf` 20 passed, `-m olmo` 12 passed, `-m llama` 3 passed, and `-m browser` 160 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit).
