@@ -11,7 +11,7 @@ import shutil
 import pytest
 
 from clarity_chat.documents import library_add, library_documents
-from tests.test_browser import open_clarity, shot
+from tests.test_browser import open_clarity, settled, shot, until
 from tests.test_browser_attach import browser_type_launch_args, choose, clarity  # noqa: F401
 
 pytestmark = pytest.mark.browser
@@ -54,9 +54,10 @@ def test_a_taken_name_is_replaced(clarity, page, fetched_root):  # noqa: F811
     assert "glossary is already in your documents." in page.inner_text("#attach-search-note")
     page.click("[data-action=attach-add]")
     page.wait_for_selector("#notice:has-text('from your next message')")
-    assert "Clarity replaced glossary in your documents with this file." in page.inner_text(
-        "#notice"
-    )  # said after, too (cut 2)
+    assert page.inner_text("#notice").strip() == (  # said after, too (cut 2); no "!" (QA C3)
+        "Clarity replaced glossary in your documents with this file. This chat searches "
+        "glossary from your next message."
+    )
     (doc,) = library_documents(fetched_root)
     assert doc["original"] == "glossary.md" and doc["parts"] == 1
 
@@ -145,20 +146,38 @@ def test_a_refused_send_s_stop_searching_it_lets_send_go(clarity, page, fetched_
 
 
 def test_new_chat_with_these_documents_starts_one_that_searches_them(clarity, page, fetched_root):  # noqa: F811
-    library_add(fetched_root, GLOSSARY, "glossary.md")  # the part 2 whole-branch review's S4
+    """QA's path (notes/qa/v0.3.2, page task 9): Search it, a big attachment and its reply,
+    a long message refused for the context, then the button. The new chat searches the
+    documents, and no "Not kept" notice says otherwise (the walkthrough's M3)."""
     redirect, backend = clarity
-    chat(page, redirect)  # the profile searches nothing: the chat's list is the chooser's
-    page.click("#search-button")
-    page.wait_for_selector("#search-menu:not([hidden])")
-    page.click("#search-menu [data-name=glossary]")
-    page.wait_for_selector("#search-button:has-text('Searching: 1 document')")
-    page.keyboard.press("Escape")
-    backend._n_ctx = 60
-    page.fill("#message", "Tell me about the wren " * 4)
+    chat(page, redirect)  # the profile searches nothing: the chat's list is Search it's
+    choose(page, "glossary.md", GLOSSARY)
+    page.wait_for_selector("#attach-search")
+    page.click("#attach-search")
+    page.click("[data-action=attach-add]")
+    page.wait_for_selector("#notice:has-text('from your next message')")
+    choose(page, "big.md", b"".join(b"Made-up line %d.\n" % n for n in range(60)))
+    page.wait_for_selector("#attach-sheet [role=radiogroup]")
+    page.click("[data-action=attach-add]")
+    page.wait_for_selector("#chips .chip")
+    page.fill("#message", "Tell me about the wren")
+    page.click("#send")
+    page.wait_for_selector(".reply.last .tb")
+    settled(page)
+    backend._n_ctx = 60  # the next message doesn't fit
+    page.fill("#message", "Tell me about the dipper " * 4)
     page.click("#send")
     page.wait_for_selector("[data-action=new-with-documents]")
     backend._n_ctx = None  # the new chat starts with the usual context
+    before = page.evaluate("clarity.command('state')")["result"]["conversation_id"]
     page.click("[data-action=new-with-documents]")
-    page.wait_for_selector("#thread .intro")
-    page.wait_for_selector("#search-button:has-text('Searching: 1 document')")
+
+    def started_and_searching() -> bool:  # the button's two commands, both done
+        state = page.evaluate("clarity.command('state')")["result"]
+        names = [d["name"] for d in state["searching"]]
+        return state["conversation_id"] != before and names == ["glossary"]
+
+    until(page, started_and_searching, what="the new chat, searching glossary")
+    settled(page)
+    assert "Searching: 1 document" in page.inner_text("#search-button")
     assert "Not kept" not in page.inner_text("#notice")  # the list is kept (walkthrough M3)
