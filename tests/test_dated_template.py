@@ -23,8 +23,8 @@ from tests.test_json_chat import line, run
 from tests.test_web import GET, ORIGIN, PORT, SECRET, command
 
 DATED = '{{ strftime_now("%d %b %Y") }}\n' + TOY_TEMPLATE
-# As Llama 3.1's: the date only when the caller gives none.
-LLAMA_STYLE = (
+# The date only when the caller gives none.
+DATE_IF_NONE = (
     "{%- if not date_string is defined %}"
     '{%- set date_string = strftime_now("%d %b %Y") %}'
     "{%- endif %}Today: {{ date_string }}\n" + TOY_TEMPLATE
@@ -36,7 +36,7 @@ WARNING = "can write today's date"
 
 def test_a_template_calling_strftime_now_writes_the_date():
     assert writes_date(DATED)
-    assert writes_date(LLAMA_STYLE)
+    assert writes_date(DATE_IF_NONE)
 
 
 @pytest.mark.parametrize("template", [TOY_TEMPLATE, NAMES_DATE_STRING, COMMENT])

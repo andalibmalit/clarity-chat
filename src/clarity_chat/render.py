@@ -511,7 +511,7 @@ def writes_date(template_text: str) -> bool:
     """Whether the chat template can write today's date: it calls strftime_now, which
     Transformers gives templates as a global (the machine's local time). Its globals are left
     out of find_undeclared_variables, so the parse's names are walked instead. "Can": a
-    Llama-style template skips the call when given date_string."""
+    template may skip the call, say when the caller gives a date."""
     from jinja2 import nodes
     from transformers.utils.chat_template_utils import _compile_jinja_template
 

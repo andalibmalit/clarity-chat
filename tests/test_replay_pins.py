@@ -183,7 +183,8 @@ def test_state_8_no_name_and_no_file_lists_the_pins(logged, monkeypatch, tiny_to
         assert key in out.err, key
     for value in (*PINS.values(), SHA, "f" * 40):  # f*40: converted_with's llama.cpp commit
         assert value in out.err, value
-    assert "add an entry with these pins to local/models.toml and fetch it" in out.err
+    assert "add an entry with this route, repo, revision, tokenizer_repo and" in out.err
+    assert "to local/models.toml and fetch it" in out.err
     assert "isn't in models.toml" not in out.err
 
 

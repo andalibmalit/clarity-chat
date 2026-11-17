@@ -10,7 +10,7 @@ A chat-mode profile uses the model's chat template:
 
 ```toml
 backend = "llama.cpp"
-model = "smollm2-135m-instruct"   # a name from models.toml
+model = "smollm2-135m-instruct"   # a name from models.toml or local/models.toml
 mode = "chat"
 system = "You answer in one sentence."    # or { file = "PATH" }; leave out for none
 priming = [                                # earlier messages placed before the conversation
@@ -74,7 +74,7 @@ To see what a chat template contributes, compare a text profile with a chat prof
 
 ## Use a model's recommended settings
 
-Add `use_recommended = true` to a profile. Every setting the profile leaves out then comes from the model's own `generation_config.json`, at the commit pinned in `models.toml`, before falling back to `defaults.toml`.
+Add `use_recommended = true` to a profile. Every setting the profile leaves out then comes from the model's own `generation_config.json`, at the commit pinned in the model's entry (`models.toml` or `local/models.toml`), before falling back to `defaults.toml`.
 
 `/settings` marks these values with origin `model`, and lists what the model recommends whether or not you use it. Only sampling values carry over: `repetition_penalty` becomes `repeat_penalty`, and `do_sample = false` becomes temperature 0. Everything else, including `max_new_tokens`, is listed as not applied.
 
