@@ -219,3 +219,18 @@ def test_the_v0_3_1_golden_log_holds_a_whole_attachment_and_an_excerpt():
     calls = [r for r in rows if r["type"] == "call"]
     assert all(any(s.get("added") for s in c["message_spans"]) for c in calls)
     assert {"mark", "note", "replay"} <= {r["type"] for r in rows}
+
+
+def test_the_v0_3_2_golden_log_holds_a_search_found_parts_and_a_miss():
+    rows = list(read_records(GOLDEN / "v0.3.2.jsonl"))
+    assert [r["documents"] for r in rows if r["type"] == "search"] == [["glossary"], []]
+    searched = [r for r in rows if r["type"] == "turn" and "found" in r]
+    assert [t["text"] for t in searched] == ["Tell me about the wren", "Any herons?"]
+    hit, miss = (t["found"] for t in searched)
+    assert [p["id"] for p in hit["parts"]] == ["glossary:2"] and hit["parts"][0]["text"]
+    assert [d["name"] for d in hit["documents"]] == ["glossary"]
+    assert (miss["matched"], miss["parts"]) == (0, [])
+    calls = [r for r in rows if r["type"] == "call"]
+    assert any(a["what"] == "part" for s in calls[0]["message_spans"] for a in s.get("added", []))
+    replay = next(r for r in rows if r["type"] == "replay")
+    assert replay["identical"] and replay["call_id"] == calls[0]["call_id"]
