@@ -346,6 +346,12 @@ def test_replace_says_it_replaces_before_and_after(root, tmp_path, capsys):
     path = file(tmp_path, "notes.md", "Made-up.\n")
     assert cli.main(["--root", str(root), "document", "add", path]) == 0
     capsys.readouterr()
+    file(
+        tmp_path,
+        "notes.md",
+        "Made-up again.\n",
+        # Other bytes: the same bytes add nothing (the part 2 whole-branch review's could 8).
+    )
     assert cli.main(["--root", str(root), "document", "add", path, "--replace"]) == 0
     out = capsys.readouterr().out.splitlines()  # "Reading …" only if it's read again
     assert out[-2] == (

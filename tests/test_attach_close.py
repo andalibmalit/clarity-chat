@@ -461,7 +461,7 @@ def test_the_slow_line_says_it_s_the_read_that_stops():
 
 def test_reference_says_tokens_aren_t_a_sum_and_a_failed_message_s_come_back():
     text = (ROOT / "docs" / "reference.md").read_text(encoding="utf-8")
-    assert "so they don't add up to the prompt's cost" in text
+    assert "so they needn't add up to what the message sent" in text  # part 2 review's S5
     assert "including any you removed before quitting" in text
 
 

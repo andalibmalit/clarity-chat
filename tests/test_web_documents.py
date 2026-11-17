@@ -147,10 +147,10 @@ def test_rebuild_s_notice_is_its_result_and_says_when_pages_were_dropped(root, m
     client, _ = make()
     result = command(client, "documents", "rebuild guide").json()["result"]
     assert result["pages_dropped"] is True
-    said = text_of(page(client))
+    said = text_of(page(client, notice="1"))  # the page's own Rebuild (part 2 review's S2)
     assert format_rebuilt(result) in said
     assert said.count("Its parts no longer have page numbers.") == 1
-    assert "Rebuilt guide" not in text_of(page(client))
+    assert "Rebuilt guide" not in text_of(page(client, notice="1"))
 
 
 # --- Add
@@ -215,7 +215,7 @@ def test_added_s_notice_offers_search_it_in_this_chat(root, make):
         "upload"
     ]
     command(client, "documents", f"add {upload_id} herons")
-    fragment = page(client)
+    fragment = page(client, notice="1")  # the page's own Add (part 2 review's S2)
     assert (
         "Added herons. Clarity wrote local/documents/herons/: original.txt, text.md, parts.jsonl "
         "and manifest.json (2 parts, 2 with a title)." in text_of(fragment)
@@ -229,7 +229,7 @@ def test_with_no_chat_open_added_s_notice_has_no_search_button(root, make):
     client, _ = make(chat=False)
     upload_id = upload(client, b"## Heron\nTall.\n", "herons.md").json()["upload"]
     command(client, "documents", f"add {upload_id} herons")
-    fragment = page(client)
+    fragment = page(client, notice="1")  # the page's own Add (part 2 review's S2)
     assert "Added herons." in text_of(fragment)
     assert "documents-search-here" not in fragment
 
@@ -245,7 +245,7 @@ def test_added_s_notice_has_no_search_button_when_the_chat_searches_it(root, mak
     page(client)  # the first Added notice is drawn and spent
     upload_id = upload(client, b"## Heron\nTall.\n", "herons.md").json()["upload"]
     command(client, "documents", f"add {upload_id} herons")
-    fragment = page(client)
+    fragment = page(client, notice="1")  # the page's own Add (part 2 review's S2)
     assert "Added herons." in text_of(fragment)
     assert "documents-search-here" not in fragment
 

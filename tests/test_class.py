@@ -345,6 +345,9 @@ TERMINAL_ONLY = {
     "Usage: /branches [all]": "the page sends none, or all",
     "Usage: /edit [--drop N]... TEXT": "the page's Edit sends no empty text",
     "--drop : this message has no attachments.": "the page's × is drawn only on attachments",
+    "The framing line isn't set in this chat. Usage: /framing [TEXT | none]": (
+        "the page's Back to the profile's line shows only once the chat has its own line"
+    ),
     "--drop : this message has . Use a number from 1 to .attachment": (
         "the page's × sends the place of an attachment it drew"
     ),
@@ -382,7 +385,7 @@ TERMINAL_ONLY = {
         "the page switches to turns it drew from /branches; a stale one needs another tab, "
         "which the page refuses"
     ),
-    "Usage: /documents [add PATH [NAME] [--replace] | rebuild NAME]": (
+    "Usage: /documents [add [--replace] PATH [NAME] | rebuild NAME]": (
         "the page sends /documents, add with an upload ID, or rebuild with a listed name"
     ),
     "The Transformers backend needs torch: run `uv sync --extra hf`.": (

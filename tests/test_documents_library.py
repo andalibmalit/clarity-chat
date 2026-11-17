@@ -125,7 +125,11 @@ def test_add_twice_is_refused_without_replace(root, tmp_path):
     document_add(root, path)
     before = library(root)
     with pytest.raises(DocumentRefused, match="^There's already a document named notes."):
-        document_add(root, path)
+        document_add(
+            root,
+            file(tmp_path, "notes.md", "Made-up again.\n"),
+            # Other bytes: the same bytes add nothing (the part 2 whole-branch review's could 8).
+        )
     assert library(root) == before
 
 
@@ -369,8 +373,15 @@ def test_the_subcommands_say_what_they_write(root, tmp_path, capsys):
         "Clarity wrote local/documents/glossary/: original.txt, text.md, parts.jsonl and "
         "manifest.json (3 parts, 3 with a title).",
     ]
-    assert cli.main(["--root", str(root), "document", "add", path]) == 1
+    other = file(
+        tmp_path,
+        "Glossary.md",
+        "## Other\nMade-up.\n",
+        # Other bytes: the same bytes add nothing (the part 2 whole-branch review's could 8).
+    )
+    assert cli.main(["--root", str(root), "document", "add", other]) == 1
     assert "There's already a document named glossary." in capsys.readouterr().err
+    file(tmp_path, "Glossary.md", GLOSSARY)  # back, for the rest
     assert cli.main(["--root", str(root), "document", "list"]) == 0
     assert capsys.readouterr().out.strip().endswith("3 parts, 3 titled  ready")
     assert cli.main(["--root", str(root), "document", "list", "--json"]) == 0

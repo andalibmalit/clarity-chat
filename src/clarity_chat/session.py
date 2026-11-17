@@ -932,10 +932,11 @@ class Session:
 
     def try_documents(
         self, names: list[str], profile_name: str, text: str, where: str = "try"
-    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
+    ) -> tuple[dict[str, Any], dict[str, Any] | None, bool]:
         """`clarity document try`: what a first message with `text` would find in `names` in
-        a new chat on `profile_name`, counted with its tokenizer, with no model. A run's
-        pre-check says `where` "run": its names are the profile's list."""
+        a new chat on `profile_name`, counted with its tokenizer, with no model, the problem
+        Send would refuse it for, and whether the first part's count holds the framing line.
+        A run's pre-check says `where` "run": its names are the profile's list."""
         for name in names:
             checked_library_name(name)
         if named_twice(names) is not None:
@@ -956,7 +957,8 @@ class Session:
             {**fields, "placement": profile.placement},
             where=where,
         )
-        return found, self._control_token_problem(found, tokenizer)
+        problem = self._control_token_problem(found, tokenizer)
+        return found, problem, framing_in_first_part(framing, False)  # nothing attached
 
     def room(
         self,
@@ -1471,10 +1473,11 @@ class Session:
             }
         )
 
-    def framing(self) -> tuple[str, str]:
+    def framing(self, conversation: Conversation | None = None) -> tuple[str, str]:
         """The line a message's block starts with, and where it comes from: this chat's
-        (`chat`, set with /framing), else the profile's or Clarity's default."""
-        conversation = self._require_conversation()
+        (`chat`, set with /framing), else the profile's or Clarity's default. /state passes
+        the conversation it holds: another thread can be switching the session's."""
+        conversation = conversation or self._require_conversation()
         if conversation.chat_framing is not None:
             return conversation.chat_framing, "chat"
         return framing_of(conversation.profile)
@@ -1488,15 +1491,19 @@ class Session:
                 "The framing line needs a chat-mode profile; "
                 f"{conversation.profile.name} is in text mode."
             )
+        if line is None and conversation.chat_framing is None:  # as /set NAME alone (could 7)
+            raise ConfigError(
+                "The framing line isn't set in this chat. Usage: /framing [TEXT | none]"
+            )
         conversation.chat_framing = line
         return conversation.log.append(
             {"type": "framing", "conversation_id": conversation.conversation_id, "framing": line}
         )
 
-    def budget(self) -> tuple[int, str]:
+    def budget(self, conversation: Conversation | None = None) -> tuple[int, str]:
         """Search's budget for a message, and where it comes from: the profile, or Clarity's
         default."""
-        return budget_of(self._require_conversation().profile)
+        return budget_of((conversation or self._require_conversation()).profile)
 
     def aside(self) -> int:
         """What a suggested start leaves free for search: the budget, when this chat searches
@@ -1504,14 +1511,15 @@ class Session:
         conversation = self.conversation
         return self.budget()[0] if conversation is not None and conversation.searching else 0
 
-    def searching(self) -> list[dict[str, Any]]:
+    def searching(self, conversation: Conversation | None = None) -> list[dict[str, Any]]:
         """The documents this chat searches, each with its state (ready, changed, missing or
         unreadable) and, when ready, how many of its parts hold this model's control tokens
         (which stop a call, decision 12) and how many hold </part> or </document>."""
-        if self.conversation is None:
+        conversation = conversation or self.conversation
+        if conversation is None:
             return []
         found = []
-        for name in self.conversation.searching:
+        for name in conversation.searching:
             state = library_state(self.root, name)
             entry: dict[str, Any] = {"name": name, "state": state}
             try:

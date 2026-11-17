@@ -13,7 +13,6 @@ from typing import Any
 
 from clarity_chat.backends import BackendError
 from clarity_chat.commands import (
-    DROP,
     SENTENCES,
     TAKEN,
     Commands,
@@ -29,6 +28,7 @@ from clarity_chat.commands import (
     format_rebuilt,
     how_words,
     read_files,
+    split_drops,
     summaries,
 )
 from clarity_chat.logs import torn_message
@@ -722,7 +722,7 @@ class ChatLoop:
             self.write(said + "\n")
         elif name == "try":
             self.write(format_tried(result) + "\n")
-        elif name == "documents" and "added" in result:
+        elif name == "documents" and ("added" in result or "existing" in result):
             self.write(format_added(result) + "\n")
         elif name == "documents" and "rebuilt" in result:
             self.write(format_rebuilt(result) + "\n")
@@ -798,9 +798,12 @@ class ChatLoop:
         """/edit with no text prefills your last message to edit, then runs the command;
         `--drop N` before it is kept (Q2)."""
         conversation = self.session.conversation
-        drops = ""
-        while (found := DROP.match(arg)) is not None:
-            drops, arg = f"{drops}--drop {found[1]} ", arg[found.end() :]
+        try:
+            numbers, arg = split_drops(arg)
+        except ConfigError as e:
+            self.write(f"! {e}\n")
+            return True
+        drops = "".join(f"--drop {n} " for n in numbers)
         if not arg and conversation is not None:
             try:
                 reply = conversation.current_reply("edit the message of")

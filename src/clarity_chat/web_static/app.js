@@ -1583,19 +1583,30 @@ document.addEventListener("change", (event) => {
   if (["attach-from", "attach-to"].includes(event.target.id)) rangeChanged();
 });
 
+function showReplace(button, holder, box) {
+  // Q12's Replace (the sheet's Search it, Documents… → Add): the note says what's
+  // overwritten, and the next add replaces the name it named.
+  $(button.getAttribute("aria-controls")).hidden = false;
+  button.setAttribute("aria-expanded", "true");
+  holder.dataset.replace = "true";
+  box.value = box.defaultValue;
+}
+
+function addCommand(holder, upload, box) {
+  // /documents add for an upload and the name in its box; --replace only after Replace and
+  // while the box still holds the name its note named (the flag goes first: could 9).
+  const name = box ? box.value.trim() : "";
+  const replace = holder.dataset.replace === "true" && box && name === box.defaultValue;
+  return ["add", ...(replace ? ["--replace"] : []), upload, name].join(" ").trim();
+}
+
 async function searchIt(choice) {
-  // "Search it" (v0.3.2 C2): the file into your documents (unless the same file is there),
-  // then /search with the chat's list and it; the notice says so, with its control-token
-  // count from /search's answer.
-  const existing = choice.dataset.existing;
-  const name = existing || $("attach-search-name").value.trim();
-  if (!existing) {
-    // Replace writes over only the document its note named, not a name typed since.
-    const replace = choice.dataset.replace === "true" && name === $("attach-search-name").defaultValue;
-    const words = ["add", choice.dataset.args, name, ...(replace ? ["--replace"] : [])];
-    const added = await command("documents", words.join(" ")).catch(unanswered);
-    if (added.error || added.handled) return added;
-  }
+  // "Search it" (v0.3.2 C2): the file into your documents, then /search with the chat's
+  // list and it; the notice says so, with its control-token count from /search's answer.
+  // The same bytes are already there: /documents add says so (`existing`, could 8).
+  const added = await command("documents", addCommand(choice, choice.dataset.args, $("attach-search-name"))).catch(unanswered);
+  if (added.error || added.handled) return added;
+  const name = added.result.existing || added.result.added.name;
   const answer = await command("search", [...new Set([...searchedNames(), name])].join(" ")).catch(unanswered);
   if (answer.error || answer.handled) return answer;
   const box = $("attach-search-note");
@@ -1835,7 +1846,7 @@ async function documentsCommand(name, args, after) {
     documentsRefused(answer.error);
     return;
   }
-  await openDocuments(after(answer.result));
+  await openDocuments({ ...after(answer.result), ...(name === "documents" ? { notice: "1" } : {}) });
   if (name === "search") refresh();
 }
 
@@ -1864,12 +1875,7 @@ async function documentsUpload(file) {
 }
 
 function documentsAdd(form) {
-  const name = $("documents-name").value.trim();
-  const upload = form.dataset.upload;
-  // Replace writes over only the document its note named, not a name typed since.
-  const replace = form.dataset.replace === "true" && name === $("documents-name").defaultValue;
-  const words = ["add", upload, name, ...(replace ? ["--replace"] : [])];
-  documentsCommand("documents", words.join(" "), () => ({})); // the notice is its result
+  documentsCommand("documents", addCommand(form, form.dataset.upload, $("documents-name")), () => ({})); // the notice is its result
 }
 
 function documentsSearch(names, after) {
@@ -1894,20 +1900,17 @@ function showFound(key, on) {
 
 async function fixCommand(name, args) {
   // A command from a button in the thread: a refusal is a notice; the thread is drawn again.
+  // False when the page handled the answer (a lost key), so nothing more is drawn.
   const answer = await command(name, args).catch(unanswered);
-  if (answer.handled) return;
+  if (answer.handled) return false;
   if (answer.error) notice("!", answer.error);
   await refresh();
+  return true;
 }
 
 async function chooserCommand(name, args) {
-  // A command from the chooser: the row under the box is drawn again from /state and the
-  // chooser opens again on it; a refusal is a notice.
-  const answer = await command(name, args).catch(unanswered);
-  if (answer.handled) return;
-  if (answer.error) notice("!", answer.error);
-  await refresh();
-  await openChooser();
+  // A command from the chooser: as a thread button's, then the chooser opens again.
+  if (await fixCommand(name, args)) await openChooser();
 }
 
 function searchedNames() {
@@ -2207,20 +2210,8 @@ const THREAD = {
     if (element.dataset.counted === "false") rangeChanged(); // the part: count its boxes (should 4)
   },
   "attach-preview": () => showPreview($("attach-preview").hidden),
-  "attach-replace": (element) => {
-    // Q12: Replace, once its sentence says what's overwritten; Search it then replaces.
-    $("attach-replace-note").hidden = false;
-    element.setAttribute("aria-expanded", "true");
-    $("attach-search").dataset.replace = "true";
-    $("attach-search-name").value = element.closest(".name").querySelector("input").defaultValue;
-  },
-  "documents-replace": (element) => {
-    // Q12 on Add (the board's ⑧): the note says what's overwritten; Add then replaces it.
-    $("documents-replace-note").hidden = false;
-    element.setAttribute("aria-expanded", "true");
-    $("documents-add-form").dataset.replace = "true";
-    $("documents-name").value = $("documents-name").defaultValue;
-  },
+  "attach-replace": (element) => showReplace(element, $("attach-search"), $("attach-search-name")),
+  "documents-replace": (element) => showReplace(element, $("documents-add-form"), $("documents-name")),
   "attach-add": () => addAttachment(),
   "attach-cancel": () => cancelRead(),
   "reading-cancel": async (element) => {
@@ -2282,7 +2273,7 @@ document.addEventListener("submit", (event) => {
   } else if (form.matches("[data-edit]")) {
     const text = form.querySelector("textarea").value;
     const dropped = [...form.querySelectorAll(".keeps .chip[hidden] .x")].flatMap((x) => ["--drop", x.dataset.n]);
-    if (text) write("edit", [...dropped, text].join(" "), text);
+    if (text.trim()) write("edit", [...dropped, text].join(" "), text); // never a blank edit (S1)
   } else if (form.matches("[data-more]")) {
     const n = form.querySelector("input").value;
     closeReplies(false);

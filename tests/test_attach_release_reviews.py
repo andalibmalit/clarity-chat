@@ -47,10 +47,12 @@ NEW = {
     "stays_waiting": "{names} stays waiting for your next message.",
     "stay_waiting": "{names} stay waiting for your next message.",
     "chip_tokens": "{tokens} tokens when attached",
+    # The part 2 whole-branch review's S5: the line then in use, and no recount.
     "attachments_caption": "Your message's line counts each attachment as it cost when it was "
     "attached: its block and the blank line after it (not highlighted here). The first "
-    "attachment in a message also counts the framing line and its blank line, when the "
-    "profile has one.",
+    "attachment in a message also counts the framing line then in use and its blank line. A "
+    "later change to the framing line, or an edit that leaves an attachment out, doesn't "
+    "recount them; this table shows what each span holds.",
     "highlight_added": "Highlighted: the framing line and documents Clarity put in your messages.",
     "too_long": "It's {over} tokens too long.",
     "stop_advice": "Shorten your message, start a new chat, or lower max_tokens.",
