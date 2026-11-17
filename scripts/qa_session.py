@@ -154,7 +154,10 @@ def no_local_models(root: Path) -> None:
     for name in ("models.toml", "models.lock"):
         path = root / "local" / name
         if path.exists() or path.is_symlink():
-            raise Refused(f"{path} exists; QA runs on SmolLM2's shipped entry only. Delete it.")
+            raise Refused(  # local/NAME as the docs write it, the same on every system
+                f"local/{name} exists in {root}; QA runs on SmolLM2's shipped entry only. "
+                "Delete it."
+            )
 
 
 def left_server(root: Path) -> None:
