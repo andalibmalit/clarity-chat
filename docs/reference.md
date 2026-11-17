@@ -347,7 +347,7 @@ The attach sheet's "Search it", the Searching chooser, a reply's "From documents
 
 ## Settings
 
-Settings use the same names on every backend. Each resolved value records its origin: `profile`, `model` (from `use_recommended`), `default` (from `defaults.toml`), `server.toml` (`ctx_size` only: a profile without one), `chat` (set with `/set` for one conversation), `log` (a resumed conversation's context size, from its log), `regen` (a `/regen` seed) or `run` (a batch-run seed). Fixed values Clarity sends for a backend's other fields have origin `backend`. On llama.cpp, a model file that bans tokens adds `suppress_tokens` to `backend_settings` with origin `model file`: llama-server applies the file's ban to every reply, and no request can lift it.
+Settings use the same names on every backend. Each resolved value records its origin: `profile`, `model` (from `use_recommended`), `default` (from `defaults.toml`), `server.toml` (`ctx_size` only: a profile without one), `chat` (set with `/set` for one conversation), `log` (a resumed conversation's context size, from its log), `regen` (a `/regen` seed) or `run` (a batch-run seed). Fixed values Clarity sends for a backend's other fields have origin `backend`. On llama.cpp, a model file that bans tokens adds `suppress_tokens` to `backend_settings` with origin `model file`.
 
 | Setting | What it does | Value | Neutral (`defaults.toml`) | Needs sampler |
 |---|---|---|---|---|
@@ -569,7 +569,7 @@ Checks after each call:
 | `tokens_evaluated` | The server read as many prompt tokens as were sent. | The server read a different number of prompt tokens than were sent. |
 | `no_cache_reuse` | No prompt tokens came from a cache. | Some prompt tokens came from a cache. |
 | `server_running` | The llama-server process Clarity started is still running. | The model’s server had stopped. The reply is complete, but the next message needs the server started again. |
-| `suppress_tokens` | llama.cpp only, on a model file that bans tokens (tokenizer.ggml.suppress_tokens): no banned token is in the reply. | A token the model file bans is in the reply, so llama-server didn’t apply the ban. |
+| `suppress_tokens` | llama.cpp only, on a model file that bans tokens (tokenizer.ggml.suppress_tokens): no banned token is in the reply. | A token on the recorded ban list is in the reply: llama-server didn’t apply that list. |
 | `server_props` | Logs before v0.2.1 only: after the call, /props showed the server still running, with the model and context size it started with. | After the call, the server had stopped, /props named another model or context size, or /props couldn’t be read. |
 | `generation_config` | Transformers only: the effective generation config equals what was sent. | Transformers’ generation settings differed from what was sent. |
 | `steering` | Transformers only, on a steered call: every forward pass ran each steered block exactly once, and there was a pass for every generated token. | A forward pass didn’t run each steered block exactly once, or a generated token had no pass. |
