@@ -574,3 +574,15 @@ def test_the_branches_button_says_whether_its_panel_is_open(clarity, page):
     assert page.get_attribute("#branches-button", "aria-expanded") == "true"
     page.click("#panel [data-action=panel-close]")
     until(page, lambda: page.get_attribute("#branches-button", "aria-expanded") == "false")
+
+
+def test_at_390_px_a_chip_keeps_its_file_name(clarity, page):  # the walkthrough's S10
+    redirect, _ = clarity
+    page.set_viewport_size({"width": 390, "height": 800})
+    chat(page, redirect)
+    choose(page, "trail-notes.md", NOTES)
+    ready(page)
+    page.click("[data-action=attach-add]")
+    page.wait_for_selector("#chips .chip")
+    cut = page.eval_on_selector("#chips .chip .nm", "e => e.scrollWidth > e.clientWidth + 1")
+    assert not cut, page.text_content("#chips")
