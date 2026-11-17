@@ -112,8 +112,9 @@ class Stream:
     def __exit__(self, *exc: Any) -> bool:
         return False
 
-    def iter_lines(self):
-        yield from self.lines
+    def iter_bytes(self):  # as llama-server's body arrives: lines, each ending "\n"
+        for line in self.lines:
+            yield line.encode("utf-8") + b"\n"
 
 
 def fake_llama(

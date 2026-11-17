@@ -18,6 +18,9 @@ Two headings are Clarity's own, used when they apply:
 - The terminal's `/prompt` shows each control character but newline and tab, and each text-direction control, as ⟨U+001B⟩, so text in a prompt can't recolour or rewrite the terminal. The text sent and logged, `/prompt repr` and `--json` are unchanged.
 - Docs: the llama.cpp build lines no longer download llama.cpp's web UI (`-DLLAMA_USE_PREBUILT_UI=OFF`), whose download from Hugging Face fails today; Clarity runs llama-server without it.
 
+### Fixed
+- On llama.cpp, a reply or message holding U+2028, U+2029 or U+0085 (characters that some tools treat as line breaks) no longer fails the call with "llama-server sent a malformed stream chunk" and loses the reply. Clarity now splits llama-server's stream on newlines only.
+
 ### Output may change
 - llama.cpp moves to v1.0.0 (`b1b770d`): check out that commit and rebuild llama-server, as [Getting started](docs/getting-started.md) shows. CPU replies can differ from ones logged with the old build, since CPU flash attention now sums V in float32 (`7f24aac`); replay lists the build as the difference.
 
