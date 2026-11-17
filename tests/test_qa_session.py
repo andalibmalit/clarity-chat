@@ -352,3 +352,13 @@ def test_steering_scale_goes_under_the_settings_header_not_a_mention(root, repo)
     qa.prepare_root(root, repo, init=False)
     steer = tomllib.loads((root / "profiles" / "smol-steer-hf.toml").read_text(encoding="utf-8"))
     assert steer["settings"]["steering_scale"] == 4.0
+
+
+def test_each_step_is_checked_for_links_and_your_model_entries_before_typing():
+    """The QA-driver review's should 2: the pseudo-terminal loop is awkward to drive in a
+    test, so this row holds main to both per-step checks, beside the step's own."""
+    import inspect
+
+    loop = inspect.getsource(qa.main)
+    for check in ("no_links(root)", "no_local_models(root)", "check_step("):
+        assert check in loop, check
