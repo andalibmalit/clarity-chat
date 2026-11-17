@@ -161,3 +161,4 @@ def test_new_chat_with_these_documents_starts_one_that_searches_them(clarity, pa
     page.click("[data-action=new-with-documents]")
     page.wait_for_selector("#thread .intro")
     page.wait_for_selector("#search-button:has-text('Searching: 1 document')")
+    assert "Not kept" not in page.inner_text("#notice")  # the list is kept (walkthrough M3)
