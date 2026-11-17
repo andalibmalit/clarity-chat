@@ -89,8 +89,8 @@ def test_search_it_is_the_sheet_s_third_choice_and_says_where_the_copy_goes(root
     said = text_of(search_option(sheet))
     assert said.startswith("Search it " + N2)
     assert (
-        "Clarity keeps a copy in local/documents/herons/: the file, its text, its parts and a "
-        "record of them. A document that already has the name in the box is replaced." in said
+        "Clarity keeps a copy in local/documents/, under the name in the box. A document that "
+        "already has that name is replaced." in said
     )
 
 
@@ -110,8 +110,8 @@ def test_a_taken_name_says_it_will_be_replaced(root, make):  # cut 1
     said = text_of(option)
     assert re.search(r'<input[^>]*id="attach-search-name"[^>]*value="glossary"', option)
     assert (
-        "glossary is already in your documents. Adding this file replaces its copy, text and "
-        "parts in local/documents/glossary/. Anything else you put in that folder stays." in said
+        "Clarity keeps a copy in local/documents/, under the name in the box. A document that "
+        "already has that name is replaced." in said
     )
 
 

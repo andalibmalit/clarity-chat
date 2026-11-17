@@ -1780,37 +1780,23 @@ async def _attach(worker: Worker, params: dict[str, str | None]) -> str:
     typed = (params["first"], params["last"]) if part_error else None
     sheet = attach_sheet(check, upload, state["pending"], part_error, typed)
     if state["mode"] == "chat" and upload in worker.uploads:  # C2: "Search it"
-        docs = (await result_of(worker, "documents"))["documents"]
-        sheet["search"] = search_choice(check, worker.uploads[upload][1], docs, state)
+        sheet["search"] = search_choice(worker.uploads[upload][1], state)
         sheet.update(searched_sentence=SENTENCES["searches_next"],
                      replaced_sentence=SENTENCES["replaced"])  # fmt: skip
     return templates.get_template("attach.html").render(error=None, s=sheet)
 
 
-def search_choice(
-    check: dict[str, Any],
-    filename: str,
-    docs: list[dict[str, Any]],
-    state: dict[str, Any],
-) -> dict[str, Any]:
-    """The sheet's third choice, "Search it" (v0.3.2 C2): what it does (N2), and where the
-    copy goes (N3), or that it replaces the document of that name (cut 1), and the name box
-    (N9). A control token is said when a message finds its part (cut 5)."""
+def search_choice(filename: str, state: dict[str, Any]) -> dict[str, Any]:
+    """The sheet's third choice, "Search it" (v0.3.2 C2): what it does (N2), where the copy
+    goes, whatever the box names, a document of that name replaced (the page QA's should
+    2), and the name box (N9). A control token is said when a message finds its part."""
     budget = state["budget"]
     origin = SENTENCES["budget_profile" if budget["origin"] == "profile" else "budget_default"]
     note = SENTENCES["search_it"].format(considered=CONSIDERED, budget=f"{budget['tokens']:,}",
                                          origin=origin)  # fmt: skip
-    choice: dict[str, Any] = {"note": note, "ok": True, "name": "", "lines": [], "why": None,
-                              "rule": None}  # fmt: skip
     name, why = document_name(filename, None)
-    choice.update(name=name, why=why)
-    if why is not None:
-        choice["rule"] = None if name else NAME_RULE
-    elif name in {d["name"] for d in docs}:  # replaced, said before (cut 1)
-        choice["lines"].append(SENTENCES["replace_note"].format(name=name))
-    else:
-        choice["lines"].append(SENTENCES["keeps_copy"].format(name=name))
-    return choice
+    return {"note": note, "ok": True, "name": name, "lines": [SENTENCES["keeps_copy"]],
+            "why": why, "rule": NAME_RULE if why is not None and not name else None}  # fmt: skip
 
 
 KINDS = {"text": "Text", "html": "HTML", "pdf": "PDF"}

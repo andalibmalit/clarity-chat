@@ -51,7 +51,9 @@ def test_a_taken_name_is_replaced(clarity, page, fetched_root):  # noqa: F811
     choose(page, "glossary.md", b"## Owl\nMade-up.\n")
     page.wait_for_selector("#attach-search")
     page.click("#attach-search")
-    assert "glossary is already in your documents." in page.inner_text("#attach-search-note")
+    assert "A document that already has that name is replaced." in page.inner_text(
+        "#attach-search-note"
+    )
     page.click("[data-action=attach-add]")
     page.wait_for_selector("#notice:has-text('from your next message')")
     assert page.inner_text("#notice").strip() == (  # said after, too (cut 2); no "!" (QA C3)

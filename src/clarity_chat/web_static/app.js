@@ -447,8 +447,10 @@ function notice(strong, text, action = null, label = "", call = null) {
   return box;
 }
 
-async function start(name, args) {
-  // A new chat: with a profile from the picker, or the same profile (New chat).
+async function start(name, args, keepsSearch = false) {
+  // A new chat: with a profile from the picker, or the same profile (New chat). With
+  // `keepsSearch`, the next command keeps the search list, so /new's "Not kept" for it is
+  // false and isn't shown (the page QA's should 1; dropped attachments still are).
   const label = name === "profile" ? args : clarity.state.profile;
   closeDrawer(false);
   notice(null, null);
@@ -463,7 +465,7 @@ async function start(name, args) {
   if (answer.handled) return answer;
   await refresh(); // first: a redraw that fails says so, and the sentence below stays
   if (!answer.error) {
-    notKept(answer.result);
+    notKept(keepsSearch ? { ...answer.result, search_not_kept: null } : answer.result);
     $("message").focus();
   } else if (!answer.stopped) {
     notice(`! ${label} didn’t start.`, answer.error);
@@ -1615,9 +1617,8 @@ async function adding(choice) {
   $("attach-sheet").close();
   await refresh();
   if (clarity.searchNotice) {
-    const [first, ...rest] = clarity.searchNotice;
+    notice(null, clarity.searchNotice.join(" ")); // statuses, not warnings (the page QA's C3)
     clarity.searchNotice = null;
-    notice(null, [first, ...rest.map((line) => `! ${line}`)].join(" "));
   }
   $("message").focus();
 }
@@ -2060,7 +2061,7 @@ const THREAD = {
   },
   "new-with-documents": async (element) => {
     // A full context: a new chat on this profile, then /search with this chat's documents.
-    const answer = await start("new", "");
+    const answer = await start("new", "", true);
     if (answer && !answer.error && !answer.handled) await fixCommand("search", element.dataset.names);
   },
   "attach-pick": () => pickFile(),
