@@ -729,6 +729,16 @@ def until(page, check, timeout: float = 10.0, what: str = "") -> None:
     raise AssertionError(f"not true after {timeout} s: {what or check}")
 
 
+def settled(page) -> None:
+    """The last command has ended, and a redraw made after that has landed: any redraw still
+    in flight from before is older, so it's dropped when it lands (refresh's newest-wins).
+    A reply's toolbar can show while its command is still finishing, and an older redraw
+    can still be reading views (CI on f70c794)."""
+    until(page, lambda: page.evaluate("clarity.command('state')")["result"]["running"] is None,
+          what="the command ended")  # fmt: skip
+    page.evaluate("clarity.refresh()")  # awaited: its views are drawn before this returns
+
+
 def wait_for(page, selector: str, timeout: int = 30_000) -> None:
     """wait_for_selector, printing what the page shows if it times out (a flake's evidence)."""
     try:
@@ -1757,6 +1767,7 @@ def test_a_reconnect_to_another_start_stops_and_draws_nothing(clarity, page):
     chat_on(page, redirect)
     say(page, "Hi")
     page.wait_for_selector(".reply.last .tb")
+    settled(page)  # no redraw of the real start's left to read the squatter's views
     page.evaluate("window.samePage = true")
     squat(page)
     page.evaluate("clarity.dropStream()")
@@ -1903,6 +1914,7 @@ def test_enter_during_a_replay_says_it_waits_and_sends_nothing(clarity, page):
     chat_on(page, redirect, "long")
     say(page, "Hi")
     page.wait_for_selector(".reply.last .tb")
+    settled(page)  # no redraw from Hi's reply left to show Stop during the replay
     page.click(".reply.last [data-action=details]")
     backend.replies, backend.piece_delay = [" Slowly," * 10], 0.3
     page.click("#panel [data-action=replay]")
