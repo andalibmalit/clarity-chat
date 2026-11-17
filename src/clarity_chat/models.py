@@ -17,6 +17,7 @@ from typing import Any
 from clarity_chat.files import read_text, sha256_file, write_text_atomic
 from clarity_chat.logs import git_state, now_utc
 from clarity_chat.profiles import (
+    LOCAL_MODELS,
     ConfigError,
     ModelEntry,
     ServerConfig,
@@ -25,6 +26,8 @@ from clarity_chat.profiles import (
     load_defaults,
     load_models,
     load_profile,
+    model_files,
+    read_toml,
     run_hint,
 )
 from clarity_chat.render import TOKENIZER_FILES
@@ -95,18 +98,30 @@ def map_generation_config(config: dict[str, Any], source: dict[str, Any]) -> dic
     return {"source": source, "values": values, "not_applied": not_applied, "notes": notes}
 
 
-def read_lock(root: Path) -> dict[str, Any]:
-    path = root / LOCK_FILE
+def read_lock_file(path: Path) -> dict[str, Any]:
     if not path.is_file():
         return {"schema_version": LOCK_SCHEMA_VERSION, "models": {}}
     return json.loads(read_text(path))
 
 
+def read_lock(root: Path) -> dict[str, Any]:
+    """Each model's lock entry, from the lock beside the models.toml that holds it: your own
+    entries' from local/models.lock (v0.4.0 B4), the rest from models.lock."""
+    lock = read_lock_file(root / LOCK_FILE)
+    if (root / LOCAL_MODELS).is_file():
+        yours = set(read_toml(root / LOCAL_MODELS))
+        theirs = {n: e for n, e in lock["models"].items() if n not in yours}
+        local = read_lock_file(root / "local" / LOCK_FILE)["models"]
+        lock["models"] = theirs | {n: e for n, e in local.items() if n in yours}
+    return lock
+
+
 def write_lock_entry(root: Path, name: str, entry: dict[str, Any]) -> None:
-    lock = read_lock(root)
+    path = root / model_files(root, name)[1]
+    lock = read_lock_file(path)
     lock["models"][name] = entry
     lock["models"] = dict(sorted(lock["models"].items()))
-    write_text_atomic(root / LOCK_FILE, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
+    write_text_atomic(path, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
 
 
 def lock_entry(root: Path, model: ModelEntry) -> dict[str, Any]:
@@ -117,10 +132,11 @@ def lock_entry(root: Path, model: ModelEntry) -> dict[str, Any]:
     keys = ["route", "repo", "revision", "tokenizer_repo", "tokenizer_revision"]
     if model.route == "gguf":
         keys.append("file")
+    toml, lock = model_files(root, model.name)
     for key in keys:
         if entry.get(key) != getattr(model, key):
             raise ConfigError(
-                f"models.lock has {model.name!r} with {key} = {entry.get(key)!r}, but models.toml "
+                f"{lock} has {model.name!r} with {key} = {entry.get(key)!r}, but {toml} "
                 f"says {getattr(model, key)!r}. {fetch_hint(model.name)}"
             )
     recommended = entry.get("recommended")
@@ -128,12 +144,12 @@ def lock_entry(root: Path, model: ModelEntry) -> dict[str, Any]:
         isinstance(recommended, dict) and isinstance(recommended.get("values"), dict)
     ):  # a hand-edited lock: refused here, not met later by a read that blames the log
         raise ConfigError(
-            f"models.lock's recommended settings for {model.name!r} aren't a table of values. "
+            f"{lock}'s recommended settings for {model.name!r} aren't a table of values. "
             f"{fetch_hint(model.name)}"
         )
     if model.route == "gguf" and entry.get("gguf", {}).get("sha256") != model.sha256:
         raise ConfigError(
-            f"models.lock has {model.name!r} with a different sha256 than models.toml. "
+            f"{lock} has {model.name!r} with a different sha256 than {toml}. "
             f"{fetch_hint(model.name)}"
         )
     return entry
@@ -169,7 +185,10 @@ def list_profiles(root: Path) -> list[dict[str, Any]]:
                 profile = load_profile(root, path.stem, defaults)
                 model = models.get(profile.model)
                 if model is None:
-                    raise ConfigError(f"{path}: model {profile.model!r} isn't in models.toml.")
+                    raise ConfigError(
+                        f"{path}: model {profile.model!r} isn't in models.toml or "
+                        "local/models.toml."
+                    )
             except (ConfigError, OSError, UnicodeDecodeError) as e:  # as list_chats does
                 out.append({**entry, "error": str(e)})
                 continue
@@ -226,21 +245,22 @@ def check_weights_quick(root: Path, entry: dict[str, Any]) -> Path:
     if stat.st_size != entry["gguf"]["size"] or stat.st_mtime_ns != entry["gguf"]["mtime_ns"]:
         raise ConfigError(
             f"{path} changed since it was fetched (size or modified time differs from "
-            f"models.lock). {run_hint('verify ' + entry['name'])}"
+            f"{model_files(root, entry['name'])[1]}). {run_hint('verify ' + entry['name'])}"
         )
     return path
 
 
 def verify(root: Path, name: str) -> tuple[bool, str]:
     entry = read_lock(root)["models"].get(name)
+    lock = model_files(root, name)[1]
     if entry is None:
-        return False, f"{name}: not in models.lock"
+        return False, f"{name}: not in {lock}"
     path = weights_path(root, entry)
     if not path.is_file():
         return False, f"{name}: {path} is missing"
     digest = sha256_file(path)
     if digest != entry["gguf"]["sha256"]:
-        return False, f"{name}: sha256 {digest} != models.lock {entry['gguf']['sha256']}"
+        return False, f"{name}: sha256 {digest} != {lock} {entry['gguf']['sha256']}"
     stat = path.stat()
     if (stat.st_size, stat.st_mtime_ns) != (entry["gguf"]["size"], entry["gguf"]["mtime_ns"]):
         # The bytes are the same (say, after a copy or `touch`): record the new time, so
@@ -299,9 +319,10 @@ def fetch_gguf(root: Path, model: ModelEntry) -> dict[str, Any]:
     print(f"Hashing {path.name} …", flush=True)
     digest = sha256_file(path)
     if digest != model.sha256:
+        toml, lock = model_files(root, model.name)
         raise ConfigError(
             f"{model.repo}/{model.file} at {model.revision[:12]} has sha256 {digest}, but "
-            f"models.toml says {model.sha256}. Not recorded in models.lock."
+            f"{toml} says {model.sha256}. Not recorded in {lock}."
         )
     print(f"Downloading tokenizer {model.tokenizer_repo}@{model.tokenizer_revision[:12]} …")
     tokenizer = _download(

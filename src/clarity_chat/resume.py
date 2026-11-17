@@ -136,7 +136,8 @@ def what_differs(record: dict[str, Any]) -> list[dict[str, Any]]:
         changed = ", ".join(d["path"] for d in record["model_entry"])
         items.append(
             (
-                f"The model's models.toml entry has changed since: {changed}.",
+                f"The model's entry in models.toml (or local/models.toml) has changed since: "
+                f"{changed}.",
                 len(record["model_entry"]),
             )
         )

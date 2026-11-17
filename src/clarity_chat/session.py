@@ -79,6 +79,7 @@ from clarity_chat.profiles import (
     load_models,
     load_profile,
     load_server_config,
+    model_files,
     named_twice,
     parse_setting,
     profile_path,
@@ -543,7 +544,8 @@ class Session:
         profile = load_profile(self.root, profile_name, self.defaults, logged)
         if profile.model not in self.models:
             raise ConfigError(
-                f"Profile {profile.name}: model {profile.model!r} is not in models.toml."
+                f"Profile {profile.name}: model {profile.model!r} isn't in models.toml or "
+                "local/models.toml."
             )
         model = self.models[profile.model]
         entry = lock_entry(self.root, model)
@@ -551,7 +553,8 @@ class Session:
             recommended = entry.get("recommended")
             if recommended is None:
                 raise ConfigError(
-                    f"models.lock has no recommended settings for {model.name}. "
+                    f"{model_files(self.root, model.name)[1]} has no recommended settings for "
+                    f"{model.name}. "
                     f"{fetch_hint(model.name)}"
                 )
             profile.settings = resolve_settings(
@@ -1956,7 +1959,10 @@ class Session:
                 raise ConfigError(no_model_for_call(call_id, call["model"]))
             name = used
         if name not in self.models:
-            raise ConfigError(f"Call {call_id} used model {name!r}, which isn't in models.toml.")
+            raise ConfigError(
+                f"Call {call_id} used model {name!r}, which isn't in models.toml or "
+                "local/models.toml."
+            )
         model = self.models[name]
         entry = lock_entry(self.root, model)
         if self.conversation is not None and self.model is not None and self.model.name != name:

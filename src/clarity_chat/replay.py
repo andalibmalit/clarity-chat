@@ -257,7 +257,7 @@ def no_model_for_call(call_id: str, call_model: dict[str, Any]) -> str:
     if commit:
         pins.append(f"converted with llama.cpp {commit}")
     return (
-        f"Call {call_id} used model {call_model['name']!r}, and no entry in models.toml has "
-        f"that name or its file. Its pins: {'; '.join(pins)}. To replay it, add an entry "
-        "with these pins to models.toml and fetch it."
+        f"Call {call_id} used model {call_model['name']!r}, and no entry in models.toml or "
+        f"local/models.toml has that name or its file. Its pins: {'; '.join(pins)}. To replay "
+        "it, add an entry with these pins to local/models.toml and fetch it."
     )

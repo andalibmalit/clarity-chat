@@ -34,6 +34,7 @@ from clarity_chat.profiles import (
     find_root,
     load_models,
     load_server_config,
+    model_files,
     shown,
 )
 from clarity_chat.replay import replay_notes
@@ -975,7 +976,8 @@ def cmd_replay(
     print(format_replay(record))
     if record["model_used"] != found[0]["model"]["name"]:
         print(
-            f"Replayed on {record['model_used']}, the models.toml entry with this call's file "
+            f"Replayed on {record['model_used']}, the "
+            f"{model_files(root, record['model_used'])[0]} entry with this call's file "
             f"(the call used {found[0]['model']['name']})."
         )
     return 0 if record["identical"] else 1
@@ -1005,7 +1007,9 @@ def cmd_fetch(root: Path, name: str) -> int:
 
     models = load_models(root)
     if name not in models:
-        raise ConfigError(f"{name!r} is not in models.toml. Known: {sorted(models)}.")
+        raise ConfigError(
+            f"{name!r} isn't in models.toml or local/models.toml. Known: {sorted(models)}."
+        )
     entry = fetch(root, models[name], load_server_config(root))
     print(f"Fetched {name}: {entry['gguf']['path']} (sha256 {entry['gguf']['sha256'][:16]}…)")
     return 0
