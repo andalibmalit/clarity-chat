@@ -505,3 +505,8 @@ def _within(
     if end > start and offsets[end - 1][1] > last:
         found["edge_token"] = "end"
     return found
+
+
+def writes_date(template_text: str) -> bool:
+    """A stub for v0.4.0 A5's tests (the next commit walks the template's names)."""
+    return False
