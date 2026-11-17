@@ -29,6 +29,11 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
     page's; `where` the search ran: a chat, a run or `document try` (STOPPING)."""
     name = problem.get("document", "")
     state = problem["state"]
+    # A chat's way out is the chat's own command; `clarity document …` is the command
+    # line's, for a run and `document try` (the main session's PM1 ruling).
+    chat = where == "chat"
+    rebuild = f"`/documents rebuild {name}`" if chat else f"`clarity document rebuild {name}`"
+    add = f"`/documents add PATH {name}`" if chat else f"`clarity document add FILE --name {name}`"
     if state == "no_fts5":
         if not at_send:
             return NO_FTS5
@@ -41,18 +46,14 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
         way = f" {way_out(name, front)}" if problem.get("add_again") else ""
         return f"Clarity can't search {name}: its {why}{way}"
     if state == "profile_missing":  # N37
-        way = (
-            f"Add it with `clarity document add FILE --name {name}`"
-            if terminal
-            else "Add it in Documents…"
-        )
+        way = f"Add it with {add}" if terminal else "Add it in Documents…"
         return (
             f"Profile {problem['profile']} searches {name}, which isn't in your documents. "
             f"{way}, or take it out of search under [documents] in the profile's file."
         )
     if state == "changed":  # N30, N24
         way = (
-            f"`clarity document rebuild {name}` cuts them again from its text.md."
+            f"{rebuild} cuts them again from its text.md."
             if terminal
             else "Rebuild cuts them again from its text.md."
         )
@@ -62,19 +63,11 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
             f"it into parts. {way}{lost}"
         )
     if state == "parts":  # parts.jsonl isn't one Clarity writes (the security review's S2)
-        way = (
-            f"`clarity document rebuild {name}` cuts its parts again."
-            if terminal
-            else "Rebuild it."
-        )
+        way = f"{rebuild} cuts its parts again." if terminal else "Rebuild it."
         return f"Clarity can't search {name}: its parts.jsonl isn't one Clarity writes. {way}"
     stop = STOPPING[where] if terminal else "stop searching {it}"
     if state == "missing":  # N31
-        way = (
-            f"add the file again: `clarity document add FILE --name {name}`"
-            if terminal
-            else "add the file again in Documents…"
-        )
+        way = f"add the file again: {add}" if terminal else "add the file again in Documents…"
         return (
             f"Clarity can't search {name}: its folder in local/documents/ is gone. "
             f"{stop.format(it='it').capitalize()}, or {way}."
@@ -91,7 +84,7 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
         else ""
     )
     way = (
-        f"`clarity document rebuild {name}` then cuts its parts again"
+        f"{rebuild} then cuts its parts again"
         if terminal
         else "Clarity then shows the document as Changed, with Rebuild"
     )
