@@ -3,7 +3,8 @@
     uv run --project REPO --group browser python REPO/scripts/qa_browser.py \
         --root ROOT --out DIR --steps STEPS [--init]
 
-Prepares ROOT as qa_session.py does (a scratch project that loads SmolLM2 only), starts
+Prepares ROOT as qa_session.py does (a scratch project that loads SmolLM2 only, refused if
+it holds local/models.toml or local/models.lock), starts
 `clarity --root ROOT ui` with no browser of its own, opens its link in Chrome through
 Playwright, and runs STEPS, one per line. SELECTOR is a Playwright selector: CSS, or
 `text=Regenerate` and `role=button[name="Copy"]` (none of its engines runs script).
