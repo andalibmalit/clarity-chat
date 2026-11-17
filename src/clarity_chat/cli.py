@@ -727,12 +727,6 @@ class ChatLoop:
             self.listed = True
         elif name == "search":
             self.write(format_searching(result) + "\n")
-        elif name == "framing":  # the sheet's sentences (C4)
-            origin = SENTENCES[f"origin_{result['framing_origin']}"]
-            line = result["framing"]
-            said = (SENTENCES["framing"].format(origin=origin, framing=line) if line
-                    else SENTENCES["no_framing"].format(origin=origin))  # fmt: skip
-            self.write(said + "\n")
         elif name == "try":
             self.write(format_tried(result) + "\n")
         elif name == "documents" and ("added" in result or "existing" in result):

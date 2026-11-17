@@ -3,7 +3,7 @@ and 9), each red first. Made-up documents, scratch roots."""
 
 from __future__ import annotations
 
-from clarity_chat.documents import FRAMING, library_add, library_documents
+from clarity_chat.documents import library_add, library_documents
 from tests.test_web import command
 from tests.test_web_search_c2 import GLOSSARY, get, make, root, text_of  # noqa: F401
 from tests.test_web_upload import upload
@@ -23,25 +23,6 @@ def test_documents_shows_its_own_add_s_notice(root, make):  # noqa: F811
     upload_id = upload(client, b"## Heron\nTall.\n", "herons.md").json()["upload"]
     command(client, "documents", f"add {upload_id}")
     assert "Added herons." in text_of(get(client, "documents", notice="1"))
-
-
-# --- could 7: /framing alone, like /set NAME alone
-
-
-def test_framing_alone_without_a_chat_line_is_refused(root, make):  # noqa: F811
-    client, _ = make()
-    answer = command(client, "framing", "").json()
-    assert answer.get("error") == (
-        "The framing line isn't set in this chat. Usage: /framing [TEXT | none]"
-    )
-
-
-def test_a_new_chat_goes_back_to_the_profile_s_line(root, make):  # noqa: F811
-    client, _ = make()
-    command(client, "framing", "A made-up line.")
-    command(client, "new", "")
-    state = command(client, "state").json()["result"]
-    assert (state["framing"], state["framing_origin"]) == (FRAMING, "default")
 
 
 # --- could 8: /documents add reports the same bytes as `existing`

@@ -601,10 +601,3 @@ dialog.sheet.documents { width: min(760px, calc(100vw - 32px)); max-height: calc
 
 /* Edit's kept attachments as chips with an × (v0.3.2, Q2; the board's ⑥) */
 .editbox .keeps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-
-/* The framing line's Edit on the attach sheet (v0.3.2 C4; the board's ⑦) */
-.frame .frform { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
-.frame .frform textarea { width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid var(--rule); border-radius: var(--r-sm); background: var(--raised); color: var(--ink); font: 13px/1.5 var(--mono); padding: 6px 8px; }
-.frame .frform .hint { margin: 0; font-size: 12.5px; color: var(--muted); text-align: left; }
-.frame .frform .row { display: flex; gap: 8px; align-items: center; }
-.frame .frform .spacer { flex: 1; }

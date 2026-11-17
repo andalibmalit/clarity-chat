@@ -249,9 +249,6 @@ class Conversation:
     # changes it ("chat"), logged as `search` records and resumed.
     searching: list[str] = field(default_factory=list)
     searching_origin: str = "profile"
-    # This chat's framing line (v0.3.2 C4, Q1 (b)): None, the profile's; "" none; set with
-    # /framing, logged as `framing` records and resumed, like /set.
-    chat_framing: str | None = None
 
     @property
     def settings(self) -> dict[str, Setting]:
@@ -815,7 +812,7 @@ class Session:
         profile = conversation.profile
         if not attachments and not conversation.searching:
             return {}, None
-        framing, origin = self.framing()
+        framing, origin = framing_of(profile)
         fields: dict[str, Any] = {
             "attachments": attachments,
             "framing": framing,
@@ -1032,7 +1029,7 @@ class Session:
             raise ConfigError(
                 f"Attaching needs a chat-mode profile; {profile.name} is in text mode."
             )
-        return conversation, profile, self.framing()[0]
+        return conversation, profile, framing_of(profile)[0]
 
     def attach(
         self,
@@ -1195,7 +1192,7 @@ class Session:
             "already_in_chat": self.already_in_chat(doc.sha256),
             **scan(doc.text, self.tokenizer.special_tokens_in),
             "framing": framing,
-            "framing_origin": self.framing()[1],
+            "framing_origin": framing_of(profile)[1],
             # The sheet's excerpt sentence follows the profile's setting, not one range's
             # marker: a range that covers the whole file has none (Checkpoint 3, must 3).
             "excerpt_marker_origin": "default"
@@ -1481,33 +1478,6 @@ class Session:
             }
         )
 
-    def framing(self, conversation: Conversation | None = None) -> tuple[str, str]:
-        """The line a message's block starts with, and where it comes from: this chat's
-        (`chat`, set with /framing), else the profile's or Clarity's default. /state passes
-        the conversation it holds: another thread can be switching the session's."""
-        conversation = conversation or self._require_conversation()
-        if conversation.chat_framing is not None:
-            return conversation.chat_framing, "chat"
-        return framing_of(conversation.profile)
-
-    def set_framing(self, line: str | None) -> dict[str, Any]:
-        """This chat's framing line from now on: `line`, "" for none, or None for the
-        profile's again (v0.3.2 C4, Q1 (b)); logged as a `framing` record, like /set."""
-        conversation = self._require_conversation()
-        if conversation.profile.mode != "chat":
-            raise ConfigError(
-                "The framing line needs a chat-mode profile; "
-                f"{conversation.profile.name} is in text mode."
-            )
-        if line is None and conversation.chat_framing is None:  # as /set NAME alone (could 7)
-            raise ConfigError(
-                "The framing line isn't set in this chat. Usage: /framing [TEXT | none]"
-            )
-        conversation.chat_framing = line
-        return conversation.log.append(
-            {"type": "framing", "conversation_id": conversation.conversation_id, "framing": line}
-        )
-
     def budget(self, conversation: Conversation | None = None) -> tuple[int, str]:
         """Search's budget for a message, and where it comes from: the profile, or Clarity's
         default."""
@@ -1607,12 +1577,6 @@ class Session:
                 "regen_of": t.regen_of,
                 "edit_of": t.edit_of,
                 **({"attachments": summaries(t.attachments)} if t.attachments else {}),
-                # The line its block went with, and where it came from (C4: `chat` too).
-                **(
-                    {"framing": t.framing, "framing_origin": t.framing_origin}
-                    if t.attachments or t.found is not None
-                    else {}
-                ),
                 **(
                     {
                         "found": found_summary(
@@ -2179,9 +2143,6 @@ class Session:
                 t.get("call_id"), seed, t.get("regen_of"), t.get("edit_of"), **attached,
             )  # fmt: skip
         conversation.head = state.head
-        if state.framing is not None and text_mode:
-            raise TypeError("a text-mode chat's framing record isn't one Clarity writes")
-        conversation.chat_framing = state.framing
         if state.searching is not None:  # a `search` record: this chat's own list
             for name in state.searching:  # refused before it's ever a path (S14), said
                 if (problem := library_name_problem(name)) is not None:  # with its record
