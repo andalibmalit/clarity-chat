@@ -73,6 +73,22 @@ def split_command(line: str) -> tuple[str, str]:
     return body, ""
 
 
+# Control characters (Unicode's Cc: U+0000 to U+001F and U+007F to U+009F) but newline and
+# tab, and the text-direction controls (documents' BIDI, which cli can't import: a test
+# holds the two lists together).
+CONTROLS = [*range(0x20), *range(0x7F, 0xA0), 0x061C, 0x200E, 0x200F, *range(0x202A, 0x202F)]
+SHOWN_CONTROLS = {
+    i: f"⟨U+{i:04X}⟩" for i in [*CONTROLS, *range(0x2066, 0x206A)] if chr(i) not in "\n\t"
+}
+
+
+def visible_controls(text: str) -> str:
+    """Text as the terminal's /prompt shows it, in the page's notation: each control
+    character but newline and tab, and each text-direction control, as ⟨U+001B⟩, so text in
+    a prompt can't rewrite the terminal. The text sent stays exact."""
+    return text.translate(SHOWN_CONTROLS)
+
+
 def visible_lines(text: str) -> list[str]:
     """`repr` of each line, split only on "\\n", so spaces, tabs and newlines show."""
     parts = text.split("\n")
@@ -124,7 +140,7 @@ def format_prompt(record: dict[str, Any] | None, as_repr: bool) -> str:
     if as_repr:
         lines += visible_lines(record["prompt_text"])
     else:
-        lines.append(record["prompt_text"])
+        lines.append(visible_controls(record["prompt_text"]))
     lines.append(f"--- token IDs ({len(record['prompt_ids'])}) ---")
     lines.append(str(record["prompt_ids"]))
     return "\n".join(lines)

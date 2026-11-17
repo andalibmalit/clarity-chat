@@ -69,3 +69,14 @@ def test_the_json_prompt_result_holds_the_raw_text(fetched_root, tiny_tokenizer)
 
 def test_help_says_how_control_characters_show():
     assert "⟨U+001B⟩" in COMMANDS["prompt"].help
+
+
+def test_the_text_direction_controls_are_the_pages():
+    """cli can't import the documents package (its boundary), so it spells the list out."""
+    from clarity_chat.cli import SHOWN_CONTROLS
+    from clarity_chat.documents.reading import SHOWN_BIDI
+
+    assert SHOWN_BIDI.items() <= SHOWN_CONTROLS.items()
+    assert {chr(i) for i in SHOWN_CONTROLS} - set(map(chr, SHOWN_BIDI)) == {
+        chr(i) for i in [*range(0x20), *range(0x7F, 0xA0)]
+    } - {"\n", "\t"}

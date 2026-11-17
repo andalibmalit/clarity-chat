@@ -27,6 +27,8 @@ Why Clarity works the way it does: each choice, what it costs, and what is out o
 - Checked over 26 saved chat templates: plain messages give spans on all 26; with edge whitespace, 25; with a `<think>` block in a reply, 21 (the Qwen3.5 and 3.6 family and Nemotron rewrite it).
 - Cost: a second template render and a second tokenization per call.
 
+**What you see of a prompt can't change your screen.** A prompt holds whatever text was sent, which can include control characters: an escape sequence can recolour or rewrite the terminal, and a text-direction control such as U+202E can reorder text on screen. The terminal's `/prompt` shows each control character but newline and tab, and each text-direction control, as ⟨U+001B⟩, the notation the web page uses for text-direction controls. The text sent and logged is unchanged, and so are `/prompt repr`, which shows each line as a Python string, and `--json`, whose JSON escapes them.
+
 **Line endings are part of the prompt.** Prompt files are read byte for byte, and `.gitattributes` stops git from converting line endings in `prompts/`, `profiles/` and the test fixtures, so a Windows checkout sends the same bytes.
 
 **A model's end token comes from its own files, not from assumptions.** OLMo 3's template closes the last assistant message with `<|endoftext|>`, not `<|im_end|>`, and the model does the same. Both are end tokens in OLMo 3 Instruct's `generation_config.json`, and llama.cpp stops on either.
