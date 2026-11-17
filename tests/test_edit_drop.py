@@ -179,3 +179,14 @@ def test_the_terminal_refuses_a_drop_that_isn_t_a_number(root_and_tokenizer):
     output.clear()
     loop.handle("/edit --drop one")
     assert f"! {USAGE}\n" in "".join(output)
+
+
+def test_drop_zero_is_out_of_range(make):  # noqa: F811 - the part 2 runner's #306
+    client, _, backend = make()
+    sent(client)
+    calls = len(backend.calls)
+    answer = command(client, "edit", "--drop 0 What does it say?").json()
+    assert answer.get("error") == (
+        "--drop 0: this message has 1 attachment. Use a number from 1 to 1."
+    )
+    assert len(backend.calls) == calls
