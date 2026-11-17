@@ -1244,7 +1244,10 @@ COMMANDS: dict[str, Command] = {
     ),
     "prompt": Command(
         "/prompt [CALL_ID]",
-        "the exact prompt text of the last call (or the call named), its token IDs and count",
+        (
+            "the exact prompt text of the last call (or the call named), its token IDs and "
+            "count; a control character shows as ⟨U+001B⟩"
+        ),
         _prompt,
         during_reply=True,  # reads last_call (set in one assignment) and calls by key
     ),
