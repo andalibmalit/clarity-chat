@@ -192,6 +192,15 @@ def test_a_taken_name_offers_replace(root, make):  # Q12 on Add (the board's ⑧
     )
 
 
+def test_add_s_panel_says_the_same_file_is_already_there(root, make):  # fix review's C1
+    client, _ = make()
+    upload_id = upload(client, GLOSSARY, "glossary.md").json()["upload"]
+    fragment = page(client, upload=upload_id)
+    said = text_of(fragment)
+    assert "Already in your documents as glossary. Nothing new is added to them." in said
+    assert "There's already a document named" not in said and "documents-replace" not in fragment
+
+
 def test_a_name_clarity_can_t_make_offers_no_replace(root, make):
     client, _ = make()
     upload_id = upload(client, b"Made-up.\n", "日本語.md").json()["upload"]

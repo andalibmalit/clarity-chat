@@ -346,14 +346,10 @@ def test_replace_says_it_replaces_before_and_after(root, tmp_path, capsys):
     path = file(tmp_path, "notes.md", "Made-up.\n")
     assert cli.main(["--root", str(root), "document", "add", path]) == 0
     capsys.readouterr()
-    file(
-        tmp_path,
-        "notes.md",
-        "Made-up again.\n",
-        # Other bytes: the same bytes add nothing (the part 2 whole-branch review's could 8).
-    )
+    # The same file: --replace replaces even the same bytes (the part 2 fix review's M1).
     assert cli.main(["--root", str(root), "document", "add", path, "--replace"]) == 0
     out = capsys.readouterr().out.splitlines()  # "Reading …" only if it's read again
+    assert len(out) >= 2, out
     assert out[-2] == (
         "Replacing notes in local/documents/notes/: a copy of the file, its text and its parts, "
         "in place of the ones there."
@@ -381,3 +377,30 @@ def test_a_turn_at_placement_end_is_read_back():
         "placement": "end",
     }  # fmt: skip
     assert checked_attachments(record)["placement"] == "end"
+
+
+# --- the part 2 fix review's M1: --replace is the way out even for the same file
+
+
+def test_add_replace_of_the_same_file_restores_a_missing_original(root, tmp_path):
+    path = file(tmp_path, "notes.md", "## Wren\nMade-up.\n")
+    document_add(root, path)
+    folder = root / "local/documents/notes"
+    (folder / "original.txt").unlink()
+    with pytest.raises(DocumentRefused, match="^Clarity can't rebuild notes: its original"):
+        document_rebuild(root, "notes")
+    result = document_add(root, path, "notes", replace=True)
+    assert result.get("replaced") is True, result
+    assert (folder / "original.txt").is_file() and library_state(root, "notes") == "ready"
+
+
+def test_add_replace_of_the_same_file_resets_a_garbled_text(root, tmp_path):
+    path = file(tmp_path, "notes.md", "## Wren\nMade-up.\n")
+    document_add(root, path)
+    text = root / "local/documents/notes/text.md"
+    text.write_bytes(b"\xff\xfe not text")
+    with pytest.raises(DocumentRefused):
+        document_rebuild(root, "notes")
+    document_add(root, path, "notes", replace=True)
+    assert text.read_bytes().startswith(b"## Wren")
+    assert library_state(root, "notes") == "ready"
