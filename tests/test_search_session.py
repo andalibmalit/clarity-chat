@@ -16,7 +16,7 @@ from clarity_chat.profiles import ConfigError
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend
 
-NONE = {"control_token_parts": 0, "closing_tag_parts": 0}  # a ready document's counts
+NONE: dict = {}  # a ready document's entry holds no counts (cut 5)
 GLOSSARY = b"## Wren\nA small brown bird.\n\n## Dipper\nIt walks under water.\n"
 
 
@@ -316,17 +316,3 @@ def test_a_searching_chat_s_refusal_suggests_a_start_that_leaves_the_budget(
     plain = suggested()
     c.run("search", "glossary", lambda e: None)
     assert suggested() < plain
-
-
-def test_search_counts_the_parts_holding_control_tokens_and_closing_tags(root, chat_tokenizer):
-    """Checkpoint 1's S10 and B1's count: a part holding this model's control token stops a
-    call (decision 12), so /search says how many; and those holding </part>."""
-    library_add(root, b"Safe.\n\n## T\nHolds </s> here.\n\n## U\nAnd </part> here.\n", "odd.md")
-    session, c = chat(root, chat_tokenizer)
-    (odd,) = run(c, "search odd")["searching"]
-    assert odd == {
-        "name": "odd",
-        "state": "ready",
-        "control_token_parts": 1,
-        "closing_tag_parts": 1,
-    }

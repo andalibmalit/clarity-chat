@@ -146,7 +146,6 @@ def search(docs: list[Loaded], message: str) -> dict[str, Any]:
     found: dict[str, Any] = {
         "method": "words",
         "searched_for": message,
-        "scan_depth": 1,
         "words": words,
         "ignored": ignored,
         "documents": [

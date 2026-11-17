@@ -82,7 +82,7 @@ SHAPES: dict[str, list[tuple[Any, ...]]] = {
 }
 FOUND_KEYS: dict[str, set[str]] = {  # the Shapes table's `found` (Checkpoint 1's S9)
     "found": {
-        "method", "searched_for", "scan_depth", "words", "ignored", "documents", "engine",
+        "method", "searched_for", "words", "ignored", "documents", "engine",
         "considered", "budget", "budget_origin", "parts", "left_out", "matched", "tokens",
     },
     "documents": {"name", "build_id", "original_sha256"},

@@ -36,16 +36,13 @@ from clarity_chat.documents import (
     attached_in,
     checked_attachments,
     checked_library_name,
-    closing_tag_parts,
     content,
-    control_token_parts,
     control_token_problem,
     counted,
     covers_whole,
     fill,
     fit,
     found_in,
-    framing_in_first_part,
     framing_of,
     library_manifest,
     library_parts,
@@ -470,8 +467,8 @@ class Session:
         self.backend = backend or self.backend_for("llama.cpp", None)
         self.conversation: Conversation | None = None
         self._checked: tuple[tuple, Counts] | None = None  # the last check's counts
-        self._scans: dict[tuple, dict[str, int]] = {}  # /search's counts, by build ID,
-        self._scanned_with: Any = None  # for this tokenizer, held: an id() can be reused
+        # /state's parts reads, by build ID and parts.jsonl's size and time (cut 1)
+        self._parts_checked: dict[tuple, DocumentRefused | None] = {}
         self.model: ModelEntry | None = None
         self.model_lock: dict[str, Any] = {}
         self.tokenizer: Tokenizer | None = None
@@ -931,11 +928,11 @@ class Session:
 
     def try_documents(
         self, names: list[str], profile_name: str, text: str, where: str = "try"
-    ) -> tuple[dict[str, Any], dict[str, Any] | None, bool]:
+    ) -> tuple[dict[str, Any], dict[str, Any] | None]:
         """`clarity document try`: what a first message with `text` would find in `names` in
-        a new chat on `profile_name`, counted with its tokenizer, with no model, the problem
-        Send would refuse it for, and whether the first part's count holds the framing line.
-        A run's pre-check says `where` "run": its names are the profile's list."""
+        a new chat on `profile_name`, counted with its tokenizer, with no model, and the
+        problem Send would refuse it for. A run's pre-check says `where` "run": its names are
+        the profile's list."""
         for name in names:
             checked_library_name(name)
         if named_twice(names) is not None:
@@ -956,9 +953,7 @@ class Session:
             {**fields, "placement": profile.placement},
             where=where,
         )
-        problem = self._control_token_problem(found, tokenizer)
-        framed = framing_in_first_part(framing, False) and bool(found["parts"])  # surface C7
-        return found, problem, framed  # nothing attached: a first message
+        return found, self._control_token_problem(found, tokenizer)
 
     def room(
         self,
@@ -1490,9 +1485,8 @@ class Session:
         return self.budget()[0] if conversation is not None and conversation.searching else 0
 
     def searching(self, conversation: Conversation | None = None) -> list[dict[str, Any]]:
-        """The documents this chat searches, each with its state (ready, changed, missing or
-        unreadable) and, when ready, how many of its parts hold this model's control tokens
-        (which stop a call, decision 12) and how many hold </part> or </document>."""
+        """The documents this chat searches, each with its state: ready, missing or
+        unreadable (with why). A control token is said when a message finds its part (cut 5)."""
         conversation = conversation or self.conversation
         if conversation is None:
             return []
@@ -1502,35 +1496,31 @@ class Session:
             entry: dict[str, Any] = {"name": name, "state": state}
             try:
                 if state == "ready":
-                    entry.update(self._scanned(name))
+                    self._parts_read(name)
                 elif state == "unreadable":  # why, as /documents says it (the review's C7)
                     library_manifest(self.root, name)
             except Stale as e:  # gone under the quick check: its state (the review's C6)
                 entry["state"] = e.state
-            except DocumentRefused as e:  # a manifest Clarity can't read: the reason
+            except DocumentRefused as e:  # a manifest or parts Clarity can't read: the reason
                 problem = unreadable_problem(name, e)
                 entry.update(state="unreadable", why=problem["why"], add_again=problem["add_again"])
             found.append(entry)
         return found
 
-    def _scanned(self, name: str) -> dict[str, int]:
-        """A ready document's counts for this tokenizer, kept by build ID and parts.jsonl's
+    def _parts_read(self, name: str) -> None:
+        """A ready document's parts read and checked, kept by build ID and parts.jsonl's
         size and time: /state asks often, and parts that changed are read (and refused)."""
-        assert self.tokenizer is not None
         manifest = library_manifest(self.root, name)
-        if self._scanned_with is not self.tokenizer:  # another model: count again
-            self._scans, self._scanned_with = {}, self.tokenizer
         stamp = library_parts_stamp(self.root, name)  # None: the read below says why
         key = (manifest["build_id"], stamp)
-        if stamp is None or key not in self._scans:
-            parts, _ = library_parts(self.root, name, manifest)
-            self._scans[key] = {
-                "control_token_parts": len(
-                    control_token_parts(parts, self.tokenizer.special_tokens_in)
-                ),
-                "closing_tag_parts": len(closing_tag_parts(parts)),
-            }
-        return self._scans[key]
+        if stamp is None or key not in self._parts_checked:
+            try:
+                library_parts(self.root, name, manifest)
+                self._parts_checked[key] = None
+            except DocumentRefused as e:
+                self._parts_checked[key] = e
+        if (refused := self._parts_checked[key]) is not None:
+            raise refused
 
     def set_setting(self, name: str, text: str) -> dict[str, Any]:
         """Change a setting for this conversation (`text` empty: back to the profile's value).
@@ -1577,15 +1567,7 @@ class Session:
                 "regen_of": t.regen_of,
                 "edit_of": t.edit_of,
                 **({"attachments": summaries(t.attachments)} if t.attachments else {}),
-                **(
-                    {
-                        "found": found_summary(
-                            t.found, framing_in_first_part(t.framing or "", bool(t.attachments))
-                        )
-                    }
-                    if t.found is not None
-                    else {}
-                ),
+                **({"found": found_summary(t.found)} if t.found is not None else {}),
                 "marks": [
                     {"mark_id": m.get("mark_id"), "label": m["label"]}
                     for m in notes.get(t.turn_id, {}).get("marks", [])
@@ -2420,14 +2402,11 @@ def reason(refused: DocumentRefused) -> str:
     return refused.said if isinstance(refused, Unreadable) else str(refused)
 
 
-def found_summary(found: dict[str, Any], framed: bool) -> dict[str, Any]:
+def found_summary(found: dict[str, Any]) -> dict[str, Any]:
     """/history's view of a turn's `found`, which /state's turns repeat: counts, tokens,
-    words, the budget, what was left out by why, and each part's ID, title, page and why it
-    matched, with no text (the Shapes table's commands; part 1's whole-branch S1); the
-    parts already in the chat, and whether the first part's count holds the framing line
-    (`framed`, insert.framing_in_first_part), for "From documents" (C3)."""
+    words, the budget, what was left out by why, and each part's ID, title, page, tokens and
+    why it matched, with no text (the Shapes table's commands; part 1's whole-branch S1)."""
     keys = ("id", "title", "page", "rank", "title_words", "words", "tokens")
-    already = [o for o in found["left_out"] if o["why"] == "already in the chat"]
     return {
         "words": found["words"],
         "ignored": found["ignored"],
@@ -2437,9 +2416,7 @@ def found_summary(found: dict[str, Any], framed: bool) -> dict[str, Any]:
         "budget": found["budget"],
         "parts": [{k: p[k] for k in keys} for p in found["parts"]],
         "left_out": left_out_counts(found),
-        "already": [{"id": o["id"], "rank": o["rank"]} for o in already],
         "considered": found["considered"],
-        "framed": framed and bool(found["parts"]),  # no part, no line (surface C7)
     }
 
 

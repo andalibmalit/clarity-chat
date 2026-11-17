@@ -176,7 +176,7 @@ In a chat, `/search glossary` searches it from your next message, or set `search
 
 In the web interface, **Search it** on the paperclip's sheet, beside Attach whole, adds the file to your documents and searches it in this chat from your next message; if the name is taken, it says that document will be replaced. **Searching** beside Settings lists what the chat searches, ticked, with the rest of your library: tick or untick a document to change the list. Search it's **Name** box holds the name the copy gets, filled in from the file's; change it to keep both documents. To see the whole library and where it's kept, or to try a search without sending, use `/documents` and `/try` in a terminal chat.
 
-A reply to a searched message opens with **From documents**: how many parts search added and their tokens. Press it for each part's rank and the words it matched, what was left out and why, and the words searched and ignored; **Show in Details** opens the reply's Documents section, with where each part sits in the prompt. Regenerating reuses the parts found when you sent the message. If Send is refused, the box says why for each document, with **Stop searching it**; once each is fixed, send again.
+A reply to a searched message opens with **From documents**: how many parts search added and their tokens. Press it for each part's rank and the words it matched, what was left out and why, and the words searched and ignored; **Show in Details** opens the reply's Documents section, with each part's tokens and where it sits in the prompt. Regenerating reuses the parts found when you sent the message. If Send is refused, the box says why for each document, with **Stop searching it**; once each is fixed, send again.
 
 ### Change a document
 

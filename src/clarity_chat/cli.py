@@ -614,7 +614,7 @@ class ChatLoop:
         conversation = self.session.conversation
         turn = conversation.turns.get(call.get("parent_id")) if conversation else None
         if turn is not None and turn.found is not None:
-            self.write(searched_line(found_summary(turn.found, False)) + "\n")
+            self.write(searched_line(found_summary(turn.found)) + "\n")
 
     def keeps(self) -> None:
         """After /edit: the attachments the edited message keeps, as the page's Edit says."""
@@ -1132,19 +1132,7 @@ def format_searching(result: dict[str, Any]) -> str:
             shown_.append(f"{d['name']} (unreadable: `/documents` says why)")
         else:
             shown_.append(f"{d['name']} (missing: /search without it)")
-    lines = [f"Searching ({origin}): {', '.join(shown_)}."]
-    for d in result["searching"]:  # decision 12: said when you choose to search
-        if n := d.get("control_token_parts"):
-            held = "1 part holds" if n == 1 else f"{n:,} parts hold"
-            lines.append(  # the board's N13
-                f"  {d['name']}: {held} a control token for this model. A message that finds "
-                "one isn't sent."
-            )
-        if n := d.get("closing_tag_parts"):
-            held = "1 part holds" if n == 1 else f"{n:,} parts hold"
-            sent = "it's sent as it is" if n == 1 else "they're sent as they are"
-            lines.append(f"  {d['name']}: {held} </part> or </document>; {sent}.")
-    return "\n".join(lines)
+    return f"Searching ({origin}): {', '.join(shown_)}."
 
 
 def main(argv: list[str] | None = None) -> int:

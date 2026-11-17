@@ -110,13 +110,6 @@ def test_a_glossary_gives_one_titled_part_per_short_entry():
     assert [p["title"] for p in titled] == [f"Headword {i}" for i in range(30)]
 
 
-def test_closing_tags_in_a_part_are_found():
-    from clarity_chat.documents import closing_tag_parts
-
-    parts = cut("Safe.\n\n## T\nHolds </part> here.\n\n## U\nAnd </document> here.\n")
-    assert closing_tag_parts(parts) == [2, 3]
-
-
 def rebuilds(text: str, parts: list[dict]) -> None:
     """No overlap and no gap: in order, each part is its range of the text, and what lies
     between them is only whitespace."""

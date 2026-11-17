@@ -501,15 +501,3 @@ def written(part: Any, ordinal: int) -> bool:
         )
     except (KeyError, TypeError, AttributeError, ValueError):  # ValueError: a lone surrogate
         return False
-
-
-def control_token_parts(
-    parts: list[dict[str, Any]], special_tokens_in: Callable[[str], list[str]]
-) -> list[dict[str, Any]]:
-    """The parts holding text a model's tokenizer reads as control tokens."""
-    found = []
-    for part in parts:
-        tokens = special_tokens_in(part["text"])
-        if tokens:
-            found.append({"ordinal": part["ordinal"], "tokens": tokens})
-    return found

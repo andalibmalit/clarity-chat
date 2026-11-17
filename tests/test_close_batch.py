@@ -147,17 +147,6 @@ def test_a_default_name_folds_accents():
     assert document_name("été.md", None) == ("ete", None)
 
 
-def test_framed_is_false_when_nothing_was_added(root, chat_tokenizer):  # noqa: F811
-    path = root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + "budget = 1\n", encoding="utf-8")
-    _, c = chat(root, chat_tokenizer)
-    c.run("say", "Tell me about the wren", quiet)
-    turns = c.run("history", "", quiet)["turns"]
-    found = [t["found"] for t in turns if t["role"] == "user"][-1]
-    assert found["parts"] == [] and found.get("framed") is False
-    assert c.run("try", "Tell me about the wren", quiet)["framed"] is False
-
-
 # --- siblings S2: the terminal says what search added, after the status line
 
 

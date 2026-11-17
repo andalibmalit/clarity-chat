@@ -18,23 +18,19 @@ def made_up_found(parts: list[dict], left: list[tuple[int, str]], matched: int) 
             "considered": 8, "budget": 1500, "tokens": sum(p["tokens"] for p in parts),
             "parts": parts, "documents": [{"name": "g"}],
             "left_out": [{"id": f"g:{r}", "rank": r, "score": -1.0, "why": why}
-                         for r, why in left]}, framed=True)  # fmt: skip
+                         for r, why in left]})  # fmt: skip
 
 
-def test_found_view_s_notes_and_already_rows():  # should 2
+def test_found_view_s_rows_and_notes():  # should 2; one number per part since cut 4
     found = made_up_found([made_up_part(1)], [(2, "already in the chat"), (3, "budget"),
                           (4, "budget")], 12)  # fmt: skip
     view = web.found_view(found)
     assert view["summary"] == "1 part · 50 tokens · 1 more already in the chat"
-    assert [(r["rank"], r["label"], r["why"]) for r in view["rows"]] == [
-        (1, "g · part 1", "in its text: wren"),
-        (2, "g · part 2", "already in the chat: not added again"),
-    ]
+    assert view["rows"] == [{"rank": 1, "label": "g · part 1", "why": "in its text: wren"}]
     assert view["notes"] == [
         "2 more matched but were left out: Clarity adds parts in order and stops at the first "
         "that doesn't fit the budget of 1,500 tokens.",
         "4 more matched but weren't considered: Clarity considers only the best 8 matches.",
-        "The first part's count includes the line Clarity puts before the parts.",
     ]
 
 

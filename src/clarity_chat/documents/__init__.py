@@ -19,7 +19,6 @@ from clarity_chat.documents.insert import (
     fill,
     fit,
     found_in,
-    framing_in_first_part,
     framing_of,
     free,
     how_words,
@@ -37,7 +36,6 @@ from clarity_chat.documents.library import (
     Stale,
     Unreadable,
     checked_library_name,
-    control_token_parts,
     default_name,
     document_name,
     way_out,
@@ -50,7 +48,6 @@ from clarity_chat.documents.library import read_manifest as library_manifest
 from clarity_chat.documents.library import state as library_state
 from clarity_chat.documents.parts import (
     build_id,
-    closing_tag_parts,
     cut_parts,
     parts_jsonl,
 )
@@ -91,7 +88,6 @@ __all__ = [
     "control_token_problem",
     "Stale",
     "checked_library_name",
-    "control_token_parts",
     "default_name",
     "document_name",
     "library_add",
@@ -103,7 +99,6 @@ __all__ = [
     "library_parts_stamp",
     "library_state",
     "build_id",
-    "closing_tag_parts",
     "cut_parts",
     "parts_jsonl",
     "FRAMING",
@@ -127,7 +122,6 @@ __all__ = [
     "fill",
     "found_in",
     "fit",
-    "framing_in_first_part",
     "framing_of",
     "slow_read",
     "free",

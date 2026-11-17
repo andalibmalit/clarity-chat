@@ -39,9 +39,9 @@ def test_history_s_found_gives_the_list_what_it_draws(root, make):  # noqa: F811
     command(client, "say", "And the wren again")
     turns = command(client, "history").json()["result"]["turns"]
     first, again = [t["found"] for t in turns if t["role"] == "user"]
-    assert first.get("considered") == 8 and first.get("framed") is True
+    assert first.get("considered") == 8
     assert [p.get("page") for p in first["parts"]] == [None]
-    assert again.get("already") == [{"id": "glossary:1", "rank": 1}]
+    assert again["left_out"].get("already in the chat") == 1
 
 
 # --- "From documents" above a reply
@@ -53,9 +53,8 @@ def test_the_line_says_what_was_added_and_opens_on_its_list(root, make):  # noqa
     page = thread(client)
     assert re.search(r'<button[^>]*data-action="found"[^>]*aria-expanded="false"', page)
     said = found_line(client)
-    assert re.match(r"From documents · 1 part · [\d,]+ tokens Rank Part Tokens 1 glossary · "
-                    r'"Wren" [\d,]+ in its title: wren; in its text: wren', said)  # fmt: skip
-    assert "The first part's count includes the line Clarity puts before the parts." in said
+    assert re.match(r"From documents · 1 part · [\d,]+ tokens Rank Part 1 glossary · "
+                    r'"Wren" in its title: wren; in its text: wren', said)  # fmt: skip
     ignored = "Ignored (common words and single letters or digits): tell, me, about, the."
     assert f"Words searched: wren. {ignored}" in said
     assert said.endswith(
@@ -89,13 +88,13 @@ def test_nothing_to_search_for(root, make):  # noqa: F811
     )
 
 
-def test_a_part_already_in_the_chat_is_a_row_of_its_own(root, make):  # noqa: F811
+def test_a_part_already_in_the_chat_is_counted(root, make):  # noqa: F811
     client, _ = make(SEARCHES)
     command(client, "say", "Tell me about the wren")
     command(client, "say", "And the wren again")
     said = found_line(client)
     assert said.startswith("From documents · nothing new · 1 already in the chat")
-    assert "1 glossary · part 1 already in the chat: not added again" in said
+    assert "not added again" not in said  # a count, not a row (cut 4)
 
 
 def test_a_chat_that_searches_nothing_shows_no_line(root, make):  # noqa: F811

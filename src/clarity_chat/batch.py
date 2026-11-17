@@ -138,7 +138,7 @@ def check_run(
                 )
         if p.profile.search:  # searched now: a stale document or a control token stops the
             for opening in openings:  # run here, before any model loads (fix 2's M1)
-                _, problem, _ = session.try_documents(
+                _, problem = session.try_documents(
                     list(p.profile.search), str(p.profile.path), opening, where="run"
                 )
                 if problem is not None:

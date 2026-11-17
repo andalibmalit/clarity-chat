@@ -1564,7 +1564,7 @@ document.addEventListener("change", (event) => {
 
 async function searchIt(choice) {
   // "Search it" (v0.3.2 C2): the file into your documents, then /search with the chat's
-  // list and it; the notice says so, with its control-token count from /search's answer.
+  // list and it; the notice says so, and says when it replaced a document.
   // /documents add for the upload and the name in its box (one of that name is replaced).
   const args = ["add", choice.dataset.args, $("attach-search-name").value.trim()].join(" ").trim();
   const added = await command("documents", args).catch(unanswered);
@@ -1575,8 +1575,6 @@ async function searchIt(choice) {
   const box = $("attach-search-note");
   const lines = [box.dataset.searched.replace("{name}", () => name)];
   if (added.result.replaced) lines.unshift(box.dataset.replaced.replace("{name}", () => name)); // said after (cut 1)
-  const count = (answer.result.searching.find((d) => d.name === name) || {}).control_token_parts;
-  if (count) lines.push(count === 1 ? box.dataset.controlOne : box.dataset.control.replace("{n}", () => String(count)));
   clarity.searchNotice = lines;
   return answer;
 }
