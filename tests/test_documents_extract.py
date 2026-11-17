@@ -233,14 +233,28 @@ def test_cancel_stops_the_child_and_leaves_none(monkeypatch, tmp_path):
 
 @pytest.mark.skipif(sys.platform == "win32", reason="no memory guard on Windows (v0.7.0)")
 def test_the_memory_watchdog_ends_the_child(monkeypatch):
-    """A stub that allocates 10 MB at a time: the watchdog ends it past its cap (here
-    200 MB), and the parent says so. Bounded, so a broken watchdog can't exhaust memory."""
+    """The real child's main, with a reader that allocates 10 MB at a time and then holds
+    it: past its cap (here 200 MB) the child ends with the memory code, and the parent says
+    so. Bounded, so a broken watchdog can't exhaust memory.
+
+    It runs main, not watch alone (CI at 37ac393, ubuntu): on Linux, RLIMIT_AS at twice the
+    cap counts the address space, which runs ahead of the resident memory the watchdog polls,
+    so an allocation can raise MemoryError before a poll sees the cap. A stub without main's
+    handler exited 1 then; the real child turns that MemoryError into the same memory exit
+    (b19d176), so whichever comes first, the user sees the memory sentence. Holding the
+    memory after the last allocation keeps the poll from racing the reader's end (macOS)."""
     stub(
         monkeypatch,
-        "from clarity_chat.documents.child import watch\n"
-        "watch(200 * 1024 * 1024, 30)\n"
-        "held = []\n"
-        'for _ in range(60): held.append(b"x" * (10 * 1024 * 1024))',  # written: resident
+        "from clarity_chat.documents import child\n"
+        "real = child.watch\n"
+        "child.watch = lambda cap, seconds: real(200 * 1024 * 1024, seconds)\n"
+        "def allocate(*args):\n"
+        "    import time\n"
+        "    held = []\n"
+        '    for _ in range(60): held.append(b"x" * (10 * 1024 * 1024))\n'  # written: resident
+        "    time.sleep(30)\n"
+        "child.extract = allocate\n"
+        "child.main()",
     )
     # The board's ruling 5: "1 GB", not "1024 MB".
     assert refused(b"Made-up.", "huge.pdf") == (
