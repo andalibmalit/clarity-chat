@@ -103,11 +103,14 @@ FAILED = "the chat template failed"
 @pytest.fixture
 def broken(fetched_root, chat_tokenizer, tmp_path_factory):
     """A session whose "broken" profile takes its template from a repo whose template
-    doesn't parse; every other profile uses the toy template."""
+    doesn't parse; "broken-kwargs" is the same with a template_kwargs key, so unread_kwargs
+    parses it too (the fix review's should 1). Every other profile uses the toy template."""
     bad = build_tokenizer(tmp_path_factory.mktemp("tok-broken"), True, True, BROKEN)
-    (fetched_root / "profiles" / "broken.toml").write_text(
-        'template_repo = "test/broken"\ntemplate_revision = "' + "a" * 40 + '"\n' + CHAT_TOML,
-        encoding="utf-8",
+    text = 'template_repo = "test/broken"\ntemplate_revision = "' + "a" * 40 + '"\n' + CHAT_TOML
+    profiles = fetched_root / "profiles"
+    (profiles / "broken.toml").write_text(text, encoding="utf-8")
+    (profiles / "broken-kwargs.toml").write_text(
+        text + "\n[template_kwargs]\nx = 1\n", encoding="utf-8"
     )
     backend = FakeBackend([" R1.", " R2."], tokenizer=chat_tokenizer)
     return Session(
@@ -117,11 +120,13 @@ def broken(fetched_root, chat_tokenizer, tmp_path_factory):
     )
 
 
-def test_a_template_that_does_not_parse_is_refused_at_start(broken):
+@pytest.mark.parametrize("profile", ["broken", "broken-kwargs"])
+def test_a_template_that_does_not_parse_is_refused_at_start(broken, profile):
     """Should 1: before v0.4.0 the first message was refused with render_chat's sentence;
-    A5's parse at start let jinja2's error escape instead."""
+    A5's parse at start let jinja2's error escape instead. With template_kwargs,
+    unread_kwargs parses it first (the fix review's should 1)."""
     with pytest.raises(Exception) as caught:
-        broken.new_conversation("broken")
+        broken.new_conversation(profile)
     assert isinstance(caught.value, ConfigError), repr(caught.value)
     assert FAILED in str(caught.value)
 
