@@ -12,28 +12,29 @@ without waiting for quiet (to cancel a reply while it streams); `<wait N>` waits
 seconds; lines starting with `#` are skipped. Clarity runs in ROOT, so relative paths in
 CLARITY_ARGS are relative to ROOT.
 
-The owner allowlists this script to run outside the sandbox, which blocks
-pseudo-terminals and hides the GPU, so it keeps Clarity to the scratch root and to
-SmolLM2 whatever the steps say. Every run rewrites the root's models.toml, models.lock and
-profiles from this checkout, listing SmolLM2 only (Clarity loads models by name through
-models.lock), plus `smol-steer-hf`, steered by the repeng test vector that `--init` copies
-into the root's local/vectors/. It checks that server.toml differs from the checkout's in
-its flags only, that the weights match models.lock's sha256, that nothing in the root is a
-link (Clarity and the driver follow links, so one could reach a private folder), and that
-the root has no local/models.toml or local/models.lock (Clarity merges your own model
-entries from them, which a run doesn't rewrite). An attachment (`--attach PATH`, a `/attach
-PATH` step, `attach` in `--json`, or a message such as `//attach PATH` that a cancel would
-put back as that command; each step is judged alone, see check_command) must name a file in
-the root: the path as given and as Clarity's own attach_args reads it, with `~` expanded,
-resolved from the root with links followed, with no `..` and not a file with a second name.
-Otherwise Clarity, outside the sandbox, could read a file the sandbox denies into the
-transcript. The document library's reads (v0.3.2: `clarity document add FILE`, `/documents
-add PATH [NAME]` typed, inside a message or in `--json`) are judged by the same rule;
-`/documents add` is judged both whole and with its last word taken as the name, as Clarity
-may read it. Each step is checked again, and the root scanned for links and your own model
-entries again, just before it's typed; a step over 1,000 bytes is refused.
-`--init` also resets server.toml. Arguments are parsed with Clarity's own parser and
-steps with its own command splitter, so they are checked as Clarity will read them.
+The owner allowlists this script to run outside the sandbox, which blocks pseudo-terminals
+and hides the GPU, so it keeps Clarity to the scratch root and to SmolLM2 and bge-m3
+(v0.4.1: meaning search's embedder) whatever the steps say. Every run rewrites the root's
+models.toml, models.lock and profiles from this checkout, listing those two only (Clarity
+loads models by name through models.lock), plus `smol-steer-hf`, steered by the repeng test
+vector that `--init` copies into the root's local/vectors/. It checks that server.toml
+differs from the checkout's in its flags only, that both weights match models.lock's
+sha256, that nothing in the root is a link (Clarity and the driver follow links, so one
+could reach a private folder), and that the root has no local/models.toml or
+local/models.lock (Clarity merges your own model entries from them, which a run doesn't
+rewrite). An attachment (`--attach PATH`, a `/attach PATH` step, `attach` in `--json`, or a
+message such as `//attach PATH` that a cancel would put back as that command; each step is
+judged alone, see check_command) must name a file in the root: the path as given and as
+Clarity's own attach_args reads it, with `~` expanded, resolved from the root with links
+followed, with no `..` and not a file with a second name. Otherwise Clarity, outside the
+sandbox, could read a file the sandbox denies into the transcript. The document library's
+reads (v0.3.2: `clarity document add FILE`, `/documents add PATH [NAME]` typed, inside a
+message or in `--json`) are judged by the same rule; `/documents add` is judged both whole
+and with its last word taken as the name, as Clarity may read it. Each step is checked
+again, and the root scanned for links and your own model entries again, just before it's
+typed; a step over 1,000 bytes is refused. `--init` also resets server.toml. Arguments are
+parsed with Clarity's own parser and steps with its own command splitter, so they are
+checked as Clarity will read them.
 """
 
 from __future__ import annotations
@@ -57,6 +58,7 @@ REPO = Path(__file__).resolve().parents[1]
 QA_DIR = REPO / "notes" / "qa"  # local-only; scratch roots, steps and transcripts
 QA_COMMANDS = {"chat", "chats", "replay", "export", "document"}
 QA_MODEL = "smollm2-135m-instruct"
+QA_MODELS = (QA_MODEL, "bge-m3")  # the chat model, and meaning search's embedder (v0.4.1 E1)
 QA_PROFILES = ("smol-chat", "smol-text")
 QA_VECTOR = Path("tests") / "fixtures" / "steering" / "smollm2-repeng.gguf"  # made by repeng
 NAMED = {"profile", "resume", "export"}  # chat commands whose argument names a file
@@ -73,7 +75,8 @@ class Refused(Exception):
 
 
 def prepare_root(root: Path, repo: Path = REPO, init: bool = False) -> None:
-    """Make `root` a scratch project that can load SmolLM2 only (see the module docstring)."""
+    """Make `root` a scratch project that can load SmolLM2 and bge-m3 only (see the module
+    docstring)."""
     from clarity_chat.files import sha256_file
 
     root.mkdir(parents=True, exist_ok=True)
@@ -84,25 +87,35 @@ def prepare_root(root: Path, repo: Path = REPO, init: bool = False) -> None:
     left_server(root)
     no_local_models(root)
     shutil.copy(repo / "defaults.toml", root / "defaults.toml")
-    models = tomllib.loads((repo / "models.toml").read_text(encoding="utf-8"))[QA_MODEL]
-    lines = [f"[{QA_MODEL}]", *(f"{k} = {json.dumps(v)}" for k, v in models.items())]
+    shipped = tomllib.loads((repo / "models.toml").read_text(encoding="utf-8"))
+    lines = [
+        line
+        for name in QA_MODELS
+        for line in (f"[{name}]", *(f"{k} = {json.dumps(v)}" for k, v in shipped[name].items()))
+    ]
     (root / "models.toml").write_text("\n".join(lines) + "\n", encoding="utf-8")
     lock = json.loads((repo / "models.lock").read_text(encoding="utf-8"))
-    entry = lock["models"][QA_MODEL]
-    lock = {**lock, "models": {QA_MODEL: entry}}
+    for name in QA_MODELS:
+        if name not in lock["models"]:
+            raise Refused(f"{name} isn't fetched in {repo}: run uv run clarity fetch {name} there.")
+    entries = {name: lock["models"][name] for name in QA_MODELS}
+    lock = {**lock, "models": entries}
     (root / "models.lock").write_text(json.dumps(lock, indent=2) + "\n", encoding="utf-8")
-    # The root's own copy of the weights, with the modified time models.lock recorded: QA
-    # renames a file over it to test the restart, which mustn't touch the checkout's. Checked
-    # by hash each run: Clarity checks only size and time, which can be set by hand.
-    weights, sha256 = Path(entry["gguf"]["path"]), entry["gguf"]["sha256"]
+    # The root's own copy of each model's weights, with the modified time models.lock
+    # recorded: QA renames a file over one to test the restart, which mustn't touch the
+    # checkout's. Checked by hash each run: Clarity checks only size and time, which can be
+    # set by hand.
+    files = {name: Path(entry["gguf"]["path"]) for name, entry in entries.items()}
     for child in (root / "models").glob("*"):
-        if child.name != weights.parts[1]:
+        if child.name not in {weights.parts[1] for weights in files.values()}:
             shutil.rmtree(child) if child.is_dir() else child.unlink()
-    if not (root / weights).is_file() or sha256_file(root / weights) != sha256:
-        if sha256_file(repo / weights) != sha256:
-            raise Refused(f"{repo / weights} doesn't match models.lock; run clarity verify.")
-        (root / weights).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(repo / weights, root / weights)
+    for name, weights in files.items():
+        sha256 = entries[name]["gguf"]["sha256"]
+        if not (root / weights).is_file() or sha256_file(root / weights) != sha256:
+            if sha256_file(repo / weights) != sha256:
+                raise Refused(f"{repo / weights} doesn't match models.lock; run clarity verify.")
+            (root / weights).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(repo / weights, root / weights)
     profiles = root / "profiles"
     if profiles.exists():
         shutil.rmtree(profiles)
@@ -161,19 +174,22 @@ def no_local_models(root: Path) -> None:
 
 
 def left_server(root: Path) -> None:
-    """Clarity stops a server a crashed run recorded in local/clarity.json, outside the
-    sandbox. The agent can write that file, so the driver won't run on a record."""
+    """Clarity stops a server (and from v0.4.1 an embedder) a crashed run recorded in
+    local/clarity.json, outside the sandbox. The agent can write that file, so the driver
+    won't run on a record."""
     path = root / "local" / "clarity.json"
     if not path.exists():
         return
     try:
-        server = json.loads(path.read_text(encoding="utf-8")).get("server")
+        record = json.loads(path.read_text(encoding="utf-8"))
+        left = [key for key in ("server", "embedder") if record.get(key)]
     except (ValueError, AttributeError):
-        server = "unreadable"
-    if server:
+        left = ["server"]
+    if left:
         raise Refused(
-            f"{path} records a server from an earlier run. Ask the owner to check that no "
-            "llama-server is still running and to delete the file."
+            f"{path} records {'an embedder' if left == ['embedder'] else 'a server'} from an "
+            "earlier run. Ask the owner to check that no llama-server is still running and to "
+            "delete the file."
         )
 
 
