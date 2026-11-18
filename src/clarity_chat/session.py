@@ -529,6 +529,8 @@ class Session:
         return backend
 
     def embedder(self) -> Embedder:
+        """bge-m3's server, made on a meaning search's first need and stopped at close (v0.4.1
+        decision 3); its first vector starts it."""
         if self._embedder is None:
             self._embedder = Embedder(
                 self.root, self.server_config, self.logs_dir, self.load_tokenizer
@@ -799,6 +801,8 @@ class Session:
         self.backend.close()
         for backend in self.backends.values():
             backend.close()
+        if self._embedder is not None:
+            self._embedder.close()
 
     # --- calls ----------------------------------------------------------------------------
 
