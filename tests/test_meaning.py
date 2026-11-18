@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from clarity_chat.commands import Commands
@@ -27,17 +27,17 @@ from clarity_chat.documents import (
     SearchRefused,
     build_id,
     cut_parts,
-    input_of,
     library_add,
     meaning_search,
     parts_jsonl,
     reading,
-    similarity,
 )
-from clarity_chat.profiles import ConfigError, load_defaults, load_profile
+from clarity_chat.documents.search import similarity
+from clarity_chat.profiles import SEARCH_METHOD, ConfigError, load_defaults, load_profile
 from clarity_chat.session import Session
 from tests.conftest import CHAT_PROFILE
 from tests.fakes import FakeBackend, FakeEmbedder
+from tests.test_class import meaning_session  # noqa: F401 (a fixture)
 
 GLOSSARY = (
     "## Thermoregulation\nHow a body keeps its warmth steady in the cold.\n\n"
@@ -113,6 +113,11 @@ def vector_files(session: Session) -> list[str]:
     return sorted(p.name for p in notes_folder(session).iterdir() if p.name.startswith("vectors"))
 
 
+def rule_1(title: str | None, text: str) -> str:
+    """Decision 7's input rule, version 1, written out: the title, a blank line, the text."""
+    return f"{title}\n\n{text}" if title else text
+
+
 def expected_file(session: Session, fake: FakeEmbedder) -> tuple[str, bytes]:
     """The vectors file's name and bytes for `notes` and `fake`'s setup, from the plan's
     decision 9: KEY is the sha256 of the build ID and the setup; one little-endian float32
@@ -122,7 +127,7 @@ def expected_file(session: Session, fake: FakeEmbedder) -> tuple[str, bytes]:
     key = hashlib.sha256(f"{manifest['build_id']}\n{setup}".encode()).hexdigest()
     parts = [json.loads(line) for line in (notes_folder(session) / "parts.jsonl").open("rb")]
     other = FakeEmbedder(fake.device)  # its count isn't the session's
-    data = b"".join(other.vector(other.ids(input_of(p["title"], p["text"]))) for p in parts)
+    data = b"".join(other.vector(other.ids(rule_1(p["title"], p["text"]))) for p in parts)
     return f"vectors-{key}.f32", data
 
 
@@ -205,8 +210,10 @@ def test_a_second_search_reads_the_file_without_building(meaning):
     session, c, fake = meaning
     say(c, ASKED)
     assert fake.made == 3 + 1  # three parts, then the message
-    say(c, "Why does rock wear away?")
+    found = say(c, "Why does rock wear away?")
     assert fake.made == 3 + 1 + 1  # the message only
+    name, data = expected_file(session, fake)
+    assert found["documents"][0]["vectors_sha256"] == hashlib.sha256(data).hexdigest()
 
 
 def test_a_changed_setup_fact_builds_again_and_deletes_the_old_file(meaning):
@@ -228,6 +235,10 @@ def damage(path: Path, how: str) -> None:
         path.write_bytes(data + b"\0\0\0\0")
     elif how == "nan":
         path.write_bytes(struct.pack("<f", math.nan) + data[4:])
+    elif how == "length 1.002":
+        path.write_bytes(
+            struct.pack("<1024f", *(x * 1.002 for x in floats(data[:4096]))) + data[4096:]
+        )
     elif how == "length 0.9":
         path.write_bytes(
             struct.pack("<1024f", *(x * 0.9 for x in floats(data[:4096]))) + data[4096:]
@@ -239,7 +250,9 @@ def damage(path: Path, how: str) -> None:
         path.symlink_to(copy)
 
 
-@pytest.mark.parametrize("how", ["truncated", "padded", "nan", "length 0.9", "a link"])
+@pytest.mark.parametrize(
+    "how", ["truncated", "padded", "nan", "length 0.9", "length 1.002", "a link"]
+)
 def test_a_file_that_doesn_t_read_is_built_again(meaning, how):
     if how == "a link" and os.name == "nt":
         pytest.skip("symlinks need privileges on Windows")
@@ -285,6 +298,7 @@ float32s = st.floats(width=32, allow_nan=False, allow_infinity=False)
 
 
 @given(st.lists(st.tuples(float32s, float32s), min_size=1, max_size=64))
+@example([(1.0, 1.0), (2.0**-53, 1.0), (2.0**-106, 1.0)])  # fsum: 1.0000000000000002; sum: 1.0
 def test_a_score_is_the_exact_dot_product_correctly_rounded(pairs):
     a, b = [x for x, _ in pairs], [y for _, y in pairs]
     exact = sum((Fraction(x) * Fraction(y) for x, y in pairs), Fraction(0))
@@ -356,7 +370,7 @@ def test_twenty_thousand_parts_are_scored_within_a_loose_bound():
 
 def test_history_summarises_a_meaning_found_and_a_words_one_names_its_method(meaning):
     session, c, _ = meaning
-    say(c, ASKED)
+    found = say(c, ASKED)
     [turn] = [t for t in c.run("history", "", lambda e: None)["turns"] if t.get("found")]
     summary = turn["found"]
     assert set(summary) == {
@@ -365,6 +379,8 @@ def test_history_summarises_a_meaning_found_and_a_words_one_names_its_method(mea
     }  # fmt: skip
     assert summary["method"] == "meaning" and summary["documents"] == ["notes"]
     assert set(summary["parts"][0]) == {"id", "title", "rank", "score"}
+    assert summary["min_similarity"] == 0.2 == found["min_similarity"]
+    assert [p["score"] for p in summary["parts"]] == [p["score"] for p in found["parts"]]
     c.run("profile", "chat", lambda e: None)
     c.run("search", "notes", lambda e: None)
     c.run("say", "leaves light sugar", lambda e: None)
@@ -454,4 +470,87 @@ def test_a_resumed_chat_with_no_search_yet_takes_the_profile_s_method(meaning):
     c.run("say", "Hello there", lambda e: None)
     assert session.conversation is not None
     log = session.conversation.log.path
-    assert resumed_method(session, log, without_the_key) == "words"  # the default today
+    assert resumed_method(session, log, without_the_key) == SEARCH_METHOD
+
+
+# --- Checkpoint 1's fixes (notes/research/reviews/v041-checkpoint1.md) ---------------------
+
+
+def test_a_link_named_like_the_part_file_is_never_written_through(meaning, tmp_path):
+    """M1: a document folder copied from elsewhere can hold a link named
+    vectors-KEY.f32.part; the build replaces it, never writing into its target."""
+    if os.name == "nt":
+        pytest.skip("symlinks need privileges on Windows")
+    session, c, fake = meaning
+    name, data = expected_file(session, fake)
+    outside = tmp_path / "outside.txt"
+    outside.write_bytes(b"precious")
+    (notes_folder(session) / f"{name}.part").symlink_to(outside)
+    say(c, ASKED)
+    assert outside.read_bytes() == b"precious"
+    assert (notes_folder(session) / name).read_bytes() == data
+
+
+def test_a_vectors_write_failure_is_said_as_it_is(meaning, monkeypatch):
+    """S1: a full disk (or a read-only folder) says the write failed, not that this Python
+    has no FTS5."""
+    from clarity_chat.documents import vectors
+
+    session, c, _ = meaning
+
+    def full(path, data):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(vectors, "write", full)
+    refused = raised(lambda: c.run("say", ASKED, lambda e: None))
+    assert isinstance(refused, ConfigError), repr(refused)
+    assert "Can't write notes" in str(refused) and "FTS5" not in str(refused), refused
+
+
+def test_each_document_logs_its_own_vectors_hash(meaning):
+    """S3c: two documents, each found's vectors_sha256 the hash of its own file."""
+    session, c, _ = meaning
+    reading._last = None
+    library_add(session.root, b"## Tides\nHow the moon pulls the sea twice a day.\n", "more.md")
+    c.run("search", "notes more", lambda e: None)
+    found = say(c, ASKED)
+    for doc in found["documents"]:
+        folder = session.root / "local" / "documents" / doc["name"]
+        [path] = folder.glob("vectors-*.f32")
+        assert doc["vectors_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest(), doc
+
+
+def wrong_engine_key(found: dict) -> None:
+    found["engine"]["extra"] = "made up"  # setup is the hash of ENGINE_FACTS: unchanged
+
+
+@pytest.mark.parametrize(
+    "path, value",
+    [
+        (("min_similarity",), 2.0),
+        (("min_similarity_origin",), "made up"),
+        (("query", "tokens"), "3"),
+        (("query", "sha256"), 7),
+        (("documents", 0, "vectors_sha256"), 7),
+        (("engine",), wrong_engine_key),
+    ],
+    ids=lambda v: str(v),
+)
+def test_a_meaning_found_field_of_the_wrong_type_is_refused(meaning_session, path, value):  # noqa: F811
+    """S3f: as test_search_survivors' word-search sweep, for a meaning found's own fields."""
+    from tests.test_class import meaning_log, refused_by_resume_and_export
+
+    def change(row: dict) -> bool:
+        node = row["found"]
+        if node.get("method") != "meaning":
+            return False
+        if callable(value):
+            value(node)
+            return True
+        for key in path[:-1]:
+            node = node[key]
+        node[path[-1]] = value
+        return True
+
+    log = meaning_log(meaning_session)
+    refused_by_resume_and_export(meaning_session, log, change)

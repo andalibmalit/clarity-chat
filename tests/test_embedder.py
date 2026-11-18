@@ -212,6 +212,24 @@ def test_a_start_that_fails_a_check_is_refused_and_stopped(m3_root, fake, change
     assert fake.requests == []
 
 
+def test_an_inherited_ggml_variable_refuses_the_start(m3_root, fake, monkeypatch):
+    """Checkpoint 1's M2: llama-server keeps GGML_* and LLAMA_* variables, and some change how
+    it computes (GGML_METAL_BF16_DISABLE, and bge-m3 is a bf16 GGUF), which the setup doesn't
+    record. The start is refused with the chat server's existing warning, naming it."""
+    monkeypatch.setenv("GGML_METAL_BF16_DISABLE", "1")
+    with pytest.raises(EmbedderFailed, match="GGML_METAL_BF16_DISABLE"):
+        made(m3_root).vector([0, 5, 2])
+    assert fake.procs[-1].terminated
+
+
+def test_a_dirty_llama_cpp_checkout_refuses_the_start(m3_root, fake, monkeypatch):
+    pinned = load_server_config(m3_root).llama_cpp_commit
+    monkeypatch.setattr(llama_cpp, "git_state", lambda d: {"commit": pinned, "dirty": True})
+    with pytest.raises(EmbedderFailed, match="uncommitted changes"):
+        made(m3_root).vector([0, 5, 2])
+    assert fake.procs[-1].terminated
+
+
 # --- each vector -----------------------------------------------------------------------
 
 

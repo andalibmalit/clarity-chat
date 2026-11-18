@@ -524,23 +524,33 @@ def test_an_attachment_gives_the_same_prompt_ids_on_both_backends(tmp_path):
     assert llama["prompt_ids"] == hf["prompt_ids"]
 
 
-def test_a_searched_message_gives_the_same_prompt_ids_on_both_backends(tmp_path, monkeypatch):
+@pytest.mark.parametrize("method", ["words", "meaning"])
+def test_a_searched_message_gives_the_same_prompt_ids_on_both_backends(
+    tmp_path, monkeypatch, method
+):
     """v0.3.2 (Checkpoint 2's S4): the found parts are in the content, which both backends
-    get as IDs. The library is a scratch one: the repo's local/documents/ is never read."""
+    get as IDs. The library is a scratch one: the repo's local/documents/ is never read.
+    v0.4.1 (Checkpoint 1's S4): by meaning too, with FakeEmbedder (the parts block is the
+    same insert path whichever method chose its parts)."""
     from clarity_chat.documents import library as library_module
     from clarity_chat.documents import library_add
+    from tests.fakes import FakeEmbedder
 
     scratch = tmp_path / "scratch"
     trail = b"## Ridge\nThree cairns mark the ridge.\n\n## Pass\nNo water after the pass.\n"
     library_add(scratch, trail, "trail.md")
     monkeypatch.setattr(library_module, "LIBRARY", scratch / "local" / "documents")
-    session = Session(REPO, logs_dir=tmp_path / "logs")
+    session = Session(REPO, logs_dir=tmp_path / "logs", embedder=FakeEmbedder())  # ty: ignore[invalid-argument-type]
     folder = tmp_path / "profiles"
     folder.mkdir()
+    meaning = '\n[documents]\nsearch_method = "meaning"\nmin_similarity = 0.0\n'
     records = {}
     try:
         for backend in ("llama.cpp", "transformers"):
-            session.new_conversation(profile(folder, "smol-chat", backend, temperature="0.0"))
+            path = Path(profile(folder, "smol-chat", backend, temperature="0.0"))
+            if method == "meaning":
+                path.write_text(path.read_text(encoding="utf-8") + meaning, encoding="utf-8")
+            session.new_conversation(str(path))
             session.set_search(["trail"])
             records[backend] = session.say("What marks the ridge?").record
             checks_ok(records[backend])
