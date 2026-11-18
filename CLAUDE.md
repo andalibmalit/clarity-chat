@@ -1,41 +1,20 @@
 # CLAUDE.md
 
-Clarity: a chat client for exact, replayable prompting experiments with local LLMs. Design choices, tradeoffs and scope: `docs/design.md`. Local-only notes in `notes/` (gitignored, so not in clones or CI): the spec `notes/brief.md`, the build plan and current status `notes/plan.md`, and research in `notes/research/`. `docs/` holds only docs for other readers.
+Clarity: a chat client for exact, replayable prompting experiments with local LLMs. A reply is shaped by much that servers and chat apps hide (the chat template, tokenization, BOS, sampler defaults, prompt caching, context shift, flags from the environment), so a difference between two replies may not come from the prompt. Clarity builds the token IDs itself, sends every value, checks the server used them, logs every setting and environment fact known to affect the output, and can replay any completed call.
 
-## The problem it solves
-When you prompt a local model through a server or chat app, much of what shapes a reply is hidden: which chat template ran and how the text was tokenized, whether a BOS token was added, sampler defaults from the server or the model file, samplers skipped silently, prompt caching, context shift dropping tokens, flags picked up from environment variables or config files. A difference between two replies can come from any of these rather than from your prompt, and you can't rerun the call to find out. Clarity takes over that layer: it builds the token IDs itself, sends every value, checks the server used them, logs every setting and environment fact known to affect the output, and can replay any completed call.
+Where things are: choices, tradeoffs and scope in `docs/design.md`; keys, commands and record fields in `docs/reference.md`; test tiers and the release checklist in `CONTRIBUTING.md`. `notes/` is local only (gitignored): the release plans in `notes/plans/`, the sprint's rules and status in `notes/sprint.md`, research in `notes/research/`.
 
 ## Commands
 
 ```
-uv sync                                   # install (add --extra hf for the Transformers backend)
-uv run clarity fetch NAME                 # download a model from models.toml, convert it, write models.lock
-uv run clarity verify [NAME]              # re-hash GGUF files against models.lock
-uv run clarity chat --profile NAME        # chat with a profile from profiles/ or local/profiles/
-uv run clarity chat --resume ID           # continue a conversation (IDs from `clarity chats`)
-uv run clarity chat --json [--profile NAME]  # commands as JSON lines on stdin, events out
-uv run clarity ui                         # the web interface on 127.0.0.1:8765, opened in the browser
-uv run clarity chats                      # list conversations in logs/
-uv run clarity run --openings FILE --profiles A B [--seeds N]   # blind test into runs/RUN_ID/
-uv run clarity replay LOG CALL_ID [--logged-flags]                # re-send a call and compare
-uv run clarity mark LOG CALL_ID [LABEL] [--remove]                # label a logged reply, or remove a label (note: TEXT)
-uv run clarity export ID [--out PATH]     # write a conversation for a notebook (logs/exports/ID.jsonl)
-uv run pytest                             # offline tests (no network, model or server)
-uv run pytest -m live                     # SmolLM2 via the managed llama-server
-uv run pytest -m olmo                     # OLMo 3 (needs both OLMo models fetched)
-uv run pytest -m llama                    # Llama 3.1 8B (needs both models fetched; gated)
-uv run pytest -m measure -v -s            # timings and memory figures behind design choices
-uv run pytest -m embed -v -s              # embedding determinism on bge-small (decides v0.3.3)
-uv run pytest -m browser                  # the web UI in Chrome (needs `uv sync --group browser`)
+uv sync                       # install (add --extra hf for the Transformers backend)
+uv run clarity --help         # the CLI; every command is in docs/reference.md
+uv run pytest                 # offline tests: no network, model or server
+uv run pytest -m live         # SmolLM2 via the managed llama-server; other tiers: CONTRIBUTING.md's Test table
 uv run ruff check && uv run ruff format --check && uv run ty check
 ```
 
-Build llama.cpp (checkout at the commit in `server.toml`):
-
-```
-cmake -S vendor/llama.cpp -B vendor/llama.cpp/build -DCMAKE_BUILD_TYPE=Release -DLLAMA_CURL=OFF -DLLAMA_USE_PREBUILT_UI=OFF
-cmake --build vendor/llama.cpp/build --config Release -j 8 --target llama-server llama-quantize
-```
+Build llama.cpp at the commit in `server.toml` with Getting started's build lines (`docs/getting-started.md`).
 
 ## Principle
 What you see is exactly what the model got, and every completed call can be replayed.
@@ -47,35 +26,23 @@ Teaching text, anything that explains how models or settings work, is checked ag
 Clarity writes files only visibly. Shipped files stay read-only; the user's own files live in `local/`.
 
 ## How to work
-- State your assumptions in each step report. Ask before decisions that are hard to undo.
-- A step is done when its tests pass. Write tests with the change, and run ruff, ty and pytest before every commit.
-  Show the command and its output in the step report.
-- For behaviour the plan fixes (record fields, refusals, command results and events, replay, resume, reading old logs), write the test first and see it fail; the step report quotes that failure. For tests written with their code, stash the source change, run the new tests, and quote the ones that fail.
-- An offline test never skips in CI. A test that needs a model or torch goes on a live tier, and the plan marks its behaviour "live only".
-- A bug fix starts with a failing test, committed before the fix. A fix commit that edits a test from its failing-test commit says what changed and why in its message.
-- Run ruff and ty before a failing-test commit too, not only before the fix.
-- Each release follows its approved plan in `notes/plans/`. If the build departs from the plan, update the plan in the same step and say so.
-- A release is done when `CONTRIBUTING.md`'s release checklist is complete. I may run the live tests while building, to catch my own bugs. Before `-m olmo` or `-m llama` (each loads 15–16 GB), I check that no model is loaded and about 16 GB is free; if the check passes I run it, otherwise I ask. The owner runs them again for the release checklist, pushes and tags.
+- Never open files in `logs/`, `runs/` or `local/documents/` unless I ask; they hold private conversations and documents. Tests use made-up text.
+- Each release follows its approved plan in `notes/plans/`. If the build departs from the plan, update the plan in the same step and say so. Reviews and the release process: `CONTRIBUTING.md`.
+- State your assumptions in each step report. Run the checks above before every commit, the failing-test commit included, and quote their output in the report.
+- For behaviour the plan fixes (record fields, refusals, command results and events, replay, resume, reading old logs), write the test first and see it fail on its own assertion; the report quotes the failure. For tests written with their code, stash the source change, run the new tests, and quote the ones that fail. A bug fix starts with a failing test, committed before the fix; a fix commit that changes a test from that commit says what changed and why.
+- An offline test never skips in CI. A test that needs a model or torch goes on a live tier.
+- Before `-m olmo` or `-m llama` (each loads 15–16 GB), check that no model is loaded and about 16 GB is free; otherwise ask.
 - A change to the llama.cpp commit, `tokenizers`, `transformers` or `jinja2` can change output: give it its own commit and a changelog line, and ask the owner to run the live tests.
-- Add user-visible changes to `CHANGELOG.md` under Unreleased in the same commit.
-- If you make a mistake that an earlier session also made, propose one line for this file.
-- One commit does one plan item, with its tests and docs. A release is a closed list the owner can use and judge in one sitting; scope sets its size, not a line count.
-- The plan names review checkpoints: after each group that later items build on, after any item that changes record fields, resume or old-log behaviour, and the whole branch before the release is used. An extra review is due if the diff since the last review passes about 400 source lines (review fixes don't count: the fix review reads them), or an item lands at over 1.5 times its estimate and at least 100 lines over it. If a planned review comes within the next two items, report the trigger and fold it into that review without stopping the build; otherwise stop for it. These are triggers, not budgets.
-- Reviews check the diff against the plan and look for bloat: code no item asked for, abstractions with one user, unrequested options, tests for cases that can't happen. Skip style. Prefer findings that delete code.
-- Keep the docs current as you go: update the docs in the same commit as a change to a choice, tradeoff, scope or usage: `docs/design.md` for choices and tradeoffs, `docs/reference.md` for keys, commands and record fields, `docs/guides.md` and `docs/getting-started.md` for usage, and the README. `tests/test_docs.py` catches some drift, not all. Write for human readers, in Google developer-docs style: lead with the point, use short sentences and plain words, and use lists only for parallel items. Say each thing once. Keep caveats and sources; cut padding.
+- One commit does one plan item, with its tests, its docs and its `CHANGELOG.md` line under Unreleased.
+- Docs are for human readers, in Google developer-docs style: lead with the point, use short sentences and plain words, and use lists only for parallel items. Say each thing once. Keep caveats and sources; cut padding.
 - Use the same names everywhere: profile, conversation, turn, call, mark and note mean the same thing in code, profiles, logs and commands.
-- Never open files in `logs/`, `runs/` or `local/documents/` unless I ask; they hold private conversations and your documents. Tests use made-up text.
+- If you make a mistake an earlier session also made, propose one line for this file. Check it against the bar this file keeps (true on every task, not learnable from the code), and say whether a hook or deny rule would serve better, or which line it replaces.
 
 ## Python style
-- Follow PEP 8 and the Zen of Python as defaults, not hard rules. Readability is the goal.
-- The project's own conventions and configured tools (ruff for lint and format, ty for types) override PEP 8. Match the surrounding code.
-- Break a rule when following it would make the code harder to read. Let `ruff format` do the wrapping; don't shorten a good name just to fit a line.
-- Keep names that mirror an external API (e.g. llama-server's `n_predict`, `tokens_evaluated` in log records, or camelCase from a library you're wrapping).
-- Don't reformat or restyle code you aren't otherwise changing. Keep diffs focused.
-- Put more care into clear design than into cosmetic compliance. Passing the linter doesn't make code Pythonic.
-- Don't quote the Zen to justify a choice. Explain the actual tradeoff.
+- ruff and ty set the style; match the surrounding code. Let `ruff format` wrap lines; don't shorten a good name to fit one. Keep names that mirror an external API (llama-server's `n_predict`, `tokens_evaluated`), and don't restyle code you aren't otherwise changing.
+- Put more care into clear design than into passing the linter. Explain a choice by its actual tradeoff, not by quoting the Zen of Python.
 
 ## Sandbox notes
-- `vendor/llama.cpp` can't be cloned or updated from inside the sandbox (it blocks writes to `.git/hooks`); the user runs those git commands.
+- `vendor/llama.cpp` can't be cloned or updated from inside the sandbox; the owner runs its git commands.
 - Delete files with Python's `shutil`; `rm -rf` is denied.
-- Run `uv run pytest -m live -v` (or `-m olmo`, `-m hf`) on its own: no pipe, `cd` or `&&`. Only then does the `excludedCommands` entry take it out of the sandbox, which hides the GPU.
+- Run a live tier (`uv run pytest -m live -v`, `-m olmo`, `-m hf`) on its own: no pipe, `cd` or `&&`. Only then does its `excludedCommands` entry take it out of the sandbox, which hides the GPU.
