@@ -63,7 +63,9 @@ def mine(fetched_root, tmp_path, monkeypatch):
         def wait(self):
             return 0
 
-    stub = SimpleNamespace(Popen=Converted, PIPE=subprocess.PIPE, STDOUT=subprocess.STDOUT)
+    stub = SimpleNamespace(
+        Popen=Converted, PIPE=subprocess.PIPE, STDOUT=subprocess.STDOUT, DEVNULL=subprocess.DEVNULL
+    )
     monkeypatch.setattr(models, "subprocess", stub)  # models' own: git and the rest run as usual
     return root
 
