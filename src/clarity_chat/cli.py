@@ -75,13 +75,16 @@ def split_command(line: str) -> tuple[str, str]:
 
 
 # Control characters (Unicode's Cc: U+0000 to U+001F and U+007F to U+009F) but newline and
-# tab, and the text-direction controls (documents' BIDI, which cli can't import: a test
-# holds the two lists together).
+# tab, the line and paragraph separators (U+2028, U+2029: some tools treat them as line breaks), and
+# the text-direction controls (documents' BIDI, which cli can't import: a test holds the two
+# lists together).
 SHOWN_CONTROLS = {
     i: f"⟨U+{i:04X}⟩"
     for i in [
         *range(0x20),
         *range(0x7F, 0xA0),
+        0x2028,
+        0x2029,
         *(0x061C, 0x200E, 0x200F, *range(0x202A, 0x202F), *range(0x2066, 0x206A)),
     ]
     if chr(i) not in "\n\t"
@@ -89,9 +92,9 @@ SHOWN_CONTROLS = {
 
 
 def visible_controls(text: str) -> str:
-    """Text as the terminal's /prompt shows it, in the page's notation: each control
-    character but newline and tab, and each text-direction control, as ⟨U+001B⟩, so text in
-    a prompt can't rewrite the terminal. The text sent stays exact."""
+    """Text as the terminal shows it in /prompt, /history and the streamed reply, in the
+    page's notation: each of SHOWN_CONTROLS as ⟨U+001B⟩, so text from a prompt or a model
+    can't rewrite the terminal. The text sent, logged and given by --json stays exact."""
     return text.translate(SHOWN_CONTROLS)
 
 
@@ -257,7 +260,7 @@ def format_history(result: dict[str, Any]) -> str:
         if turn["marks"]:
             lines.append("  marked: " + ", ".join(m["label"] for m in turn["marks"]))
         lines += [f"  note: {n['text']}" for n in turn["notes"]]
-    return "\n".join(lines)
+    return visible_controls("\n".join(lines))
 
 
 def searched_line(found: dict[str, Any]) -> str:
@@ -805,7 +808,7 @@ class ChatLoop:
 
     def on_event(self, event: dict[str, Any]) -> None:
         if event["event"] == "text":
-            self.write(event["text"])
+            self.write(visible_controls(event["text"]))
         elif event["event"] == "reply_start" and event["n"] > 1:
             gap = "\n\n" if event["k"] > 1 else ""
             self.write(f"{gap}— reply {event['k']} of {event['n']}, seed {event['seed']} —\n")
