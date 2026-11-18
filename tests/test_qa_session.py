@@ -1,5 +1,6 @@
 """The QA driver's limits. It runs Clarity outside the sandbox, on the GPU, for a QA agent,
-so it must keep it to its scratch root and to SmolLM2 whatever the agent's steps say."""
+so it must keep it to its scratch root and to SmolLM2 and bge-m3 whatever the agent's steps
+say."""
 
 from __future__ import annotations
 
@@ -20,11 +21,12 @@ qa = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(qa)
 
 SMOL = "smollm2-135m-instruct"
+BGE = "bge-m3"  # v0.4.1 E1: meaning search's embedder, the drivers' second model
 
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
-    """A stand-in checkout: the real config files and three profiles, and two fetched
+    """A stand-in checkout: the real config files and three profiles, and three fetched
     models with tiny weights files."""
     fake = tmp_path / "repo"
     (fake / "profiles").mkdir(parents=True)
@@ -35,7 +37,7 @@ def repo(tmp_path: Path) -> Path:
     (fake / qa.QA_VECTOR).parent.mkdir(parents=True)
     shutil.copy(REPO / qa.QA_VECTOR, fake / qa.QA_VECTOR)
     models = {}
-    for name in (SMOL, "olmo-3-7b-instruct"):
+    for name in (SMOL, BGE, "olmo-3-7b-instruct"):
         weights = fake / "models" / name / f"{name}-bf16.gguf"
         weights.parent.mkdir(parents=True)
         weights.write_bytes(b"GGUF " + name.encode())
@@ -61,10 +63,12 @@ def root(tmp_path: Path, repo: Path) -> Path:
 # --- the root ------------------------------------------------------------------------
 
 
-def test_the_root_holds_only_smollm2_and_its_profiles(root, repo):
+def test_the_root_holds_only_smollm2_bge_m3_and_the_profiles(root, repo):
     lock = json.loads((root / "models.lock").read_text(encoding="utf-8"))
-    assert list(lock["models"]) == [SMOL]
-    assert list(tomllib.loads((root / "models.toml").read_text(encoding="utf-8"))) == [SMOL]
+    assert list(lock["models"]) == [SMOL, BGE]
+    toml = tomllib.loads((root / "models.toml").read_text(encoding="utf-8"))
+    shipped = tomllib.loads((repo / "models.toml").read_text(encoding="utf-8"))
+    assert toml == {SMOL: shipped[SMOL], BGE: shipped[BGE]}  # bge-m3's weights key and hash
     profiles = sorted(p.name for p in (root / "profiles").iterdir())
     assert profiles == [
         "smol-chat-hf.toml",
@@ -76,8 +80,9 @@ def test_the_root_holds_only_smollm2_and_its_profiles(root, repo):
     assert (hf["backend"], hf["device"], hf["model"]) == ("transformers", "cpu", SMOL)
     # The root's own copy of the weights, with the time models.lock recorded: an agent can
     # rename over it (QA step 21) without touching the checkout's.
-    weights = root / "models" / SMOL / f"{SMOL}-bf16.gguf"
-    assert not (root / "models").is_symlink() and weights.stat().st_mtime_ns == 1_000_000_100
+    for name in (SMOL, BGE):
+        weights = root / "models" / name / f"{name}-bf16.gguf"
+        assert not (root / "models").is_symlink() and weights.stat().st_mtime_ns == 1_000_000_100
     assert not (root / "models" / "olmo-3-7b-instruct").exists()
     server = tomllib.loads((root / "server.toml").read_text(encoding="utf-8"))
     assert server["llama_cpp_dir"] == (repo / "vendor" / "llama.cpp").as_posix()
@@ -92,7 +97,10 @@ def test_each_run_rewrites_what_an_agent_could_have_changed(root, repo):
         repo / "profiles" / "smol-chat.toml"
     ).read_bytes()
     assert not (root / "profiles" / "1a-stock.toml").exists()
-    assert list(json.loads((root / "models.lock").read_text(encoding="utf-8"))["models"]) == [SMOL]
+    assert list(json.loads((root / "models.lock").read_text(encoding="utf-8"))["models"]) == [
+        SMOL,
+        BGE,
+    ]
 
 
 def test_server_toml_may_change_only_its_flags(root, repo):
@@ -114,6 +122,29 @@ def test_a_server_record_left_in_clarity_json_is_refused(root, repo):
     (root / "local" / "clarity.json").write_text(json.dumps(info), encoding="utf-8")
     with pytest.raises(qa.Refused, match="server"):
         qa.prepare_root(root, repo, init=False)
+
+
+def test_an_embedder_record_left_in_clarity_json_is_refused(root, repo):
+    """v0.4.1 D4 makes Clarity stop the embedder a crashed run recorded, outside the sandbox,
+    as it does the chat server: the driver won't run on that record either."""
+    (root / "local").mkdir(exist_ok=True)
+    info = {"embedder": {"pid": 1, "port": 1, "api_key": "k", "model_path": "m"}}
+    (root / "local" / "clarity.json").write_text(json.dumps(info), encoding="utf-8")
+    with pytest.raises(qa.Refused, match="records a embedder|records an embedder"):
+        qa.prepare_root(root, repo, init=False)
+
+
+def test_a_checkout_without_bge_m3_fetched_is_refused_naming_the_fetch(tmp_path, repo):
+    lock = json.loads((repo / "models.lock").read_text(encoding="utf-8"))
+    del lock["models"][BGE]
+    (repo / "models.lock").write_text(json.dumps(lock), encoding="utf-8")
+    try:
+        qa.prepare_root(tmp_path / "fresh", repo, init=False)
+        refused = None
+    except Exception as e:
+        refused = e
+    assert isinstance(refused, qa.Refused), repr(refused)
+    assert "uv run clarity fetch bge-m3" in str(refused)
 
 
 def test_an_old_root_with_links_is_rebuilt(tmp_path, repo):
@@ -268,12 +299,14 @@ def test_your_own_model_entries_are_refused_before_clarity_starts(root, repo, na
         qa.prepare_root(root, repo, init=False)
 
 
-def test_the_roots_weights_are_checked_by_hash_and_replaced(root, repo):
+@pytest.mark.parametrize("name", [SMOL, BGE])
+def test_the_roots_weights_are_checked_by_hash_and_replaced(root, repo, name):
     """Clarity checks only size and time at start, and both can be set by hand."""
-    weights = root / "models" / SMOL / f"{SMOL}-bf16.gguf"
+    weights = root / "models" / name / f"{name}-bf16.gguf"
+    assert weights.is_file(), f"the root has no copy of {name}'s weights"
     lock = json.loads((repo / "models.lock").read_text(encoding="utf-8"))
-    original = (repo / "models" / SMOL / f"{SMOL}-bf16.gguf").read_bytes()
-    lock["models"][SMOL]["gguf"]["sha256"] = hashlib.sha256(original).hexdigest()
+    original = (repo / "models" / name / f"{name}-bf16.gguf").read_bytes()
+    lock["models"][name]["gguf"]["sha256"] = hashlib.sha256(original).hexdigest()
     (repo / "models.lock").write_text(json.dumps(lock), encoding="utf-8")
     weights.write_bytes(b"GGUF other model!"[: len(original)].ljust(len(original), b"!"))
     os.utime(weights, ns=(1_000_000_100, 1_000_000_100))
