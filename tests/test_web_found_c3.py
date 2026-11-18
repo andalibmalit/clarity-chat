@@ -268,7 +268,7 @@ def made_up_part(rank: int, **extra) -> dict:
 
 def made_up_found(parts: list[dict], left: list[tuple[int, str]], matched: int) -> dict:
     """/history's summary (found_view's input since C3) of a made-up `found`."""
-    return found_summary({"words": ["wren"], "ignored": [], "matched": matched,
+    return found_summary({"method": "words", "words": ["wren"], "ignored": [], "matched": matched,
             "considered": 8, "budget": 1500, "tokens": sum(p["tokens"] for p in parts),
             "parts": parts, "documents": [{"name": "g"}],
             "left_out": [{"id": f"g:{r}", "rank": r, "score": -1.0, "why": why}

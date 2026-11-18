@@ -105,7 +105,8 @@ DOCUMENTS_KEYS = {
 }
 MARKER_FIELDS = {"units", "first", "last", "total"}
 BUDGET = 1500  # tokens search may add to a message, by default (v0.3.2 decision 9)
-MIN_SIMILARITY = 0.0
+SEARCH_METHOD = "words"  # a chat's search method by default; B3 flips it to "meaning"
+MIN_SIMILARITY = 0.5  # provisional: A5 measures the default (v0.4.1 decision 12)
 PLACEMENTS = ("start", "end")
 # A library document's name (v0.3.2 decision 20), here so a profile's `search` list and the
 # library check names by one rule: the documents package imports it.
@@ -615,6 +616,15 @@ def _documents(table: object, mode: str, where: str) -> DocumentsTable:
             f"{where}: [documents] budget must be a positive whole number of tokens, "
             f"got {budget!r}."
         )
+    method = table.get("search_method")
+    if method is not None and method not in ("meaning", "words"):
+        raise ConfigError(f'{where}: [documents] search_method must be "meaning" or "words".')
+    minimum = table.get("min_similarity")
+    number = isinstance(minimum, int | float) and not isinstance(minimum, bool)
+    if minimum is not None and not (number and -1 <= minimum <= 1):
+        raise ConfigError(
+            f"{where}: [documents] min_similarity must be a number from -1 to 1, got {minimum!r}."
+        )
     search = table.get("search", [])
     if not isinstance(search, list):
         raise ConfigError(f"{where}: [documents] search must be a list of document names.")
@@ -644,8 +654,8 @@ def _documents(table: object, mode: str, where: str) -> DocumentsTable:
         tuple(search),
         budget,
         placement,
-        table.get("search_method"),
-        table.get("min_similarity"),
+        method,
+        None if minimum is None else float(minimum),
     )
 
 

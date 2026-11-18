@@ -9,6 +9,7 @@ record, whether it succeeded, failed or was cancelled.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import secrets
@@ -30,10 +31,14 @@ from clarity_chat.documents import (
     Document,
     DocumentRefused,
     Embedder,
+    EmbedderFailed,
     Fit,
+    Loaded,
+    PartTooLong,
     Room,
     SearchRefused,
     Stale,
+    TooLong,
     Unreadable,
     added_ranges,
     attached_in,
@@ -52,6 +57,7 @@ from clarity_chat.documents import (
     library_parts_stamp,
     library_state,
     load_document,
+    meaning_search,
     message_content,
     more_than,
     piece,
@@ -59,12 +65,15 @@ from clarity_chat.documents import (
     search_documents,
     start_that_fits,
     summaries,
+    vectors_for,
     with_text,
 )
 from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records, unreadable
 from clarity_chat.models import check_weights_quick, lock_entry, read_lock, source_weights
 from clarity_chat.profiles import (
     BUDGET,
+    MIN_SIMILARITY,
+    SEARCH_METHOD,
     SEED_MAX,
     SETTING_NAMES,
     ConfigError,
@@ -710,6 +719,7 @@ class Session:
             started_server=started,
             ctx_size=ctx_size,
             searching=list(prepared.profile.search),
+            search_method=prepared.profile.search_method or SEARCH_METHOD,
         )
         conversation.warnings += self._profile_warnings(prepared)
         log.append(
@@ -861,7 +871,15 @@ class Session:
         try:
             room = self.room(after=parent)
             found = self._found(
-                text, conversation.searching, room, profile, fields, already, at_send, where
+                text,
+                conversation.searching,
+                room,
+                profile,
+                fields,
+                already,
+                at_send,
+                where,
+                conversation.search_method,
             )
         except SearchRefused as e:
             return fields, e
@@ -877,6 +895,7 @@ class Session:
         already: frozenset[str] = frozenset(),
         at_send: bool = False,
         where: str = "chat",
+        method: str = "words",
     ) -> dict[str, Any]:
         """What `text` finds in the documents `names`, filled to `profile`'s budget into a
         block holding `fields`' attachments: one function for a message, /try and a batch
@@ -901,9 +920,14 @@ class Session:
             raise SearchRefused(problems, at_send, where)
         budget, origin = budget_of(profile)
         try:
-            found = search_documents(docs, text)
+            if method == "meaning":
+                found = self._meaning(docs, text, profile)
+            else:
+                found = search_documents(docs, text)
         except DocumentRefused:  # no FTS5 in this Python: how to send without it
             raise SearchRefused([{"state": "no_fts5"}], at_send, where) from None
+        except Unsearched as e:  # the embedder, or a text past 8,192 tokens (states 5 to 7)
+            raise SearchRefused([e.problem], at_send, where) from None
         return fill(
             room,
             text,
@@ -915,6 +939,62 @@ class Session:
             fields["placement"],
             already,
         )
+
+    def _meaning(self, docs: list[Loaded], text: str, profile: Profile) -> dict[str, Any]:
+        """What `text` finds in `docs` by meaning (decisions 9 to 12), unfilled: the
+        embedder started, each document's vectors read or built, the message's vector,
+        and the parts at or above the minimum."""
+        embedder = self.embedder()
+        try:
+            engine = embedder.start()  # bge-m3 not fetched: a ConfigError, before any process
+            ids = embedder.ids(text)
+            vectors = {
+                d.name: vectors_for(self.root, d, embedder, engine["setup"], self.on_building)
+                for d in docs
+            }
+            query = embedder.vector(ids)
+        except TooLong as e:
+            raise Unsearched({"state": "too_long", "tokens": e.tokens}) from None
+        except PartTooLong as e:
+            keys = ("ordinal", "title", "page")
+            raise Unsearched(
+                {
+                    "document": e.document,
+                    "state": "too_long",
+                    "tokens": e.tokens,
+                    **{k: e.part[k] for k in keys},
+                }  # fmt: skip
+            ) from None
+        except EmbedderFailed as e:
+            raise Unsearched({"state": "embedder", "why": str(e)}) from None
+        except DocumentRefused:  # a vectors file Clarity can't write: said as it is
+            raise
+        except ConfigError as e:
+            raise Unsearched({"state": "no_embedder", "why": str(e)}) from None
+        minimum, origin = minimum_of(profile)
+        return {
+            "method": "meaning",
+            "searched_for": text,
+            "documents": [
+                {
+                    "name": d.name,
+                    "build_id": d.build_id,
+                    "original_sha256": d.original_sha256,
+                    "vectors_sha256": vectors[d.name][1],
+                }  # fmt: skip
+                for d in docs
+            ],
+            "engine": engine,
+            "query": {"tokens": len(ids), "sha256": hashlib.sha256(query).hexdigest()},
+            "min_similarity": minimum,
+            "min_similarity_origin": origin,
+            "matches": meaning_search(
+                docs,
+                {name: v for name, (v, _) in vectors.items()},
+                memoryview(query).cast("f"),
+                minimum,
+            ),
+        }
 
     def _unsearchable(self, name: str) -> dict[str, Any] | None:
         """Why a search can't read `name` (N30, N31, N32), as a problem, or None."""
@@ -2174,6 +2254,12 @@ class Session:
                 t.get("call_id"), seed, t.get("regen_of"), t.get("edit_of"), **attached,
             )  # fmt: skip
         conversation.head = state.head
+        # D4: the logged profile's method, else the last searched message's, else the
+        # default today, as any setting added since takes.
+        searched = [t["found"]["method"] for t in state.turns if "found" in t]
+        conversation.search_method = prepared.profile.search_method or (
+            searched[-1] if searched else SEARCH_METHOD
+        )
         if state.searching is not None:  # a `search` record: this chat's own list
             for name in state.searching:  # refused before it's ever a path (S14), said
                 if (problem := library_name_problem(name)) is not None:  # with its record
@@ -2425,6 +2511,21 @@ def budget_of(profile: Profile) -> tuple[int, str]:
     return (BUDGET, "default") if profile.budget is None else (profile.budget, "profile")
 
 
+def minimum_of(profile: Profile) -> tuple[float, str]:
+    """Meaning search's minimum similarity on `profile`, and where it comes from."""
+    if profile.min_similarity is None:
+        return MIN_SIMILARITY, "default"
+    return profile.min_similarity, "profile"
+
+
+class Unsearched(Exception):
+    """A meaning search that can't run, as the problem its refusal words."""
+
+    def __init__(self, problem: dict[str, Any]) -> None:
+        super().__init__(problem["state"])
+        self.problem = problem
+
+
 def left_out_counts(found: dict[str, Any]) -> dict[str, int]:
     """How many matches were left out, by why: every one, not only the 50 listed (fix 2's
     S2). The considered ones are all listed; the rest weren't considered."""
@@ -2454,9 +2555,20 @@ def reason(refused: DocumentRefused) -> str:
 def found_summary(found: dict[str, Any]) -> dict[str, Any]:
     """/history's view of a turn's `found`, which /state's turns repeat: counts, tokens,
     words, the budget, what was left out by why, and each part's ID, title, page, tokens and
-    why it matched, with no text (the Shapes table's commands; part 1's whole-branch S1)."""
+    why it matched, with no text (the Shapes table's commands; part 1's whole-branch S1).
+    By meaning (v0.4.1): the minimum, and each part's ID, title, rank and similarity."""
+    if found["method"] == "meaning":
+        keys = ("id", "title", "rank", "score")
+        return {
+            "method": "meaning",
+            "documents": [d["name"] for d in found["documents"]],
+            **{k: found[k] for k in ("matched", "tokens", "budget", "considered")},
+            "min_similarity": found["min_similarity"],
+            "parts": [{k: p[k] for k in keys} for p in found["parts"]],
+        }
     keys = ("id", "title", "page", "rank", "title_words", "words", "tokens")
     return {
+        "method": "words",
         "words": found["words"],
         "ignored": found["ignored"],
         "documents": [d["name"] for d in found["documents"]],

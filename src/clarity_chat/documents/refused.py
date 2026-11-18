@@ -8,6 +8,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
+from clarity_chat.documents.embedder import MAX_TOKENS
 from clarity_chat.documents.library import way_out
 from clarity_chat.documents.search import NO_FTS5
 from clarity_chat.profiles import ConfigError, shown
@@ -50,6 +51,18 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
     if state == "profile_missing":  # N37; the page's start has no chat to add it in
         said = f"Profile {problem['profile']} searches {name}, which isn't in your documents."
         return f"{said} Add it with {add}, or {KEY}." if terminal else f"{said} {KEY.capitalize()}."
+    if state in ("no_embedder", "embedder"):  # states 5 and 6: the reason (B1: the ways out)
+        return problem["why"]
+    if state == "too_long" and not name:  # state 7, the message (decision 8)
+        off = (
+            "Shorten it, or turn search off with `/search none`."
+            if terminal
+            else (f"Shorten it. {WITHOUT_SEARCH}")
+        )
+        return (
+            f"Your message is too long for meaning search ({problem['tokens']:,} tokens of "
+            f"{MAX_TOKENS:,}). {off}"
+        )
     stop = STOPPING[where] if terminal else "stop searching {it}"
     if state == "missing":  # N31
         page = "add the file again with the paperclip's Search it"
@@ -58,10 +71,14 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
             f"Clarity can't search {name}: its folder in local/documents/ is gone. "
             f"{stop.format(it='it').capitalize()}, or {way}."
         )
-    assert state == "control_tokens"  # N33
+    assert state in ("control_tokens", "too_long")  # N33; a part past 8,192 tokens (DS7)
     tokens = problem["tokens"]
-    held = " and ".join([", ".join(tokens[:-1]), tokens[-1]] if tokens[1:] else tokens)
-    one, it = ("a control token", "it") if len(tokens) == 1 else ("control tokens", "them")
+    if state == "too_long":
+        what, it = f"is too long for meaning search ({tokens:,} tokens of {MAX_TOKENS:,})", "it"
+    else:
+        held = " and ".join([", ".join(tokens[:-1]), tokens[-1]] if tokens[1:] else tokens)
+        one, it = ("a control token", "it") if len(tokens) == 1 else ("control tokens", "them")
+        what = f"holds {held}, which this model reads as {one}, not text"
     where = (
         f' ("{shown(problem["title"])}")'  # a heading can hold ESC (the fix review's S2)
         if problem["title"]
@@ -72,9 +89,8 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
     # Out of your own file, then added again (cut 1: the library's copy isn't edited).
     again = f": {add}" if terminal else " with the paperclip's Search it, under the same name"
     return (
-        f"Part {problem['ordinal']} of {name}{where} holds {held}, which this model reads as "
-        f"{one}, not text. Take {it} out of your file, then add it again{again}. Or "
-        f"{stop.format(it=name)}."
+        f"Part {problem['ordinal']} of {name}{where} {what}. Take {it} out of your file, then "
+        f"add it again{again}. Or {stop.format(it=name)}."
     )
 
 

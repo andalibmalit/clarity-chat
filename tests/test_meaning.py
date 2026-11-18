@@ -327,12 +327,12 @@ GOLDEN_ORDER = [
 def test_the_golden_order_is_the_same_on_every_system():
     doc = loaded("golden", "".join(f"## H{k}\nMade-up {k}.\n\n" for k in range(1, 6)))
     vectors = {"golden": [golden_vector(k) for k in range(1, 6)]}
-    found = meaning_search([doc], vectors, golden_vector(0), -1.0)
+    found = meaning_search([doc], vectors, golden_vector(0), -100.0)  # not unit vectors
     assert [(m["id"], repr(m["score"])) for m in found] == GOLDEN_ORDER
 
 
 def test_a_part_at_the_minimum_matches_and_one_just_under_doesn_t():
-    under = struct.unpack("<f", struct.pack("<f", math.nextafter(0.5, 0)))[0]
+    under = struct.unpack("<f", struct.pack("<I", 0x3EFFFFFF))[0]  # the float32 below 0.5
     assert under < 0.5
     doc = loaded("edge", "## At\nOne.\n\n## Under\nTwo.\n")
     vectors = {"edge": [packed([0.5, 0.0]), packed([under, 0.0])]}
@@ -396,7 +396,8 @@ def test_a_message_past_8192_tokens_is_refused_and_nothing_is_sent(meaning):
 def test_a_part_past_8192_tokens_refuses_the_search_naming_it(meaning):
     session, c, _ = meaning
     reading._last = None
-    library_add(session.root, ("## Long\n" + "word " * 8200 + "\n").encode(), "long.md")
+    # One unbroken run is one part of any length: the chunker cuts at whitespace only.
+    library_add(session.root, ("## Long\n" + "a." * 8200 + "\n").encode(), "long.md")
     c.run("search", "long", lambda e: None)
     refused = raised(lambda: c.run("say", ASKED, lambda e: None))
     assert isinstance(refused, SearchRefused), repr(refused)

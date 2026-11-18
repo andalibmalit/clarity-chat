@@ -87,12 +87,13 @@ def test_an_export_row_lists_the_found_parts_on_its_path_with_their_tokens(root,
     def expected(user: str) -> dict:
         return {
             "turn_id": user,
+            "method": "words",  # v0.4.1: and each part's score
             "words": found[user]["words"],
             "documents": [
                 {"name": d["name"], "build_id": d["build_id"]} for d in found[user]["documents"]
             ],
             "parts": [
-                {"id": p["id"], "sha256": p["sha256"], "tokens": tokens}
+                {"id": p["id"], "sha256": p["sha256"], "score": p["score"], "tokens": tokens}
                 for p, tokens in zip(found[user]["parts"], users[user], strict=True)
             ],
         }

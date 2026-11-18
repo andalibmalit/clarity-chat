@@ -577,7 +577,11 @@ def _search(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     if args:
         names = [] if args == "none" else args.split()
         c.session.set_search(names)
-    return {"searching": c.session.searching(), "origin": conversation.searching_origin}
+    return {
+        "searching": c.session.searching(),
+        "origin": conversation.searching_origin,
+        "method": conversation.search_method,
+    }
 
 
 def _documents(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -1127,6 +1131,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "reading": reading,
         "searching": [],
         "searching_origin": None,
+        "search_method": None,
         "budget": None,
     }
     if conversation is None:
@@ -1145,6 +1150,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "mode": conversation.profile.mode,  # the paperclip opens the picker in the press
         "searching": session.searching(conversation),
         "searching_origin": conversation.searching_origin,
+        "search_method": conversation.search_method,
         # One conversation for every field (the part 2 whole-branch review's could 1).
         "budget": dict(zip(("tokens", "origin"), session.budget(conversation), strict=True)),
         "head": conversation.head,

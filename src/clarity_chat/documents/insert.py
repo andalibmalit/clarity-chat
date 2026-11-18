@@ -12,6 +12,7 @@ from html import escape
 from typing import Any
 
 from clarity_chat.documents.child import NO_TEXT, PROTECTED
+from clarity_chat.documents.embedder import ENGINE_FACTS, setup_of
 from clarity_chat.documents.reading import (
     SLOW_READ,
     STOPPED,
@@ -456,32 +457,16 @@ FOUND_PART_TYPES: dict[str, Callable[[Any], bool]] = {
     "sha256": lambda v: isinstance(v, str),
     "rank": _whole_number,
     "score": _number,
-    "title_words": _strings,
-    "words": _strings,
     "tokens": _whole_number,
 }
-FOUND_TYPES: dict[str, Callable[[Any], bool]] = {
-    "method": lambda v: v == "words",
+DOCUMENT_TYPES = {
+    k: (lambda v: isinstance(v, str)) for k in ("name", "build_id", "original_sha256")
+}
+FOUND_COMMON: dict[str, Callable[[Any], bool]] = {
     "searched_for": lambda v: isinstance(v, str),
-    "words": _strings,
-    "ignored": _strings,
-    "documents": _dicts(
-        {k: (lambda v: isinstance(v, str)) for k in ("name", "build_id", "original_sha256")}
-    ),
-    "engine": lambda v: (  # each value too, before Details shows them (the review's C8)
-        isinstance(v, dict)
-        and set(v)
-        == {"name", "sqlite", "tokenizer", "weights", "word_rule", "common_words", "query"}
-        and all(isinstance(v[k], str) for k in ("name", "sqlite", "tokenizer", "query"))
-        and _whole_number(v["word_rule"])
-        and _whole_number(v["common_words"])
-        and isinstance(v["weights"], dict)
-        and all(isinstance(k, str) and _number(w) for k, w in v["weights"].items())
-    ),
     "considered": _whole_number,
     "budget": _whole_number,
     "budget_origin": lambda v: v in ("default", "profile"),
-    "parts": _dicts(FOUND_PART_TYPES),
     "left_out": _dicts(
         {
             "id": lambda v: isinstance(v, str),
@@ -493,6 +478,54 @@ FOUND_TYPES: dict[str, Callable[[Any], bool]] = {
     "matched": _whole_number,
     "tokens": _whole_number,
 }
+# The rest of a `found`, by its method (v0.4.1): a field of the other method's is refused.
+FOUND_BY_METHOD: dict[str, dict[str, Callable[[Any], bool]]] = {
+    "words": {
+        "words": _strings,
+        "ignored": _strings,
+        "documents": _dicts(DOCUMENT_TYPES),
+        "engine": lambda v: (  # each value too, before Details shows them (the review's C8)
+            isinstance(v, dict)
+            and set(v)
+            == {"name", "sqlite", "tokenizer", "weights", "word_rule", "common_words", "query"}
+            and all(isinstance(v[k], str) for k in ("name", "sqlite", "tokenizer", "query"))
+            and _whole_number(v["word_rule"])
+            and _whole_number(v["common_words"])
+            and isinstance(v["weights"], dict)
+            and all(isinstance(k, str) and _number(w) for k, w in v["weights"].items())
+        ),
+        "parts": _dicts({**FOUND_PART_TYPES, "title_words": _strings, "words": _strings}),
+    },
+    "meaning": {
+        "documents": _dicts({**DOCUMENT_TYPES, "vectors_sha256": lambda v: isinstance(v, str)}),
+        # One value (5.3): its setup is the hash of the rest, so a changed leaf is refused.
+        "engine": lambda v: (
+            isinstance(v, dict)
+            and set(v) == {*ENGINE_FACTS, "setup"}
+            and v["setup"] == setup_of({k: v[k] for k in ENGINE_FACTS})
+        ),
+        "query": lambda v: (
+            isinstance(v, dict)
+            and set(v) == {"tokens", "sha256"}
+            and _whole_number(v["tokens"])
+            and isinstance(v["sha256"], str)
+        ),
+        "min_similarity": lambda v: _number(v) and -1 <= v <= 1,
+        "min_similarity_origin": lambda v: v in ("default", "profile"),
+        "parts": _dicts(FOUND_PART_TYPES),
+    },
+}
+
+
+def found_types(found: Mapping[str, Any]) -> dict[str, Callable[[Any], bool]]:
+    """The fields a `found` of its method holds, with their types."""
+    method = found.get("method")
+    if method not in FOUND_BY_METHOD:
+        raise TypeError("a turn's found has a method Clarity doesn't write")
+    other = {k for m, t in FOUND_BY_METHOD.items() if m != method for k in t}
+    if extra := (set(found) & other) - set(FOUND_BY_METHOD[method]):
+        raise TypeError(f"a {method} found holds {', '.join(sorted(extra))}")
+    return {**FOUND_COMMON, **FOUND_BY_METHOD[method]}
 
 
 def _typed(fields: Mapping[str, Any], types: Mapping[str, Callable[[Any], bool]]) -> None:
@@ -514,9 +547,10 @@ def checked_attachments(record: Mapping[str, Any]) -> dict[str, Any]:
         found = record["found"]
         if not isinstance(found, dict):
             raise TypeError("a turn's found isn't one Clarity writes")
-        if missing := set(FOUND_TYPES) - set(found):
+        types = found_types(found)
+        if missing := set(types) - set(found):
             raise KeyError(", ".join(sorted(missing)))
-        _typed(found, FOUND_TYPES)
+        _typed(found, types)
         for part in found["parts"]:  # `already` trusts it (Checkpoint 2's C5)
             text = part["text"].encode("utf-8", "surrogatepass")  # a lone one: no match
             if part["sha256"] != hashlib.sha256(text).hexdigest():
