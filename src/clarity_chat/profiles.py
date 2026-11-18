@@ -800,6 +800,7 @@ class ModelEntry:
     file: str | None = None  # gguf route
     sha256: str | None = None  # gguf route
     weights: str | None = None  # convert route: "pytorch_model.bin" (v0.4.1 decision 2)
+    weights_sha256: str | None = None  # with weights
 
     def to_json(self) -> dict:
         return {k: v for k, v in self.__dict__.items() if v is not None}
@@ -853,6 +854,8 @@ def read_models(path: Path, yours: bool = False) -> dict[str, ModelEntry]:
             raise ConfigError(f'{where}: route must be "convert" or "gguf", got {route!r}.')
         elif "weights" in entry and not yours:  # the one pickle; never a pattern or a path
             keys.add("weights")
+            if "weights_sha256" in entry:
+                keys.add("weights_sha256")
             if entry["weights"] != "pytorch_model.bin":
                 raise ConfigError(
                     f'{where}: weights can only be "pytorch_model.bin", got {entry["weights"]!r}.'

@@ -188,6 +188,7 @@ def test_the_shipped_models_toml_loads():
         "pytorch_model.bin",
     )
     assert bge.tokenizer_revision == bge.revision
+    assert bge.weights_sha256 is not None and len(bge.weights_sha256) == 64  # S1
 
 
 # --- the weights key (v0.4.1 decision 2) ----------------------------------------------------
@@ -217,6 +218,11 @@ REPO_FILES = [
     "README.md",
 ]
 WEIGHT_FILES = (".bin", ".pt", ".pth", ".onnx", ".onnx_data", ".safetensors")
+PICKLE = b"made-up pickle bytes"
+PICKLE_SHA256 = hashlib.sha256(PICKLE).hexdigest()
+WITH_WEIGHTS = (
+    CONVERT_MODEL + f'weights = "pytorch_model.bin"\nweights_sha256 = "{PICKLE_SHA256}"\n'
+)
 
 
 def downloaded(root: Path, model, monkeypatch) -> list[str]:
@@ -242,9 +248,7 @@ def downloaded(root: Path, model, monkeypatch) -> list[str]:
 
 
 def test_weights_adds_exactly_the_publishers_pickle_to_the_download(root, monkeypatch):
-    (root / "models.toml").write_text(
-        CONVERT_MODEL + 'weights = "pytorch_model.bin"\n', encoding="utf-8"
-    )
+    (root / "models.toml").write_text(WITH_WEIGHTS, encoding="utf-8")
     assert downloaded(root, load_models(root)["embedder"], monkeypatch) == ["pytorch_model.bin"]
 
 
@@ -284,6 +288,79 @@ def test_a_gguf_entry_takes_no_weights_key(root):
     )
     with pytest.raises(ConfigError, match="needs exactly the keys"):
         load_models(root)
+
+
+# --- weights_sha256 (v0.4.1's security review, S1; the owner's Q16) --------------------------
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        'weights = "pytorch_model.bin"\n',  # no hash
+        f'weights_sha256 = "{PICKLE_SHA256}"\n',  # a hash with no weights
+    ],
+)
+def test_weights_and_its_hash_come_together(root, lines):
+    (root / "models.toml").write_text(CONVERT_MODEL + lines, encoding="utf-8")
+    with pytest.raises(ConfigError, match="needs exactly the keys"):
+        load_models(root)
+
+
+@pytest.mark.parametrize("value", ['"0"', f'"{PICKLE_SHA256.upper()}"', '["x"]'])
+def test_weights_sha256_is_64_lowercase_hex(root, value):
+    toml = WITH_WEIGHTS.replace(f'"{PICKLE_SHA256}"', value)
+    (root / "models.toml").write_text(toml, encoding="utf-8")
+    with pytest.raises(ConfigError, match="weights_sha256 must be 64 lowercase hex characters"):
+        load_models(root)
+
+
+def fetched_with(root: Path, tmp_path: Path, monkeypatch, pickle: bytes) -> list[list[str]]:
+    """fetch_convert on WITH_WEIGHTS, the download holding `pickle`; the converter is
+    stubbed (it writes its outfile and versions file). Returns the converters started."""
+    import subprocess
+
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    (snapshot / "pytorch_model.bin").write_bytes(pickle)
+    (root / "models.toml").write_text(WITH_WEIGHTS, encoding="utf-8")
+    server = load_server_config(root)
+    monkeypatch.setattr(models, "git_state", lambda path: {"commit": server.llama_cpp_commit})
+    monkeypatch.setattr(models, "_download", lambda repo, revision, patterns: snapshot)
+    started: list[list[str]] = []
+
+    class Converted:
+        def __init__(self, command, **kwargs):
+            started.append(command)
+            outfile = Path(command[command.index("--outfile") + 1])
+            outfile.write_bytes(b"GGUF converted")
+            versions = {"python": "3.13", "packages": {"torch": "0", "transformers": "0"}}
+            (outfile.parent / "converter-versions.json").write_text(json.dumps(versions))
+            self.stdout = iter(())
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", Converted)
+    models.fetch_convert(root, load_models(root)["embedder"], server)
+    return started
+
+
+def test_a_pickle_with_another_hash_is_refused_before_the_converter(root, tmp_path, monkeypatch):
+    started: list[list[str]] = []
+    try:
+        started = fetched_with(root, tmp_path, monkeypatch, b"swapped bytes")
+        refused = None
+    except ConfigError as e:
+        refused = str(e)
+    assert started == [], "the converter loaded a pickle whose hash didn't match"
+    assert refused is not None and f"but models.toml says {PICKLE_SHA256}" in refused
+    assert not (root / "models" / "embedder").exists()  # nothing written
+    assert "embedder" not in models.read_lock(root)["models"]
+
+
+def test_the_pickle_s_hash_is_written_to_the_lock(root, tmp_path, monkeypatch):
+    assert len(fetched_with(root, tmp_path, monkeypatch, PICKLE)) == 1
+    assert models.read_lock(root)["models"]["embedder"].get("weights_sha256") == PICKLE_SHA256
 
 
 def test_the_converter_record_keeps_the_version_python_imports(tmp_path, monkeypatch):
