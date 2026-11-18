@@ -853,9 +853,7 @@ def read_models(path: Path, yours: bool = False) -> dict[str, ModelEntry]:
         elif route != "convert":
             raise ConfigError(f'{where}: route must be "convert" or "gguf", got {route!r}.')
         elif "weights" in entry and not yours:  # the one pickle; never a pattern or a path
-            keys.add("weights")
-            if "weights_sha256" in entry:
-                keys.add("weights_sha256")
+            keys |= {"weights", "weights_sha256"}  # the file's reviewed hash (S1)
             if entry["weights"] != "pytorch_model.bin":
                 raise ConfigError(
                     f'{where}: weights can only be "pytorch_model.bin", got {entry["weights"]!r}.'
@@ -867,10 +865,9 @@ def read_models(path: Path, yours: bool = False) -> dict[str, ModelEntry]:
                 raise ConfigError(f"{where}: {key} must be a string.")
         check_commit(entry["revision"], f"{where}: revision")
         check_commit(entry["tokenizer_revision"], f"{where}: tokenizer_revision")
-        if route == "gguf" and not (
-            isinstance(entry["sha256"], str) and re.match(r"^[0-9a-f]{64}$", entry["sha256"])
-        ):
-            raise ConfigError(f"{where}: sha256 must be 64 lowercase hex characters.")
+        for key in keys & {"sha256", "weights_sha256"}:
+            if not (isinstance(entry[key], str) and re.match(r"^[0-9a-f]{64}$", entry[key])):
+                raise ConfigError(f"{where}: {key} must be 64 lowercase hex characters.")
         models[name] = ModelEntry(name=name, **entry)
     return models
 

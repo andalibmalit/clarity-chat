@@ -130,7 +130,7 @@ def lock_entry(root: Path, model: ModelEntry) -> dict[str, Any]:
     entry = read_lock(root)["models"].get(model.name)
     if entry is None:
         raise ConfigError(f"Model {model.name!r} is not fetched. {fetch_hint(model.name)}")
-    keys = ["route", "repo", "revision", "tokenizer_repo", "tokenizer_revision"]
+    keys = ["route", "repo", "revision", "tokenizer_repo", "tokenizer_revision", "weights_sha256"]
     if model.route == "gguf":
         keys.append("file")
     toml, lock = model_files(root, model.name)
@@ -391,6 +391,15 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
     print(f"Downloading {model.repo}@{model.revision[:12]} …", flush=True)
     weights = [] if model.weights is None else [model.weights]
     source = _download(model.repo, model.revision, [*SOURCE_PATTERNS, *weights])
+    if model.weights is not None:  # the reviewed bytes, before the converter loads them (S1)
+        print(f"Hashing {model.weights} …", flush=True)
+        digest = sha256_file(source / model.weights)
+        if digest != model.weights_sha256:
+            toml, lock = model_files(root, model.name)
+            raise ConfigError(
+                f"{model.repo}/{model.weights} at {model.revision[:12]} has sha256 {digest}, "
+                f"but {toml} says {model.weights_sha256}. Not converted or recorded in {lock}."
+            )
     tokenizer = source
     if (model.tokenizer_repo, model.tokenizer_revision) != (model.repo, model.revision):
         print(f"Downloading tokenizer {model.tokenizer_repo}@{model.tokenizer_revision[:12]} …")
@@ -446,6 +455,7 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
         "revision": model.revision,
         "tokenizer_repo": model.tokenizer_repo,
         "tokenizer_revision": model.tokenizer_revision,
+        **({"weights_sha256": model.weights_sha256} if model.weights else {}),
         "source_dir": portable_path(str(source), root),
         "tokenizer_dir": portable_path(str(tokenizer), root),
         "gguf": {

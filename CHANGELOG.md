@@ -9,7 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Added
-- A converted model's entry in `models.toml` can say `weights = "pytorch_model.bin"`, for a model whose publisher ships its weights only in PyTorch's pickle format. `clarity fetch` then downloads that one file too; without the key it downloads no pickle, as before. The key accepts no other value, and only the shipped `models.toml` has it: an entry of yours in `local/models.toml` can't.
+- A converted model's entry in `models.toml` can say `weights = "pytorch_model.bin"`, for a model whose publisher ships its weights only in PyTorch's pickle format. `clarity fetch` then downloads that one file too; without the key it downloads no pickle, as before. The key accepts no other value, and needs `weights_sha256`, the file's sha256: `clarity fetch` checks it before the converter loads the file, and a mismatch stops the fetch. Only the shipped `models.toml` has these keys: an entry of yours in `local/models.toml` can't.
 - bge-m3 in `models.toml`, the embedding model for meaning search, in place of bge-small-en-v1.5. bge-small's file stays on your disk until you delete `models/bge-small-en-v1.5/`.
 
 ### Changed
