@@ -849,8 +849,12 @@ def read_models(path: Path) -> dict[str, ModelEntry]:
             keys |= {"file", "sha256"}
         elif route != "convert":
             raise ConfigError(f'{where}: route must be "convert" or "gguf", got {route!r}.')
-        elif "weights" in entry:
+        elif "weights" in entry:  # the publisher's one pickle, never a pattern or a path
             keys.add("weights")
+            if entry["weights"] != "pytorch_model.bin":
+                raise ConfigError(
+                    f'{where}: weights can only be "pytorch_model.bin", got {entry["weights"]!r}.'
+                )
         if set(entry) != keys:
             raise ConfigError(f"{where}: needs exactly the keys {sorted(keys)}.")
         for key in ("repo", "tokenizer_repo"):

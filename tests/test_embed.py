@@ -35,7 +35,7 @@ from clarity_chat.render import Tokenizer
 pytestmark = pytest.mark.embed
 
 REPO = Path(__file__).resolve().parents[1]
-MODEL = "bge-small-en-v1.5"
+MODEL = "bge-m3"  # A1 re-points the rest of this file at it before the gate run
 DIM = 384  # bge-small's hidden size, and so its vector length
 N_CTX = 512  # bge-small's training context (max_position_embeddings)
 

@@ -43,7 +43,8 @@ GENERATION_CONFIG_SETTINGS = {
 }
 LOCK_FILE = "models.lock"
 LOCK_SCHEMA_VERSION = 1
-# What a conversion needs from the source repo: config, tokenizer and weights.
+# What a conversion needs from the source repo: config, tokenizer and weights. No pickle
+# (`.bin`, `.pt`): an entry's `weights` key adds the one file it names (v0.4.1 decision 2).
 SOURCE_PATTERNS = ["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model"]
 CONVERTER_PYTHON = "3.13"
 
@@ -386,7 +387,8 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
             f"{server.llama_cpp_commit}."
         )
     print(f"Downloading {model.repo}@{model.revision[:12]} …", flush=True)
-    source = _download(model.repo, model.revision, SOURCE_PATTERNS)
+    weights = [] if model.weights is None else [model.weights]
+    source = _download(model.repo, model.revision, [*SOURCE_PATTERNS, *weights])
     tokenizer = source
     if (model.tokenizer_repo, model.tokenizer_revision) != (model.repo, model.revision):
         print(f"Downloading tokenizer {model.tokenizer_repo}@{model.tokenizer_revision[:12]} …")
