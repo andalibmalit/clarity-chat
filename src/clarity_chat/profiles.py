@@ -816,7 +816,7 @@ def load_models(root: Path) -> dict[str, ModelEntry]:
     both is an error: a name must say which entry it means."""
     models = read_models(root / "models.toml")
     if (root / LOCAL_MODELS).is_file():
-        yours = read_models(root / LOCAL_MODELS)
+        yours = read_models(root / LOCAL_MODELS, yours=True)
         both = sorted(set(models) & set(yours))
         if both:
             raise ConfigError(
@@ -836,7 +836,9 @@ def model_files(root: Path, name: str) -> tuple[str, str]:
     return "models.toml", "models.lock"
 
 
-def read_models(path: Path) -> dict[str, ModelEntry]:
+def read_models(path: Path, yours: bool = False) -> dict[str, ModelEntry]:
+    """A models.toml's entries. `weights` is a key of the shipped file's entries only: it
+    admits one reviewed pickle, and yours would point at one nobody reviewed."""
     data = read_toml(path)
     models = {}
     for name, entry in data.items():
@@ -849,7 +851,7 @@ def read_models(path: Path) -> dict[str, ModelEntry]:
             keys |= {"file", "sha256"}
         elif route != "convert":
             raise ConfigError(f'{where}: route must be "convert" or "gguf", got {route!r}.')
-        elif "weights" in entry:  # the publisher's one pickle, never a pattern or a path
+        elif "weights" in entry and not yours:  # the one pickle; never a pattern or a path
             keys.add("weights")
             if entry["weights"] != "pytorch_model.bin":
                 raise ConfigError(

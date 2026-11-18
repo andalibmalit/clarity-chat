@@ -370,6 +370,8 @@ def converter_python(server: ServerConfig) -> list[str]:
         "run",
         "--no-project",
         "--isolated",
+        "--index-strategy",  # uv's default, set so UV_INDEX_STRATEGY can't merge indexes
+        "first-index",
         "--python",
         CONVERTER_PYTHON,
         "--with-requirements",
@@ -415,8 +417,17 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
     shown = [portable_path(part, root) for part in command]
     print("Converting:", " ".join(shown), flush=True)
     with (out_dir / "convert.log").open("w", encoding="utf-8", newline="") as log:
+        # Offline: it reads only the snapshot, so a tokenizer's auto_map can't fetch code
+        # from another repo. No stdin: a "run the custom code?" prompt is refused, not left
+        # waiting in convert.log (v0.4.1's security review, S2).
         proc = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8"
+            command,
+            env={**os.environ, "HF_HUB_OFFLINE": "1"},
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
         )
         assert proc.stdout is not None
         for line in proc.stdout:
