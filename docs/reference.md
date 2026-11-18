@@ -371,7 +371,7 @@ The Transformers backend applies its samplers in a fixed order: penalties, tempe
 
 ## models.toml
 
-Each table is one model, and its name is the model's name in profiles and `clarity fetch`. Your own entries go in `local/models.toml`, with the same keys (except `weights`); `clarity fetch` and `clarity verify` write their lock entries to `local/models.lock`, in the same JSON as `models.lock`. A name in both files is an error. Quote a name with a dot in it, such as `["llama-3.1-8b-instruct"]`: in TOML, a bare dot starts a nested table. Every revision is a full 40-character commit hash.
+Each table is one model, and its name is the model's name in profiles and `clarity fetch`. Your own entries go in `local/models.toml`, with the same keys (except `weights` and `weights_sha256`); `clarity fetch` and `clarity verify` write their lock entries to `local/models.lock`, in the same JSON as `models.lock`. A name in both files is an error. Quote a name with a dot in it, such as `["llama-3.1-8b-instruct"]`: in TOML, a bare dot starts a nested table. Every revision is a full 40-character commit hash.
 
 | Key | Routes | Value |
 |---|---|---|
@@ -381,6 +381,7 @@ Each table is one model, and its name is the model's name in profiles and `clari
 | `file` | `gguf` | The GGUF file's name in the repo. |
 | `sha256` | `gguf` | The file's sha256, 64 lowercase hex characters. A mismatch stops the fetch. |
 | `weights` | `convert` | Optional, and only `"pytorch_model.bin"`: also download that file, for a model whose publisher ships its weights only in PyTorch's pickle format. Without it, `clarity fetch` downloads no pickle (`.bin` or `.pt` file). The converter loads it with PyTorch's restricted loader (`weights_only`). Only the shipped `models.toml` has it, for a file that was reviewed; your own entries can't. |
+| `weights_sha256` | `convert` | With `weights`, and only with it: the file's sha256, 64 lowercase hex characters. `clarity fetch` checks it before the converter loads the file; a mismatch stops the fetch, and nothing is converted or recorded. |
 
 The shipped models are SmolLM2-135M-Instruct, OLMo 3 7B Instruct and base, Llama 3.1 8B Instruct and base (gated), and bge-m3, the embedding model for meaning search.
 

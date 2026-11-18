@@ -38,6 +38,7 @@ import pytest
 from clarity_chat.backends.llama_cpp import server_binary
 from clarity_chat.documents import Embedder, TooLong
 from clarity_chat.documents.embedder import DIMENSIONS, MAX_TOKENS, MODEL
+from clarity_chat.files import sha256_file
 from clarity_chat.models import check_weights_quick, lock_entry
 from clarity_chat.profiles import ConfigError, load_models, load_server_config
 from clarity_chat.render import Tokenizer
@@ -389,8 +390,9 @@ def test_t8_ids_and_the_string_give_the_same_vector_where_they_agree(tmp_path, t
 
 def test_reference_the_source_model_gives_the_same_vectors(tmp_path, texts):
     """bge-m3's own weights in Transformers, loaded under the security review's conditions
-    (notes/research/reviews/v041-security.md, question 4): from the lock's folders only,
-    never by repo ID; no remote code; offline; PyTorch's restricted loader."""
+    (notes/research/reviews/v041-security.md, question 4 and S1): the pickle's sha256
+    checked first; from the lock's folders only, never by repo ID; no remote code;
+    offline; PyTorch's restricted loader."""
     import huggingface_hub.constants
 
     assert huggingface_hub.constants.HF_HUB_OFFLINE is True, (
@@ -400,8 +402,11 @@ def test_reference_the_source_model_gives_the_same_vectors(tmp_path, texts):
     torch = pytest.importorskip("torch", reason="needs the hf extra: `uv sync --extra hf`")
     from transformers import AutoModel, AutoTokenizer
 
-    entry = lock_entry(REPO, load_models(REPO)[MODEL])
+    model_entry = load_models(REPO)[MODEL]
+    entry = lock_entry(REPO, model_entry)
     source = Path(entry["source_dir"]).expanduser()
+    pickle = source / "pytorch_model.bin"  # the reviewed bytes only (security review, S1)
+    assert sha256_file(pickle) == model_entry.weights_sha256, f"{pickle} isn't the reviewed file"
     reference_tokenizer: Any = AutoTokenizer.from_pretrained(
         Path(entry["tokenizer_dir"]).expanduser(), trust_remote_code=False, local_files_only=True
     )
