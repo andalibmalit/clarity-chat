@@ -28,7 +28,7 @@ from clarity_chat.documents import embedder as embedder_module
 from clarity_chat.profiles import ConfigError, load_server_config
 from clarity_chat.render import Tokenizer
 from tests.conftest import fake_fetch
-from tests.fake_llama import BUFFER_LINES, DEVICE_LINES, Running
+from tests.fake_llama import DEVICE_LINES, Running, dump, startup
 
 BGE_M3 = """
 [bge-m3]
@@ -94,7 +94,7 @@ class Fake:
         self.argv: list[list[str]] = []
         self.procs: list[Running] = []
         self.requests: list[dict[str, Any]] = []
-        self.startup = DEVICE_LINES + BUFFER_LINES
+        self.startup = startup()
         self.props: dict[str, Any] = {"total_slots": 1}
         self.n_ctx: int | None = None  # None: the size the server was started with
         self.reply: dict[str, Any] | None = None  # None: a good vector for the input
@@ -176,7 +176,14 @@ def test_the_flags_are_the_plan_s_table_and_nothing_else(m3_root, fake):
     made(m3_root, {"ctx-size": 2048, "threads": 8, "ubatch-size": 512}).vector([0, 5, 2])
     expected = {k: True if v is True else str(v) for k, v in TABLE.items()}
     assert as_flags(fake.argv[0]) == expected
-    assert fake.argv[0][-7:-3] == ["--host", "127.0.0.1", "--port", fake.argv[0][-3]]
+    assert fake.argv[0][-6:] == [
+        "--host",
+        "127.0.0.1",
+        "--port",
+        fake.argv[0][-3],
+        "--no-slots",
+        "--no-webui",
+    ]
 
 
 def test_bge_m3_not_fetched_is_refused_before_any_process(root, fake):
@@ -192,7 +199,7 @@ def test_bge_m3_not_fetched_is_refused_before_any_process(root, fake):
     [
         ({"props": {"total_slots": 2}}, "2 slots, not 1"),
         ({"n_ctx": 4096}, "n_ctx is 4096, expected 8192"),
-        ({"startup": DEVICE_LINES + CPU_BUFFERS}, "put the model on the CPU"),
+        ({"startup": DEVICE_LINES + dump() + CPU_BUFFERS}, "put the model on the CPU"),
     ],
 )
 def test_a_start_that_fails_a_check_is_refused_and_stopped(m3_root, fake, change, reason):
