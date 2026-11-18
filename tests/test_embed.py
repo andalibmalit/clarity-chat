@@ -480,27 +480,29 @@ def scratch_session(root: Path, chat_tokenizer, embedder: Any) -> Any:
 def test_a_document_searched_twice_and_across_a_restart_gives_the_same_found(
     fetched_root, chat_tokenizer, tmp_path
 ):
+    """Through /try (Session.try_search), which fills the found a message would, logs
+    nothing, and has no earlier part already in the chat to change it."""
     import json
 
-    from clarity_chat.documents import library_add, load_document, reading
-    from tests.test_meaning import GLOSSARY
+    from clarity_chat.documents import library_add, reading
+    from tests.test_meaning import GLOSSARY, MEANING, profile
 
     reading._last = None
+    profile(fetched_root, "meaning", MEANING)
     library_add(fetched_root, GLOSSARY.encode(), "notes.md")
     embedder = made(tmp_path)
     session = scratch_session(fetched_root, chat_tokenizer, embedder)
-    profile = session.load_profile("chat")
-    doc = load_document(fetched_root, "notes")
     asked = "How do leaves turn light into sugar?"
     try:
-        built = json.dumps(session._meaning([doc], asked, profile))
-        read = json.dumps(session._meaning([doc], asked, profile))
+        session.new_conversation("meaning")
+        built = json.dumps(session.try_search(asked)[0])
+        read = json.dumps(session.try_search(asked)[0])
         embedder.close()  # a restart, and the vectors built again by the new process
         for old in (fetched_root / "local" / "documents" / "notes").glob("vectors-*"):
             old.unlink()
-        again = json.dumps(session._meaning([doc], asked, profile))
+        again = json.dumps(session.try_search(asked)[0])
     finally:
-        embedder.close()
+        session.close()
     assert built == read, "the second search read other vectors than the first built"
     assert built == again, "after a restart, the build gave another found"
 
