@@ -4,6 +4,8 @@ the documents' build IDs, never stored. Standard library only."""
 
 from __future__ import annotations
 
+import math
+import operator
 import re
 import sqlite3
 import unicodedata
@@ -200,7 +202,10 @@ def search(docs: list[Loaded], message: str) -> dict[str, Any]:
 
 
 def similarity(a: Sequence[float], b: Sequence[float]) -> float:
-    return 0.0
+    """The dot product of two vectors, which for L2-normalized ones is their similarity,
+    from -1 to 1 (decision 10). Each product of two float32 values is exact in float64, and
+    math.fsum rounds the sum once, correctly: the same bits on every 64-bit system."""
+    return math.fsum(map(operator.mul, a, b))
 
 
 def meaning_search(
@@ -209,4 +214,22 @@ def meaning_search(
     query: Sequence[float],
     minimum: float,
 ) -> list[dict[str, Any]]:
-    return []
+    """Every part whose similarity to `query` is at least `minimum`, highest first, then by
+    document name, then ordinal: a total order (decision 11). In word search's shape, with
+    no words: `score` is the similarity."""
+    scored = [
+        (-similarity(query, v), doc.name, part["ordinal"], part)
+        for doc in docs
+        for part, v in zip(doc.parts, vectors[doc.name], strict=True)
+    ]
+    order = sorted((s for s in scored if -s[0] >= minimum), key=lambda s: s[:3])
+    keys = ("document", "ordinal", "title", "page", "text", "sha256")
+    return [
+        {
+            "id": f"{name}:{ordinal}",
+            **{k: part[k] if k != "document" else name for k in keys},
+            "rank": rank,
+            "score": -negative,
+        }  # fmt: skip
+        for rank, (negative, name, ordinal, part) in enumerate(order, 1)
+    ]

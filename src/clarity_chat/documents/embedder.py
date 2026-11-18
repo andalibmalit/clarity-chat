@@ -59,7 +59,16 @@ FLAGS: dict[str, Any] = {
 
 
 def input_of(title: str | None, text: str) -> str:
-    return ""
+    """A part's input, rule 1 (decision 7): its title, a blank line, then its text; the text
+    alone when it has no title."""
+    return f"{title}\n\n{text}" if title else text
+
+
+# The facts a meaning found's `engine` logs, beside `setup`, their hash (decision 9).
+ENGINE_FACTS = (
+    "name", "model", "gguf_sha256", "tokenizer_repo", "tokenizer_revision", "tokenizers",
+    "llama_cpp", "flags", "input_rule", "device", "machine",
+)  # fmt: skip
 
 
 class EmbedderFailed(Exception):

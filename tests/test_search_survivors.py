@@ -15,7 +15,7 @@ from clarity_chat.documents import (
     reading,
     words_of,
 )
-from clarity_chat.documents.insert import FOUND_PART_TYPES, FOUND_TYPES
+from clarity_chat.documents.insert import FOUND_PART_TYPES, found_types
 from clarity_chat.export import export_log
 from clarity_chat.profiles import ConfigError
 from tests.pdfs import make_pdf
@@ -95,9 +95,10 @@ def wrong(value):
     return [] if value is None else "x"
 
 
-FOUND_FIELDS = [
-    *(("found", key) for key in FOUND_TYPES),
-    *(("found", "parts", 0, key) for key in FOUND_PART_TYPES),
+FOUND_FIELDS = [  # a words found's (v0.4.1: the types are by method)
+    ("found", "method"),
+    *(("found", key) for key in found_types({"method": "words"})),
+    *(("found", "parts", 0, key) for key in [*FOUND_PART_TYPES, "title_words", "words"]),
     *(("found", "documents", 0, key) for key in ("name", "build_id", "original_sha256")),
     *(("found", "left_out", 0, key) for key in ("id", "rank", "score", "why")),
 ]
@@ -141,7 +142,7 @@ def test_the_last_search_record_wins_on_resume(root, chat_tokenizer):  # S13, 10
     log = session.conversation.log.path
     c.run("new", "", quiet)
     session.resume(log)
-    assert c.run("search", "", quiet) == {"searching": [], "origin": "chat"}
+    assert c.run("search", "", quiet) == {"searching": [], "origin": "chat", "method": "words"}
 
 
 def test_a_search_record_whose_documents_isn_t_a_list_is_refused(root, chat_tokenizer):  # S13, 17

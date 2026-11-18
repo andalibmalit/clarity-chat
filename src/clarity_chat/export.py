@@ -254,12 +254,18 @@ def found_on(
     return [
         {
             "turn_id": t,
-            "words": found["words"],
+            "method": found["method"],
+            **({"words": found["words"]} if found["method"] == "words" else {}),
             "documents": [
                 {"name": d["name"], "build_id": d["build_id"]} for d in found["documents"]
             ],
             "parts": [
-                {"id": p["id"], "sha256": p["sha256"], "tokens": added.get((t, i))}
+                {
+                    "id": p["id"],
+                    "sha256": p["sha256"],
+                    "score": p["score"],
+                    "tokens": added.get((t, i)),
+                }  # fmt: skip
                 for i, p in enumerate(found["parts"])
             ],
         }
