@@ -4,7 +4,8 @@ M1: does closing the stream stop llama-server's prompt processing, or does the n
 wait for it? A3 (cancel) needs the answer. M2: how much memory OLMo 3 takes at two context
 sizes, with flash attention on and off. A4 (the memory check) needs it. M3: how fast each
 backend chats with OLMo 3, to decide which one a steered model should run on. M4: how much
-faster llama.cpp gets on a quantized copy of the same model.
+faster llama.cpp gets on a quantized copy of the same model. M5 (v0.4.1 A2): the embedder's
+memory, speed and vectors beside OLMo 3 (needs bge-m3 fetched too; `-k embedder`).
 
 Needs the built llama-server and OLMo 3 Instruct fetched (M3's Transformers half also needs
 `uv sync --extra hf`). Measures and prints; asserts only that the servers started. Each test
@@ -272,3 +273,118 @@ def test_m4_quantized_speed(tmp_path, quant):
             f"tokens/s; reply {t['predicted_n']} tokens at "
             f"{t['predicted_per_second']:,.1f} tokens/s"
         )
+
+
+# --- M5 (v0.4.1 A2): the embedder beside OLMo 3 7B ------------------------------------------
+
+
+def embedder_fetched() -> bool:
+    try:
+        check_weights_quick(REPO, lock_entry(REPO, load_models(REPO)["bge-m3"]))
+        return True
+    except (ConfigError, KeyError):
+        return False
+
+
+def gate_ids(embedder) -> list[list[int]]:
+    """The -m embed gate's texts (short, long to ~7,800 tokens, queries), as IDs."""
+    from tests.test_embed import LONG, QUERIES, SHORT, counter, grown, hub_tokenizer
+
+    model = load_models(REPO)["bge-m3"]
+    tokenizer = hub_tokenizer(model.tokenizer_repo, model.tokenizer_revision)
+    texts = SHORT + [grown(u(), t, counter(tokenizer), s) for u, t, s in LONG] + QUERIES
+    return [embedder.ids(text) for text in texts]
+
+
+def hashes(embedder, ids: list[list[int]]) -> list[str]:
+    import hashlib
+
+    return [hashlib.sha256(embedder.vector(x)).hexdigest() for x in ids]
+
+
+@pytest.mark.skipif(not embedder_fetched(), reason="bge-m3 isn't fetched")
+def test_m5_embedder_beside_the_chat_model(tmp_path):
+    """A2: with OLMo 3 7B's chat server at 8,192, the embedder's "MiB free" (does Metal's
+    figure count the chat server? decision 14), its model and compute buffers and graph
+    splits (decision 5: over 2.5 GB, or more than one split, stops for the owner), a 600-part
+    build's time (under ~15 s cuts D3, 5.2), the embedder's log size after it (C8), and the
+    gate's vectors beside the chat model against the same with none loaded (DS5: any
+    difference is a Metal determinism failure, decision 3). Prints; asserts DS5 only."""
+    from clarity_chat.documents import Embedder, library_add, load_document, vectors_for
+    from tests.test_embed import hub_tokenizer
+
+    def made() -> Embedder:
+        return Embedder(REPO, load_server_config(REPO), tmp_path, hub_tokenizer)
+
+    alone = made()
+    try:
+        ids = gate_ids(alone)
+        alone.start()
+        before = hashes(alone, ids)
+    finally:
+        alone.close()
+
+    chat = server(tmp_path, **{"ctx-size": 8192})
+    embedder = made()
+    try:
+        embedder.start()
+        assert embedder.server is not None
+        mine, theirs = embedder.server.record, chat.record
+        for name, record in (("chat (OLMo 3 7B, 8,192)", theirs), ("embedder (bge-m3)", mine)):
+            print(f"\n{name}: devices {record['placement']['devices']}")
+            print(f"  memory {record['memory']}")
+            print(f"  graph splits {record['graph_splits']}")
+        chat_free = theirs["placement"]["devices"][0]["free_mib"]
+        embedder_free = mine["placement"]["devices"][0]["free_mib"]
+        chat_total = theirs["memory"][0]["total_mib"]
+        counts = embedder_free < chat_free - chat_total / 2
+        print(
+            f"\nDecision 14: the chat server saw {chat_free:,} MiB free and uses "
+            f"{chat_total:,.0f}; the embedder then saw {embedder_free:,} MiB free: the figure "
+            + (
+                "counts the running chat server (A4 not needed)."
+                if counts
+                else "is per process (A4 is needed)."
+            )  # fmt: skip
+        )
+        own = mine["memory"][0]
+        splits = (mine["graph_splits"] or {}).get("prompt")
+        stop = own["model_mib"] + own["compute_mib"] > 2.5 * 1024 or splits != 1
+        print(
+            f"Decision 5: the embedder's weights {own['model_mib']:,.0f} MiB + compute "
+            f"{own['compute_mib']:,.0f} MiB, total {own['total_mib']:,.0f} MiB, graph splits "
+            f"{splits}: "
+            + (
+                "STOP for the owner (over 2.5 GB, or flash attention off the GPU)."
+                if stop
+                else "within the plan."
+            )  # fmt: skip
+        )
+
+        beside = hashes(embedder, ids)
+        changed = [i for i, (a, b) in enumerate(zip(before, beside, strict=True)) if a != b]
+
+        root = tmp_path / "root"
+        text = "".join(
+            f"## Headword {i}\nA made-up entry, number {i}, about tides, bread and bicycles.\n\n"
+            for i in range(600)
+        )
+        library_add(root, text.encode(), "big.md")
+        doc = load_document(root, "big")
+        started = time.monotonic()
+        vectors_for(root, doc, embedder, embedder.engine["setup"])
+        took = time.monotonic() - started
+        size = embedder.server.log_path.stat().st_size
+        print(
+            f"\nA 600-part build ({len(doc.parts)} parts) took {took:.1f} s, "
+            f"{len(doc.parts) / took:.0f} parts a second: "
+            + ("under 15 s, so D3 is cut (5.2)." if took < 15 else "15 s or more: D3 stays.")
+        )
+        print(f"The embedder's log after it: {size:,} bytes ({embedder.server.log_path.name})")
+    finally:
+        embedder.close()
+        chat.stop()
+    assert not changed, (
+        f"DS5: {len(changed)} of {len(ids)} gate texts gave other vectors beside the chat "
+        f"model than with none loaded (texts {changed}): a Metal determinism failure."
+    )
