@@ -162,6 +162,8 @@ class Embedder:
                 raise BackendError(
                     f"llama-server reports {record['props'].get('total_slots')!r} slots, not 1"
                 )
+            if record["warnings"]:  # an inherited GGML_* variable, or a dirty checkout
+                raise BackendError(" ".join(record["warnings"]))
         except (ConfigError, BackendError) as e:
             self.close()
             raise EmbedderFailed(f"The embedder didn't start: {e}") from e
