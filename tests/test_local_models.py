@@ -145,6 +145,17 @@ def test_a_bad_entry_of_yours_is_refused_with_its_path(mine):
         load_models(mine)
 
 
+def test_your_entry_takes_no_weights_key(mine):
+    """v0.4.1's security review, S3: the key admits one reviewed pickle, bge-m3's, in the
+    shipped models.toml. An entry of yours would point at a pickle nobody reviewed, so the
+    key isn't one of its keys, and the existing refusal names your file."""
+    (mine / LOCAL_TOML).write_text(MINE + 'weights = "pytorch_model.bin"\n', encoding="utf-8")
+    with pytest.raises(
+        ConfigError, match=r"local.models\.toml \[my-tiny\]: needs exactly the keys"
+    ):
+        load_models(mine)
+
+
 def test_without_local_models_toml_nothing_changes(fetched_root):
     assert set(load_models(fetched_root)) == {"tiny"}
     assert set(read_lock(fetched_root)["models"]) == {"tiny"}
