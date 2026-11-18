@@ -80,7 +80,7 @@ Add `use_recommended = true` to a profile. Every setting the profile leaves out 
 
 ## Add a model
 
-Add an entry to `local/models.toml` (create it if it isn't there), then run `uv run clarity fetch NAME`. Its lock entry goes to `local/models.lock`; `models.toml` is the shipped list, and a name can't be in both. Every revision is a full 40-character commit hash, so a name always means the same files.
+Add an entry to `local/models.toml` (create it if it isn't there), then run `uv run clarity fetch NAME`. Its lock entry goes to `local/models.lock`; `models.toml` is the shipped list, and a name can't be in both. Lock entries are kept by name, so an entry you move to `local/models.toml` or rename is fetched again under its new name (a `convert` entry is converted again). Every revision is a full 40-character commit hash, so a name always means the same files.
 
 To find a repo's current commit:
 
