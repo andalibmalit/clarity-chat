@@ -460,3 +460,75 @@ def test_reference_the_source_model_gives_the_same_vectors(tmp_path, texts):
             else:
                 wrong.append(line)
     assert not wrong, f"a query's top passage differs from the source model's: {wrong}"
+
+
+# --- A3: meaning search on the real embedder (decision 19's claim) ---------------------------
+
+
+def scratch_session(root: Path, chat_tokenizer, embedder: Any) -> Any:
+    """A session on conftest's scratch root (never the repo's local/documents/), its chat
+    on FakeBackend, its embedder `embedder`."""
+    from clarity_chat.session import Session
+    from tests.fakes import FakeBackend
+
+    backend = FakeBackend([f" R{i}." for i in range(20)], tokenizer=chat_tokenizer)
+    return Session(
+        root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer, embedder=embedder
+    )
+
+
+def test_a_document_searched_twice_and_across_a_restart_gives_the_same_found(
+    fetched_root, chat_tokenizer, tmp_path
+):
+    import json
+
+    from clarity_chat.documents import library_add, load_document, reading
+    from tests.test_meaning import GLOSSARY
+
+    reading._last = None
+    library_add(fetched_root, GLOSSARY.encode(), "notes.md")
+    embedder = made(tmp_path)
+    session = scratch_session(fetched_root, chat_tokenizer, embedder)
+    profile = session.load_profile("chat")
+    doc = load_document(fetched_root, "notes")
+    asked = "How do leaves turn light into sugar?"
+    try:
+        built = json.dumps(session._meaning([doc], asked, profile))
+        read = json.dumps(session._meaning([doc], asked, profile))
+        embedder.close()  # a restart, and the vectors built again by the new process
+        for old in (fetched_root / "local" / "documents" / "notes").glob("vectors-*"):
+            old.unlink()
+        again = json.dumps(session._meaning([doc], asked, profile))
+    finally:
+        embedder.close()
+    assert built == read, "the second search read other vectors than the first built"
+    assert built == again, "after a restart, the build gave another found"
+
+
+def test_a_meaning_searched_call_replays_identical_with_the_embedder_stopped(
+    fetched_root, chat_tokenizer, tmp_path
+):
+    from clarity_chat.commands import Commands
+    from clarity_chat.documents import library_add, reading
+    from clarity_chat.logs import read_records
+    from tests.test_embedder import Untouchable
+    from tests.test_meaning import GLOSSARY, MEANING, profile
+
+    reading._last = None
+    profile(fetched_root, "meaning", MEANING)
+    library_add(fetched_root, GLOSSARY.encode(), "notes.md")
+    embedder = made(tmp_path)
+    session = scratch_session(fetched_root, chat_tokenizer, embedder)
+    try:
+        c = Commands(session)
+        c.run("profile", "meaning", lambda e: None)
+        c.run("say", "How do leaves turn light into sugar?", lambda e: None)
+        assert session.conversation is not None
+        log = session.conversation.log.path
+    finally:
+        session.close()
+    calls = [r for r in read_records(log) if r["type"] == "call" and r.get("turn_id")]
+    for call in calls:
+        fresh = scratch_session(fetched_root, chat_tokenizer, Untouchable())
+        fresh.backend.replies = [call["output_text"]]
+        assert fresh.replay(log, call["call_id"])["identical"]
