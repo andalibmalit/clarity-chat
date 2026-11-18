@@ -343,6 +343,44 @@ def test_the_converter_runs_isolated_from_clarity_s_environment(tmp_path, monkey
     assert command[command.index("python") + 1] == "-I"
 
 
+def test_the_converter_runs_offline_with_no_terminal_input(tmp_path, monkeypatch):
+    """v0.4.1's security review: S2, the converter needs no network (everything it reads is
+    in the snapshot), so HF_HUB_OFFLINE stops a tokenizer's auto_map from fetching code
+    from another repo, and with stdin closed a "run the custom code? [y/N]" prompt, which
+    would go unseen to convert.log, is refused. C1, uv's first-index strategy is passed, so
+    UV_INDEX_STRATEGY in your shell can't merge the converter's indexes."""
+    import os
+    import subprocess
+
+    repo = Path(__file__).resolve().parents[1]
+    server = load_server_config(repo)
+    model = read_models(repo / "models.toml")["smollm2-135m-instruct"]  # shipped only
+    monkeypatch.setattr(models, "git_state", lambda path: {"commit": server.llama_cpp_commit})
+    monkeypatch.setattr(models, "_download", lambda repo, revision, patterns: tmp_path)
+    monkeypatch.setenv("HF_HUB_OFFLINE", "0")
+    started: list[tuple[list[str], dict]] = []
+
+    class Stop(Exception):
+        pass
+
+    def popen(command, **kwargs):
+        started.append((command, kwargs))
+        raise Stop
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    with pytest.raises(Stop):
+        models.fetch_convert(tmp_path, model, server)
+    command, kwargs = started[0]
+    env = kwargs.get("env") or {}
+    assert env.get("HF_HUB_OFFLINE") == "1", kwargs
+    assert {k: v for k, v in env.items() if k != "HF_HUB_OFFLINE"} == {
+        k: v for k, v in os.environ.items() if k != "HF_HUB_OFFLINE"
+    }
+    assert kwargs.get("stdin") == subprocess.DEVNULL, kwargs
+    run = command[: command.index("python")]  # uv's own options, before the interpreter
+    assert "--index-strategy" in run and run[run.index("--index-strategy") + 1] == "first-index"
+
+
 @pytest.mark.live
 def test_the_converter_sees_nothing_of_claritys_environment_and_imports_its_pinned_transformers():
     """The probe behind the isolation fix, through the command fetch_convert runs, from
