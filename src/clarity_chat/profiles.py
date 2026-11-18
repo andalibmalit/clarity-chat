@@ -799,6 +799,7 @@ class ModelEntry:
     tokenizer_revision: str
     file: str | None = None  # gguf route
     sha256: str | None = None  # gguf route
+    weights: str | None = None  # convert route: "pytorch_model.bin" (v0.4.1 decision 2)
 
     def to_json(self) -> dict:
         return {k: v for k, v in self.__dict__.items() if v is not None}
@@ -848,6 +849,8 @@ def read_models(path: Path) -> dict[str, ModelEntry]:
             keys |= {"file", "sha256"}
         elif route != "convert":
             raise ConfigError(f'{where}: route must be "convert" or "gguf", got {route!r}.')
+        elif "weights" in entry:
+            keys.add("weights")
         if set(entry) != keys:
             raise ConfigError(f"{where}: needs exactly the keys {sorted(keys)}.")
         for key in ("repo", "tokenizer_repo"):
