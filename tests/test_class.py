@@ -33,7 +33,8 @@ from clarity_chat.export import export_log
 from clarity_chat.logs import read_records
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import Session
-from tests.fakes import FakeBackend
+from tests.fakes import FakeBackend, FakeEmbedder
+from tests.test_embedder import Untouchable
 from tests.test_session_attach import doc
 from tests.test_web import GET, ORIGIN, PORT, SECRET, command
 
@@ -253,6 +254,116 @@ def test_t1_every_read_and_view_answers_when_a_found_field_is_missing(page_chat,
     answer = command(client, "state").json()
     assert not answer.get("stopped"), answer
     assert answer.get("result") or str(answer.get("error") or "").strip(), answer
+
+
+# T1 for a meaning found (v0.4.1 A3, the Shapes table): each top-level field, each part's,
+# each document's and the query's, taken out; `engine` checked as one value (a leaf changed
+# breaks its setup hash); and a field of the other method's found, put in.
+MEANING_FOUND_KEYS: dict[str, set[str]] = {
+    "found": {
+        "method", "searched_for", "documents", "engine", "query", "min_similarity",
+        "min_similarity_origin", "considered", "budget", "budget_origin", "parts",
+        "left_out", "matched", "tokens",
+    },
+    "documents": {"name", "build_id", "original_sha256", "vectors_sha256"},
+    "query": {"tokens", "sha256"},
+    "parts": {
+        "id", "document", "ordinal", "title", "page", "text", "sha256", "rank", "score",
+        "tokens",
+    },
+}  # fmt: skip
+MEANING_ROWS: list[tuple[Any, ...]] = [
+    *(("found", key) for key in sorted(MEANING_FOUND_KEYS["found"])),
+    *(("found", "parts", 0, key) for key in sorted(MEANING_FOUND_KEYS["parts"])),
+    *(("found", "documents", 0, key) for key in sorted(MEANING_FOUND_KEYS["documents"])),
+    *(("found", "query", key) for key in sorted(MEANING_FOUND_KEYS["query"])),
+]
+
+
+def meaning_log(session: Session) -> Path:
+    from tests.test_meaning import GLOSSARY, MEANING, profile
+
+    reading._last = None
+    profile(session.root, "meaning", MEANING)
+    library_add(session.root, GLOSSARY.encode(), "notes.md")
+    session.new_conversation("meaning")
+    session.say("How do leaves turn light into sugar?")
+    session.say("Why does rock wear away?")
+    assert session.conversation is not None
+    return session.conversation.log.path
+
+
+def refused_by_resume_and_export(session: Session, log: Path, change) -> None:
+    rows = [json.loads(line) for line in log.read_text(encoding="utf-8").splitlines()]
+    changed = sum(
+        bool(row.get("type") == "turn" and "found" in row and change(row)) for row in rows
+    )
+    assert changed, "the chat wrote no searched turn this change applies to"
+    log.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+    session.new_conversation("chat")
+    for read in (lambda: session.resume(log), lambda: export_log(session, log)):
+        with pytest.raises(ConfigError) as refused:
+            read()
+        assert str(refused.value).startswith("Can't read the records of"), refused.value
+
+
+@pytest.fixture
+def meaning_session(fetched_root, chat_tokenizer):
+    backend = FakeBackend([f" R{i}." for i in range(20)], tokenizer=chat_tokenizer)
+    return Session(
+        fetched_root,
+        backend=backend,
+        tokenizer_loader=lambda r, v: chat_tokenizer,
+        embedder=FakeEmbedder(),  # ty: ignore[invalid-argument-type]
+    )
+
+
+@pytest.mark.parametrize("path", MEANING_ROWS, ids=lambda v: str(v))
+def test_t1_a_meaning_log_missing_a_field_is_refused_by_resume_and_export(meaning_session, path):
+    log = meaning_log(meaning_session)
+    refused_by_resume_and_export(
+        meaning_session, log, lambda row: holds(row, path) and drop(row, path) is None
+    )
+
+
+def changed_leaf(row: dict) -> bool:
+    if not holds(row, ("found", "engine", "device")):
+        return False
+    row["found"]["engine"]["device"] = "CPU"  # setup no longer the hash of the rest
+    return True
+
+
+def missing_leaf(row: dict) -> bool:
+    if not holds(row, ("found", "engine", "flags", "pooling")):
+        return False
+    del row["found"]["engine"]["flags"]["pooling"]
+    return True
+
+
+def holding_words(row: dict) -> bool:
+    if row["found"].get("method") != "meaning":
+        return False
+    row["found"]["words"] = ["leaves"]
+    return True
+
+
+@pytest.mark.parametrize("change", [changed_leaf, missing_leaf, holding_words])
+def test_t1_a_meaning_found_s_engine_is_one_value_and_holds_no_words(meaning_session, change):
+    log = meaning_log(meaning_session)
+    refused_by_resume_and_export(meaning_session, log, change)
+
+
+def test_t1_a_words_found_holding_a_query_is_refused(chat_mode_session, tmp_path):
+    session = chat_mode_session
+    scripted_chat(session, tmp_path)
+    assert session.conversation is not None
+    log = session.conversation.log.path
+
+    def holding_a_query(row: dict) -> bool:
+        row["found"]["query"] = {"tokens": 3, "sha256": "0" * 64}
+        return True
+
+    refused_by_resume_and_export(session, log, holding_a_query)
 
 
 # --- T2: no terminal command in a page sentence
@@ -489,6 +600,16 @@ def write_chat(name: str, c: Commands, backend: FakeBackend, tmp_path: Path) -> 
         assert '<part document="notes">' in sent["prompt_text"]
         run("search none")
         run("say Without it?")
+    elif name == "meaning":  # v0.4.1 A3: a chat searching by meaning, FakeEmbedder's
+        from tests.test_meaning import GLOSSARY, MEANING, profile
+
+        profile(c.session.root, "meaning", MEANING)
+        library_add(c.session.root, GLOSSARY.encode(), "notes.md")
+        run("profile meaning")
+        assert c.session.conversation is not None
+        assert c.session.conversation.search_method == "meaning"
+        sent = run("say How do leaves turn light into sugar?")["call"]
+        assert '<part document="notes"' in sent["prompt_text"]
     elif name == "failed call":
         backend.fail_with = "made-up failure"
         with pytest.raises(BackendError):
@@ -499,6 +620,7 @@ def write_chat(name: str, c: Commands, backend: FakeBackend, tmp_path: Path) -> 
 
 WRITERS = [
     "say", "regen", "edit", "set", "title", "mark", "note", "attach", "failed call", "search",
+    "meaning",
 ]  # fmt: skip
 
 
@@ -507,7 +629,12 @@ def test_t3_a_chat_that_uses_it_resumes_exports_and_replays(
     fetched_root, chat_tokenizer, tmp_path, name
 ):
     backend = FakeBackend([f" R{i}." for i in range(20)], tokenizer=chat_tokenizer)
-    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
+    session = Session(
+        fetched_root,
+        backend=backend,
+        tokenizer_loader=lambda r, v: chat_tokenizer,
+        embedder=FakeEmbedder(),  # ty: ignore[invalid-argument-type]
+    )
     write_chat(name, Commands(session), backend, tmp_path)
     assert session.conversation is not None
     log = session.conversation.log.path
@@ -519,7 +646,12 @@ def test_t3_a_chat_that_uses_it_resumes_exports_and_replays(
     assert calls
     for call in calls:  # with no chat open, as `clarity replay` does
         again = FakeBackend([call["output_text"]], tokenizer=chat_tokenizer)
-        fresh = Session(fetched_root, backend=again, tokenizer_loader=lambda r, v: chat_tokenizer)
+        fresh = Session(  # replay never searches: an embedder used fails the test
+            fetched_root,
+            backend=again,
+            tokenizer_loader=lambda r, v: chat_tokenizer,
+            embedder=Untouchable(),  # ty: ignore[invalid-argument-type]
+        )
         assert fresh.replay(log, call["call_id"])["identical"], (name, call["call_id"])
 
 

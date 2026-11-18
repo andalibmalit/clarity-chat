@@ -3,7 +3,7 @@
 The rest of Clarity imports from this package only, never a submodule (v0.3.1 decision 21).
 """
 
-from clarity_chat.documents.embedder import Embedder, EmbedderFailed, TooLong
+from clarity_chat.documents.embedder import Embedder, EmbedderFailed, TooLong, input_of
 from clarity_chat.documents.insert import (
     FRAMING,
     SENTENCES,
@@ -69,14 +69,28 @@ from clarity_chat.documents.refused import (
     control_token_problem,
     problem_words,
 )
-from clarity_chat.documents.search import COMMON_WORDS, CONSIDERED, Loaded, words_of
+from clarity_chat.documents.search import (
+    COMMON_WORDS,
+    CONSIDERED,
+    Loaded,
+    meaning_search,
+    similarity,
+    words_of,
+)
 from clarity_chat.documents.search import load as load_document
 from clarity_chat.documents.search import search as search_documents
+from clarity_chat.documents.vectors import PartTooLong, key_of, vectors_for
 
 __all__ = [
     "Embedder",
     "EmbedderFailed",
     "TooLong",
+    "input_of",
+    "meaning_search",
+    "similarity",
+    "PartTooLong",
+    "key_of",
+    "vectors_for",
     "NOTHING_SENT",
     "COMMON_WORDS",
     "CONSIDERED",

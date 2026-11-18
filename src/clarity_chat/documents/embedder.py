@@ -58,6 +58,10 @@ FLAGS: dict[str, Any] = {
 }
 
 
+def input_of(title: str | None, text: str) -> str:
+    return ""
+
+
 class EmbedderFailed(Exception):
     """The embedder couldn't start, stopped, or sent a vector that failed a check."""
 

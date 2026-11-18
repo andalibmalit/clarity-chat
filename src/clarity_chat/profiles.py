@@ -94,9 +94,18 @@ PROFILE_KEYS_COMMON = {
     "steering",
     "documents",
 }
-DOCUMENTS_KEYS = {"framing", "excerpt_marker", "search", "budget", "placement"}
+DOCUMENTS_KEYS = {
+    "framing",
+    "excerpt_marker",
+    "search",
+    "budget",
+    "placement",
+    "search_method",
+    "min_similarity",
+}
 MARKER_FIELDS = {"units", "first", "last", "total"}
 BUDGET = 1500  # tokens search may add to a message, by default (v0.3.2 decision 9)
+MIN_SIMILARITY = 0.0
 PLACEMENTS = ("start", "end")
 # A library document's name (v0.3.2 decision 20), here so a profile's `search` list and the
 # library check names by one rule: the documents package imports it.
@@ -417,6 +426,8 @@ class Profile:
     search: tuple[str, ...] = ()  # the documents a chat on this profile searches at first
     budget: int | None = None  # tokens search may add to a message; None: BUDGET
     placement: str = "start"  # where a message's block goes: "start" or "end"
+    search_method: str | None = None
+    min_similarity: float | None = None
     vector: Vector | None = None  # its vector, loaded and checked by Session.prepare
     layers: list[int] | None = None  # the blocks it steers, from Session.prepare
     # chat mode
@@ -575,6 +586,8 @@ class DocumentsTable:
     search: tuple[str, ...] = ()
     budget: int | None = None
     placement: str = "start"
+    search_method: str | None = None
+    min_similarity: float | None = None
 
 
 def _documents(table: object, mode: str, where: str) -> DocumentsTable:
@@ -625,7 +638,15 @@ def _documents(table: object, mode: str, where: str) -> DocumentsTable:
                     f"{where}: [documents] excerpt_marker can use {{units}}, {{first}}, {{last}} "
                     f"and {{total}}, with no format, got {{{field_name}}}."
                 )
-    return DocumentsTable(table.get("framing"), marker, tuple(search), budget, placement)
+    return DocumentsTable(
+        table.get("framing"),
+        marker,
+        tuple(search),
+        budget,
+        placement,
+        table.get("search_method"),
+        table.get("min_similarity"),
+    )
 
 
 def load_profile(
@@ -722,6 +743,8 @@ def load_profile(
         search=documents_table.search,
         budget=documents_table.budget,
         placement=documents_table.placement,
+        search_method=documents_table.search_method,
+        min_similarity=documents_table.min_similarity,
     )
 
     if mode == "chat":

@@ -7,6 +7,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import unicodedata
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -196,3 +197,16 @@ def search(docs: list[Loaded], message: str) -> dict[str, Any]:
             }
         )
     return found
+
+
+def similarity(a: Sequence[float], b: Sequence[float]) -> float:
+    return 0.0
+
+
+def meaning_search(
+    docs: list[Loaded],
+    vectors: Mapping[str, Sequence[Sequence[float]]],
+    query: Sequence[float],
+    minimum: float,
+) -> list[dict[str, Any]]:
+    return []
