@@ -458,6 +458,35 @@ def test_the_converter_runs_offline_with_no_terminal_input(tmp_path, monkeypatch
     assert "--index-strategy" in run and run[run.index("--index-strategy") + 1] == "first-index"
 
 
+def test_the_converter_s_sentencepiece_is_pinned(tmp_path, monkeypatch):
+    """llama.cpp's converter requirements at the pin allow sentencepiece <0.3.0 but cap
+    protobuf <5.0.0; sentencepiece 0.2.3's model_pb2 needs protobuf's runtime_version
+    (5.26 on), so bge-m3's vocabulary failed to load (the first fetch, 2026-11-18). The
+    command pins 0.2.2, which imports with protobuf 4.25.9 on Python 3.13."""
+    import subprocess
+
+    repo = Path(__file__).resolve().parents[1]
+    server = load_server_config(repo)
+    model = read_models(repo / "models.toml")["smollm2-135m-instruct"]  # shipped only
+    monkeypatch.setattr(models, "git_state", lambda path: {"commit": server.llama_cpp_commit})
+    monkeypatch.setattr(models, "_download", lambda repo, revision, patterns: tmp_path)
+    started: list[list[str]] = []
+
+    class Stop(Exception):
+        pass
+
+    def popen(command, **kwargs):
+        started.append(command)
+        raise Stop
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    with pytest.raises(Stop):
+        models.fetch_convert(tmp_path, model, server)
+    run = started[0][: started[0].index("python")]  # uv's options, before the interpreter
+    pins = [run[i + 1] for i, part in enumerate(run) if part == "--with"]
+    assert pins == ["sentencepiece==0.2.2"], run
+
+
 @pytest.mark.live
 def test_the_converter_sees_nothing_of_claritys_environment_and_imports_its_pinned_transformers():
     """The probe behind the isolation fix, through the command fetch_convert runs, from
