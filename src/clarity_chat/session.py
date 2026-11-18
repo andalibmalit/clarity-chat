@@ -879,7 +879,7 @@ class Session:
                 already,
                 at_send,
                 where,
-                conversation.search_method,
+                method=conversation.search_method,
             )
         except SearchRefused as e:
             return fields, e
@@ -895,7 +895,8 @@ class Session:
         already: frozenset[str] = frozenset(),
         at_send: bool = False,
         where: str = "chat",
-        method: str = "words",
+        *,
+        method: str,
     ) -> dict[str, Any]:
         """What `text` finds in the documents `names`, filled to `profile`'s budget into a
         block holding `fields`' attachments: one function for a message, /try and a batch
@@ -919,15 +920,13 @@ class Session:
         if problems:
             raise SearchRefused(problems, at_send, where)
         budget, origin = budget_of(profile)
-        try:
-            if method == "meaning":
-                found = self._meaning(docs, text, profile)
-            else:
+        if method == "meaning":
+            found = self._meaning(docs, text, profile, at_send, where)
+        else:
+            try:
                 found = search_documents(docs, text)
-        except DocumentRefused:  # no FTS5 in this Python: how to send without it
-            raise SearchRefused([{"state": "no_fts5"}], at_send, where) from None
-        except Unsearched as e:  # the embedder, or a text past 8,192 tokens (states 5 to 7)
-            raise SearchRefused([e.problem], at_send, where) from None
+            except DocumentRefused:  # no FTS5 in this Python: how to send without it
+                raise SearchRefused([{"state": "no_fts5"}], at_send, where) from None
         return fill(
             room,
             text,
@@ -940,24 +939,36 @@ class Session:
             already,
         )
 
-    def _meaning(self, docs: list[Loaded], text: str, profile: Profile) -> dict[str, Any]:
+    def _meaning(
+        self, docs: list[Loaded], text: str, profile: Profile, at_send: bool, where: str
+    ) -> dict[str, Any]:
         """What `text` finds in `docs` by meaning (decisions 9 to 12), unfilled: the
         embedder started, each document's vectors read or built, the message's vector,
-        and the parts at or above the minimum."""
+        and the parts at or above the minimum. States 5 to 7 are refused as problems; a
+        vectors file Clarity can't write is said as it is."""
+
+        def refused(problem: dict[str, Any]) -> SearchRefused:
+            return SearchRefused([problem], at_send, where)
+
         embedder = self.embedder()
         try:
             engine = embedder.start()  # bge-m3 not fetched: a ConfigError, before any process
             ids = embedder.ids(text)
+        except TooLong as e:
+            raise refused({"state": "too_long", "tokens": e.tokens}) from None
+        except EmbedderFailed as e:
+            raise refused({"state": "embedder", "why": str(e)}) from None
+        except ConfigError as e:
+            raise refused({"state": "no_embedder", "why": str(e)}) from None
+        try:
             vectors = {
                 d.name: vectors_for(self.root, d, embedder, engine["setup"], self.on_building)
                 for d in docs
             }
             query = embedder.vector(ids)
-        except TooLong as e:
-            raise Unsearched({"state": "too_long", "tokens": e.tokens}) from None
         except PartTooLong as e:
             keys = ("ordinal", "title", "page")
-            raise Unsearched(
+            raise refused(
                 {
                     "document": e.document,
                     "state": "too_long",
@@ -966,11 +977,7 @@ class Session:
                 }  # fmt: skip
             ) from None
         except EmbedderFailed as e:
-            raise Unsearched({"state": "embedder", "why": str(e)}) from None
-        except DocumentRefused:  # a vectors file Clarity can't write: said as it is
-            raise
-        except ConfigError as e:
-            raise Unsearched({"state": "no_embedder", "why": str(e)}) from None
+            raise refused({"state": "embedder", "why": str(e)}) from None
         minimum, origin = minimum_of(profile)
         return {
             "method": "meaning",
@@ -1070,6 +1077,7 @@ class Session:
             profile,
             {**fields, "placement": profile.placement},
             where=where,
+            method=profile.search_method or SEARCH_METHOD,  # B2: `document try` refuses meaning
         )
         return found, self._control_token_problem(found, tokenizer)
 
@@ -2516,14 +2524,6 @@ def minimum_of(profile: Profile) -> tuple[float, str]:
     if profile.min_similarity is None:
         return MIN_SIMILARITY, "default"
     return profile.min_similarity, "profile"
-
-
-class Unsearched(Exception):
-    """A meaning search that can't run, as the problem its refusal words."""
-
-    def __init__(self, problem: dict[str, Any]) -> None:
-        super().__init__(problem["state"])
-        self.problem = problem
 
 
 def left_out_counts(found: dict[str, Any]) -> dict[str, int]:

@@ -478,7 +478,7 @@ FOUND_COMMON: dict[str, Callable[[Any], bool]] = {
     "matched": _whole_number,
     "tokens": _whole_number,
 }
-# The rest of a `found`, by its method (v0.4.1): a field of the other method's is refused.
+# The rest of a `found`, by its method (v0.4.1): any other field is refused.
 FOUND_BY_METHOD: dict[str, dict[str, Callable[[Any], bool]]] = {
     "words": {
         "words": _strings,
@@ -522,10 +522,10 @@ def found_types(found: Mapping[str, Any]) -> dict[str, Callable[[Any], bool]]:
     method = found.get("method")
     if method not in FOUND_BY_METHOD:
         raise TypeError("a turn's found has a method Clarity doesn't write")
-    other = {k for m, t in FOUND_BY_METHOD.items() if m != method for k in t}
-    if extra := (set(found) & other) - set(FOUND_BY_METHOD[method]):
+    types = {"method": lambda v: v == method, **FOUND_COMMON, **FOUND_BY_METHOD[method]}
+    if extra := set(found) - set(types):
         raise TypeError(f"a {method} found holds {', '.join(sorted(extra))}")
-    return {**FOUND_COMMON, **FOUND_BY_METHOD[method]}
+    return types
 
 
 def _typed(fields: Mapping[str, Any], types: Mapping[str, Callable[[Any], bool]]) -> None:

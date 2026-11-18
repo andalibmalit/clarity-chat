@@ -75,6 +75,7 @@ def vectors_for(
     data = b"".join(built)
     with writing(doc.name):
         partial = path.with_name(path.name + ".part")
+        partial.unlink(missing_ok=True)  # a link left there is removed, never written through
         write(partial, data)
         os.replace(partial, path)
         for old in here.glob("vectors-*"):
