@@ -106,7 +106,7 @@ DOCUMENTS_KEYS = {
 MARKER_FIELDS = {"units", "first", "last", "total"}
 BUDGET = 1500  # tokens search may add to a message, by default (v0.3.2 decision 9)
 SEARCH_METHOD = "words"  # a chat's search method by default; B3 flips it to "meaning"
-MIN_SIMILARITY = 0.5  # provisional: A5 measures the default (v0.4.1 decision 12)
+MIN_SIMILARITY = 0.5  # the lowest that drops small talk on A5's made-up text (decision 12)
 PLACEMENTS = ("start", "end")
 # A library document's name (v0.3.2 decision 20), here so a profile's `search` list and the
 # library check names by one rule: the documents package imports it.
