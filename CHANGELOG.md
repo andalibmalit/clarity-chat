@@ -8,6 +8,10 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Added
+- A converted model's entry in `models.toml` can say `weights = "pytorch_model.bin"`, for a model whose publisher ships its weights only in PyTorch's pickle format. `clarity fetch` then downloads that one file too; without the key it downloads no pickle, as before. The key accepts no other value.
+- bge-m3 in `models.toml`, the embedding model for meaning search, in place of bge-small-en-v1.5. bge-small's file stays on your disk until you delete `models/bge-small-en-v1.5/`.
+
 ## [0.4.0] - 2026-11-17
 
 Live tests on an M2 Max (macOS), 2026-11-17, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 29 passed and `-m browser` 160 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit) at the last source commit; `-m hf` 20 passed, `-m olmo` 12 passed and `-m llama` 3 passed at the last commit to change their paths, the stream fix.
