@@ -532,3 +532,147 @@ def test_a_meaning_searched_call_replays_identical_with_the_embedder_stopped(
         fresh = scratch_session(fetched_root, chat_tokenizer, Untouchable())
         fresh.backend.replies = [call["output_text"]]
         assert fresh.replay(log, call["call_id"])["identical"]
+
+
+# --- A5: the minimum's measurement (decision 12) ---------------------------------------------
+
+POOL = [  # made-up clauses, combined in twos for the filler parts
+    "a copper kettle kept on the back of the stove",
+    "the town's oldest ledger of ferry crossings",
+    "a rule for counting stitches in a knitted sleeve",
+    "the habit of pruning apple trees in late winter",
+    "a choir's custom of singing on the harbour wall",
+    "the way chalk paths turn white after a dry week",
+    "an old method for salting herring in barrels",
+    "a timetable for the night bus to the farms",
+    "the paint mixed for bollards on the quay",
+    "a game children play with smooth sea glass",
+    "the price of a rye loaf at the Saturday market",
+    "a map that shows a road to nowhere",
+    "a museum label corrected in a different pen",
+    "the warden's spare blankets hidden in a piano",
+    "a lighthouse log written at six each morning",
+    "the stitch used to mend a torn fishing net",
+    "a recipe for soup that changes with the catch",
+    "the way gulls open the lids of bait boxes",
+    "a song about a whale that learned to count",
+    "the volunteer who cleans sensors every spring",
+]
+NAMES = ["Ferrant", "Okafor", "Lindqvist", "Marrow", "Quayle", "Nakashima", "Ruiz", "Tarn"]
+
+
+def filler(n: int) -> str:
+    a, b = POOL[n % len(POOL)], POOL[(n * 7 + 3) % len(POOL)]
+    return f"This entry, number {n}, is about {a}, and also about {b}."
+
+
+# Each document: (name, text, messages); a message is (kind, text, the part it's about or None).
+def a5_documents() -> list[tuple[str, str, list[tuple[str, str, str | None]]]]:
+    glossary_targets = [
+        (
+            "Thermocline",
+            "The layer in a lake or sea where the temperature falls quickly with depth.",
+        ),
+        ("Photosynthesis", "How green plants turn sunlight, water and carbon dioxide into sugar."),
+        ("Erosion", "The slow wearing away of rock and soil by wind, rain and rivers."),
+    ]
+    glossary = "".join(f"## {h}\n{t}\n\n" for h, t in glossary_targets)
+    glossary += "".join(f"## Term {n}\n{filler(n)}\n\n" for n in range(197))
+    prose_targets = [
+        ("The baker", "Odile starts the ovens at three and sleeps again until ten."),
+        ("The storm", "When the bucket sticks, the station reports a dry week in a gale."),
+        ("The concert", "Tickets cost nothing, but everyone brings a candle and a story."),
+    ]
+    prose = "".join(f"## {h}\n{t}\n\n" for h, t in prose_targets)
+    prose += "".join(f"## Chapter {n}\n{filler(n + 300)}\n\n" for n in range(197))
+    refs_targets = [
+        ("Okafor 1987", "Okafor, A. (1987). Tidal mixing in shallow estuaries. J. Coast. Res."),
+        ("Lindqvist 2003", "Lindqvist, B. (2003). Sourdough microbiology. Food Microb. 12(3)."),
+        ("Ruiz 2019", "Ruiz, C. (2019). Spoke tension and wheel trueness. Cycle Eng. 4(1)."),
+    ]
+    refs = "".join(
+        f"## {h}\n{t} https://doi.org/10.5555/mu.{i:05d}\n\n"
+        for i, (h, t) in enumerate(refs_targets)
+    )
+    refs += "".join(
+        f"## {NAMES[n % 8]} {1950 + n % 70}\n{NAMES[n % 8]}, {'ABCDEFGH'[n % 8]}. "
+        f"({1950 + n % 70}). {filler(n + 600).capitalize()} Made-up J. {n % 40 + 1}({n % 4 + 1}). "
+        f"https://doi.org/10.5555/mu.{n + 10:05d}\n\n"
+        for n in range(197)
+    )
+    small_talk = [("small talk", "ok, thanks", None), ("small talk", "hi", None)]
+    follow = [("follow-up", "And the other one?", None), ("follow-up", "Can you say more?", None)]
+    return [
+        ("glossary", glossary, [
+            ("paraphrase", "At what point does it get colder as you dive?", "Thermocline"),
+            ("paraphrase", "In what way do leaves make food from light?", "Photosynthesis"),
+            ("paraphrase", "Why do cliffs crumble over centuries?", "Erosion"),
+            ("headword", "Thermocline", "Thermocline"),
+            ("headword", "Photosynthesis", "Photosynthesis"),
+            ("headword", "Erosion", "Erosion"),
+            *small_talk, *follow,
+        ]),
+        ("prose", prose, [
+            ("paraphrase", "When does a woman who makes bread begin work?", "The baker"),
+            ("paraphrase", "Why might weather gauges miss heavy downpours?", "The storm"),
+            ("paraphrase", "Is this music evening free to attend?", "The concert"),
+            ("headword", "The baker", "The baker"),
+            ("headword", "The storm", "The storm"),
+            ("headword", "The concert", "The concert"),
+            *small_talk, *follow,
+        ]),
+        ("refs", refs, [
+            ("paraphrase", "how seawater blends where rivers meet oceans", "Okafor 1987"),
+            ("paraphrase", "research on the bacteria in fermented bread dough", "Lindqvist 2003"),
+            ("paraphrase", "a paper about how tight bicycle spokes should be", "Ruiz 2019"),
+            ("headword", "Okafor 1987", "Okafor 1987"),
+            ("headword", "Lindqvist 2003", "Lindqvist 2003"),
+            ("headword", "Ruiz 2019", "Ruiz 2019"),
+            *small_talk, *follow,
+        ]),
+    ]  # fmt: skip
+
+
+def test_a5_the_minimum_s_measurement(tmp_path):
+    """A5 (decision 12): each message's similarities on three made-up documents of 200
+    parts (a paraphrase shares none of its part's words, title included), what a minimum of
+    0.3 to 0.8 would admit, and the lowest minimum (to 0.01) that drops "ok, thanks" and
+    "hi" on all three. Prints; the main session sets the default."""
+    from clarity_chat.documents import (
+        library_add,
+        load_document,
+        meaning_search,
+        reading,
+        vectors_for,
+    )
+
+    root = tmp_path / "root"
+    minimums = [round(0.3 + 0.05 * i, 2) for i in range(11)]
+    small_talk_best: list[float] = []
+    with running(tmp_path) as embedder:
+        for name, text, messages in a5_documents():
+            reading._last = None
+            library_add(root, text.encode(), f"{name}.md")
+            doc = load_document(root, name)
+            vectors, _ = vectors_for(root, doc, embedder, embedder.engine["setup"])
+            print(f"\n{name}: {len(doc.parts)} parts; minimums {minimums}")
+            for kind, message, target in messages:
+                query = memoryview(embedder.vector(embedder.ids(message))).cast("f")
+                found = meaning_search([doc], {name: vectors}, query, -1.0)
+                best = found[0]
+                hit = next((m for m in found if m["title"] == target), None)
+                admitted = [sum(m["score"] >= x for m in found) for x in minimums]
+                where = (
+                    f"; its part {target!r} rank {hit['rank']} at {hit['score']:.3f}" if hit else ""
+                )
+                print(
+                    f"  {kind:10} {message!r}: best {best['score']:.3f} ({best['title']!r})"
+                    f"{where}; admitted {admitted}"
+                )
+                if kind == "small talk":
+                    small_talk_best.append(best["score"])
+    lowest = math.floor(max(small_talk_best) * 100 + 1) / 100
+    print(
+        f"\nThe best small-talk similarity anywhere: {max(small_talk_best):.4f}. The lowest "
+        f'minimum (to 0.01) that drops "ok, thanks" and "hi" on all three: {lowest:.2f}'
+    )
