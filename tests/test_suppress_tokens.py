@@ -120,6 +120,34 @@ def test_no_key_line_at_all_is_refused_even_with_the_dump_header():
     refused("")
 
 
+# --- the dump is whole (v0.4.1 X2; O5 of v0.4.0) ---------------------------------------------
+
+
+def without_key(text: str, name: str) -> str:
+    return "".join(line for line in text.splitlines(True) if f" {name} " not in line)
+
+
+def test_a_dump_one_key_short_is_refused():
+    """llama.cpp announces how many keys it dumps, then dumps each one
+    (src/llama-model-loader.cpp:809, :889-904): a dump one short can't read as "no ban"."""
+    assert parse(dump()) == [] and parse(dump(banning(BANNED))) == BANNED  # whole: read
+    refused(without_key(dump(), "general.name"))
+    refused(without_key(dump(banning(BANNED)), "general.name"))
+
+
+def test_a_dump_cut_short_before_the_key_is_refused():
+    whole = dump(banning(BANNED))
+    cut = whole[: whole.index(SUPPRESS_KEY)].rsplit("\n", 1)[0] + "\n"
+    refused(cut)
+
+
+def test_a_second_announced_count_is_refused():
+    """A key's name can hold a newline (the value can't: llama.cpp writes it as \\n), so a
+    file could print a second count line; two counts are refused, not one believed."""
+    fake = f"x\n{PREFIX}llama_model_loader: loaded meta data with 4 key-value pairs and 1 tensors"
+    refused(dump((fake, "str", "z")))
+
+
 def test_the_line_is_read_with_or_without_the_logs_prefix():
     """llama-server's own lines carry a timestamp and level (seen at the pin); a log with
     the prefix turned off has none."""
