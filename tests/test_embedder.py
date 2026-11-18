@@ -36,6 +36,7 @@ route = "convert"
 repo = "BAAI/bge-m3"
 revision = "5617a9f61b028005a4858fdac845db406aefb181"
 weights = "pytorch_model.bin"
+weights_sha256 = "1111111111111111111111111111111111111111111111111111111111111111"  # made up
 tokenizer_repo = "BAAI/bge-m3"
 tokenizer_revision = "5617a9f61b028005a4858fdac845db406aefb181"
 """
