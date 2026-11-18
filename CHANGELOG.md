@@ -17,6 +17,9 @@ Two headings are Clarity's own, used when they apply:
 - A model start is refused, with the existing sentence about banned tokens, when llama-server's startup log holds fewer or more of the model file's keys than llama.cpp says it dumps, so a log cut short can't read as "no banned tokens".
 - The converter that `clarity fetch` runs works offline and reads nothing from your terminal, so a model's tokenizer can't download code from another repo or ask a question you can't see.
 
+### Fixed
+- Fetching a model with a SentencePiece vocabulary, such as bge-m3, no longer fails in conversion. The converter's sentencepiece is pinned to 0.2.2, because 0.2.3 needs a newer protobuf than llama.cpp's converter allows. `converter-versions.json` and the lock record the version used.
+
 ## [0.4.0] - 2026-11-17
 
 Live tests on an M2 Max (macOS), 2026-11-17, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 29 passed and `-m browser` 160 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit) at the last source commit; `-m hf` 20 passed, `-m olmo` 12 passed and `-m llama` 3 passed at the last commit to change their paths, the stream fix.

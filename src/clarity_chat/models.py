@@ -376,6 +376,11 @@ def converter_python(server: ServerConfig) -> list[str]:
         CONVERTER_PYTHON,
         "--with-requirements",
         str(requirements),
+        # The requirements allow sentencepiece <0.3.0 but cap protobuf <5.0.0, and 0.2.3's
+        # model_pb2 needs protobuf 5.26 or later: a SentencePiece vocabulary (bge-m3's)
+        # failed to load. 0.2.2 imports with protobuf 4.
+        "--with",
+        "sentencepiece==0.2.2",
         "python",
         "-I",
     ]
