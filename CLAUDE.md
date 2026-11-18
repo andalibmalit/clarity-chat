@@ -28,7 +28,7 @@ Clarity writes files only visibly. Shipped files stay read-only; the user's own 
 ## How to work
 - Never open files in `logs/`, `runs/` or `local/documents/` unless I ask; they hold private conversations and documents. Tests use made-up text.
 - Each release follows its approved plan in `notes/plans/`. If the build departs from the plan, update the plan in the same step and say so. Reviews and the release process: `CONTRIBUTING.md`.
-- State your assumptions in each step report. Run the checks above before every commit, the failing-test commit included, and quote their output in the report.
+- State your assumptions in each step report, and ask before decisions that are hard to undo. Run the checks above before every commit, the failing-test commit included, and quote their output in the report.
 - For behaviour the plan fixes (record fields, refusals, command results and events, replay, resume, reading old logs), write the test first and see it fail on its own assertion; the report quotes the failure. For tests written with their code, stash the source change, run the new tests, and quote the ones that fail. A bug fix starts with a failing test, committed before the fix; a fix commit that changes a test from that commit says what changed and why.
 - An offline test never skips in CI. A test that needs a model or torch goes on a live tier.
 - Before `-m olmo` or `-m llama` (each loads 15–16 GB), check that no model is loaded and about 16 GB is free; otherwise ask.

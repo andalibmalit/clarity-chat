@@ -65,7 +65,7 @@ A release is a closed list the maintainer can judge in one sitting. Its plan nam
 
 Each plan sets an estimate and a cut order. When an item lands over 1.5 times its estimate and at least 100 lines over, or the running total passes the estimate, the next entry in the cut order is cut before the next item starts. A review doesn't replace the cut.
 
-Reviews check the diff against the plan and look for bloat: code no item asked for, abstractions with one user, unrequested options, tests for cases that can't happen. They skip style and prefer findings that delete code. A finding that isn't a must (a wrong prompt or output, lost data, a broken replay promise, a security hole) may delete or fix, but never adds a command, state, record field, control or sentence; those go to the maintainer with their price.
+Reviews check the diff against the plan and look for bloat: code no item asked for, abstractions with one user, unrequested options, tests for cases that can't happen. They skip style and prefer findings that delete code. A must is a wrong prompt or output, lost data, a broken exactness or replay promise, a security hole, or no way out. Any other finding may delete or fix, but shouldn't grow what a user must learn: a command, control, state or sentence the product shows in normal use goes to the maintainer with its price. Three things aren't growth and are judged on their merits: a fix that makes an approved decision work as planned; hardening of security, exactness or data safety that a user meets only when something is wrong; a sentence in the docs, changelog or help.
 
 ## Release checklist
 
