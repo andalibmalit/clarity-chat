@@ -447,6 +447,9 @@ ERRORS = {"ConfigError", "ContextError", "DocumentRefused", "DoesntFit", "Refuse
 # Refusals that name a terminal command but can't reach the page: the page never sends the
 # command, or never sends it in that form. Each is said here, with why.
 TERMINAL_ONLY = {
+    "clarity document try searches by words only; /try in a chat searches by meaning.": (
+        "only `clarity document try` raises it (decision 17); the page has no such command"
+    ),
     "llama-server's /props failed after startup: ": "a llama-server endpoint, not a command",
     "Usage: /regen [N], where N is a whole number of replies, 1 or more; or /regen same.": (
         "the page sends a number it checked, or none"
