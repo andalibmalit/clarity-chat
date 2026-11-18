@@ -31,7 +31,7 @@ Skip style: ruff and ty check it.
 
 ## Rules
 
-- Never open files in `logs/` or `runs/`. They hold private conversations.
+- Never open files in `logs/`, `runs/` or `local/documents/`. They hold private conversations and documents.
 - Don't edit files; report only. Scratch scripts go in `$TMPDIR`.
 - You may run `uv run pytest -q`, `uv run ruff check` and `uv run ty check`. Never run the `live`, `olmo`, `hf`, `measure` or `embed` tests: they need a GPU and models, and the builder or the owner runs them.
 - No curl or wget.
