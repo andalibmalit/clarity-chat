@@ -1,33 +1,43 @@
-"""Meaning-search tests for v0.3.3 (opt-in: `uv run pytest -m embed -v -s`).
+"""Meaning search's gate on bge-m3 (v0.4.1 A1; opt-in: `uv run pytest -m embed -v -s`).
 
-Documents and meaning search (v0.3.3) are only worth building if llama-server's embeddings
-come back bit-identical, so that a search can be logged and repeated exactly. These are
-tests T1, T2, T6 and the token-IDs half of T8 from the embedding research note
-(notes/research/rag/04-embedding-determinism.md, section 7). If they pass, v0.3.3 goes
-ahead; if one fails, its message says what differed.
+A search is logged and repeated exactly only if the embedder's vectors are bit-identical,
+so these run the shipped launch (documents/embedder.py: its flag table, on Metal) on
+made-up texts from a few tokens to 8,192:
+- T1: the same text gives the same vector back to back and after a restart.
+- T2: a text's vector doesn't depend on what else a request holds.
+- The 8,192-ID boundary is accepted and leaves the server running; a ~9,000-token text
+  counts past 8,192 through the shipped tokenizer path, so a truncation setting can't make
+  the refusal silent.
+- T8: llama-server's own tokenization is printed against bge-m3's (Clarity sends IDs, so
+  a difference isn't a failure), and where the two agree, IDs and the string must give
+  the same vector.
+- The reference: bge-m3's own weights in Transformers (float32, CPU, CLS pooling, then L2
+  normalization, as its modules.json says) against the shipped vectors.
+Vectors are compared as raw float32 bytes, with no tolerance, except against the
+reference.
 
-Each server starts with the note's pins for an embedding server (EMBED_FLAGS). Inputs are
-token IDs from bge-small's own Hugging Face tokenizer, as Clarity would send them. Vectors
-are compared as raw float32 bytes, with no tolerance. The texts are made up.
-
-Needs the built llama-server and bge-small fetched (`uv run clarity fetch bge-small-en-v1.5`).
+Needs the built llama-server, bge-m3 fetched (`uv run clarity fetch bge-m3`), and for the
+reference the hf extra (`uv sync --extra hf`; a plain `uv sync` drops torch).
 """
 
 from __future__ import annotations
 
 import base64
-import dataclasses
 import math
 import struct
-from collections.abc import Generator
+from collections.abc import Callable, Generator, Iterable, Iterator
 from contextlib import contextmanager
+from functools import cache
+from itertools import count
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 
-from clarity_chat.backends.llama_cpp import LlamaServer, server_binary
+from clarity_chat.backends.llama_cpp import server_binary
+from clarity_chat.documents import Embedder, TooLong
+from clarity_chat.documents.embedder import DIMENSIONS, MAX_TOKENS, MODEL
 from clarity_chat.models import check_weights_quick, lock_entry
 from clarity_chat.profiles import ConfigError, load_models, load_server_config
 from clarity_chat.render import Tokenizer
@@ -35,9 +45,6 @@ from clarity_chat.render import Tokenizer
 pytestmark = pytest.mark.embed
 
 REPO = Path(__file__).resolve().parents[1]
-MODEL = "bge-m3"  # A1 re-points the rest of this file at it before the gate run
-DIM = 384  # bge-small's hidden size, and so its vector length
-N_CTX = 512  # bge-small's training context (max_position_embeddings)
 
 
 def _weights() -> tuple[Path | None, str]:
@@ -52,35 +59,7 @@ WEIGHTS, _reason = _weights()
 if WEIGHTS is None:
     pytestmark = [pytest.mark.embed, pytest.mark.skip(reason=_reason)]
 
-# Note 04's pins for an embedding server ("Pins for an embedding server"), set on top of
-# server.toml's flags. Every one is explicit, so no server default or GGUF value applies.
-EMBED_FLAGS: dict[str, Any] = {
-    "embedding": True,
-    "pooling": "cls",  # bge-small's 1_Pooling/config.json; unset would take the GGUF's value
-    "embd-normalize": 2,  # L2, like its 2_Normalize module; also sent with every request
-    "parallel": 1,  # one slot, so each input is evaluated alone (the default is 4 slots)
-    "no-kv-unified": True,
-    "ctx-size": N_CTX,
-    "batch-size": N_CTX,  # equal sizes: with --embedding a larger batch is quietly lowered
-    "ubatch-size": N_CTX,  # every legal input fits one ubatch
-    "flash-attn": "on",
-    "n-gpu-layers": "all",
-    "threads": 8,
-    "threads-batch": 8,
-    "cache-type-k": "f16",
-    "cache-type-v": "f16",
-    "cache-ram": 0,
-    "cache-reuse": 0,
-    "ctx-checkpoints": 0,
-    "no-cache-idle-slots": True,
-    "no-context-shift": True,
-    "fit": "off",
-}
-# T6: no GPU at all. With only n-gpu-layers 0, llama.cpp may still offload big matrix
-# products to the GPU (--op-offload is on by default); --device none rules that out.
-CPU_ONLY: dict[str, Any] = {"n-gpu-layers": 0, "device": "none"}
-
-# Made-up sentences; the longer texts below are runs of them.
+# Made-up sentences; the longer texts below are built from them and their like.
 SENTENCES = [
     "The lighthouse keeper on Marrow Point logs the wind speed every morning at six.",
     "Her notebook lists forty-two kinds of seaweed, each with a sketch and a date.",
@@ -123,15 +102,59 @@ SENTENCES = [
     "From there it is a forty-minute walk to the youth hostel, mostly uphill.",
     "The hostel warden bakes flapjacks on Sundays and hides the spare blankets in the piano.",
 ]
+SURNAMES = ["Ferrant", "Okafor", "Lindqvist", "Marrow", "Tarn", "Quayle", "Nakashima", "Ruiz"]
 
 
 def _run(start: int, count: int) -> str:
     return " ".join(SENTENCES[start : start + count])
 
 
-# 20 passages of 6 to 497 tokens ([CLS] and [SEP] included), then 5 short queries: 25 texts,
-# as note 04 suggests.
-TEXTS = [
+def prose() -> Iterator[str]:
+    for n in count():
+        yield SENTENCES[(7 * n) % len(SENTENCES)]
+
+
+def references() -> Iterator[str]:
+    for n in count(1):
+        surname = SURNAMES[n % len(SURNAMES)]
+        yield (
+            f"[{n}] {surname}, {'ABCDEFGH'[n % 8]}. ({1950 + n % 70}). "
+            f"{SENTENCES[n % len(SENTENCES)].rstrip('.')}. Journal of Made-up Coastal "
+            f"Studies, {n % 40 + 1}({n % 4 + 1}), {n * 3 % 400 + 1}-{n * 3 % 400 + 19}. "
+            f"https://doi.org/10.5555/mu.{n:05d}"
+        )
+
+
+def table() -> Iterator[str]:
+    yield "| no. | station | rainfall (mm) | sensor cleaned |\n|---|---|---|---|"
+    for n in count(1):
+        cleaned = "yes" if n % 3 else "no"
+        yield f"| {n} | {SURNAMES[n % 8]} Ridge {n % 13} | {n * 17 % 1000 / 10:.1f} | {cleaned} |"
+
+
+def code() -> Iterator[str]:
+    for n in count(1):
+        yield (
+            f"def tide_step_{n}(level, hours):\n"
+            f"    rise = level * {n % 9 + 1} / (hours + {n % 5 + 1})\n"
+            f"    return rise if rise > {n * 3 % 50} else -rise  # made up\n"
+        )
+
+
+def grown(units: Iterable[str], target: int, tokens: Callable[[str], int], sep: str) -> str:
+    """Units joined by `sep` until the sum of their own token counts reaches `target`. Each
+    unit is short, so the sum doesn't depend on any truncation the tokenizer might do."""
+    taken, total = [], 0
+    for unit in units:
+        if total >= target:
+            break
+        taken.append(unit)
+        total += tokens(unit)
+    return sep.join(taken)
+
+
+# 20 short passages, 4 long ones (built from the tokenizer, below), then 5 queries.
+SHORT = [
     "Fog again today.",
     "Bring a candle and a story.",
     "Note: the 7:40 ferry is cancelled; take the 9:15 instead.",
@@ -152,6 +175,9 @@ TEXTS = [
     _run(8, 23),
     _run(2, 25),
     _run(6, 27),
+]
+LONG = [(prose, 1500, " "), (references, 3000, "\n"), (table, 5000, "\n"), (code, 7800, "\n")]
+QUERIES = [
     "how do I true a bicycle wheel",
     "When does the ferry to Little Tarn leave?",
     "bakery rye loaf caraway",
@@ -160,47 +186,56 @@ TEXTS = [
 ]
 
 
+hub_tokenizer = cache(Tokenizer.from_hub)  # loaded once, as a session's loader caches it
+
+
+def made(logs: Path) -> Embedder:
+    return Embedder(REPO, load_server_config(REPO), logs, hub_tokenizer)
+
+
+def counter(tokenizer: Tokenizer) -> Callable[[str], int]:
+    return lambda unit: len(tokenizer.tok.encode(unit, add_special_tokens=False))
+
+
 @pytest.fixture(scope="module")
-def ids() -> list[list[int]]:
-    """Each text's token IDs from bge-small's own tokenizer, with [CLS] and [SEP] added, as
-    sentence-transformers does."""
+def texts(tmp_path_factory) -> dict[str, Any]:
+    """The texts, their IDs through the shipped path (Embedder.ids), and the tokenizer."""
+    embedder = made(tmp_path_factory.mktemp("logs"))
     model = load_models(REPO)[MODEL]
-    try:
-        tokenizer = Tokenizer.from_hub(model.tokenizer_repo, model.tokenizer_revision)
-    except ConfigError as e:
-        pytest.skip(str(e))
-    found = [list(tokenizer.tok.encode(text, add_special_tokens=True)) for text in TEXTS]
-    too_long = [i for i, x in enumerate(found) if len(x) > N_CTX]
-    assert not too_long, f"Test bug: texts {too_long} are longer than {N_CTX} tokens."
-    return found
+    tokenizer = hub_tokenizer(model.tokenizer_repo, model.tokenizer_revision)
+    tokens = counter(tokenizer)
+    passages = SHORT + [grown(units(), target, tokens, sep) for units, target, sep in LONG]
+    all_texts = passages + QUERIES
+    ids = [embedder.ids(text) for text in all_texts]
+    print(f"\ntoken counts: {[len(x) for x in ids]}")
+    assert max(len(x) for x in ids) > 7000, "Test bug: no text near the limit."
+    return {"texts": all_texts, "passages": len(passages), "ids": ids, "tokenizer": tokenizer}
 
 
 @contextmanager
-def running(tmp_path: Path, **overrides: Any) -> Generator[LlamaServer]:
-    """An embedding server with EMBED_FLAGS (and `overrides`), stopped afterwards."""
-    config = load_server_config(REPO)
-    config = dataclasses.replace(config, flags={**config.flags, **EMBED_FLAGS, **overrides})
-    assert WEIGHTS is not None
-    server = LlamaServer(config, WEIGHTS, tmp_path)
-    record = server.start()
+def running(tmp_path: Path) -> Generator[Embedder]:
+    """The shipped embedder, started, stopped afterwards."""
+    embedder = made(tmp_path)
+    engine = embedder.start()
     try:
-        slots = record["props"].get("total_slots")
-        assert slots == 1, f"llama-server runs {slots} slots, but --parallel 1 asks for one."
-        devices = [d["name"] for d in record["placement"]["devices"]]
-        print(f"\nserver: devices {devices}, graph splits {record['graph_splits']}")
-        yield server
+        assert embedder.server is not None
+        record = embedder.server.record
+        print(f"\nembedder on {engine['device']}, graph splits {record['graph_splits']}")
+        yield embedder
     finally:
-        server.stop()
+        embedder.close()
 
 
-def embed(server: LlamaServer, inputs: list[Any]) -> tuple[list[bytes], int]:
-    """One request to /v1/embeddings: each input's vector as raw float32 bytes, in input
-    order, and the request's usage.prompt_tokens."""
+def embed(embedder: Embedder, inputs: list[Any]) -> tuple[list[bytes], int]:
+    """One raw request to /v1/embeddings (for T2 and T8, which send what Clarity doesn't):
+    each input's vector as float32 bytes, in input order, and usage.prompt_tokens."""
+    server = embedder.server
+    assert server is not None
     r = httpx.post(
         f"{server.url}/v1/embeddings",
         headers=server.headers,
         json={"input": inputs, "encoding_format": "base64", "embd_normalize": 2},
-        timeout=120,
+        timeout=600,
         trust_env=False,
         verify=False,
     )
@@ -208,26 +243,7 @@ def embed(server: LlamaServer, inputs: list[Any]) -> tuple[list[bytes], int]:
     body = r.json()
     data = sorted(body["data"], key=lambda d: d["index"])
     assert [d["index"] for d in data] == list(range(len(inputs))), "missing or extra vectors"
-    vectors = [base64.b64decode(d["embedding"]) for d in data]
-    for i, vector in enumerate(vectors):
-        assert len(vector) == DIM * 4, f"input {i}: {len(vector)} bytes, not {DIM} float32s"
-        # llama-server returns a zero vector, not an error, when a lookup fails.
-        norm = math.sqrt(math.fsum(x * x for x in floats(vector)))
-        assert abs(norm - 1) < 1e-3, f"input {i}: vector length {norm}, not 1 (L2-normalized)"
-    return vectors, body["usage"]["prompt_tokens"]
-
-
-def embed_ids(server: LlamaServer, inputs: list[list[int]]) -> list[bytes]:
-    """Vectors for token-ID inputs, checking the server counted exactly those tokens."""
-    vectors, prompt_tokens = embed(server, inputs)
-    sent = sum(len(x) for x in inputs)
-    assert prompt_tokens == sent, f"sent {sent} tokens, the server counted {prompt_tokens}"
-    return vectors
-
-
-def each_alone(server: LlamaServer, ids: list[list[int]]) -> list[bytes]:
-    """Every text in its own request."""
-    return [embed_ids(server, [x])[0] for x in ids]
+    return [base64.b64decode(d["embedding"]) for d in data], body["usage"]["prompt_tokens"]
 
 
 def floats(vector: bytes) -> tuple[float, ...]:
@@ -236,10 +252,10 @@ def floats(vector: bytes) -> tuple[float, ...]:
 
 def difference(a: bytes, b: bytes) -> str:
     # By bytes, not by value: -0.0 and 0.0 are equal floats but different bits.
-    changed = [k for k in range(DIM) if a[4 * k : 4 * k + 4] != b[4 * k : 4 * k + 4]]
+    changed = [k for k in range(DIMENSIONS) if a[4 * k : 4 * k + 4] != b[4 * k : 4 * k + 4]]
     x, y = floats(a), floats(b)
     largest = max(abs(x[k] - y[k]) for k in changed)
-    return f"{len(changed)} of {DIM} values differ, the largest by {largest:.3g}"
+    return f"{len(changed)} of {DIMENSIONS} values differ, the largest by {largest:.3g}"
 
 
 def differences(runs: dict[str, list[bytes]], ids: list[list[int]]) -> list[str]:
@@ -259,69 +275,66 @@ def report(lines: list[str]) -> str:
     return f"{len(lines)} difference(s):\n{shown}{more}"
 
 
-def test_t1_vectors_repeat_back_to_back_and_after_a_restart(tmp_path, ids):
+def test_t1_vectors_repeat_back_to_back_and_after_a_restart(tmp_path, texts):
+    ids = texts["ids"]
     runs = {}
     for start in (1, 2):
-        with running(tmp_path) as server:
+        with running(tmp_path) as embedder:
             for round_ in (1, 2, 3):
-                runs[f"start {start} round {round_}"] = each_alone(server, ids)
+                runs[f"start {start} round {round_}"] = [embedder.vector(x) for x in ids]
     lines = differences(runs, ids)
     assert not lines, (
-        "T1: the same text, embedded alone, did not give the same vector every time "
-        "(three times on one server, three more after a restart, GPU). Embeddings are not "
-        f"bit-identical run to run with the pinned flags. {report(lines)}"
+        "T1: the same text did not give the same vector every time (three times on one "
+        f"server, three more after a restart, through Embedder.vector). {report(lines)}"
     )
 
 
-def test_t2_vectors_dont_depend_on_what_else_the_request_holds(tmp_path, ids):
-    with running(tmp_path) as server:
-        alone = each_alone(server, ids)
-        together = embed_ids(server, ids)
-        backwards = embed_ids(server, ids[::-1])[::-1]
-    runs = {
-        "one per request": alone,
-        "all 25 in one request": together,
-        "all 25 in reverse order": backwards,
-    }
+def test_t2_vectors_dont_depend_on_what_else_the_request_holds(tmp_path, texts):
+    ids = texts["ids"]
+    with running(tmp_path) as embedder:
+        alone = [embedder.vector(x) for x in ids]
+        together, _ = embed(embedder, ids)
+        backwards = embed(embedder, ids[::-1])[0][::-1]
+    runs = {"one per request": alone, "all in one request": together, "reversed": backwards}
     lines = differences(runs, ids)
     assert not lines, (
-        "T2: a text's vector changed with the other texts sent in the same request, or "
-        "their order, even with --parallel 1 (GPU). A vector would depend on its neighbours. "
-        f"{report(lines)}"
+        "T2: a text's vector changed with the other texts in the same request, or their "
+        f"order, even with --parallel 1. A vector would depend on its neighbours. {report(lines)}"
     )
 
 
-def test_t6_cpu_vectors_repeat_at_a_fixed_thread_count(tmp_path, ids):
-    lines, first_run = [], {}
-    for threads in (8, 4):
-        runs = {}
-        for start in (1, 2):
-            flags = {**CPU_ONLY, "threads": threads, "threads-batch": threads}
-            with running(tmp_path, **flags) as server:
-                used = server.record["placement"]["devices"]
-                assert not used, f"T6 needs the CPU only, but llama-server used {used}."
-                for round_ in (1, 2):
-                    runs[f"{threads} threads start {start} round {round_}"] = each_alone(
-                        server, ids
-                    )
-        lines += differences(runs, ids)
-        first_run[threads] = next(iter(runs.values()))
-    changed = sum(a != b for a, b in zip(first_run[8], first_run[4], strict=True))
-    print(f"\nT6, for information: {changed} of {len(ids)} vectors differ between 8 and 4 threads")
-    assert not lines, (
-        "T6: on the CPU, at a fixed thread count, the same text did not give the same vector "
-        f"every time (two server starts, two rounds each). {report(lines)}"
-    )
+def test_the_8192_id_boundary_is_accepted_and_the_server_keeps_running(tmp_path, texts):
+    tokenizer, ids = texts["tokenizer"], texts["ids"]
+    text = grown(prose(), 8400, counter(tokenizer), " ")
+    body = tokenizer.tok.encode(text, add_special_tokens=False)
+    assert len(body) >= MAX_TOKENS - 2, f"Test bug: only {len(body)} tokens to cut from."
+    boundary = [ids[0][0], *body[: MAX_TOKENS - 2], ids[0][-1]]  # <s> … </s>
+    assert len(boundary) == MAX_TOKENS
+    with running(tmp_path) as embedder:
+        before = embedder.vector(ids[0])
+        embedder.vector(boundary)  # decision 6's checks: one finite unit vector, 8,192 counted
+        assert embedder.vector(ids[0]) == before, "the server changed after the 8,192 input"
+        assert embedder.server is not None and embedder.server.proc is not None
+        assert embedder.server.proc.poll() is None
 
 
-def tokenize(server: LlamaServer, text: str) -> list[int]:
-    """The server's own tokens for `text`, made the way /v1/embeddings makes them for a
-    string (special tokens added and parsed)."""
+def test_no_truncation_a_9000_token_text_counts_past_8192(tmp_path, texts):
+    text = grown(prose(), 9000, counter(texts["tokenizer"]), " ")
+    with pytest.raises(TooLong) as refused:
+        made(tmp_path).ids(text)
+    assert refused.value.tokens > MAX_TOKENS
+    print(f"\na text of at least 9,000 tokens counted {refused.value.tokens}")
+
+
+def tokenize(embedder: Embedder, text: str) -> list[int]:
+    """The server's own tokens for `text`, made as /v1/embeddings makes them for a string."""
+    server = embedder.server
+    assert server is not None
     r = httpx.post(
         f"{server.url}/tokenize",
         headers=server.headers,
         json={"content": text, "add_special": True, "parse_special": True},
-        timeout=30,
+        timeout=60,
         trust_env=False,
         verify=False,
     )
@@ -329,43 +342,116 @@ def tokenize(server: LlamaServer, text: str) -> list[int]:
     return r.json()["tokens"]
 
 
-def test_t8_the_server_tokenizes_each_text_like_the_source_tokenizer(tmp_path, ids):
-    with running(tmp_path) as server:
-        server_ids = [tokenize(server, text) for text in TEXTS]
-    lines = []
-    for i, (ours, theirs) in enumerate(zip(ids, server_ids, strict=True)):
-        if ours != theirs:
-            pairs = enumerate(zip(ours, theirs, strict=False))
-            at = next((k for k, (a, b) in pairs if a != b), min(len(ours), len(theirs)))
-            lines.append(
-                f"text {i}: {len(ours)} tokens from the Hugging Face tokenizer, {len(theirs)} "
-                f"from llama-server; first difference at position {at}: "
-                f"{ours[at : at + 3]} vs {theirs[at : at + 3]}"
+ECHO_TEXTS = [  # XLM-R's harder cases: numbers, accents, other scripts, code
+    "Order 12,345.67 kg by 2026-11-18, ref. #A-0042.",
+    "Crème brûlée, façade, naïve, Ærø, Łódź, São Paulo.",
+    "Ο φάρος ανάβει στις έξι. Маяк зажигается в шесть. 灯台は六時に灯る。",
+    "def f(x):\n    return {'a': [x ** 2, x // 3]}  # résumé",
+]
+
+
+def test_t8_the_server_s_tokenization_is_printed_not_gated(tmp_path, texts):
+    """Clarity sends IDs, so llama-server's tokenizer doesn't need to match bge-m3's; the
+    differences are printed for the record."""
+    tokenizer = texts["tokenizer"]
+    with running(tmp_path) as embedder:
+        lines = []
+        for text in [*texts["texts"], *ECHO_TEXTS]:
+            ours = list(tokenizer.tok.encode(text, add_special_tokens=True))
+            theirs = tokenize(embedder, text)
+            if ours != theirs:
+                at = next(
+                    (k for k, (a, b) in enumerate(zip(ours, theirs, strict=False)) if a != b), None
+                )
+                lines.append(f"{text[:40]!r}: {len(ours)} vs {len(theirs)} tokens, first at {at}")
+    print(f"\nT8 echo: {len(lines)} text(s) tokenized differently by llama-server")
+    for line in lines:
+        print(f"  {line}")
+
+
+def test_t8_ids_and_the_string_give_the_same_vector_where_they_agree(tmp_path, texts):
+    ids = texts["ids"]
+    with running(tmp_path) as embedder:
+        same = [i for i, text in enumerate(texts["texts"]) if tokenize(embedder, text) == ids[i]]
+        lines = []
+        for i in same:
+            [vector], counted = embed(embedder, [texts["texts"][i]])
+            if counted != len(ids[i]):
+                lines.append(f"text {i}: {len(ids[i])} token IDs, {counted} tokens counted")
+            elif vector != embedder.vector(ids[i]):
+                lines.append(f"text {i}: {difference(embedder.vector(ids[i]), vector)}")
+    assert same, "T8: llama-server tokenized no text like bge-m3's tokenizer (see the echo)."
+    assert not lines, (
+        "T8: for texts the server tokenizes exactly as bge-m3's tokenizer does, the string "
+        f"and its IDs gave different results; they should be one computation. {report(lines)}"
+    )
+
+
+def test_reference_the_source_model_gives_the_same_vectors(tmp_path, texts):
+    """bge-m3's own weights in Transformers, loaded under the security review's conditions
+    (notes/research/reviews/v041-security.md, question 4): from the lock's folders only,
+    never by repo ID; no remote code; offline; PyTorch's restricted loader."""
+    import huggingface_hub.constants
+
+    assert huggingface_hub.constants.HF_HUB_OFFLINE is True, (
+        "Hugging Face is online in this run (a shell's HF_HUB_OFFLINE=0 overrides "
+        "conftest's): unset it and run again."
+    )
+    torch = pytest.importorskip("torch", reason="needs the hf extra: `uv sync --extra hf`")
+    from transformers import AutoModel, AutoTokenizer
+
+    entry = lock_entry(REPO, load_models(REPO)[MODEL])
+    source = Path(entry["source_dir"]).expanduser()
+    reference_tokenizer: Any = AutoTokenizer.from_pretrained(
+        Path(entry["tokenizer_dir"]).expanduser(), trust_remote_code=False, local_files_only=True
+    )
+    ids = texts["ids"]
+    assert [reference_tokenizer(t)["input_ids"] for t in texts["texts"]] == ids, (
+        "the shipped tokenizer path and the reference's tokenizer disagree"
+    )
+    model = AutoModel.from_pretrained(
+        source,
+        trust_remote_code=False,
+        local_files_only=True,
+        weights_only=True,
+        dtype=torch.float32,
+    ).eval()
+    reference = []
+    with torch.inference_mode():
+        for x in ids:
+            mask = torch.ones(1, len(x), dtype=torch.long)
+            out = model(input_ids=torch.tensor([x]), attention_mask=mask)
+            cls = out.last_hidden_state[0, 0]  # CLS pooling (1_Pooling/config.json)
+            reference.append(torch.nn.functional.normalize(cls, dim=0).tolist())
+    with running(tmp_path) as embedder:
+        shipped = [floats(embedder.vector(x)) for x in ids]
+
+    def cosine(a: Iterable[float], b: Iterable[float]) -> float:
+        x, y = list(a), list(b)
+        dot = math.fsum(i * j for i, j in zip(x, y, strict=True))
+        return dot / math.sqrt(math.fsum(i * i for i in x) * math.fsum(j * j for j in y))
+
+    cosines = [cosine(r, s) for r, s in zip(reference, shipped, strict=True)]
+    print(
+        f"\nreference cosines: lowest {min(cosines):.6f}, by text {[f'{c:.5f}' for c in cosines]}"
+    )
+    low = [(i, len(ids[i]), round(c, 6)) for i, c in enumerate(cosines) if c < 0.999]
+    assert not low, f"text, tokens and cosine under 0.999 against the source model: {low}"
+
+    passages = texts["passages"]
+    wrong = []
+    for q in range(passages, len(ids)):
+        tops = []
+        for vectors in (shipped, reference):
+            scores = sorted(
+                ((cosine(vectors[q], vectors[p]), p) for p in range(passages)), reverse=True
             )
-    assert not lines, (
-        "T8: llama-server's tokenizer (from the GGUF) splits some texts differently from "
-        "bge-small's own tokenizer, so sending a string would embed different tokens than "
-        "sending token IDs. Clarity sends token IDs, which the other tests check; this "
-        f"failure means the server's tokenization can't stand in for them.\n{report(lines)}"
-    )
-
-
-def test_t8_token_ids_and_the_string_give_the_same_vector(tmp_path, ids):
-    with running(tmp_path) as server:
-        from_ids = each_alone(server, ids)
-        server_ids = [tokenize(server, text) for text in TEXTS]
-        from_text = [embed(server, [text]) for text in TEXTS]
-    same = [i for i in range(len(TEXTS)) if server_ids[i] == ids[i]]
-    assert same, "T8: llama-server tokenized no text like the source tokenizer: see the test above."
-    lines = []
-    for i in same:
-        vector, prompt_tokens = from_text[i][0][0], from_text[i][1]
-        if prompt_tokens != len(ids[i]):
-            lines.append(f"text {i}: {len(ids[i])} token IDs, {prompt_tokens} tokens counted")
-        if vector != from_ids[i]:
-            lines.append(f"text {i} ({len(ids[i])} tokens): {difference(from_ids[i], vector)}")
-    assert not lines, (
-        "T8: for texts the server tokenizes exactly like the source tokenizer, sending the "
-        "string and sending its token IDs gave different results; they should be the same "
-        f"computation. {report(lines)}"
-    )
+            tops.append(scores)
+        if tops[0][0][1] != tops[1][0][1]:
+            tie = any(s[0][0] - s[1][0] < 1e-3 for s in tops)
+            line = f"query {q}: top passage {tops[0][0][1]} shipped, {tops[1][0][1]} reference"
+            if tie:
+                print(f"\n{line} (a near-tie, within 1e-3)")
+            else:
+                wrong.append(line)
+    assert not wrong, f"a query's top passage differs from the source model's: {wrong}"
