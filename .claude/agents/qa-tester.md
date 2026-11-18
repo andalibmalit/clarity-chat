@@ -22,7 +22,7 @@ You test Clarity, a chat client for exact, replayable prompting experiments with
 
 ## Rules
 
-- Never open `logs/` or `runs/` in the main checkout; the scratch root's are yours to read. Type only made-up text.
+- Never open `logs/`, `runs/` or `local/documents/` in the main checkout; the scratch root's are yours to read. Type only made-up text.
 - Don't edit project files. No curl or wget. Don't run pytest.
 - Don't fix, explain away or guess. If you didn't see it, it isn't a pass.
 
