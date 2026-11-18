@@ -29,6 +29,7 @@ from clarity_chat.documents import (
     Attached,
     Document,
     DocumentRefused,
+    Embedder,
     Fit,
     Room,
     SearchRefused,
@@ -456,6 +457,7 @@ class Session:
         logs_dir: Path | None = None,
         tokenizer_loader: Callable[[str, str], Tokenizer] = Tokenizer.from_hub,
         on_server: Callable[[dict[str, Any] | None], None] | None = None,
+        embedder: Embedder | None = None,
     ) -> None:
         """`on_server` hears each llama-server's port, PID and key when it starts, and None
         when it stops (the instance lock keeps them, to clean up after a crash)."""
@@ -483,6 +485,7 @@ class Session:
         self.template: dict[str, Any] | None = None
         self.weights: Path | None = None  # what the current model was started from
         self._tokenizers: dict[tuple[str, str], Tokenizer] = {}
+        self._embedder = embedder
 
     # --- setup ----------------------------------------------------------------------------
 
@@ -524,6 +527,13 @@ class Session:
             self.backend.close()
             self.backend = backend
         return backend
+
+    def embedder(self) -> Embedder:
+        if self._embedder is None:
+            self._embedder = Embedder(
+                self.root, self.server_config, self.logs_dir, self.load_tokenizer
+            )
+        return self._embedder
 
     def load_tokenizer(self, repo: str, revision: str) -> Tokenizer:
         if (repo, revision) not in self._tokenizers:

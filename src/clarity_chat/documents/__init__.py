@@ -3,6 +3,7 @@
 The rest of Clarity imports from this package only, never a submodule (v0.3.1 decision 21).
 """
 
+from clarity_chat.documents.embedder import Embedder, EmbedderFailed, TooLong
 from clarity_chat.documents.insert import (
     FRAMING,
     SENTENCES,
@@ -73,6 +74,9 @@ from clarity_chat.documents.search import load as load_document
 from clarity_chat.documents.search import search as search_documents
 
 __all__ = [
+    "Embedder",
+    "EmbedderFailed",
+    "TooLong",
     "NOTHING_SENT",
     "COMMON_WORDS",
     "CONSIDERED",
