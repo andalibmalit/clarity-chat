@@ -1,0 +1,361 @@
+"""v0.4.1 A1: the embedder, bge-m3 on a second llama-server, with llama-server faked.
+
+Decisions 3 to 6 and 9 of notes/plans/v0.3.3.md: the flag table is a constant, never
+server.toml's or a profile's; the start is checked (one slot, n_ctx 8,192, the weights on the
+GPU); each vector is checked; a failure stops the embedder and the next need starts it
+again. The real server's behaviour behind each fake reply is gated live in
+tests/test_embed.py (`-m embed`): one input per request (T2), the token count (T2's
+prompt_tokens check), and a zero vector on a failed lookup (its norm check). Made-up text.
+"""
+
+from __future__ import annotations
+
+import base64
+import dataclasses
+import hashlib
+import json
+import math
+import struct
+from pathlib import Path
+from typing import Any
+
+import httpx
+import pytest
+
+from clarity_chat.backends import llama_cpp
+from clarity_chat.documents import Embedder, EmbedderFailed, TooLong
+from clarity_chat.documents import embedder as embedder_module
+from clarity_chat.profiles import ConfigError, load_server_config
+from clarity_chat.render import Tokenizer
+from tests.conftest import fake_fetch
+from tests.fake_llama import BUFFER_LINES, DEVICE_LINES, Running
+
+BGE_M3 = """
+[bge-m3]
+route = "convert"
+repo = "BAAI/bge-m3"
+revision = "5617a9f61b028005a4858fdac845db406aefb181"
+weights = "pytorch_model.bin"
+tokenizer_repo = "BAAI/bge-m3"
+tokenizer_revision = "5617a9f61b028005a4858fdac845db406aefb181"
+"""
+# The table in the plan's decision 4, written out here rather than read from the module.
+TABLE: dict[str, Any] = {
+    "embedding": True,
+    "pooling": "cls",
+    "embd-normalize": 2,
+    "parallel": 1,
+    "no-kv-unified": True,
+    "ctx-size": 8192,
+    "batch-size": 8192,
+    "ubatch-size": 8192,
+    "n-gpu-layers": "all",
+    "flash-attn": "on",
+    "cache-type-k": "f16",
+    "cache-type-v": "f16",
+    "cache-ram": 0,
+    "cache-reuse": 0,
+    "ctx-checkpoints": 0,
+    "no-cache-idle-slots": True,
+    "no-context-shift": True,
+    "fit": "off",
+    "threads": 4,
+    "threads-batch": 4,
+    "log-verbosity": 4,
+    "no-jinja": True,
+    "chat-template": "chatml",
+}
+CPU_BUFFERS = "load_tensors:   CPU_Mapped model buffer size =   1100.00 MiB\n"
+
+
+def vector_bytes(values: list[float]) -> bytes:
+    return struct.pack(f"<{len(values)}f", *values)
+
+
+UNIT = vector_bytes([1.0] + [0.0] * 1023)
+
+
+class WordIds:
+    """A made-up tokenizer: <s> (0), one ID per word, </s> (2), as XLM-R's adds them."""
+
+    @staticmethod
+    def encode(text: str, add_special_tokens: bool) -> list[int]:
+        assert add_special_tokens, "bge-m3's inputs carry <s> and </s>"
+        return [0, *(5 for _ in text.split()), 2]
+
+
+Words = Tokenizer(tok=WordIds(), source={"path": "made-up"}, config={})
+
+
+class Fake:
+    """What the fake server did, and what it sends next."""
+
+    def __init__(self) -> None:
+        self.argv: list[list[str]] = []
+        self.procs: list[Running] = []
+        self.requests: list[dict[str, Any]] = []
+        self.startup = DEVICE_LINES + BUFFER_LINES
+        self.props: dict[str, Any] = {"total_slots": 1}
+        self.n_ctx: int | None = None  # None: the size the server was started with
+        self.reply: dict[str, Any] | None = None  # None: a good vector for the input
+
+
+@pytest.fixture
+def fake(monkeypatch) -> Fake:
+    seen = Fake()
+
+    def launch(self, argv, env):
+        seen.argv.append(argv)
+        self.output = [seen.startup]
+        self.proc = Running()
+        seen.procs.append(self.proc)
+        return None
+
+    def props(self):
+        n_ctx = seen.n_ctx or self.config.ctx_size
+        return {
+            "model_path": str(self.gguf),
+            "default_generation_settings": {"n_ctx": n_ctx},
+            "build_info": "b1-" + self.config.llama_cpp_commit[:7],
+            **seen.props,
+        }
+
+    def post(url, headers, json, **kwargs):  # noqa: A002 (httpx's own name)
+        seen.requests.append({"url": url, "headers": headers, "json": json})
+        if seen.procs[-1].poll() is not None:
+            raise httpx.ConnectError("[Errno 61] Connection refused")
+        sent = sum(len(x) for x in json["input"])
+        body = seen.reply or {
+            "data": [{"index": 0, "embedding": base64.b64encode(UNIT).decode()}],
+            "usage": {"prompt_tokens": sent},
+        }
+        return httpx.Response(200, json=body, request=httpx.Request("POST", url))
+
+    pinned = load_server_config(Path(__file__).resolve().parents[1]).llama_cpp_commit
+    monkeypatch.setattr(llama_cpp, "llama_config_files", lambda: [])
+    monkeypatch.setattr(llama_cpp, "git_state", lambda d: {"commit": pinned, "dirty": False})
+    monkeypatch.setattr(llama_cpp, "server_binary", lambda d: Path("llama-server"))
+    monkeypatch.setattr(llama_cpp.LlamaServer, "_launch", launch)
+    monkeypatch.setattr(llama_cpp.LlamaServer, "get_props", props)
+    monkeypatch.setattr(embedder_module.httpx, "post", post)
+    return seen
+
+
+@pytest.fixture
+def m3_root(root) -> Path:
+    """A root whose models.toml has bge-m3, fetched (a made-up GGUF and lock entry)."""
+    with (root / "models.toml").open("a", encoding="utf-8") as f:
+        f.write(BGE_M3)
+    fake_fetch(root, "bge-m3")
+    return root
+
+
+def made(root: Path, flags: dict[str, Any] | None = None) -> Embedder:
+    config = load_server_config(root)
+    config = dataclasses.replace(config, flags={**config.flags, **(flags or {})})
+    return Embedder(root, config, root / "logs", lambda repo, revision: Words)
+
+
+def as_flags(argv: list[str]) -> dict[str, Any]:
+    """argv's flags between --model's value and --host, as a table (a bare flag is True)."""
+    flags, i = {}, argv.index("--model") + 2
+    while argv[i] != "--host":
+        name = argv[i].removeprefix("--")
+        bare = i + 1 == len(argv) or argv[i + 1].startswith("--")
+        flags[name] = True if bare else argv[i + 1]
+        i += 1 if bare else 2
+    return flags
+
+
+# --- the launch --------------------------------------------------------------------------
+
+
+def test_the_flags_are_the_plan_s_table_and_nothing_else(m3_root, fake):
+    assert embedder_module.FLAGS == TABLE
+    # server.toml's own values, and a profile's ctx_size, never reach it (decision 4).
+    made(m3_root, {"ctx-size": 2048, "threads": 8, "ubatch-size": 512}).vector([0, 5, 2])
+    expected = {k: True if v is True else str(v) for k, v in TABLE.items()}
+    assert as_flags(fake.argv[0]) == expected
+    assert fake.argv[0][-7:-3] == ["--host", "127.0.0.1", "--port", fake.argv[0][-3]]
+
+
+def test_bge_m3_not_fetched_is_refused_before_any_process(root, fake):
+    with (root / "models.toml").open("a", encoding="utf-8") as f:
+        f.write(BGE_M3)
+    with pytest.raises(ConfigError, match="'bge-m3' is not fetched"):
+        made(root).vector([0, 5, 2])
+    assert fake.argv == []
+
+
+@pytest.mark.parametrize(
+    "change, reason",
+    [
+        ({"props": {"total_slots": 2}}, "2 slots, not 1"),
+        ({"n_ctx": 4096}, "n_ctx is 4096, expected 8192"),
+        ({"startup": DEVICE_LINES + CPU_BUFFERS}, "put the model on the CPU"),
+    ],
+)
+def test_a_start_that_fails_a_check_is_refused_and_stopped(m3_root, fake, change, reason):
+    for name, value in change.items():
+        setattr(fake, name, value)
+    with pytest.raises(EmbedderFailed, match=reason):
+        made(m3_root).vector([0, 5, 2])
+    assert fake.procs[-1].terminated
+    assert fake.requests == []
+
+
+# --- each vector -----------------------------------------------------------------------
+
+
+def test_one_input_per_request_as_ids_and_the_vector_comes_back(m3_root, fake):
+    embedder = made(m3_root)
+    assert embedder.vector([0, 5, 5, 2]) == UNIT
+    [request] = fake.requests
+    assert request["url"].endswith("/v1/embeddings")
+    assert request["headers"]["Authorization"].startswith("Bearer ")
+    assert request["json"] == {
+        "input": [[0, 5, 5, 2]],
+        "encoding_format": "base64",
+        "embd_normalize": 2,
+    }
+
+
+def body(values: list[float] | bytes, tokens: int = 3, vectors: int = 1) -> dict[str, Any]:
+    raw = values if isinstance(values, bytes) else vector_bytes(values)
+    data = [{"index": i, "embedding": base64.b64encode(raw).decode()} for i in range(vectors)]
+    return {"data": data, "usage": {"prompt_tokens": tokens}}
+
+
+@pytest.mark.parametrize(
+    "reply, reason",
+    [
+        (body([0.0] * 1024), "length 0, not 1"),  # llama-server's answer to a failed lookup
+        (body([math.nan] + [0.0] * 1023), "isn't a finite number"),
+        (body([1.0] + [0.0] * 1022), "1023 values, not 1024"),
+        (body([0.5] + [0.0] * 1023), "length 0.5, not 1"),
+        (body(UNIT, tokens=4), "4 tokens counted, 3 sent"),
+        (body(UNIT, vectors=2), "2 vectors for one input"),
+        ({"error": {"message": "made-up"}}, "'data'"),
+    ],
+)
+def test_a_vector_that_fails_a_check_is_refused_and_the_next_need_starts_again(
+    m3_root, fake, reply, reason
+):
+    embedder = made(m3_root)
+    fake.reply = reply
+    with pytest.raises(EmbedderFailed, match=reason):
+        embedder.vector([0, 5, 2])
+    assert fake.procs[-1].terminated
+    fake.reply = None
+    assert embedder.vector([0, 5, 2]) == UNIT
+    assert len(fake.procs) == 2
+
+
+def test_a_dead_process_fails_that_search_and_the_next_need_starts_it_again(m3_root, fake):
+    embedder = made(m3_root)
+    assert embedder.vector([0, 5, 2]) == UNIT
+    fake.procs[-1].returncode = -9  # killed between two vectors of one search
+    with pytest.raises(EmbedderFailed, match="stopped"):
+        embedder.vector([0, 5, 2])
+    assert embedder.vector([0, 5, 2]) == UNIT
+    assert len(fake.procs) == 2
+
+
+def test_a_text_past_8192_tokens_is_refused_never_cut(m3_root):
+    embedder = made(m3_root)
+    assert len(embedder.ids("word " * 8190)) == 8192  # with <s> and </s>: accepted
+    with pytest.raises(TooLong) as refused:
+        embedder.ids("word " * 8191)
+    assert refused.value.tokens == 8193
+
+
+# --- the setup (decision 9) --------------------------------------------------------------
+
+
+def test_the_engine_holds_the_setup_s_facts_and_their_hash(m3_root, fake):
+    engine = made(m3_root).start()
+    assert list(engine) == [
+        "name",
+        "model",
+        "gguf_sha256",
+        "tokenizer_repo",
+        "tokenizer_revision",
+        "tokenizers",
+        "llama_cpp",
+        "flags",
+        "input_rule",
+        "device",
+        "machine",
+        "setup",
+    ]
+    assert (engine["name"], engine["model"], engine["device"]) == (
+        "llama-server-embedding",
+        "bge-m3",
+        "MTL0",
+    )
+    assert engine["gguf_sha256"] == "0" * 64  # fake_fetch's lock entry
+    assert (engine["flags"], engine["input_rule"]) == (TABLE, 1)
+    assert list(engine["machine"]) == ["os", "build", "chip"]
+    rest = {k: v for k, v in engine.items() if k != "setup"}
+    text = json.dumps(rest, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    assert engine["setup"] == embedder_module.setup_of(rest)
+    assert engine["setup"] == hashlib.sha256(text.encode()).hexdigest()
+    assert embedder_module.setup_of({**rest, "device": "CPU"}) != engine["setup"]
+
+
+# --- the session (decision 3) ------------------------------------------------------------
+
+
+def test_the_session_makes_it_on_first_need_and_stops_it_at_close(m3_root, fake):
+    from clarity_chat.session import Session
+    from tests.fakes import FakeBackend
+
+    session = Session(m3_root, backend=FakeBackend([]), tokenizer_loader=lambda r, v: Words)
+    assert fake.procs == []  # a session alone starts nothing
+    assert session.embedder().vector([0, 5, 2]) == UNIT
+    session.close()
+    assert fake.procs[-1].terminated
+
+
+class Untouchable:
+    """An embedder that fails the test if anything but closing asks it for anything."""
+
+    def close(self) -> None:
+        pass
+
+    def __getattr__(self, name: str) -> Any:
+        raise AssertionError(f"the embedder was used: {name}")
+
+
+@pytest.mark.parametrize("name", ["say", "search"])
+def test_a_words_chat_resume_replay_and_export_never_use_it(
+    fetched_root, chat_tokenizer, tmp_path, name
+):
+    from clarity_chat.commands import Commands
+    from clarity_chat.export import export_log
+    from clarity_chat.logs import read_records
+    from clarity_chat.session import Session
+    from tests.fakes import FakeBackend
+    from tests.test_class import write_chat
+
+    def session(backend: FakeBackend) -> Session:
+        return Session(
+            fetched_root,
+            backend=backend,
+            tokenizer_loader=lambda r, v: chat_tokenizer,
+            embedder=Untouchable(),  # ty: ignore[invalid-argument-type]
+        )
+
+    backend = FakeBackend([f" R{i}." for i in range(20)], tokenizer=chat_tokenizer)
+    chat = session(backend)
+    write_chat(name, Commands(chat), backend, tmp_path)  # "search": /search, then words
+    assert chat.conversation is not None
+    log = chat.conversation.log.path
+    chat.new_conversation("chat")
+    chat.resume(log)
+    export_log(chat, log)
+    chat.close()
+    for call in [r for r in read_records(log) if r["type"] == "call" and r.get("turn_id")]:
+        fresh = session(FakeBackend([call["output_text"]], tokenizer=chat_tokenizer))
+        assert fresh.replay(log, call["call_id"])["identical"]
+        fresh.close()
