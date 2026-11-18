@@ -78,5 +78,64 @@ def test_the_text_direction_controls_are_the_pages():
 
     assert SHOWN_BIDI.items() <= SHOWN_CONTROLS.items()
     assert {chr(i) for i in SHOWN_CONTROLS} - set(map(chr, SHOWN_BIDI)) == {
-        chr(i) for i in [*range(0x20), *range(0x7F, 0xA0)]
+        chr(i) for i in [*range(0x20), *range(0x7F, 0xA0), 0x2028, 0x2029]
     } - {"\n", "\t"}
+
+
+# --- v0.4.1 X1: the streamed reply and /history show them the same way ---------------------
+
+# FakeBackend streams a word at a time, so ESC ends a chunk on its own and "[2J" starts the
+# next: the escape is split across chunks, as a model's reply can split it.
+REPLY = " \x1b [2J cleared, ‮flip and a\u2028line\u2029break."
+RAW = ("\x1b", "‮", "\u2028", "\u2029")
+NOTATIONS = ("⟨U+001B⟩", "⟨U+202E⟩", "⟨U+2028⟩", "⟨U+2029⟩")
+
+
+@pytest.fixture
+def replying(fetched_root, tiny_tokenizer):
+    backend = FakeBackend([REPLY], tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    output: list[str] = []
+    loop = ChatLoop(session, "text", read=lambda default: "", write=output.append)
+    loop.start()
+    loop.handle("/set max_tokens 200")  # the tiny tokenizer spends bytes on each character
+    output.clear()
+    return loop, output, session
+
+
+def test_the_streamed_reply_shows_each_control_character(replying):
+    loop, output, session = replying
+    loop.handle("Hello")
+    assert output[0] == " ⟨U+001B⟩ ", output  # ESC ended its chunk: "[2J" came in the next
+    shown = "".join(output)
+    for raw, notation in zip(RAW, NOTATIONS, strict=True):
+        assert raw not in shown and notation in shown, notation
+    assert session.conversation.last_call["output_text"].startswith(REPLY)  # logged raw
+
+
+def test_history_shows_each_control_character(replying):
+    loop, output, _ = replying
+    loop.handle("Please \x1b[2J clear the screen.")
+    output.clear()
+    loop.handle("/history")
+    shown = "".join(output)
+    assert "Please ⟨U+001B⟩[2J clear" in shown
+    for raw, notation in zip(RAW, NOTATIONS, strict=True):
+        assert raw not in shown and notation in shown, notation
+
+
+def test_prompt_shows_the_line_and_paragraph_separators(replying):
+    loop, output, _ = replying
+    loop.handle("one\u2028two\u2029three")
+    output.clear()
+    loop.handle("/prompt")
+    assert "one⟨U+2028⟩two⟨U+2029⟩three" in "".join(output)
+
+
+def test_the_json_text_events_stay_raw(fetched_root, tiny_tokenizer):
+    backend = FakeBackend([REPLY], tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    events = run(
+        session, [line("profile", "text"), line("set", "max_tokens 200"), line("say", "Hello")]
+    )
+    assert "".join(e["text"] for e in events if e.get("event") == "text") == REPLY
