@@ -253,6 +253,7 @@ class Conversation:
     # changes it ("chat"), logged as `search` records and resumed.
     searching: list[str] = field(default_factory=list)
     searching_origin: str = "profile"
+    search_method: str = "words"
 
     @property
     def settings(self) -> dict[str, Setting]:
@@ -486,6 +487,7 @@ class Session:
         self.weights: Path | None = None  # what the current model was started from
         self._tokenizers: dict[tuple[str, str], Tokenizer] = {}
         self._embedder = embedder
+        self.on_building: Callable[[str, int, int], None] | None = None
 
     # --- setup ----------------------------------------------------------------------------
 

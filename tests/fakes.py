@@ -228,3 +228,66 @@ class FakeBackend:
 
     def _encode(self, text: str) -> list[int]:
         return self.tokenizer.encode(text) if self.tokenizer else list(range(len(text)))
+
+
+class FakeEmbedder:
+    """documents.embedder.Embedder offline (v0.4.1 A3): made-up but deterministic vectors,
+    each word hashed to one of the 1,024 places and the sum normalized, so made-up texts
+    sharing words score higher. What it imitates is gated live in tests/test_embed.py:
+    <s> … </s> around the IDs and the refusal past 8,192 (the boundary and no-truncation
+    tests); one vector per input (T2); a unit vector, checked (T1, and test_embedder's
+    checks). `device` is a setup fact a test can change; `fail_at` makes the nth vector
+    fail as the real one's checks would; `made` counts vectors."""
+
+    def __init__(self, device: str = "MTL0") -> None:
+        self.device = device
+        self.fail_at: int | None = None
+        self.made = 0
+
+    def ids(self, text: str) -> list[int]:
+        import hashlib
+
+        from clarity_chat.documents import TooLong
+
+        words = re.findall(r"\w+", text.lower())
+        ids = [0, *(3 + int(hashlib.sha256(w.encode()).hexdigest()[:6], 16) for w in words), 2]
+        if len(ids) > 8192:
+            raise TooLong(len(ids))
+        return ids
+
+    def start(self) -> dict[str, Any]:
+        from clarity_chat.documents.embedder import FLAGS, setup_of
+
+        facts = {
+            "name": "llama-server-embedding",
+            "model": "bge-m3",
+            "gguf_sha256": "0" * 64,
+            "tokenizer_repo": "BAAI/bge-m3",
+            "tokenizer_revision": "5617a9f61b028005a4858fdac845db406aefb181",
+            "tokenizers": "0.0",
+            "llama_cpp": "0" * 40,
+            "flags": FLAGS,
+            "input_rule": 1,
+            "device": self.device,
+            "machine": {"os": "made up", "build": "0", "chip": "made up"},
+        }
+        return {**facts, "setup": setup_of(facts)}
+
+    def vector(self, ids: list[int]) -> bytes:
+        import math
+        import struct
+
+        from clarity_chat.documents import EmbedderFailed
+
+        self.made += 1
+        if self.made == self.fail_at:
+            raise EmbedderFailed("The embedder sent a vector Clarity can't use: made up.")
+        values = [0.0] * 1024
+        for i in ids[1:-1]:
+            values[i % 1024] += 1.0
+        values[0] += 0.0 if any(values) else 1.0  # no words: still a unit vector
+        norm = math.sqrt(sum(v * v for v in values))
+        return struct.pack("<1024f", *(v / norm for v in values))
+
+    def close(self) -> None:
+        pass
