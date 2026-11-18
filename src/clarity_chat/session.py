@@ -25,6 +25,7 @@ import jinja2
 from clarity_chat import steering
 from clarity_chat.backends import Backend, BackendError, Result
 from clarity_chat.documents import (
+    EMBEDDER_MODEL,
     SENTENCES,
     TURN_FIELDS,
     Attached,
@@ -572,6 +573,8 @@ class Session:
                 f"Profile {profile.name}: model {profile.model!r} isn't in models.toml or "
                 "local/models.toml."
             )
+        if profile.model == EMBEDDER_MODEL:  # its pickle would load unhashed (fix review M1)
+            raise ConfigError("bge-m3 is meaning search's model; a profile can't chat with it.")
         model = self.models[profile.model]
         entry = lock_entry(self.root, model)
         if profile.use_recommended:
@@ -1065,6 +1068,11 @@ class Session:
         profile, model, _ = self.profile_for(profile_name)
         if profile.mode != "chat":  # N71, as /search says it
             raise ConfigError(SENTENCES["text_mode_search"].format(profile=profile.name))
+        method = profile.search_method or SEARCH_METHOD
+        if where == "try" and method == "meaning":  # decision 17: no embedder, no lock
+            raise ConfigError(
+                "clarity document try searches by words only; /try in a chat searches by meaning."
+            )
         self._profile_documents(profile, where)
         tokenizer, template = self.tokenizers_for(profile, model)
         new = NewChat(profile, tokenizer, template, self.ctx_size_for(profile).value, "")
@@ -1077,7 +1085,7 @@ class Session:
             profile,
             {**fields, "placement": profile.placement},
             where=where,
-            method=profile.search_method or SEARCH_METHOD,  # B2: `document try` refuses meaning
+            method=method,  # a run's pre-check searches as its messages will
         )
         return found, self._control_token_problem(found, tokenizer)
 

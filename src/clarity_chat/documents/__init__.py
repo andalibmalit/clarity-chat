@@ -3,6 +3,7 @@
 The rest of Clarity imports from this package only, never a submodule (v0.3.1 decision 21).
 """
 
+from clarity_chat.documents.embedder import MODEL as EMBEDDER_MODEL
 from clarity_chat.documents.embedder import Embedder, EmbedderFailed, TooLong
 from clarity_chat.documents.insert import (
     FRAMING,
@@ -81,6 +82,7 @@ from clarity_chat.documents.search import search as search_documents
 from clarity_chat.documents.vectors import PartTooLong, vectors_for
 
 __all__ = [
+    "EMBEDDER_MODEL",
     "Embedder",
     "EmbedderFailed",
     "TooLong",
