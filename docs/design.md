@@ -83,7 +83,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 
 ## Models and files
 
-**Models are pinned and converted locally.** `models.toml` names a repo and a full commit hash. `fetch` converts with the llama.cpp checkout's own converter, in its own environment (llama.cpp's pinned requirements on a fresh base, with nothing from Clarity's environment or folder), and records everything it resolved in `models.lock`.
+**Models are pinned and converted locally.** `models.toml` names a repo and a full commit hash. `fetch` converts with the llama.cpp checkout's own converter, in its own environment (llama.cpp's pinned requirements on a fresh base, with nothing from Clarity's environment or folder; Clarity narrows one, sentencepiece, to 0.2.2, since llama.cpp's range admits a version its protobuf can't load), and records everything it resolved in `models.lock`.
 - `models.lock` is committed, so its paths are relative to the repo or written as `~/...`.
 - The full sha256 is computed at fetch. A server start checks only size and modification time, which is fast; `clarity verify` re-hashes on demand.
 - A running server is kept for the next profile only if its file is the same: same path, inode, size and modification time. `fetch` replaces a file by rename, which changes the inode, so a model fetched again while its server runs restarts the server. A file overwritten in place could keep all four and isn't covered.
