@@ -554,3 +554,22 @@ def test_a_meaning_found_field_of_the_wrong_type_is_refused(meaning_session, pat
 
     log = meaning_log(meaning_session)
     refused_by_resume_and_export(meaning_session, log, change)
+
+
+def test_document_try_refuses_a_meaning_profile_and_starts_no_embedder(meaning, chat_tokenizer):
+    """Decision 17 (the fix review's S1): `clarity document try` searches by words only; on a
+    meaning profile it's refused before any embedder starts (one that fails if used)."""
+    from tests.test_embedder import Untouchable
+
+    session, _, _ = meaning
+    fresh = Session(
+        session.root,
+        backend=FakeBackend([]),
+        tokenizer_loader=lambda r, v: chat_tokenizer,
+        embedder=Untouchable(),  # ty: ignore[invalid-argument-type]
+    )
+    refused = raised(lambda: fresh.try_documents(["notes"], "meaning", ASKED))
+    assert isinstance(refused, ConfigError), repr(refused)
+    assert str(refused) == (
+        "clarity document try searches by words only; /try in a chat searches by meaning."
+    )
