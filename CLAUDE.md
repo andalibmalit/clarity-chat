@@ -39,7 +39,7 @@ Clarity writes files only visibly. Shipped files stay read-only; the user's own 
 - If you make a mistake an earlier session also made, propose one line for this file. Check it against the bar this file keeps (true on every task, not learnable from the code), and say whether a hook or deny rule would serve better, or which line it replaces.
 
 ## Python style
-- ruff and ty set the style; match the surrounding code. Let `ruff format` wrap lines; don't shorten a good name to fit one. Keep names that mirror an external API (llama-server's `n_predict`, `tokens_evaluated`), and don't restyle code you aren't otherwise changing.
+- PEP 8 and the Zen of Python are defaults, not hard rules: readability is the goal, so break one when following it would read worse. ruff and ty (configured in `pyproject.toml`) override PEP 8; match the surrounding code. Let `ruff format` wrap lines; don't shorten a good name to fit one. Keep names that mirror an external API (llama-server's `n_predict`, `tokens_evaluated`), and don't restyle code you aren't otherwise changing.
 - Put more care into clear design than into passing the linter. Explain a choice by its actual tradeoff, not by quoting the Zen of Python.
 
 ## Sandbox notes
