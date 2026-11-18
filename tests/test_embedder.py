@@ -230,6 +230,21 @@ def test_a_dirty_llama_cpp_checkout_refuses_the_start(m3_root, fake, monkeypatch
     assert fake.procs[-1].terminated
 
 
+@pytest.mark.parametrize("backend", ["transformers", "llama.cpp"])
+def test_a_profile_can_t_chat_with_the_embedder(m3_root, backend):
+    """The fix review's M1: a chat on bge-m3 would load its pickle on Transformers without the
+    hash check (a third load the security review didn't cover), and chat with an embedding
+    model on llama.cpp. Refused before any weights are read, on either backend."""
+    from clarity_chat.session import Session
+    from tests.conftest import CHAT_PROFILE
+
+    text = CHAT_PROFILE.replace('model = "tiny"', 'model = "bge-m3"')
+    text = text.replace('backend = "llama.cpp"', f'backend = "{backend}"')
+    (m3_root / "profiles" / "on-bge.toml").write_text(text, encoding="utf-8")
+    with pytest.raises(ConfigError, match="bge-m3 is meaning search's model"):
+        Session(m3_root).profile_for("on-bge")
+
+
 # --- each vector -----------------------------------------------------------------------
 
 
