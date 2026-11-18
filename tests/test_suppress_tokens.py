@@ -213,11 +213,9 @@ def started(monkeypatch, root, text):
 
 
 def test_every_server_start_records_the_list(monkeypatch, root):
-    from tests.test_llama_cpp import STARTUP_GPU
-
-    _, _, record = started(monkeypatch, root, STARTUP_GPU + dump(banning(BANNED)))
+    _, _, record = started(monkeypatch, root, startup(banning(BANNED)))
     assert json.loads(record)["model_file"].get("suppress_tokens") == BANNED
-    _, _, record = started(monkeypatch, root, STARTUP_GPU + dump())
+    _, _, record = started(monkeypatch, root, startup())
     assert json.loads(record)["model_file"].get("suppress_tokens") == []
 
 

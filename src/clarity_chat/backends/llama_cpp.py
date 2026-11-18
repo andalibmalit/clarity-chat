@@ -239,6 +239,14 @@ NAMED_RE = re.compile(
     rf"^(?:[\d.]+ \S )?llama_model_loader: - kv +\d+: +{re.escape(SUPPRESS_KEY)}\s", re.MULTILINE
 )
 
+# The dump's announced size, and every key line in any shape: a dump cut short is refused,
+# not read as no ban (v0.4.1 X2). A key's name can add lines; a value can't (llama.cpp
+# writes its newlines as \n), so a file can't make a short dump look whole.
+ANNOUNCED_RE = re.compile(
+    r"^(?:[\d.]+ \S )?llama_model_loader: loaded meta data with (\d+) key-value pairs", re.M
+)
+DUMPED_RE = re.compile(r"^(?:[\d.]+ \S )?llama_model_loader: - kv +\d+:", re.MULTILINE)
+
 
 def suppress_tokens(startup_output: str) -> list[int]:
     """The token IDs the model file bans on every reply (llama-server adds minus infinity to
@@ -250,7 +258,8 @@ def suppress_tokens(startup_output: str) -> list[int]:
     file's banned tokens are recorded")."""
     keys = KEY_LINE_RE.findall(startup_output)
     found = [(kind, value) for name, kind, value in keys if name == SUPPRESS_KEY]
-    if len(NAMED_RE.findall(startup_output)) == len(found):
+    whole = ANNOUNCED_RE.findall(startup_output) == [str(len(DUMPED_RE.findall(startup_output)))]
+    if whole and len(NAMED_RE.findall(startup_output)) == len(found):
         if keys and not found:
             return []
         if len(found) == 1:
