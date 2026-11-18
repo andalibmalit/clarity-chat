@@ -1,6 +1,101 @@
 {
   "schema_version": 1,
   "models": {
+    "bge-m3": {
+      "name": "bge-m3",
+      "route": "convert",
+      "repo": "BAAI/bge-m3",
+      "revision": "5617a9f61b028005a4858fdac845db406aefb181",
+      "tokenizer_repo": "BAAI/bge-m3",
+      "tokenizer_revision": "5617a9f61b028005a4858fdac845db406aefb181",
+      "weights_sha256": "b5e0ce3470abf5ef3831aa1bd5553b486803e83251590ab7ff35a117cf6aad38",
+      "source_dir": "~/.cache/huggingface/hub/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181",
+      "tokenizer_dir": "~/.cache/huggingface/hub/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181",
+      "gguf": {
+        "path": "models/bge-m3/bge-m3-bf16.gguf",
+        "size": 1157671136,
+        "mtime_ns": 1795029415600368602,
+        "sha256": "83445739016d1a76671c81154f48f4e14e97688aff10eb9068dcbe34f7146912",
+        "outtype": "bf16"
+      },
+      "recommended": {
+        "source": {
+          "file": "generation_config.json",
+          "repo": "BAAI/bge-m3",
+          "revision": "5617a9f61b028005a4858fdac845db406aefb181"
+        },
+        "values": {},
+        "not_applied": {},
+        "notes": [
+          "no such file"
+        ]
+      },
+      "llama_cpp": {
+        "commit": "b1b770d90d94cad9e9ea5b993bdbc383a522fb28",
+        "dirty": false
+      },
+      "converter": {
+        "command": [
+          "uv",
+          "run",
+          "--no-project",
+          "--isolated",
+          "--index-strategy",
+          "first-index",
+          "--python",
+          "3.13",
+          "--with-requirements",
+          "vendor/llama.cpp/requirements/requirements-convert_hf_to_gguf.txt",
+          "--with",
+          "sentencepiece==0.2.2",
+          "python",
+          "-I",
+          "src/clarity_chat/convert_shim.py",
+          "models/bge-m3/converter-versions.json",
+          "vendor/llama.cpp/convert_hf_to_gguf.py",
+          "~/.cache/huggingface/hub/models--BAAI--bge-m3/snapshots/5617a9f61b028005a4858fdac845db406aefb181",
+          "--outtype",
+          "bf16",
+          "--outfile",
+          "models/bge-m3/bge-m3-bf16.gguf.partial"
+        ],
+        "python": "3.13.12",
+        "torch": "2.11.0",
+        "transformers": "4.57.6",
+        "gguf": "gguf-py at llama.cpp b1b770d90d94",
+        "packages": {
+          "Jinja2": "3.1.6",
+          "MarkupSafe": "3.0.4",
+          "PyYAML": "6.0.3",
+          "certifi": "2026.10.23",
+          "charset-normalizer": "3.5.2",
+          "filelock": "4.2.12",
+          "fsspec": "2026.9.0",
+          "gguf": "0.19.0",
+          "hf-xet": "1.8.0",
+          "huggingface_hub": "0.36.2",
+          "idna": "3.20",
+          "mpmath": "1.3.0",
+          "networkx": "3.7",
+          "numpy": "2.2.6",
+          "packaging": "26.3",
+          "protobuf": "4.25.9",
+          "regex": "2026.11.19",
+          "requests": "2.34.2",
+          "safetensors": "0.8.0",
+          "sentencepiece": "0.2.2",
+          "setuptools": "81.0.0",
+          "sympy": "1.14.0",
+          "tokenizers": "0.22.2",
+          "torch": "2.11.0",
+          "tqdm": "4.70.1",
+          "transformers": "4.57.6",
+          "typing_extensions": "4.16.0",
+          "urllib3": "2.8.0"
+        }
+      },
+      "fetched_at": "2026-11-18T19:16:56.457+00:00"
+    },
     "llama-3.1-8b-base": {
       "name": "llama-3.1-8b-base",
       "route": "convert",
