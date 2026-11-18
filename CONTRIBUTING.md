@@ -15,7 +15,7 @@ Follow [Getting started](docs/getting-started.md) to install Clarity and build l
 | `uv run pytest -m hf` | the `hf` extra and the fetched SmolLM2 (one test also uses OLMo 3 Instruct, if fetched) | the Transformers backend on MPS and CPU, and that both backends get the same prompt token IDs |
 | `uv run pytest -m measure -v -s` | the built llama-server and OLMo 3 Instruct fetched | prints timings and memory figures that design choices rest on (cancel, the memory check); asserts almost nothing |
 | `uv run pytest -m browser` | `uv sync --group browser`, and Chrome on the Mac (CI uses Playwright's Chromium, and runs the tier again in WebKit on macOS and Firefox on Linux, allowed to fail, with the counts in the job summary; locally, add `--browser webkit` or `--browser firefox` after `uv run playwright install webkit firefox`) | the web interface in a real browser: its secret, a page on another port, the live tab, a reply joined after a reload |
-| `uv run pytest -m embed -v -s` | the built llama-server and bge-m3 fetched (`uv run clarity fetch bge-m3`: a 2.27 GB download, about 1.1 GB kept) | whether llama-server's embeddings come back bit-identical, which decides whether documents and meaning search (v0.3.3) go ahead |
+| `uv run pytest -m embed -v -s` | the built llama-server and bge-m3 fetched (`uv run clarity fetch bge-m3`: a 2.27 GB download, about 1.1 GB kept) | that bge-m3's vectors come back bit-identical on Metal and the CPU, and match the source model's |
 
 Offline tests run on a fake backend (`tests/fakes.py`). To keep it honest, `-m live` and `-m hf` each record the shape of the call records their backend writes for every way a reply ends, in `tests/fixtures/backend_shapes.json`. If a shape changes, the live test rewrites the file and fails. Read the diff and commit it. Offline, `tests/test_contract.py` holds the fake to llama.cpp's shapes, and allows only the differences written down in `tests/contract.py`.
 
@@ -29,7 +29,7 @@ Tests use made-up text. Never put anything from `logs/` or `runs/` in a test or 
 
 ## Keep the docs current
 
-Update the docs in the same commit as the change. Choices, tradeoffs and scope go in [`docs/design.md`](docs/design.md); keys, commands and record fields in [`docs/reference.md`](docs/reference.md). `tests/test_docs.py` fails if a profile key, setting, CLI command or chat command is missing from the reference, or a relative link is broken.
+Update the docs in the same commit as the change. Choices, tradeoffs and scope go in [`docs/design.md`](docs/design.md); keys, commands and record fields in [`docs/reference.md`](docs/reference.md); usage in [`docs/guides.md`](docs/guides.md), [`docs/getting-started.md`](docs/getting-started.md) and the README. `tests/test_docs.py` fails if a profile key, setting, CLI command or chat command is missing from the reference, or a relative link is broken.
 
 ## Add a backend
 
@@ -58,6 +58,14 @@ Every merged contribution of any kind counts: code, docs, design, testing, resea
 - **Authors in [`CITATION.cff`](CITATION.cff)**, and so in the citation and the Zenodo record, are people who made a substantial contribution: a feature, a meaningful part of a release, or sustained work. The bar is generous. You can ask to be added, decline, or add your ORCID.
 - **Order:** the maintainer first, then others in the order of their first substantial contribution.
 - **AI tools** are disclosed in commit trailers (`Co-Authored-By`), not credited as authors, because a tool can't take an author's responsibility for the work. Clarity is built with AI assistance. The maintainer sets the plans' direction and reads the review findings; from v0.2.3 to 0.8.0, in one sprint, the plans are approved under the maintainer's delegation and the maintainer uses the whole after 0.8.0, through extended use, rather than each release.
+
+## Reviews
+
+A release is a closed list the maintainer can judge in one sitting. Its plan names the review points: after each group that later items build on, after any item that changes record fields, resume or old-log behaviour, and a whole-branch review before the release is used. An extra review is due when the diff since the last one passes about 400 source lines (review fixes don't count: the fix review reads them).
+
+Each plan sets an estimate and a cut order. When an item lands over 1.5 times its estimate and at least 100 lines over, or the running total passes the estimate, the next entry in the cut order is cut before the next item starts. A review doesn't replace the cut.
+
+Reviews check the diff against the plan and look for bloat: code no item asked for, abstractions with one user, unrequested options, tests for cases that can't happen. They skip style and prefer findings that delete code. A finding that isn't a must (a wrong prompt or output, lost data, a broken replay promise, a security hole) may delete or fix, but never adds a command, state, record field, control or sentence; those go to the maintainer with their price.
 
 ## Release checklist
 
