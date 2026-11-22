@@ -237,18 +237,22 @@ class FakeEmbedder:
     <s> … </s> around the IDs and the refusal past 8,192 (the boundary and no-truncation
     tests); one vector per input (T2); a unit vector, checked (T1, and test_embedder's
     checks). `device` is a setup fact a test can change; `fail_at` makes the nth vector
-    fail as the real one's checks would; `made` counts vectors."""
+    fail as the real one's checks would; `made` counts vectors; `texts` lists each text
+    `ids()` was given, in order (its word split can't see whitespace, so a test of the input
+    rule reads these)."""
 
     def __init__(self, device: str = "MTL0") -> None:
         self.device = device
         self.fail_at: int | None = None
         self.made = 0
+        self.texts: list[str] = []
 
     def ids(self, text: str) -> list[int]:
         import hashlib
 
         from clarity_chat.documents import TooLong
 
+        self.texts.append(text)
         words = re.findall(r"\w+", text.lower())
         ids = [0, *(3 + int(hashlib.sha256(w.encode()).hexdigest()[:6], 16) for w in words), 2]
         if len(ids) > 8192:

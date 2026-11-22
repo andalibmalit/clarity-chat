@@ -204,6 +204,10 @@ def test_the_vectors_file_holds_each_part_s_vector_in_order(meaning):
     name, data = expected_file(session, fake)
     assert vector_files(session) == [name]
     assert (notes_folder(session) / name).read_bytes() == data
+    # Each part's input exactly as decision 7 says, after the message (the fix review's S2):
+    # the fake's vectors can't tell one newline from a blank line.
+    parts = [json.loads(line) for line in (notes_folder(session) / "parts.jsonl").open("rb")]
+    assert fake.texts == [ASKED, *(rule_1(p["title"], p["text"]) for p in parts)]
 
 
 def test_a_second_search_reads_the_file_without_building(meaning):
