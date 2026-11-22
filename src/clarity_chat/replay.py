@@ -94,16 +94,11 @@ def not_recorded(logged: dict[str, Any], now: dict[str, Any]) -> list[str]:
     compared, and machine values known on one side only (`machine.macos.chip`: a sandbox
     hides the chip's name; a newer Clarity records a new key). Listed in the replay record,
     so the gap is visible."""
-    # "build" is read from the start's output, which every log holds; a fake server's has
-    # no such lines, so it's compared as build_info alone, not listed (v0.4.2 A1).
-    names = [
-        name
-        for name in now
-        if logged.get(name) is None and now[name] is not None and name != "build"
-    ]
-    if logged.get("machine") is not None and now.get("machine") is not None:
-        found = deep_diff(logged["machine"], now["machine"])
-        names += [f"machine.{d['path']}" for d in found if one_sided(d)]
+    names = [name for name in now if logged.get(name) is None and now[name] is not None]
+    for fact in ("machine", "build"):  # a value known on one side only (S2 for build)
+        if logged.get(fact) is not None and now.get(fact) is not None:
+            found = deep_diff(logged[fact], now[fact])
+            names += [f"{fact}.{d['path']}" for d in found if one_sided(d)]
     return sorted(names)
 
 
@@ -118,11 +113,9 @@ def environment_diff(logged: dict[str, Any], now: dict[str, Any]) -> dict[str, l
     Facts the log didn't record are left out (see not_recorded)."""
     diffs = {}
     skipped = set(not_recorded(logged, now))
-    if "build" not in logged:  # an output without the lines: build_info alone, as before
-        skipped.add("build")
     for name in sorted((set(logged) | set(now)) - skipped):
         found = deep_diff(logged.get(name), now.get(name))
-        if name == "machine":  # values known on one side only are not recorded, above
+        if name in ("machine", "build"):  # values known on one side only: not recorded
             found = [d for d in found if not one_sided(d)]
         if found:
             diffs[name] = found[:MAX_DIFFS] + (
@@ -138,22 +131,25 @@ def environment_diff(logged: dict[str, Any], now: dict[str, Any]) -> dict[str, l
 # system_info's backends and CPU features. Not compared: each line's leading time, and
 # system_info's thread counts (n_threads, n_threads_batch, the CPU count), which describe
 # the start, not the build; the flags fact holds the threads asked for.
-BUILD_LINE = re.compile(r"common_params_print_info: (build \d+ \(\S+\) with .+ for .+)$", re.M)
+# The build number N isn't kept: a shallow clone (setup's) counts 1 where a full one counts
+# 162 for the same commit (Checkpoint 1's S3). An older system_info has no n_threads_batch.
+BUILD_LINE = re.compile(r"common_params_print_info: build \d+ \((\S+)\) with (.+) for (.+)$", re.M)
 FEATURES = re.compile(
-    r"system_info: n_threads = \d+ \(n_threads_batch = \d+\) / \d+ \| (.*)$", re.M
+    r"system_info: n_threads = \d+(?: \(n_threads_batch = \d+\))? / \d+ \| (.*)$", re.M
 )
 
 
 def build_of(startup_output: Any) -> dict[str, str | None] | None:
-    """The build line and the CPU features from a start's output, or None when it holds
-    neither (a fake server's, say): then build_info is compared alone, as before v0.4.2."""
+    """The build line (commit, compiler and target) and the CPU features from a start's
+    output, or None when it holds neither (a fake server's, say). Either half the patterns
+    can't read (an older form) is None, and not_recorded lists it (S2)."""
     if not isinstance(startup_output, str):
         return None
     line, features = BUILD_LINE.search(startup_output), FEATURES.search(startup_output)
     if line is None and features is None:
         return None
     return {
-        "line": line[1].rstrip() if line else None,
+        "line": f"{line[1]} with {line[2]} for {line[3].rstrip()}" if line else None,
         "features": features[1].rstrip() if features else None,
     }
 

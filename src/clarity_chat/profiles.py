@@ -10,6 +10,7 @@ import math
 import re
 import shlex
 import string
+import sys
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,7 +51,7 @@ def run_hint(command: str) -> str:
     """How to run a `clarity` command as written, for someone whose terminal is busy
     running Clarity (the web interface): a new window, `uv run`, and what to do after;
     with the folder, when the run knows it."""
-    if HINT_FOLDER is None:
+    if HINT_FOLDER is None or sys.platform == "win32":  # "cd … && …" is a POSIX shell's (S12)
         return (
             f"In a new terminal window, in Clarity's folder, run: uv run clarity {command}. "
             "Then try again."
