@@ -663,3 +663,18 @@ def test_a_blind_run_of_two_block_positions_finds_the_same_parts_for_every_seed(
     finally:
         replayer.close()
     assert replayed["identical"], replayed
+
+
+# --- v0.4.2 A1, first step: what a start's output says about the build (decision 7)
+
+
+def test_a_start_s_output_holds_the_build_line_and_system_info(session):
+    """llama-server logs "build N (commit) with COMPILER for TARGET" and a system_info line
+    (common_params_print_info, common.cpp:418-439) at log-verbosity 4. Replay can compare
+    them only if Clarity's startup_output holds both. Prints them for the status file."""
+    output = session.backend.server_record["startup_output"]
+    build = [line for line in output.splitlines() if "common_params_print_info: build " in line]
+    info = [line for line in output.splitlines() if "system_info: " in line]
+    print("\n" + "\n".join(build + info))
+    assert build, "no build line in startup_output"
+    assert info, "no system_info line in startup_output"
