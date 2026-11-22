@@ -139,13 +139,17 @@ SENTENCES = {
     "searches_next": "This chat searches {name} from your next message.",
     "replaced": "Clarity replaced {name} in your documents with this file.",
     # "Search it" on the attach sheet and the Searching chooser (v0.3.2 C2; N2-N27, N60)
-    "search_it": "For each message you send, Clarity adds the parts of this document that share "
-    'a word with your message, best match first; common words such as "the" don\'t count. A '
+    "search_it": "For each message you send, Clarity adds the parts of this document {how}. A "
     "message gets at most {considered} parts and {budget} tokens ({origin}), shared by every "
     "document this chat searches. Added parts stay in the chat with that message.",
+    # search_it's slot, how parts are chosen (v0.4.1 C1, the states table's 13)
+    "search_it_words": "that share a word with your message, best match first; common words such "
+    'as "the" don\'t count',
+    "search_it_meaning": "that are closest in meaning to your message, best match first",
     "searching_some": "Searching: {documents}",
     "searching_none": "Searching: no documents",
     "searching_head": "Searched for each message you send",
+    "searching_head_meaning": "Searched by meaning for each message you send",  # state 14
     "searching_applies": "A change applies from your next message. Regenerate keeps the parts a "
     "message already has.",  # the walkthrough's M2, T1
     "searching_profile": "From this chat's profile, {profile}. A change here applies to this "
@@ -172,6 +176,7 @@ SENTENCES = {
     "SQLite {sqlite})",
     "details_considered": "{parts} matched; Clarity considers the best {considered} at most.",
     "details_budget": "the budget ({budget}, {origin})",
+    "details_search_meaning": "meaning, by {model} (minimum similarity {minimum}, {origin})",
     "details_caption": "Rank 1 is the best match; a word in a title counts more than one in the "
     "text. Searched: "
     "{builds} (each document’s build). Each part’s text and score are in this message’s log "
@@ -186,6 +191,9 @@ SENTENCES = {
     "found_nothing_added": "nothing added",  # Details' header (N61)
     "found_in_title": "in its title: {words}",
     "found_in_text": "in its text: {words}",
+    "found_similar": "similar in meaning: {score}",  # v0.4.1 C1, the states table's 2
+    "found_below_minimum": "No part of {documents} reached the minimum similarity of {minimum}, "
+    "so nothing was added.",  # state 3
     "found_left_budget": "{n} more matched but were left out: Clarity adds parts in order and "
     "stops at the first that doesn't fit the budget of {budget} tokens.",
     "found_left_budget_none": "{n} matched but were left out: Clarity adds parts in order and "

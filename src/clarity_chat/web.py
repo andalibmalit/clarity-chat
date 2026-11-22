@@ -1011,7 +1011,8 @@ def searching_chooser(state: dict[str, Any], docs: list[dict[str, Any]] | None) 
         return chooser
     unread, docs = docs is None, docs or []  # unread: /documents waits behind a reply
     library = {d["name"]: d for d in docs}
-    chooser.update(head=SENTENCES["searching_head"], applies=SENTENCES["searching_applies"],
+    head = "searching_head_meaning" if state["search_method"] == "meaning" else "searching_head"
+    chooser.update(head=SENTENCES[head], applies=SENTENCES["searching_applies"],
                    others=SENTENCES["searching_others"],
                    empty=None if docs or searching or unread
                    else SENTENCES["searching_empty"])  # fmt: skip
@@ -1792,11 +1793,18 @@ def search_choice(filename: str, state: dict[str, Any]) -> dict[str, Any]:
     2), and the name box (N9). A control token is said when a message finds its part."""
     budget = state["budget"]
     origin = SENTENCES["budget_profile" if budget["origin"] == "profile" else "budget_default"]
-    note = SENTENCES["search_it"].format(considered=CONSIDERED, budget=f"{budget['tokens']:,}",
-                                         origin=origin)  # fmt: skip
+    how = SENTENCES[
+        "search_it_meaning" if state["search_method"] == "meaning" else "search_it_words"
+    ]
+    note = SENTENCES["search_it"].format(how=how, considered=CONSIDERED,
+                                         budget=f"{budget['tokens']:,}", origin=origin)  # fmt: skip
     name, why = document_name(filename, None)
+    # O1's warning (state 5), said once Search it's /search answers with it.
+    no_embedder = problem_words({"state": "no_embedder"}, terminal=False, where="chat",
+                                at_send=False)  # fmt: skip
     return {"note": note, "ok": True, "name": name, "lines": [SENTENCES["keeps_copy"]],
-            "why": why, "rule": NAME_RULE if why is not None and not name else None}  # fmt: skip
+            "why": why, "rule": NAME_RULE if why is not None and not name else None,
+            "no_embedder": no_embedder}  # fmt: skip
 
 
 KINDS = {"text": "Text", "html": "HTML", "pdf": "PDF"}
@@ -2064,14 +2072,16 @@ def found_view(found: dict[str, Any]) -> dict[str, Any]:
     """What a search found, from /history's summary of it (session.found_summary), as "From
     documents" (C3) shows it: the count, each part with its rank and why (its tokens are in
     Details: cut 4), the notes on what was left out, the words."""
-    counts = found.get("left_out", {})  # stub (v0.4.1 C1): a meaning found draws, unworded
+    if found.get("method") == "meaning":
+        return meaning_view(found)
+    counts = found["left_out"]
     already, budget = counts.get("already in the chat", 0), counts.get("budget", 0)
-    words = SENTENCES["found_words"].format(words=", ".join(found.get("words", [])))
-    if found.get("ignored"):
+    words = SENTENCES["found_words"].format(words=", ".join(found["words"]))
+    if found["ignored"]:
         words += " " + SENTENCES["found_ignored"].format(words=", ".join(found["ignored"]))
     view: dict[str, Any] = {"rows": [], "notes": [], "words": words, "empty": None}
-    if not found.get("words"):
-        key = "found_all_common" if found.get("ignored") else "found_no_words"
+    if not found["words"]:
+        key = "found_all_common" if found["ignored"] else "found_no_words"
         return {**view, "summary": SENTENCES["found_nothing_words"], "empty": SENTENCES[key],
                 "words": None}  # fmt: skip
     if not found["matched"]:
@@ -2099,6 +2109,43 @@ def found_view(found: dict[str, Any]) -> dict[str, Any]:
     return {**view, "summary": summary}
 
 
+def meaning_view(found: dict[str, Any]) -> dict[str, Any]:
+    """A meaning search's "From documents" (v0.4.1 C1): each part with its similarity; when
+    none reached the minimum, what the minimum did. /history's summary of it has no left-out
+    counts (the plan's shape), so Details says why parts were left out."""
+    view: dict[str, Any] = {"rows": [], "notes": [], "words": None, "empty": None}
+    if not found["matched"]:
+        return {
+            **view,
+            "summary": SENTENCES["found_nothing_matched"],
+            "empty": below_minimum(found),
+        }
+    view["rows"] = [
+        {"rank": p["rank"], "label": part_label(p), "why": similar(p)} for p in found["parts"]
+    ]
+    if not found["parts"]:
+        return {**view, "summary": SENTENCES["found_nothing_added"]}
+    parts = counted(len(found["parts"]), "part")
+    return {
+        **view,
+        "summary": SENTENCES["found_parts"].format(parts=parts, tokens=f"{found['tokens']:,}"),
+    }
+
+
+def similar(part: dict[str, Any]) -> str:
+    """Why a part was found by meaning: its similarity, to two places as the terminal says it."""
+    return SENTENCES["found_similar"].format(score=f"{part['score']:.2f}")
+
+
+def below_minimum(found: dict[str, Any]) -> str:
+    """What the minimum did when no part reached it (the states table's 3)."""
+    names = found["documents"]
+    documents = joined([d if isinstance(d, str) else d["name"] for d in names], "or")
+    return SENTENCES["found_below_minimum"].format(
+        documents=documents, minimum=f"{found['min_similarity']:g}"
+    )
+
+
 def found_line(found: dict[str, Any]) -> dict[str, Any]:
     """ "From documents" above a reply (C3): found_view, and what Regenerate does with it."""
     footer = SENTENCES["found_footer" if found["parts"] else "searched_footer"]
@@ -2108,9 +2155,9 @@ def found_line(found: dict[str, Any]) -> dict[str, Any]:
 def match_words(part: dict[str, Any]) -> str:
     """Why a part matched (N48): the words found in its title, then in its text."""
     why = []
-    if part.get("title_words"):  # stub (v0.4.1 C1)
+    if part["title_words"]:
         why.append(SENTENCES["found_in_title"].format(words=", ".join(part["title_words"])))
-    if part.get("words"):
+    if part["words"]:
         why.append(SENTENCES["found_in_text"].format(words=", ".join(part["words"])))
     return "; ".join(why)
 
@@ -2142,21 +2189,23 @@ def documents_section(
     framing = next((a["tokens"] for a in added if a["what"] == "framing"), None)
     if any(a["what"] == "attachment" for a in added):
         framing = None  # an attachment brought it: Details' Attachments lists it
-    parts, budget, words = found["parts"], found["budget"], found.get("words", [])  # stub
+    meaning = found.get("method") == "meaning"  # v0.4.1 C1: no words, a minimum instead
+    parts, budget = found["parts"], found["budget"]
+    words = [] if meaning else found["words"]
 
     def span(first: int, end: int) -> dict[str, str]:
         return {"first": f"{first:,}", "last": f"{end - 1:,}", "n": f"{end - first:,}"}
 
     if parts:
         head = f"{counted(len(parts), 'part')} · {found['tokens']:,} of {budget:,} tokens"
-    elif not words:
+    elif not words and not meaning:
         head = SENTENCES["found_nothing_words"]
     else:
         head = SENTENCES["found_nothing_added" if found["matched"] else "found_nothing_matched"]
     rows = [("Searched for", f"“{found['searched_for']}”")]
     if words:
         rows.append(("Words searched", ", ".join(words)))
-    if found.get("ignored"):
+    if not meaning and found["ignored"]:
         rows.append(("Ignored", ", ".join(found["ignored"])))
     if at:
         ranges = [*([framing] if framing else []), *at.values()]
@@ -2171,7 +2220,14 @@ def documents_section(
             rule=engine["word_rule"], common=engine["common_words"], sqlite=engine["sqlite"]
         )
         rows.append(("Search", search))
-    if words and found["matched"]:
+    elif meaning:  # one line for the method, model and minimum (the states table's 2)
+        search = SENTENCES["details_search_meaning"].format(
+            model=found["engine"]["model"],
+            minimum=f"{found['min_similarity']:g}",
+            origin=SENTENCES[f"origin_{found['min_similarity_origin']}"],
+        )
+        rows.append(("Search", search))
+    if (words or meaning) and found["matched"]:
         considered = SENTENCES["details_considered"].format(
             parts=counted(found["matched"], "part"), considered=found["considered"]
         )
@@ -2196,11 +2252,22 @@ def documents_section(
     for i, p in enumerate(parts):
         tokens = "{first} to {last} · {n} tokens".format(**span(*at[i])) if i in at else ""
         table.append(
-            {"rank": p["rank"], "label": part_label(p), "why": match_words(p), "tokens": tokens}
+            {
+                "rank": p["rank"],
+                "label": part_label(p),
+                "why": similar(p) if meaning else match_words(p),
+                "tokens": tokens,
+            }
         )
     builds = " · ".join(f"{d['name']} {d['build_id'][:8]}…" for d in found["documents"])
     caption = SENTENCES["details_caption"].format(builds=builds) if words else None
+    if meaning and not found["matched"]:  # what the minimum did (state 3); no caption (C4)
+        caption = below_minimum(found)
     return {"head": head, "rows": rows, "table": table, "caption": caption}
+
+
+# Meaning search's refusals (v0.4.1 B1, states 5 to 7): the chat's, or (too_long) a part's.
+MEANING_STATES = ("no_embedder", "embedder", "too_long")
 
 
 def send_refusal_lines(
@@ -2216,9 +2283,9 @@ def send_refusal_lines(
     lines = []
     for p in refused[1]:
         doc = states.get(p.get("document", ""))
-        if p["state"] == "no_fts5":
-            still = bool(searching)
-        elif p["state"] == "control_tokens":  # no count in advance (cut 5): while searched
+        if p["state"] == "no_fts5" or (p["state"] in MEANING_STATES and "document" not in p):
+            still = bool(searching)  # the chat's, not a document's: while it searches
+        elif p["state"] in ("control_tokens", "too_long"):  # a part's: while it's searched
             still = doc is not None
         else:
             still = doc is not None and doc["state"] != "ready"

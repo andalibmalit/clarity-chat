@@ -1577,6 +1577,8 @@ async function searchIt(choice) {
   const box = $("attach-search-note");
   const lines = [box.dataset.searched.replace("{name}", () => name)];
   if (added.result.replaced) lines.unshift(box.dataset.replaced.replace("{name}", () => name)); // said after (cut 1)
+  // O1 (v0.4.1, state 5): the chat searches by meaning and bge-m3 isn't fetched.
+  if ((answer.result.warnings || []).some((w) => w.state === "no_embedder")) lines.push(box.dataset.noEmbedder);
   clarity.searchNotice = lines;
   return answer;
 }

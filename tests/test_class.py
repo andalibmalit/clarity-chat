@@ -28,7 +28,7 @@ from starlette.testclient import TestClient
 from clarity_chat import web
 from clarity_chat.backends import BackendError
 from clarity_chat.commands import Commands
-from clarity_chat.documents import SENTENCES, library_add, reading
+from clarity_chat.documents import SENTENCES, library_add, problem_words, reading
 from clarity_chat.export import export_log
 from clarity_chat.logs import read_records
 from clarity_chat.profiles import ConfigError
@@ -542,7 +542,29 @@ def page_sentences() -> list[tuple[str, str]]:
     sentences += [
         (f"{name}:{line}", text) for name, line, text in refusals() if text not in TERMINAL_ONLY
     ]
+    # Meaning search's refusals in the page's words (v0.4.1 C1): problem_words returns them,
+    # so no raise holds them. The terminal's fetch sentence is the terminal's only.
+    sentences += [
+        (f"problem_words[{p['state']}]", problem_words(p, terminal=False, where="chat", at_send=a))
+        for p in MEANING_PROBLEMS
+        for a in (False, True)
+    ]
     return sentences
+
+
+MEANING_PROBLEMS = [
+    {"state": "no_embedder"},
+    {"state": "embedder", "why": "The embedder didn't start: made up."},
+    {"state": "too_long", "tokens": 9104},
+    {"state": "too_long", "tokens": 9104, "document": "notes", "ordinal": 2, "title": "Made up",
+     "page": None},
+]  # fmt: skip
+
+
+def test_t2_the_scan_sees_meaning_search_s_page_words():
+    seen = [text for where, text in page_sentences() if where.startswith("problem_words[")]
+    assert any(text.startswith("Meaning search needs bge-m3") for text in seen)
+    assert any(text.startswith("Your message is too long for meaning search") for text in seen)
 
 
 def test_t2_the_scan_sees_the_page_s_sentences():

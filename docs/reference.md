@@ -301,7 +301,7 @@ The page, the terminal and this list share these sentences and phrases, from one
 
 ## The documents sentences
 
-The attach sheet's "Search it", the Searching chooser, a reply's "From documents" line and Details' Documents section say these, from the same table. Braces are filled in: `{name}` a document's name, `{names}` and `{documents}` the documents a chat searches, `{profile}` its profile, `{parts}` a count of parts, `{n}` a count, `{tokens}` and `{budget}` token counts, `{words}` the words, `{considered}` how many matches search considers.
+The attach sheet's "Search it", the Searching chooser, a reply's "From documents" line and Details' Documents section say these, from the same table. Braces are filled in: `{name}` a document's name, `{names}` and `{documents}` the documents a chat searches, `{profile}` its profile, `{parts}` a count of parts, `{n}` a count, `{tokens}` and `{budget}` token counts, `{words}` the words, `{considered}` how many matches search considers, `{how}` how parts are chosen (`search_it_words` or `search_it_meaning`), `{score}` a part's similarity, `{minimum}` the minimum similarity, `{model}` the embedding model.
 
 - `keeps_copy`: Clarity keeps a copy in local/documents/, under the name in the box. A document that already has that name is replaced.
 - `searches_next`: This chat searches {name} from your next message.
@@ -316,6 +316,8 @@ The attach sheet's "Search it", the Searching chooser, a reply's "From documents
 - `found_nothing_added`: nothing added
 - `found_in_title`: in its title: {words}
 - `found_in_text`: in its text: {words}
+- `found_similar`: similar in meaning: {score}
+- `found_below_minimum`: No part of {documents} reached the minimum similarity of {minimum}, so nothing was added.
 - `found_left_budget`: {n} more matched but were left out: Clarity adds parts in order and stops at the first that doesn't fit the budget of {budget} tokens.
 - `found_left_budget_none`: {n} matched but were left out: Clarity adds parts in order and stops at the first that doesn't fit the budget of {budget} tokens.
 - `found_unconsidered`: {n} more matched but weren't considered: Clarity considers only the best {considered} matches.
@@ -324,10 +326,13 @@ The attach sheet's "Search it", the Searching chooser, a reply's "From documents
 - `found_all_common`: Every word in your message is a common word or a single letter or digit, so nothing was searched and nothing was added.
 - `found_no_words`: Your message has no words to search for, so nothing was added.
 - `found_no_match`: No part of {documents} has any of the words searched, so nothing was added. Search matches words and close forms of them ("sing" finds "singing"), not meaning.
-- `search_it`: For each message you send, Clarity adds the parts of this document that share a word with your message, best match first; common words such as "the" don't count. A message gets at most {considered} parts and {budget} tokens ({origin}), shared by every document this chat searches. Added parts stay in the chat with that message.
+- `search_it`: For each message you send, Clarity adds the parts of this document {how}. A message gets at most {considered} parts and {budget} tokens ({origin}), shared by every document this chat searches. Added parts stay in the chat with that message.
 - `searching_some`: Searching: {documents}
 - `searching_none`: Searching: no documents
+- `search_it_words`: that share a word with your message, best match first; common words such as "the" don't count
+- `search_it_meaning`: that are closest in meaning to your message, best match first
 - `searching_head`: Searched for each message you send
+- `searching_head_meaning`: Searched by meaning for each message you send
 - `searching_applies`: A change applies from your next message. Regenerate keeps the parts a message already has.
 - `searching_profile`: From this chat's profile, {profile}. A change here applies to this chat only.
 - `searching_chat`: Changed in this chat.
@@ -344,6 +349,7 @@ The attach sheet's "Search it", the Searching chooser, a reply's "From documents
 - `details_search`: words, titles weighted double (word rule {rule} · common words {common} · SQLite {sqlite})
 - `details_considered`: {parts} matched; Clarity considers the best {considered} at most.
 - `details_budget`: the budget ({budget}, {origin})
+- `details_search_meaning`: meaning, by {model} (minimum similarity {minimum}, {origin})
 - `details_caption`: Rank 1 is the best match; a word in a title counts more than one in the text. Searched: {builds} (each document’s build). Each part’s text and score are in this message’s log record.
 
 ## Settings
