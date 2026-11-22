@@ -56,7 +56,16 @@ def states(root: Path, **by_folder: dict[str, Any]):
 
 
 def made(
-    root: Path, mac: Mac = MAC, run=None, says=None, state=None, home=None, models=(), fetch=None
+    root: Path,
+    mac: Mac = MAC,
+    run=None,
+    says=None,
+    state=None,
+    home=None,
+    models=(),
+    fetch=None,
+    desktop=None,
+    uv="/Users/made-up/.local/bin/uv",
 ) -> Setup:
     """A Setup on fakes. `models`: the models it sets up (none by default: A2's tests);
     `fetch`: a fake fetch (a FakeFetch)."""
@@ -71,6 +80,8 @@ def made(
         home=home or root.parent,
         models=models,
         fetch=fetch or FakeFetch(),
+        desktop=desktop or root.parent / "Desktop",
+        uv=uv,
     )
 
 
@@ -380,3 +391,93 @@ def test_the_sizes_table_covers_setup_s_models_as_models_toml_has_them():
         assert 0 < download <= keep, name  # a model keeps at least what it downloads
     if any(shipped[name].route == "convert" for name in SETUP_MODELS):
         assert SIZES["converter"][0] > 0
+
+
+# --- A7: the launcher (state 15; decision 13)
+
+
+def done_root(root: Path) -> tuple[Path, Any]:
+    """Everything before the launcher already done."""
+    source(root)
+    binary(root)
+    return root, states(root, source={"commit": pin(root), "dirty": False})
+
+
+def launcher_lines(folder: Path, uv: str = "/Users/made-up/.local/bin/uv") -> str:
+    import shlex
+
+    return f"cd {shlex.quote(str(folder))}\nexec {shlex.quote(uv)} run clarity ui\n"
+
+
+def test_the_launcher_is_written_with_two_lines_and_mode_0755(tmp_path, root):
+    import shlex
+
+    folder = tmp_path / "Its folder, with a space and a 'quote'"
+    folder.mkdir()
+    for name in ("defaults.toml", "server.toml", "models.toml"):
+        (folder / name).write_bytes((root / name).read_bytes())
+    _, state = done_root(folder)
+    desktop = tmp_path / "Desktop"
+    desktop.mkdir()
+    says = Says()
+    made(folder, says=says, state=state, desktop=desktop, uv="/Users/a b/.local/bin/uv").go()
+    launcher = desktop / "Clarity.command"
+    assert launcher.is_file(), "no launcher on the Desktop"
+    text = launcher.read_text(encoding="utf-8")
+    assert text == launcher_lines(folder, "/Users/a b/.local/bin/uv")
+    assert shlex.split(text.splitlines()[0]) == ["cd", str(folder)]
+    assert shlex.split(text.splitlines()[1]) == ["exec", "/Users/a b/.local/bin/uv", "run",
+                                                 "clarity", "ui"]  # fmt: skip
+    assert launcher.stat().st_mode & 0o777 == 0o755
+    assert "Made Clarity.command on your Desktop: double-click it to start Clarity." in says.lines
+
+
+def test_the_same_launcher_is_left_and_already_done(root):
+    root, state = done_root(root)
+    desktop = root.parent / "Desktop"
+    desktop.mkdir(exist_ok=True)
+    launcher = desktop / "Clarity.command"
+    launcher.write_text(launcher_lines(root), encoding="utf-8")
+    launcher.chmod(0o755)
+    before = launcher.stat().st_mtime_ns
+    says = Says()
+    made(root, says=says, state=state).go()
+    assert launcher.stat().st_mtime_ns == before
+    assert "Clarity.command on your Desktop: already done." in says.lines
+
+
+def test_another_file_of_that_name_is_left_alone_and_the_lines_printed(root):
+    root, state = done_root(root)
+    desktop = root.parent / "Desktop"
+    desktop.mkdir(exist_ok=True)
+    launcher = desktop / "Clarity.command"
+    launcher.write_text("echo mine\n", encoding="utf-8")
+    says = Says()
+    made(root, says=says, state=state).go()
+    assert launcher.read_text(encoding="utf-8") == "echo mine\n"
+    said = "\n".join(says.lines)
+    assert (
+        "Your Desktop already has a Clarity.command that setup didn't write, so it's left "
+        "alone. To start Clarity from a file of your own, put these two lines in it:" in said
+    )
+    assert launcher_lines(root).rstrip("\n") in said
+
+
+def test_a_desktop_macos_won_t_let_setup_write_is_said_and_setup_still_ends(root, monkeypatch):
+    root, state = done_root(root)
+    desktop = root.parent / "Desktop"
+    desktop.mkdir(exist_ok=True)
+
+    def refused(self, *args, **kwargs):
+        raise PermissionError(1, "Operation not permitted", str(self))
+
+    monkeypatch.setattr(Path, "write_text", refused)
+    says = Says()
+    made(root, says=says, state=state).go()  # no exception: setup ends with 0
+    said = "\n".join(says.lines)
+    assert (
+        "macOS didn't let setup write to your Desktop. To make the launcher yourself, put "
+        "these two lines in a file named Clarity.command there:" in said
+    )
+    assert launcher_lines(root).rstrip("\n") in said
+    assert not (desktop / "Clarity.command").exists()

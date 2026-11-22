@@ -105,6 +105,8 @@ class Setup:
         home: Path | None = None,
         models: tuple[str, ...] = SETUP_MODELS,
         fetch: Callable[[Path, ModelEntry, ServerConfig], dict[str, Any]] = fetch_model,
+        desktop: Path | None = None,  # stub (A7)
+        uv: str = "",
     ) -> None:
         self.root, self.mac, self.run, self.ask, self.say = root, mac, run, ask, say
         self.state = state
