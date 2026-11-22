@@ -217,16 +217,26 @@ def test_an_inherited_ggml_variable_refuses_the_start(m3_root, fake, monkeypatch
     it computes (GGML_METAL_BF16_DISABLE, and bge-m3 is a bf16 GGUF), which the setup doesn't
     record. The start is refused with the chat server's existing warning, naming it."""
     monkeypatch.setenv("GGML_METAL_BF16_DISABLE", "1")
-    with pytest.raises(EmbedderFailed, match="GGML_METAL_BF16_DISABLE"):
+    with pytest.raises(EmbedderFailed) as refused:
         made(m3_root).vector([0, 5, 2])
+    # The embedder's own words (the fix review's S3): the chat server's warning says the
+    # values are logged and may be kept, which isn't so for the embedder.
+    assert str(refused.value) == (
+        "The embedder didn't start: llama-server would inherit GGML_METAL_BF16_DISABLE from "
+        "your environment, which can change the vectors. Unset it."
+    )
     assert fake.procs[-1].terminated
 
 
 def test_a_dirty_llama_cpp_checkout_refuses_the_start(m3_root, fake, monkeypatch):
     pinned = load_server_config(m3_root).llama_cpp_commit
     monkeypatch.setattr(llama_cpp, "git_state", lambda d: {"commit": pinned, "dirty": True})
-    with pytest.raises(EmbedderFailed, match="uncommitted changes"):
+    with pytest.raises(EmbedderFailed) as refused:
         made(m3_root).vector([0, 5, 2])
+    assert str(refused.value) == (
+        "The embedder didn't start: The llama.cpp checkout has uncommitted changes. Commit or "
+        "discard them and rebuild llama-server."
+    )
     assert fake.procs[-1].terminated
 
 
