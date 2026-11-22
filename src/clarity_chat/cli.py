@@ -1308,6 +1308,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
         "fetch", help="download (and convert) a model from models.toml or local/models.toml"
     )
     fetch.add_argument("name")
+    commands.add_parser("setup", help="set up this Mac: llama.cpp, the first model, a launcher")
     verify = commands.add_parser(
         "verify", help="re-hash fetched models against models.lock and local/models.lock"
     )
@@ -1394,6 +1395,8 @@ def run_command(args: argparse.Namespace) -> int:
             return cmd_fetch(root, args.name)
         if args.command == "verify":
             return cmd_verify(root, args.names)
+        if args.command == "setup":
+            return 0
         if args.command == "document":
             return cmd_document(root, args)
     except (ConfigError, BackendError) as e:

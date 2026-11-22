@@ -299,3 +299,28 @@ class FakeEmbedder:
 
     def close(self) -> None:
         pass
+
+
+class FakeRunner:
+    """setup's `run(argv, env, log)` offline (v0.4.2 A2): records each argv and environment
+    and plays back a scripted result, (exit code, output), in order; anything unscripted
+    exits 0 with no output. `effects` maps an argv's second word (the git step, after
+    `git -C FOLDER`, or cmake's first argument) to a callable that leaves the files the real
+    step would. What it imitates is gated live in tests/test_setup_live.py (-m setup): the
+    shallow fetch by full hash and the build."""
+
+    def __init__(self, results: list[tuple[int, str]] | None = None) -> None:
+        self.results = list(results or [])
+        self.calls: list[tuple[list[str], dict[str, str], Path | None]] = []
+        self.effects: dict[str, Any] = {}
+
+    def __call__(self, argv: list[str], env: dict[str, str], log: Path | None) -> tuple[int, str]:
+        self.calls.append((list(argv), dict(env), log))
+        step = argv[3] if argv[:2] == ["git", "-C"] and len(argv) > 3 else argv[0]
+        if step in self.effects:
+            self.effects[step](argv)
+        return self.results.pop(0) if self.results else (0, "")
+
+    @property
+    def argvs(self) -> list[list[str]]:
+        return [argv for argv, _, _ in self.calls]
