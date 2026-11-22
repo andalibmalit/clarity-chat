@@ -582,3 +582,48 @@ def test_document_try_refuses_a_meaning_profile_and_starts_no_embedder(meaning, 
     assert str(refused) == (
         "clarity document try searches by words only; /try in a chat searches by meaning."
     )
+
+
+# --- B3: meaning is the default (Q15) --------------------------------------------------------
+
+KEYLESS = '\n[documents]\nsearch = ["notes"]\n'
+
+
+def test_a_profile_with_no_key_searches_by_meaning_in_a_new_chat(meaning):
+    session, c, _ = meaning
+    profile(session.root, "keyless", KEYLESS)
+    c.run("profile", "keyless", lambda e: None)
+    assert session.conversation is not None
+    assert session.conversation.search_method == "meaning"
+    assert say(c, ASKED)["method"] == "meaning"
+
+
+def test_a_resumed_v0_3_2_shaped_chat_still_searches_by_words(meaning):
+    """A chat whose logged profile names no method and whose last search was by words, as
+    every chat before v0.4.1: it keeps searching by words after the flip (D4), and needs no
+    embedder."""
+    session, c, fake = meaning
+    profile(session.root, "keyless", KEYLESS + 'search_method = "words"\n')
+    c.run("profile", "keyless", lambda e: None)
+    say(c, "leaves light sugar")
+    assert session.conversation is not None
+    log = session.conversation.log.path
+
+    def v0_3_2(row: dict) -> None:  # its profile file had no search_method then
+        if row.get("type") == "conversation":
+            toml = row["profile"]["toml"]
+            row["profile"]["toml"] = toml.replace('search_method = "words"\n', "")
+
+    made = fake.made
+    assert resumed_method(session, log, v0_3_2) == "words"
+    assert say(c, "leaves light sugar")["method"] == "words" and fake.made == made
+
+
+def test_bge_m3_missing_refuses_a_keyless_profile_s_message_with_state_5(meaning):
+    session, c, fake = meaning
+    profile(session.root, "keyless", KEYLESS)
+    c.run("profile", "keyless", lambda e: None)
+    fake.is_fetched = False
+    refused = raised(lambda: c.run("say", ASKED, lambda e: None))
+    assert isinstance(refused, SearchRefused), repr(refused)
+    assert refused.problems == [{"state": "no_embedder"}]
