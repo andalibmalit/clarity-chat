@@ -8,6 +8,10 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-22
+
+Live tests on an M2 Max (macOS), 2026-11-22, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer), at or after the last commit to change their paths: `-m live` 29 passed, `-m embed` 10 passed (bge-m3 on Metal), `-m browser` 163 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m hf` 21 passed, `-m olmo` 12 passed and `-m llama` 3 passed.
+
 ### Migration
 - New chats that search documents search by meaning, which needs `clarity fetch bge-m3`. Chats you resume keep their method. To keep word search in new chats, add `search_method = "words"` under `[documents]` in your own profile (copy a shipped one into `local/profiles/` first).
 

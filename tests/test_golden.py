@@ -262,3 +262,22 @@ def test_the_v0_4_0_golden_log_holds_a_ban_its_check_and_your_own_entry():
     assert "check_failed:suppress_tokens" in calls[1]["flags"]
     replay = next(r for r in rows if r["type"] == "replay")
     assert replay["identical"] and replay["model_used"] == "mine"
+
+
+def test_the_v0_4_1_golden_log_holds_a_meaning_search_found_parts_and_a_miss():
+    """v0.4.1's meaning search: a found by meaning (the engine and its setup, the query, the
+    minimum, each part's score), a message no part reached the minimum for, and a replay,
+    identical, that never searched."""
+    rows = list(read_records(GOLDEN / "v0.4.1.jsonl"))
+    searched = [r for r in rows if r["type"] == "turn" and "found" in r]
+    assert [t["text"] for t in searched] == ["Tell me about the wren", "Any herons?"]
+    hit, miss = (t["found"] for t in searched)
+    assert hit["method"] == miss["method"] == "meaning"
+    assert hit["engine"]["model"] == "bge-m3" and len(hit["engine"]["setup"]) == 64
+    assert hit["min_similarity"] == 0.1 and hit["min_similarity_origin"] == "profile"
+    assert [p["id"] for p in hit["parts"]] == ["glossary:2"]
+    assert hit["parts"][0]["score"] >= hit["min_similarity"] and hit["parts"][0]["text"]
+    assert (miss["matched"], miss["parts"]) == (0, [])
+    replay = next(r for r in rows if r["type"] == "replay")
+    calls = [r for r in rows if r["type"] == "call"]
+    assert replay["identical"] and replay["call_id"] == calls[0]["call_id"]
