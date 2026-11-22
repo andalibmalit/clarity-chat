@@ -62,11 +62,18 @@ def clarity(fetched_root, tiny_tokenizer):
     (fetched_root / "profiles" / "far.toml").write_text(far, encoding="utf-8")
     backend = FakeBackend([], tokenizer=tiny_tokenizer)
     session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    for origin, redirect in served(fetched_root, session):
+        yield origin, redirect, backend
+
+
+def served(root: Path, session: Session):
+    """`web.serve` on a free port for `session`, until the test ends: (origin, the redirect
+    file)."""
     port, opened, servers = free_port(), [], []
     thread = threading.Thread(
         target=web.serve,
         kwargs={
-            "root": fetched_root,
+            "root": root,
             "port": port,
             "session_factory": lambda: session,
             "opener": opened.append,
@@ -81,7 +88,7 @@ def clarity(fetched_root, tiny_tokenizer):
         if servers and servers[0].started:
             break
         threading.Event().wait(0.05)
-    yield f"http://127.0.0.1:{port}", opened[0], backend
+    yield f"http://127.0.0.1:{port}", opened[0]
     servers[0].should_exit = True
     thread.join(10)
 

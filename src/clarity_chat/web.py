@@ -2064,14 +2064,14 @@ def found_view(found: dict[str, Any]) -> dict[str, Any]:
     """What a search found, from /history's summary of it (session.found_summary), as "From
     documents" (C3) shows it: the count, each part with its rank and why (its tokens are in
     Details: cut 4), the notes on what was left out, the words."""
-    counts = found["left_out"]
+    counts = found.get("left_out", {})  # stub (v0.4.1 C1): a meaning found draws, unworded
     already, budget = counts.get("already in the chat", 0), counts.get("budget", 0)
-    words = SENTENCES["found_words"].format(words=", ".join(found["words"]))
-    if found["ignored"]:
+    words = SENTENCES["found_words"].format(words=", ".join(found.get("words", [])))
+    if found.get("ignored"):
         words += " " + SENTENCES["found_ignored"].format(words=", ".join(found["ignored"]))
     view: dict[str, Any] = {"rows": [], "notes": [], "words": words, "empty": None}
-    if not found["words"]:
-        key = "found_all_common" if found["ignored"] else "found_no_words"
+    if not found.get("words"):
+        key = "found_all_common" if found.get("ignored") else "found_no_words"
         return {**view, "summary": SENTENCES["found_nothing_words"], "empty": SENTENCES[key],
                 "words": None}  # fmt: skip
     if not found["matched"]:
@@ -2108,9 +2108,9 @@ def found_line(found: dict[str, Any]) -> dict[str, Any]:
 def match_words(part: dict[str, Any]) -> str:
     """Why a part matched (N48): the words found in its title, then in its text."""
     why = []
-    if part["title_words"]:
+    if part.get("title_words"):  # stub (v0.4.1 C1)
         why.append(SENTENCES["found_in_title"].format(words=", ".join(part["title_words"])))
-    if part["words"]:
+    if part.get("words"):
         why.append(SENTENCES["found_in_text"].format(words=", ".join(part["words"])))
     return "; ".join(why)
 
@@ -2142,7 +2142,7 @@ def documents_section(
     framing = next((a["tokens"] for a in added if a["what"] == "framing"), None)
     if any(a["what"] == "attachment" for a in added):
         framing = None  # an attachment brought it: Details' Attachments lists it
-    parts, budget, words = found["parts"], found["budget"], found["words"]
+    parts, budget, words = found["parts"], found["budget"], found.get("words", [])  # stub
 
     def span(first: int, end: int) -> dict[str, str]:
         return {"first": f"{first:,}", "last": f"{end - 1:,}", "n": f"{end - first:,}"}
@@ -2156,7 +2156,7 @@ def documents_section(
     rows = [("Searched for", f"“{found['searched_for']}”")]
     if words:
         rows.append(("Words searched", ", ".join(words)))
-    if found["ignored"]:
+    if found.get("ignored"):
         rows.append(("Ignored", ", ".join(found["ignored"])))
     if at:
         ranges = [*([framing] if framing else []), *at.values()]
