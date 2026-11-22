@@ -9,6 +9,7 @@ gated live by `-m setup` (tests/test_setup_live.py).
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -120,6 +121,16 @@ def binary(root: Path) -> Path:
     return path
 
 
+NOT_BUILT = "Setup can't build llama-server yet."
+
+
+def to_the_build(setup: Setup) -> None:
+    """go() up to Checkpoint 1's S5 refusal: llama-server isn't built, and this version of
+    setup can't build it (A2's build step waits for Q2 and Q3a), so it never says "done"."""
+    with pytest.raises(ConfigError, match=re.escape(NOT_BUILT)):
+        setup.go()
+
+
 def source(root: Path) -> Path:
     folder = load_server_config(root).llama_cpp_dir
     folder.mkdir(parents=True, exist_ok=True)
@@ -149,7 +160,7 @@ def test_less_than_16_gb_of_memory_is_refused_and_16_passes(root):
         made(root, Mac("Darwin", "arm64", 15 * GIB, MAC.free), run, says).go()
     assert str(refused.value) == "Clarity needs 16 GB of memory; this Mac has 15 GB."
     assert run.calls == [] and says.asked == []
-    made(root, Mac("Darwin", "arm64", 16 * GIB, MAC.free)).go()
+    to_the_build(made(root, Mac("Darwin", "arm64", 16 * GIB, MAC.free)))
 
 
 # --- the disk (state 7) and the one question (states 12 and 13)
@@ -183,11 +194,13 @@ def question(download: int, keep: int, folder: str = "~/Clarity") -> str:
 def test_the_question_adds_up_what_is_missing(root):
     folder = f"~/{root.name}"  # the home folder is root's parent here
     says = Says()
-    made(root, says=says).go()
+    to_the_build(made(root, says=says))
     assert says.asked == [question(*missing_bytes("source", "build"), folder)]
     source(root)
     says = Says()
-    made(root, says=says, state=states(root, source={"commit": pin(root), "dirty": False})).go()
+    to_the_build(
+        made(root, says=says, state=states(root, source={"commit": pin(root), "dirty": False}))
+    )
     assert says.asked == [question(*missing_bytes("build"), folder)]
 
 
@@ -225,7 +238,7 @@ def git_argvs(root: Path) -> list[list[str]]:
 
 def test_the_source_is_fetched_into_partial_and_renamed(root):
     run, says = FakeRunner(), Says()
-    made(root, run=run, says=says).go()
+    to_the_build(made(root, run=run, says=says))
     assert run.argvs == git_argvs(root)
     folder = load_server_config(root).llama_cpp_dir
     assert folder.is_dir() and not (folder.parent / "llama.cpp.partial").exists()
@@ -236,7 +249,7 @@ def test_git_runs_with_a_cleared_environment(root, monkeypatch):
     monkeypatch.setenv("GIT_DIR", "/elsewhere")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/made/up/gitconfig")
     run = FakeRunner()
-    made(root, run=run, home=Path("/Users/made-up")).go()
+    to_the_build(made(root, run=run, home=Path("/Users/made-up")))
     assert run.calls, "git never ran"
     for _, env, _ in run.calls:
         assert set(env) == {
@@ -258,7 +271,7 @@ def test_a_failed_fetch_leaves_partial_and_the_next_run_starts_again(root):
     partial = load_server_config(root).llama_cpp_dir.parent / "llama.cpp.partial"
     assert partial.is_dir() and not load_server_config(root).llama_cpp_dir.exists()
     run, says = FakeRunner(), Says()
-    made(root, run=run, says=says).go()
+    to_the_build(made(root, run=run, says=says))
     assert "Deleting vendor/llama.cpp.partial, left by a setup that didn't finish." in says.lines
     assert run.argvs == git_argvs(root)
 
@@ -416,7 +429,8 @@ def done_root(root: Path) -> tuple[Path, Any]:
 def launcher_lines(folder: Path, uv: str = "/Users/made-up/.local/bin/uv") -> str:
     import shlex
 
-    return f"cd {shlex.quote(str(folder))}\nexec {shlex.quote(uv)} run clarity ui\n"
+    # Checkpoint 1's C6: a shebang first, so the file runs under sh whatever the login shell
+    return f"#!/bin/sh\ncd {shlex.quote(str(folder))}\nexec {shlex.quote(uv)} run clarity ui\n"
 
 
 def test_the_launcher_is_written_with_two_lines_and_mode_0755(tmp_path, root):
@@ -435,8 +449,9 @@ def test_the_launcher_is_written_with_two_lines_and_mode_0755(tmp_path, root):
     assert launcher.is_file(), "no launcher on the Desktop"
     text = launcher.read_text(encoding="utf-8")
     assert text == launcher_lines(folder, "/Users/a b/.local/bin/uv")
-    assert shlex.split(text.splitlines()[0]) == ["cd", str(folder)]
-    assert shlex.split(text.splitlines()[1]) == ["exec", "/Users/a b/.local/bin/uv", "run",
+    assert text.splitlines()[0] == "#!/bin/sh"
+    assert shlex.split(text.splitlines()[1]) == ["cd", str(folder)]
+    assert shlex.split(text.splitlines()[2]) == ["exec", "/Users/a b/.local/bin/uv", "run",
                                                  "clarity", "ui"]  # fmt: skip
     # Windows keeps only a read-only flag (chmod there can't mark a file executable), so
     # its 0755 reads back as 0666. Setup runs on macOS; the file's content is checked above.
@@ -466,7 +481,7 @@ def test_another_file_of_that_name_is_left_alone_and_the_lines_printed(root):
     said = "\n".join(says.lines)
     assert (
         "Your Desktop already has a Clarity.command that setup didn't write, so it's left "
-        "alone. To start Clarity from a file of your own, put these two lines in it:" in said
+        "alone. To start Clarity from a file of your own, put these three lines in it:" in said
     )
     assert launcher_lines(root).rstrip("\n") in said
 
@@ -484,8 +499,177 @@ def test_a_desktop_macos_won_t_let_setup_write_is_said_and_setup_still_ends(root
     said = "\n".join(says.lines)
     assert (
         "Setup couldn't write Clarity.command to your Desktop (Operation not permitted). To "
-        "make the launcher yourself, put these two lines in a file named Clarity.command "
+        "make the launcher yourself, put these three lines in a file named Clarity.command "
         "there:" in said
     )
     assert launcher_lines(root).rstrip("\n") in said
     assert not (desktop / "Clarity.command").exists()
+
+
+# --- Checkpoint 1's fix batch
+
+
+def test_home_desktop_and_uv_are_required():
+    """M1: nothing defaults to the real home folder or Desktop."""
+    import inspect
+
+    params = inspect.signature(Setup).parameters
+    defaulted = [n for n in ("home", "desktop", "uv") if params[n].default is not params[n].empty]
+    assert defaulted == []
+
+
+def cli_setup(root: Path, monkeypatch, stdin: str) -> int:
+    """`clarity setup` through cli.main, on this Mac's stand-in, with `stdin` typed."""
+    import io
+
+    from clarity_chat import cli
+
+    monkeypatch.setattr(clarity_setup, "this_mac", lambda r: MAC)
+    monkeypatch.setattr(clarity_setup, "SETUP_MODELS", ())
+    monkeypatch.setenv("UV", "/Users/made-up/.local/bin/uv")
+    monkeypatch.setattr("sys.stdin", io.StringIO(stdin))
+    try:
+        return cli.main(["--root", str(root), "setup"])
+    except EOFError:  # input() at the question met the end of stdin
+        return -1
+
+
+@pytest.mark.parametrize("stdin", ["", "no\n", "n\n"], ids=["eof", "no", "n"])
+def test_eof_or_no_at_the_question_stops_with_nothing_downloaded(root, monkeypatch, capsys, stdin):
+    """M3: under `curl | sh` without a terminal, input() meets EOF: that's "no", not a
+    traceback."""
+    assert cli_setup(root, monkeypatch, stdin) == 0
+    out = capsys.readouterr().out
+    assert "Setup stopped. Nothing was downloaded." in out
+    assert not load_server_config(root).llama_cpp_dir.parent.exists()
+
+
+def git(folder: Path, *args: str) -> None:
+    import subprocess
+
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    subprocess.run(
+        ["git", "-C", str(folder), "-c", "user.name=made-up", "-c", "user.email=m@example.com",
+         *args], check=True, capture_output=True, env=env,
+    )  # fmt: skip
+
+
+def test_a_plain_folder_inside_a_git_clone_isn_t_a_checkout(root):
+    """S1: git_state in vendor/llama.cpp finds the clone around it (Clarity's own), so a
+    plain folder there read as a checkout at the clone's commit. Real git, in tmp_path."""
+    from clarity_chat.logs import git_state
+
+    git(root, "init", "-q")
+    git(root, "add", "defaults.toml")
+    git(root, "commit", "-q", "-m", "made up")
+    folder = source(root)
+    (folder / "mine.txt").write_text("made up", encoding="utf-8")
+    run = FakeRunner()
+    with pytest.raises(ConfigError) as refused:
+        made(root, run=run, state=git_state).go()
+    assert str(refused.value).startswith("vendor/llama.cpp isn't a git checkout")
+    assert run.calls == []
+
+
+def test_nothing_missing_needs_no_free_disk(root):
+    """S4: the disk check is for what's still to keep; with nothing missing it isn't made."""
+    source(root)
+    binary(root)
+    state = states(root, source={"commit": pin(root), "dirty": False})
+    try:
+        made(root, Mac("Darwin", "arm64", 32 * GIB, 1), state=state, says=Says(answers=[])).go()
+    except ConfigError as e:
+        pytest.fail(f"refused with nothing to keep: {e}")
+
+
+def test_setup_never_says_done_while_llama_server_isn_t_built(root):
+    """S5: until A2's build step lands, an unbuilt llama-server stops setup with Getting
+    started's two build lines (the constant, checked against the doc below)."""
+    says = Says()
+    with pytest.raises(ConfigError) as refused:
+        made(root, says=says).go()
+    n = os.cpu_count() or 1
+    assert str(refused.value) == (
+        f"{NOT_BUILT} In Clarity's folder, run Getting started's two lines, then run setup "
+        f"again:\n{clarity_setup.BUILD_LINES[0]}\n"
+        f"{clarity_setup.BUILD_LINES[1].replace('-j N', f'-j {n}')}"
+    )
+    assert not any(line.startswith("Setup is done.") for line in says.lines)
+
+
+def test_the_build_lines_are_getting_started_s():
+    from tests.conftest import REPO
+
+    doc = (REPO / "docs" / "getting-started.md").read_text(encoding="utf-8")
+    for line in clarity_setup.BUILD_LINES:
+        assert line.replace("-j N", "-j 8") in doc, line
+
+
+def test_setup_refuses_without_uv(root, monkeypatch, capsys):
+    """S6: the launcher needs uv's path; without it, setup says so before anything."""
+    monkeypatch.delenv("UV", raising=False)
+    monkeypatch.setattr(clarity_setup.shutil, "which", lambda name: None)
+    monkeypatch.setattr(clarity_setup, "this_mac", lambda r: MAC)
+    monkeypatch.setattr(clarity_setup, "SETUP_MODELS", ())
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("n\n"))
+    from clarity_chat import cli
+
+    assert cli.main(["--root", str(root), "setup"]) == 1
+    assert (
+        "clarity: Setup can't find uv, which starts Clarity. Install it as Getting started "
+        "says, then run setup again." in capsys.readouterr().err
+    )
+
+
+def test_uv_s_path_keeps_its_link(root, monkeypatch, tmp_path):
+    """S6: absolute(), not resolve(): ~/.local/bin/uv is often a link to a versioned file,
+    which an update replaces; the launcher keeps the link."""
+    from clarity_chat import cli
+
+    target = tmp_path / "uv-0.9.0"
+    target.write_text("made up", encoding="utf-8")
+    link = tmp_path / "bin" / "uv"
+    link.parent.mkdir()
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlinks need privileges on Windows")
+    seen: dict[str, Any] = {}
+
+    class Recorded:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            seen.update(kwargs)
+
+        def go(self) -> None:
+            pass
+
+    monkeypatch.setenv("UV", str(link))
+    monkeypatch.setattr(clarity_setup, "Setup", Recorded)
+    monkeypatch.setattr(clarity_setup, "this_mac", lambda r: MAC)
+    assert cli.main(["--root", str(root), "setup"]) == 0
+    assert seen["uv"] == str(link)
+
+
+def test_a_link_in_vendor_s_place_is_refused_naming_where_it_points(root, tmp_path):
+    """S7: a dangling link would be replaced by the rename; a live one is named with its
+    target, the folder the user would look in."""
+    vendor = load_server_config(root).llama_cpp_dir
+    vendor.parent.mkdir(parents=True)
+    nowhere = tmp_path / "nowhere"
+    try:
+        vendor.symlink_to(nowhere, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks need privileges on Windows")
+    run = FakeRunner()
+    with pytest.raises(ConfigError) as refused:
+        made(root, run=run).go()
+    assert str(refused.value).startswith(
+        f"vendor/llama.cpp is a link to {nowhere}, which doesn't exist, so setup leaves it alone"
+    )
+    assert run.calls == [] and vendor.is_symlink()
+    nowhere.mkdir()
+    with pytest.raises(ConfigError) as refused:
+        made(root, run=run).go()
+    assert str(refused.value).startswith(
+        f"vendor/llama.cpp (a link to {nowhere}) isn't a git checkout"
+    )

@@ -54,6 +54,7 @@ SIZES: dict[str, tuple[int, int]] = {
 # The models setup fetches, in order: bge-m3, meaning search's embedder; A4 puts the first
 # chat model before it (decision 8, after Q6a and Q6b).
 SETUP_MODELS: tuple[str, ...] = ("bge-m3",)
+BUILD_LINES = ("stub", "stub")  # stub (Checkpoint 1's S5)
 
 Runner = Callable[[list[str], dict[str, str], "Path | None"], tuple[int, str]]
 
@@ -301,5 +302,13 @@ def cmd_setup(root: Path) -> int:
     """`clarity setup`, in the terminal: the real Mac, commands and question. uv's absolute
     path, for the launcher: `uv run` gives it in UV; else the one on PATH."""
     uv = os.environ.get("UV") or shutil.which("uv") or "uv"
-    Setup(root, this_mac(root), run_logged, input, print, uv=str(Path(uv).resolve())).go()
+    Setup(
+        root,
+        this_mac(root),
+        run_logged,
+        input,
+        print,
+        uv=str(Path(uv).resolve()),
+        models=SETUP_MODELS,  # stub (Checkpoint 1): read at the call, as tests patch it
+    ).go()
     return 0
