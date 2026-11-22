@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Added
+- `clarity setup` sets up a Mac with Apple silicon and 16 GB of memory or more: it checks the platform, memory and disk, asks once with the sizes before downloading anything, and fetches llama.cpp's source at the pinned commit into `vendor/llama.cpp` (a folder it didn't make is left alone). Each step says when it's already done, so setup can be run again.
+
 ## [0.4.1] - 2026-11-22
 
 Live tests on an M2 Max (macOS), 2026-11-22, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer), at or after the last commit to change their paths: `-m live` 29 passed, `-m embed` 10 passed (bge-m3 on Metal), `-m browser` 163 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m hf` 21 passed, `-m olmo` 12 passed and `-m llama` 3 passed.

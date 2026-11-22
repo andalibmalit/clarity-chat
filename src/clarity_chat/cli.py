@@ -1395,8 +1395,12 @@ def run_command(args: argparse.Namespace) -> int:
             return cmd_fetch(root, args.name)
         if args.command == "verify":
             return cmd_verify(root, args.names)
-        if args.command == "setup":
-            return 0
+        if args.command == "setup":  # one at a time, and never under a running Clarity
+            from clarity_chat import instance
+            from clarity_chat.setup import cmd_setup
+
+            with instance.hold(root, "setup"):
+                return cmd_setup(root)
         if args.command == "document":
             return cmd_document(root, args)
     except (ConfigError, BackendError) as e:
