@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import math
 import re
+import shlex
 import string
 import tomllib
 from dataclasses import dataclass, field
@@ -24,17 +25,40 @@ class ConfigError(Exception):
     """A config file is missing, malformed or asks for something the client can't do exactly."""
 
 
+# The project folder run_hint names (v0.4.2 A8, decision 14). Set per run: run_command sets
+# it once it knows the root and sets it back to None when the command ends (its finally), so
+# a later command, a second run_command in one process, or a test never reads a stale one.
+# None: the hint says "in Clarity's folder", its words from before.
+HINT_FOLDER: Path | None = None
+
+
+def set_hint_folder(folder: Path | None) -> None:
+    global HINT_FOLDER
+    HINT_FOLDER = folder
+
+
+def shell_folder(folder: Path) -> str:
+    """A folder as a shell command takes it: ~/-relative under the home folder (the shell
+    expands the ~/ before the quoted rest), else whole; quoted only when it needs to be."""
+    home = Path.home()
+    if folder.is_relative_to(home):
+        return "~/" + shlex.quote(folder.relative_to(home).as_posix())
+    return shlex.quote(folder.as_posix())
+
+
 def run_hint(command: str) -> str:
     """How to run a `clarity` command as written, for someone whose terminal is busy
-    running Clarity (the web interface): a new window, `uv run`, and what to do after."""
+    running Clarity (the web interface): a new window, `uv run`, and what to do after;
+    with the folder, when the run knows it."""
+    if HINT_FOLDER is None:
+        return (
+            f"In a new terminal window, in Clarity's folder, run: uv run clarity {command}. "
+            "Then try again."
+        )
     return (
-        f"In a new terminal window, in Clarity's folder, run: uv run clarity {command}. "
-        "Then try again."
+        f"In a new Terminal window, run: cd {shell_folder(HINT_FOLDER)} && uv run clarity "
+        f"{command}. Then try again."
     )
-
-
-def set_hint_folder(folder: Path | None) -> None:  # stub (v0.4.2 A8)
-    pass
 
 
 def fetch_hint(name: str) -> str:

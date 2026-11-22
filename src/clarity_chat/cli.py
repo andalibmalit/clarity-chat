@@ -37,6 +37,7 @@ from clarity_chat.profiles import (
     load_models,
     load_server_config,
     model_files,
+    set_hint_folder,
     shown,
 )
 from clarity_chat.replay import replay_notes
@@ -1344,6 +1345,7 @@ def run_command(args: argparse.Namespace) -> int:
         if args.command == "note":
             return cmd_annotate(args.log, "note", args.call_id, args.text)
         root = args.root.resolve() if args.root else find_root()
+        set_hint_folder(root)  # cleared in the finally below: per run (A8)
         # Read before any model starts (S12): a file that can't be attached stops here.
         attach = {}
         if args.command == "chat" and args.attach:
@@ -1410,6 +1412,8 @@ def run_command(args: argparse.Namespace) -> int:
     except KeyboardInterrupt:
         print("\nclarity: interrupted", file=sys.stderr)
         return 130
+    finally:
+        set_hint_folder(None)
     raise AssertionError(f"unknown command {args.command}")  # argparse refuses it first
 
 

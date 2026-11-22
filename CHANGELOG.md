@@ -12,6 +12,9 @@ Two headings are Clarity's own, used when they apply:
 - Replay compares how llama-server was built: the build line it logs at start (commit, compiler and target) and its list of backends and CPU features, read from the logged start's output, so two builds of one commit made differently are told apart. Logs from earlier versions hold the lines, so their calls are compared too.
 - `clarity setup` sets up a Mac with Apple silicon and 16 GB of memory or more: it checks the platform, memory and disk, asks once with the sizes before downloading anything, fetches llama.cpp's source at the pinned commit into `vendor/llama.cpp` (a folder it didn't make is left alone), then fetches bge-m3, puts a `Clarity.command` launcher on the Desktop, and says how to start Clarity next time. Each step says when it's already done, so setup can be run again.
 
+### Changed
+- A refusal that ends "fetch it" (a model that isn't fetched, say) names Clarity's folder: "In a new Terminal window, run: cd ~/Clarity && uv run clarity fetch NAME. Then try again."
+
 ## [0.4.1] - 2026-11-22
 
 Live tests on an M2 Max (macOS), 2026-11-22, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer), at or after the last commit to change their paths: `-m live` 29 passed, `-m embed` 10 passed (bge-m3 on Metal), `-m browser` 163 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m hf` 21 passed, `-m olmo` 12 passed and `-m llama` 3 passed.

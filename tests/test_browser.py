@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-from clarity_chat import web
+from clarity_chat import profiles, web
 from clarity_chat.session import Session
 from tests.conftest import TEXT_PROFILE
 from tests.fakes import FakeBackend
@@ -62,8 +62,12 @@ def clarity(fetched_root, tiny_tokenizer):
     (fetched_root / "profiles" / "far.toml").write_text(far, encoding="utf-8")
     backend = FakeBackend([], tokenizer=tiny_tokenizer)
     session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
-    for origin, redirect in served(fetched_root, session):
-        yield origin, redirect, backend
+    profiles.set_hint_folder(fetched_root)  # as `clarity ui`'s run_command sets it (A8)
+    try:
+        for origin, redirect in served(fetched_root, session):
+            yield origin, redirect, backend
+    finally:
+        profiles.set_hint_folder(None)
 
 
 def served(root: Path, session: Session):
@@ -289,16 +293,17 @@ def test_with_no_profile_chosen_a_pick_starts_the_model(clarity, page):
     assert page.is_hidden("#picker-menu") and focused(page) == "picker-button"
 
 
-def test_a_refused_start_shows_the_backends_sentence(clarity, page):
+def test_a_refused_start_shows_the_backends_sentence(clarity, page, fetched_root):
     _, redirect, _ = clarity
     open_clarity(page, redirect)
     assert page.text_content("[data-profile=far] .d2") == "runs on llama.cpp · not fetched"
     shot(page, "C6-not-fetched")
     page.click("[data-profile=far]")
     page.wait_for_selector("#notice [role=alert]")
+    folder = profiles.shell_folder(fetched_root)  # the hint names the folder (v0.4.2 A8)
     assert page.text_content("#notice [role=alert]") == (
-        "! far didn’t start. Model 'other' is not fetched. In a new terminal window, in "
-        "Clarity's folder, run: uv run clarity fetch other. Then try again."
+        "! far didn’t start. Model 'other' is not fetched. In a new Terminal window, run: cd "
+        f"{folder} && uv run clarity fetch other. Then try again."
     )
     assert page.text_content("#picker-button .nm") == "Choose a profile"
     assert page.is_disabled("#message")
