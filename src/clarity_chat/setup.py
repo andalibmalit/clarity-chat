@@ -22,7 +22,15 @@ from typing import Any
 
 from clarity_chat.backends.llama_cpp import server_binary
 from clarity_chat.logs import git_state
-from clarity_chat.profiles import ConfigError, load_server_config
+from clarity_chat.models import check_weights_quick, lock_entry
+from clarity_chat.models import fetch as fetch_model
+from clarity_chat.profiles import (
+    ConfigError,
+    ModelEntry,
+    ServerConfig,
+    load_models,
+    load_server_config,
+)
 
 GIB = 1024**3
 MEMORY_FLOOR = 16 * GIB  # decision 2 (Q6b): the first model beside bge-m3
@@ -31,13 +39,20 @@ LLAMA_URL = "https://github.com/ggml-org/llama.cpp"
 # What each missing piece downloads and keeps, in bytes (decision 9). The source: a shallow
 # fetch at the pin (its .git) and the checkout; the build: llama-server's build folder.
 # Measured on the owner's checkout at the pin (2026-11-22: .git 41 MB, the tree 193 MB, a
-# build 148 MB), rounded up; A2's -m setup run confirms them. A3 adds the models.
+# build 148 MB), rounded up; A2's -m setup run confirms them. A model keeps what it
+# downloads (the Hugging Face cache) and, for the convert route, its GGUF: bge-m3's pickle
+# is 2,271,145,830 bytes and its GGUF 1,157,671,136 (models.lock), plus its tokenizer. The
+# converter's environment (torch, transformers and the rest, in uv's cache) is an estimate
+# until the owner's fresh-account run measures it.
 SIZES: dict[str, tuple[int, int]] = {
     "source": (50 * 10**6, 250 * 10**6),
     "build": (0, 150 * 10**6),
-    "converter": (0, 0),  # stub (A3)
+    "converter": (500 * 10**6, 1_200 * 10**6),
+    "bge-m3": (2_300 * 10**6, 3_460 * 10**6),
 }
-SETUP_MODELS: tuple[str, ...] = ()  # stub (A3)
+# The models setup fetches, in order: bge-m3, meaning search's embedder; A4 puts the first
+# chat model before it (decision 8, after Q6a and Q6b).
+SETUP_MODELS: tuple[str, ...] = ("bge-m3",)
 
 Runner = Callable[[list[str], dict[str, str], "Path | None"], tuple[int, str]]
 
@@ -88,13 +103,14 @@ class Setup:
         say: Callable[[str], None],
         state: Callable[[Path], dict[str, Any]] = git_state,
         home: Path | None = None,
-        models: tuple[str, ...] = (),  # stub (A3)
-        fetch: Any = None,
+        models: tuple[str, ...] = SETUP_MODELS,
+        fetch: Callable[[Path, ModelEntry, ServerConfig], dict[str, Any]] = fetch_model,
     ) -> None:
         self.root, self.mac, self.run, self.ask, self.say = root, mac, run, ask, say
         self.state = state
         self.home = home or Path.home()
-        config = load_server_config(root)
+        self.models, self.fetch = models, fetch
+        config = self.config = load_server_config(root)
         self.pin = config.llama_cpp_commit
         self.source = config.llama_cpp_dir
         self.partial = self.source.parent / f"{self.source.name}.partial"
@@ -106,6 +122,12 @@ class Setup:
         missing = [] if source_done else ["source"]
         if not self.built():
             missing.append("build")
+        entries = load_models(self.root)
+        models = [entries[name] for name in self.models]
+        to_fetch = [m for m in models if not self.fetched(m)]
+        missing += [m.name for m in to_fetch]
+        if any(m.route == "convert" for m in to_fetch):  # the converter runs only for these
+            missing.append("converter")
         download = sum(SIZES[piece][0] for piece in missing)
         keep = sum(SIZES[piece][1] for piece in missing)
         if keep + SPARE > self.mac.free:
@@ -120,6 +142,23 @@ class Setup:
             self.say("llama.cpp's source: already done.")
         else:
             self.fetch_source()
+        for model in models:  # in order; a failed fetch stops here, and a run again goes on
+            if model in to_fetch:
+                self.fetch(self.root, model, self.config)
+            else:
+                self.say(f"{model.name}: already done.")
+        self.say(
+            "Setup is done. Next time, double-click Clarity.command on your Desktop to start "
+            "Clarity, or run the same command again to check the setup."
+        )
+
+    def fetched(self, model: ModelEntry) -> bool:
+        """Its lock entry, and its weights' size and time against it (state 13)."""
+        try:
+            check_weights_quick(self.root, lock_entry(self.root, model))
+        except ConfigError:
+            return False
+        return True
 
     def built(self) -> bool:
         """Whether llama-server is there. Whether it's from the pin is the build step's check

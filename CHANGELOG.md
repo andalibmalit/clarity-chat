@@ -9,7 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Added
-- `clarity setup` sets up a Mac with Apple silicon and 16 GB of memory or more: it checks the platform, memory and disk, asks once with the sizes before downloading anything, and fetches llama.cpp's source at the pinned commit into `vendor/llama.cpp` (a folder it didn't make is left alone). Each step says when it's already done, so setup can be run again.
+- `clarity setup` sets up a Mac with Apple silicon and 16 GB of memory or more: it checks the platform, memory and disk, asks once with the sizes before downloading anything, fetches llama.cpp's source at the pinned commit into `vendor/llama.cpp` (a folder it didn't make is left alone), then fetches bge-m3, and says how to start Clarity next time. Each step says when it's already done, so setup can be run again.
 
 ## [0.4.1] - 2026-11-22
 
