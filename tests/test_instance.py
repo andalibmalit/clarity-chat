@@ -67,10 +67,11 @@ class FakeOrphan:
         self.port = self.http.server_address[1]
         threading.Thread(target=self.http.serve_forever, daemon=True).start()
 
-    def left_by_a_crash(self, root, key="k", model_path="/m/a.gguf"):
+    def left_by_a_crash(self, root, key="k", model_path="/m/a.gguf", kind="server"):
         (root / "local").mkdir(exist_ok=True)
         server = {"port": self.port, "pid": self.proc.pid, "api_key": key, "model_path": model_path}
-        instance.write_info(root, {"pid": 1, "command": "chat", "server": server})
+        info = {**instance.read_info(root), "pid": 1, "command": "chat", kind: server}
+        instance.write_info(root, info)
 
     def close(self):
         self.http.shutdown()
@@ -183,3 +184,48 @@ def test_a_malformed_record_is_reported_not_a_crash(tmp_path, content):
     (tmp_path / "local" / "clarity.json").write_text(content, encoding="utf-8")
     with instance.hold(tmp_path, "chat") as held:
         assert held.orphan is None or "can't be read; nothing was stopped" in held.orphan
+
+
+# --- v0.4.1 D4: the embedder's record (decision 16) ---------------------------------------
+
+
+def test_an_embedder_left_by_a_crash_is_stopped_once_its_port_proves_it(tmp_path, orphan):
+    left = orphan("/m/bge-m3-bf16.gguf")
+    left.left_by_a_crash(tmp_path, model_path="/m/bge-m3-bf16.gguf", kind="embedder")
+    with instance.hold(tmp_path, "chat") as held:
+        assert held.orphan is not None and f"pid {left.proc.pid}" in held.orphan
+        assert "embedder" not in instance.read_info(tmp_path)  # the new run's record is fresh
+    assert left.proc.wait(timeout=10) != 0
+
+
+def test_an_embedder_that_doesn_t_prove_it_is_ours_is_left_alone(tmp_path, orphan):
+    left = orphan("/m/bge-m3-bf16.gguf")
+    left.left_by_a_crash(tmp_path, key="wrong", model_path="/m/bge-m3-bf16.gguf", kind="embedder")
+    with instance.hold(tmp_path, "chat") as held:
+        assert held.orphan is not None and "left alone" in held.orphan
+    assert left.proc.poll() is None  # still running: nothing was killed
+
+
+def test_a_server_and_an_embedder_left_are_both_stopped(tmp_path, orphan):
+    server, embedder = orphan(), orphan("/m/bge-m3-bf16.gguf")
+    server.left_by_a_crash(tmp_path)
+    embedder.left_by_a_crash(tmp_path, model_path="/m/bge-m3-bf16.gguf", kind="embedder")
+    with instance.hold(tmp_path, "chat") as held:
+        assert held.orphan is not None
+        assert f"pid {server.proc.pid}" in held.orphan and f"pid {embedder.proc.pid}" in held.orphan
+    assert server.proc.wait(timeout=10) != 0 and embedder.proc.wait(timeout=10) != 0
+
+
+def test_the_running_embedder_is_recorded_and_cleared(tmp_path):
+    with instance.hold(tmp_path, "chat") as held:
+        held.record_server({"port": 1, "pid": 2, "api_key": "k", "model_path": "/m"}, "embedder")
+        assert (instance.read_info(tmp_path).get("embedder") or {}).get("port") == 1
+        assert not instance.read_info(tmp_path).get("server")
+        held.record_server(None, "embedder")
+        assert instance.read_info(tmp_path).get("embedder") is None
+
+
+def test_the_file_stays_while_either_is_recorded(tmp_path):
+    with instance.hold(tmp_path, "chat") as held:
+        held.record_server({"port": 1, "pid": 2, "api_key": "k", "model_path": "/m"}, "embedder")
+    assert (instance.read_info(tmp_path).get("embedder") or {}).get("port") == 1

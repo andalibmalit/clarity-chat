@@ -63,7 +63,7 @@ class Held:
         self.root, self.info = root, info
         self.orphan = orphan  # what was found of a server a crashed run left behind
 
-    def record_server(self, server: dict[str, Any] | None) -> None:
+    def record_server(self, server: dict[str, Any] | None, kind: str = "server") -> None:
         self.info["server"] = server
         write_info(self.root, self.info)
 

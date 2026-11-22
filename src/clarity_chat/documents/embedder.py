@@ -127,6 +127,7 @@ class Embedder:
         server_config: ServerConfig,
         logs_dir: Path,
         load_tokenizer: Callable[[str, str], Any],
+        on_change: Callable[[dict[str, Any] | None], None] | None = None,
     ) -> None:
         self.root = root
         self.config = dataclasses.replace(server_config, flags=dict(FLAGS))

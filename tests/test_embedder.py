@@ -111,6 +111,15 @@ def fake(monkeypatch) -> Fake:
         self.output = [seen.startup]
         self.proc = Running()
         seen.procs.append(self.proc)
+        if self.on_change:  # as LlamaServer._launch tells it, before the model loads
+            self.on_change(
+                {
+                    "port": self.port,
+                    "pid": 4242,
+                    "api_key": self.api_key,
+                    "model_path": str(self.gguf),
+                }
+            )
         return None
 
     def props(self):
@@ -425,6 +434,27 @@ def test_the_session_makes_it_on_first_need_and_stops_it_at_close(m3_root, fake)
     assert session.embedder().vector([0, 5, 2]) == UNIT
     session.close()
     assert fake.procs[-1].terminated
+
+
+def test_the_session_records_the_embedder_s_process_for_crash_recovery(m3_root, fake):
+    """D4 (decision 16): the embedder's port, PID, key and model go where the chat server's
+    do, under "embedder", when it starts, and None when it stops."""
+    from clarity_chat.session import Session
+    from tests.fakes import FakeBackend
+
+    recorded: list[tuple[dict[str, Any] | None, str]] = []
+    session = Session(
+        m3_root,
+        backend=FakeBackend([]),
+        tokenizer_loader=lambda r, v: Words,
+        on_server=lambda info, kind="server": recorded.append((info, kind)),
+    )
+    session.embedder().vector([0, 5, 2])
+    assert [kind for _, kind in recorded] == ["embedder"]
+    info = recorded[0][0]
+    assert info is not None and info["model_path"].endswith("bge-m3-bf16.gguf")
+    session.close()
+    assert recorded[-1] == (None, "embedder")
 
 
 class Untouchable:
