@@ -344,12 +344,37 @@ def memory_use(startup_output: str, placement: dict[str, Any]) -> list[dict[str,
     return found
 
 
-def memory_problem(ctx_size: int, memory: list[dict[str, Any]]) -> str | None:
+# The servers this process runs that have started (v0.4.1 A4): the chat server, and meaning
+# search's embedder. Each is removed once it has exited.
+RUNNING: list[LlamaServer] = []
+
+WORDS_WAY_OUT = (
+    'set search_method = "words" under [documents] in your own profile (copy a shipped one '
+    "into local/profiles/ first) and start a new chat."
+)
+
+
+def memory_problem(
+    ctx_size: int,
+    memory: list[dict[str, Any]],
+    embedder: bool = False,
+    beside: tuple[int, list[dict[str, Any]]] | None = None,
+) -> str | None:
     """Metal only for now. Apple documents recommendedMaxWorkingSetSize as "an approximation
     of how much memory ... this GPU device can allocate without affecting its runtime
-    performance". Other GPUs log the figures only (until the Linux release)."""
+    performance". Other GPUs log the figures only (until the Linux release).
+
+    Metal's limit counts only this process's memory, so a start beside the other server
+    (`beside`: its ctx_size and memory) adds that one's total on the same GPU (v0.4.1 A4,
+    decision 14). The embedder's 8,192 is fixed: its ways out are the chat model's."""
     for m in memory:
-        if m["device"].startswith("MTL") and m["total_mib"] > m["limit_mib"]:
+        if not m["device"].startswith("MTL"):
+            continue
+        other = next((o for o in beside[1] if o["device"] == m["device"]), None) if beside else None
+        total = m["total_mib"] + (other["total_mib"] if other else 0)
+        if total <= m["limit_mib"]:
+            continue
+        if not embedder and m["total_mib"] > m["limit_mib"]:  # the chat model alone
             return (
                 f"At ctx_size {ctx_size}, the model needs {m['total_mib']:,.0f} MiB of GPU "
                 f"memory ({m['model_mib']:,.0f} for the model, {m['kv_mib']:,.0f} for the "
@@ -362,6 +387,21 @@ def memory_problem(ctx_size: int, memory: list[dict[str, Any]]) -> str | None:
                     else "Lower ctx_size: the context cache grows with it."
                 )
             )
+        limit = f"more than Metal's recommended limit for this GPU, {m['limit_mib']:,} MiB."
+        if other is None:  # the embedder alone: its 8,192 is fixed
+            way_out = WORDS_WAY_OUT[0].upper() + WORDS_WAY_OUT[1:]
+            return (
+                f"Meaning search's embedder needs {m['total_mib']:,.0f} MiB of GPU memory, "
+                f"{limit} {way_out}"
+            )
+        mine, theirs = (m, other) if embedder else (other, m)
+        chat_ctx = beside[0] if embedder and beside else ctx_size
+        return (
+            f"Meaning search's embedder needs {mine['total_mib']:,.0f} MiB of GPU memory and "
+            f"the chat model {theirs['total_mib']:,.0f} MiB at ctx_size {chat_ctx}: together "
+            f"{total:,.0f} MiB, {limit} Use a smaller chat model or a lower ctx_size, or "
+            f"{WORDS_WAY_OUT}"
+        )
     return None
 
 
@@ -506,6 +546,7 @@ class LlamaServer:
         # A new key per start, so a web page in a browser can't use the server (only /health
         # is public). It goes in the child's environment, not argv, which is logged.
         self.api_key = secrets.token_urlsafe(32)
+        self.embedding = bool(config.flags.get("embedding"))  # meaning search's embedder
 
     @property
     def url(self) -> str:
@@ -580,7 +621,13 @@ class LlamaServer:
         placement = device_placement(startup)
         problem = placement_problem(self.config.flags, placement)
         memory = memory_use(startup, placement)
-        problem = problem or memory_problem(self.config.ctx_size, memory)
+        others = [
+            s
+            for s in RUNNING
+            if s.embedding != self.embedding and s.proc is not None and s.proc.poll() is None
+        ]
+        beside = (others[0].config.ctx_size, others[0].record["memory"]) if others else None
+        problem = problem or memory_problem(self.config.ctx_size, memory, self.embedding, beside)
         if problem:
             self.stop()
             raise ConfigError(problem)
@@ -634,6 +681,7 @@ class LlamaServer:
             "warnings": warnings,
             "machine": machine(),
         }
+        RUNNING.append(self)
         return self.record
 
     def _launch(self, argv: list[str], env: dict[str, str]) -> str | None:
@@ -717,6 +765,8 @@ class LlamaServer:
         self._stopped()  # only once it has exited: if stopping fails, the record stays
 
     def _stopped(self) -> None:
+        if self in RUNNING:
+            RUNNING.remove(self)
         if self.on_change:
             self.on_change(None)
 
