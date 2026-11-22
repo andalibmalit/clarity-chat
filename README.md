@@ -37,7 +37,7 @@ The same call on the same machine and llama.cpp build gives the same output. Liv
 - Export of a conversation to one JSON Lines file a notebook can load, with exact token IDs, where each message sits in the prompt, and marks and notes.
 - Blind batch runs for comparing setups.
 - Attach a document to a message (text, HTML or PDF), whole or in part: Clarity shows what it costs and what it leaves before anything is sent, and logs its text with the message.
-- Search your documents by word: each message you send adds the best parts of the documents a chat searches, within a token budget, and logs which parts and why ([Search your documents](docs/guides.md#search-your-documents)).
+- Search your documents by meaning (with bge-m3, a second local model) or by word: each message you send adds the best parts of the documents a chat searches, within a token budget, and logs which parts and why ([Search your documents](docs/guides.md#search-your-documents)).
 - A web interface on your own computer (`clarity ui`), over the same commands and logs: the exact prompt, Replay, Settings, Compare, branches and chats.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - Profiles for SmolLM2-135M, OLMo 3 7B (Instruct and base) and Llama 3.1 8B (Instruct and base; Meta gates its download, see [Fetch a gated model](docs/guides.md#fetch-a-gated-model)).
