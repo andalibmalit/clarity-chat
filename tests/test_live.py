@@ -678,3 +678,9 @@ def test_a_start_s_output_holds_the_build_line_and_system_info(session):
     print("\n" + "\n".join(build + info))
     assert build, "no build line in startup_output"
     assert info, "no system_info line in startup_output"
+    # A1: replay reads both from the start, so a call made on it compares its build.
+    from clarity_chat.replay import facts_from_call
+
+    record = session.say("Name a colour.").record
+    built = facts_from_call(record, session.backend.server_record).get("build") or {}
+    assert built.get("line", "").startswith("build ") and built.get("features"), built
