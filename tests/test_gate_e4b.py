@@ -58,6 +58,9 @@ def test_the_first_model_passes_the_gate(gate):
     ending = record["prompt_text"][-40:]
     print(f"prompt ends {ending!r}")
     assert record["prompt_text"].endswith("<|turn>model\n"), "thinking isn't off"
+    # Gemma 4's template turns thinking on with a <|think|> token in the system turn; the
+    # ending alone doesn't show it's absent (Checkpoint 1's M2).
+    assert "<|think|>" not in record["prompt_text"], "the prompt asks the model to think"
     print(f"reply {record['output_text'][:120]!r}")
     for check, result in record["checks"].items():
         assert result.get("ok", True), (check, result)
