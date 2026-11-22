@@ -579,7 +579,9 @@ def test_a_chat_that_doesn_t_search_by_meaning_stops_the_embedder(
     embedder = fake.procs[-1]
     conversation = session.new_conversation("chat")  # conftest's chat profile: words
     assert embedder.terminated, "the embedder still runs"
-    assert not isinstance(running_server(monkeypatch, m3_root, CHAT_9000), Exception)
+    chat = running_server(monkeypatch, m3_root, CHAT_9000)
+    assert not isinstance(chat, Exception), chat
+    chat.stop()  # a smaller chat model next, say: the embedder fits beside it again
     session.embedder().vector([0, 5, 2])  # the next need starts it again
     assert not fake.procs[-1].terminated
     session.new_conversation("chat")

@@ -17,7 +17,7 @@ Two headings are Clarity's own, used when they apply:
 - bge-m3 in `models.toml`, the embedding model for meaning search, in place of bge-small-en-v1.5. bge-small's file stays on your disk until you delete `models/bge-small-en-v1.5/`.
 
 ### Changed
-- On a Mac, the memory check counts both of Clarity's servers: when a chat searches by meaning, a chat model's or the embedder's start that would put the two together over Metal's recommended limit is refused, naming both figures.
+- On a Mac, the memory check counts both of Clarity's servers: when a chat searches by meaning, a chat model's or the embedder's start that would put the two together over Metal's recommended limit is refused, naming both figures. A chat that doesn't search by meaning stops the embedder when it starts, so its memory is free for the chat model.
 - The terminal's `/history` and the streamed reply show control characters as `/prompt` has since 0.4.0 (⟨U+001B⟩), so a model's reply can't recolour or rewrite the terminal either; all three also show the line and paragraph separators (U+2028, U+2029) that way. The text sent, logged and exported, `/prompt repr` and `--json` are unchanged.
 - A model start is refused, with the existing sentence about banned tokens, when llama-server's startup log holds fewer or more of the model file's keys than llama.cpp says it dumps, so a log cut short can't read as "no banned tokens".
 - The converter that `clarity fetch` runs works offline and reads nothing from your terminal, so a model's tokenizer can't download code from another repo or ask a question you can't see.

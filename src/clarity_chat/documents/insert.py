@@ -6,6 +6,7 @@ attachments and the profile: it reads no file and keeps no state. Counting is pa
 from __future__ import annotations
 
 import hashlib
+import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from html import escape
@@ -522,7 +523,8 @@ FOUND_BY_METHOD: dict[str, dict[str, Callable[[Any], bool]]] = {
         ),
         "min_similarity": lambda v: _number(v) and -1 <= v <= 1,
         "min_similarity_origin": lambda v: v in ("default", "profile"),
-        "parts": _dicts(FOUND_PART_TYPES),
+        # A similarity is finite: a log's Infinity is refused, not shown (the fix review's F2).
+        "parts": _dicts({**FOUND_PART_TYPES, "score": lambda v: _number(v) and math.isfinite(v)}),
     },
 }
 

@@ -11,7 +11,7 @@ import sqlite3
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from decimal import ROUND_FLOOR, Decimal
+from decimal import ROUND_FLOOR, Decimal, localcontext
 from pathlib import Path
 from typing import Any
 
@@ -210,7 +210,10 @@ def shown_score(score: float, minimum: float) -> str:
     least = Decimal(repr(minimum))
     exponent = least.normalize().as_tuple().exponent  # an int for a finite minimum
     places = max(2, -min(0, int(exponent)))
-    shown = Decimal(score).quantize(Decimal(1).scaleb(-places), rounding=ROUND_FLOOR)
+    # Enough digits for any finite float at any minimum's places (309 + 324): the default
+    # 28 raised past them (the fix review's F2).
+    with localcontext(prec=700):
+        shown = Decimal(score).quantize(Decimal(1).scaleb(-places), rounding=ROUND_FLOOR)
     if score >= minimum:
         shown = max(shown, least)
     return f"{shown:.{places}f}"

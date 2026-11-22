@@ -544,8 +544,9 @@ class Session:
         return backend
 
     def embedder(self) -> Embedder:
-        """bge-m3's server, made on a meaning search's first need and stopped at close (v0.4.1
-        decision 3); its first vector starts it."""
+        """bge-m3's server, made on a meaning search's first need, stopped when a chat that
+        doesn't search by meaning starts and at close (v0.4.1 decision 3, as the fix review's
+        F1 amends it); its first vector starts it."""
         if self._embedder is None:
             on_server = self.on_server  # D4: recorded as "embedder", beside the chat's server
             self._embedder = Embedder(
@@ -556,6 +557,14 @@ class Session:
                 (lambda info: on_server(info, "embedder")) if on_server else None,
             )
         return self._embedder
+
+    def _free_embedder(self, method: str) -> None:
+        """Before a chat that doesn't search by meaning starts its model (a new chat or a
+        resume), stop the embedder, so its memory is free for the chat server: the memory
+        refusal's way out works in a running session (the fix review's F1). Its next need
+        starts it again, and the vectors are cached."""
+        if method != "meaning" and self._embedder is not None:
+            self._embedder.close()
 
     def load_tokenizer(self, repo: str, revision: str) -> Tokenizer:
         if (repo, revision) not in self._tokenizers:
@@ -718,6 +727,7 @@ class Session:
         self._profile_documents(prepared.profile)
         model = prepared.model
         ctx_size = self.ctx_size_for(prepared.profile)
+        self._free_embedder(prepared.profile.search_method or SEARCH_METHOD)
         started = self.start_model(prepared, ctx_size)
         conversation_id = new_id("conversation")
         log = log or LogFile(self.logs_dir / f"{conversation_id}.jsonl")
@@ -2317,6 +2327,7 @@ class Session:
         render = self.check_render(conversation, head, prepared)
         if not os.access(path, os.W_OK):
             raise ConfigError(f"Clarity can't write to {path}, so it can't continue it there.")
+        self._free_embedder(conversation.search_method)
         conversation.started_server = self.start_model(prepared, ctx_size)
         environment = missing = None
         if last:

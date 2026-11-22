@@ -148,13 +148,19 @@ def check_run(
     return prepared
 
 
+NOT_COMPARED = object()  # a value a profile doesn't use: no difference to any other
+
 DIFFERS = {  # what can give two profiles different parts for one opening
     "tokenizers": lambda p: (p.model.tokenizer_repo, p.model.tokenizer_revision),
     "budgets": lambda p: budget_of(p.profile)[0],  # none written is the default (fix 2's C3)
     "search lists": lambda p: tuple(p.profile.search),
     "placements": lambda p: p.profile.placement,
     "search methods": lambda p: p.profile.search_method or SEARCH_METHOD,  # v0.4.1 review S2
-    "minimum similarities": lambda p: minimum_of(p.profile)[0],
+    "minimum similarities": lambda p: (  # a words profile's minimum does nothing (could 2)
+        minimum_of(p.profile)[0]
+        if (p.profile.search_method or SEARCH_METHOD) == "meaning"
+        else NOT_COMPARED
+    ),
 }
 
 
@@ -165,7 +171,11 @@ def parts_differ(i: int, got: dict[str, list[str]], prepared: dict[str, Any]) ->
     if len({tuple(ids) for ids in got.values()}) < 2:
         return None
     said = "; ".join(f"{name}: {', '.join(ids) or 'none'}" for name, ids in got.items())
-    differ = [what for what, of in DIFFERS.items() if len({of(prepared[n]) for n in got}) > 1]
+    differ = [
+        what
+        for what, of in DIFFERS.items()
+        if len({of(prepared[n]) for n in got} - {NOT_COMPARED}) > 1
+    ]
     why = (
         f"Their {' and '.join([', '.join(differ[:-1]), differ[-1]] if differ[1:] else differ)} "
         "differ, so the replies"

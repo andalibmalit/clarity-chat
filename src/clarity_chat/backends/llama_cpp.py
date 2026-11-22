@@ -621,11 +621,10 @@ class LlamaServer:
         placement = device_placement(startup)
         problem = placement_problem(self.config.flags, placement)
         memory = memory_use(startup, placement)
-        others = [
-            s
-            for s in RUNNING
-            if s.embedding != self.embedding and s.proc is not None and s.proc.poll() is None
-        ]
+        # The other server (this one joins RUNNING once it has started): a chat server and an
+        # embedder never have a second of their kind, since a chat model's start closes the
+        # old one first. Counted only while its process runs.
+        others = [s for s in RUNNING if s.proc is not None and s.proc.poll() is None]
         beside = (others[0].config.ctx_size, others[0].record["memory"]) if others else None
         problem = problem or memory_problem(self.config.ctx_size, memory, self.embedding, beside)
         if problem:
