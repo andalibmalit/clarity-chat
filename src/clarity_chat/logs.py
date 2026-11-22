@@ -282,9 +282,12 @@ def chat_summary(path: Path) -> dict[str, Any]:
 # --- environment facts -----------------------------------------------------------------
 
 
-def _git(folder: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def _git(
+    folder: Path, *args: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         ["git", "-C", str(folder), *args],
+        env=env,
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -293,12 +296,13 @@ def _git(folder: Path, *args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def git_state(folder: Path) -> dict[str, Any]:
-    """Commit and dirty flag of a git checkout. `dirty` is None if git couldn't tell."""
-    head = _git(folder, "rev-parse", "HEAD")
+def git_state(folder: Path, env: dict[str, str] | None = None) -> dict[str, Any]:
+    """Commit and dirty flag of a git checkout. `dirty` is None if git couldn't tell. `env`:
+    git's environment (setup's cleared one); None inherits this process's."""
+    head = _git(folder, "rev-parse", "HEAD", env=env)
     if head.returncode != 0:
         return {"commit": None, "dirty": None, "error": head.stderr.strip()}
-    status = _git(folder, "status", "--porcelain", "--untracked-files=no")
+    status = _git(folder, "status", "--porcelain", "--untracked-files=no", env=env)
     state: dict[str, Any] = {"commit": head.stdout.strip()}
     if status.returncode == 0:
         state["dirty"] = bool(status.stdout.strip())

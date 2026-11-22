@@ -302,21 +302,20 @@ class FakeEmbedder:
 
 
 class FakeRunner:
-    """setup's `run(argv, env, log)` offline (v0.4.2 A2): records each argv and environment
-    and plays back a scripted result, (exit code, output), in order; anything unscripted
-    exits 0 with no output. `effects` maps an argv's second word (the git step, after
-    `git -C FOLDER`, or cmake's first argument) to a callable that leaves the files the real
-    step would. What it imitates is gated live in tests/test_setup_live.py (-m setup): the
-    shallow fetch by full hash and the build."""
+    """setup's `run(argv, env)` offline (v0.4.2 A2): records each argv and environment and
+    plays back a scripted result, (exit code, output), in order; anything unscripted exits 0
+    with no output. `effects` maps a git step (the word after `git -C FOLDER`) to a callable
+    that leaves the files the real step would: `init` leaves FOLDER/.git. What it imitates
+    is gated live in tests/test_setup_live.py (-m setup): the shallow fetch by full hash."""
 
     def __init__(self, results: list[tuple[int, str]] | None = None) -> None:
         self.results = list(results or [])
-        self.calls: list[tuple[list[str], dict[str, str], Path | None]] = []
+        self.calls: list[tuple[list[str], dict[str, str]]] = []
         # `git -C FOLDER init` leaves FOLDER/.git, which setup's never-touch check reads.
         self.effects: dict[str, Any] = {"init": lambda argv: (Path(argv[2]) / ".git").mkdir()}
 
-    def __call__(self, argv: list[str], env: dict[str, str], log: Path | None) -> tuple[int, str]:
-        self.calls.append((list(argv), dict(env), log))
+    def __call__(self, argv: list[str], env: dict[str, str]) -> tuple[int, str]:
+        self.calls.append((list(argv), dict(env)))
         step = argv[3] if argv[:2] == ["git", "-C"] and len(argv) > 3 else argv[0]
         if step in self.effects:
             self.effects[step](argv)
@@ -324,4 +323,4 @@ class FakeRunner:
 
     @property
     def argvs(self) -> list[list[str]]:
-        return [argv for argv, _, _ in self.calls]
+        return [argv for argv, _ in self.calls]

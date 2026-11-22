@@ -259,7 +259,7 @@ def test_git_runs_with_a_cleared_environment(root, monkeypatch):
     run = FakeRunner()
     to_the_build(made(root, run=run, home=Path("/Users/made-up")))
     assert run.calls, "git never ran"
-    for _, env, _ in run.calls:
+    for _, env in run.calls:
         assert set(env) == {
             "PATH", "HOME", "LANG", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL",
             "GIT_TERMINAL_PROMPT",

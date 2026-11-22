@@ -32,6 +32,7 @@ from clarity_chat.profiles import (
     ServerConfig,
     load_models,
     load_server_config,
+    shell_folder,
 )
 
 GIB = 1024**3
@@ -43,7 +44,8 @@ LLAMA_URL = "https://github.com/ggml-org/llama.cpp"
 # Measured on the owner's checkout at the pin (2026-11-22: .git 41 MB, the tree 193 MB, a
 # build 148 MB), rounded up; A2's -m setup run confirms them. A model keeps what it
 # downloads (the Hugging Face cache) and, for the convert route, its GGUF: bge-m3's pickle
-# is 2,271,145,830 bytes and its GGUF 1,157,671,136 (models.lock), plus its tokenizer. The
+# is 2,271,145,830 bytes (its file on Hugging Face) and its GGUF 1,157,671,136 (models.lock),
+# plus its tokenizer. The
 # converter's environment (torch, transformers and the rest, in uv's cache) is an estimate
 # until the owner's fresh-account run measures it.
 SIZES: dict[str, tuple[int, int]] = {
@@ -63,7 +65,7 @@ BUILD_LINES = (
     "cmake --build vendor/llama.cpp/build --config Release -j N --target llama-server",
 )
 
-Runner = Callable[[list[str], dict[str, str], "Path | None"], tuple[int, str]]
+Runner = Callable[[list[str], dict[str, str]], tuple[int, str]]
 
 
 @dataclass(frozen=True)
@@ -84,17 +86,14 @@ def this_mac(root: Path) -> Mac:
     return Mac(platform.system(), platform.machine(), memory, shutil.disk_usage(root).free)
 
 
-def run_logged(argv: list[str], env: dict[str, str], log: Path | None) -> tuple[int, str]:
-    """A step's command, its output kept (and added to `log`, if given)."""
+def run_logged(argv: list[str], env: dict[str, str]) -> tuple[int, str]:
+    """A step's command, with its output kept. (The held build step adds a log file.)"""
     import subprocess
 
     done = subprocess.run(
         argv, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT, text=True, check=False,
     )  # fmt: skip
-    if log is not None:
-        with log.open("a", encoding="utf-8") as f:
-            f.write(f"$ {' '.join(argv)}\n{done.stdout}")
     return done.returncode, done.stdout
 
 
@@ -110,7 +109,7 @@ class Setup:
         run: Runner,
         ask: Callable[[str], str],
         say: Callable[[str], None],
-        state: Callable[[Path], dict[str, Any]] = git_state,
+        state: Callable[[Path, dict[str, str]], dict[str, Any]] = git_state,
         *,
         home: Path,  # required, as desktop and uv are: nothing defaults to the real ones
         desktop: Path,
@@ -202,9 +201,9 @@ class Setup:
             path.chmod(0o755)
         except OSError as e:  # "Don't Allow" at the Desktop prompt, or a managed Mac
             self.say(
-                f"Setup couldn't write Clarity.command to your Desktop ({e.strerror}). To make "
-                "the launcher yourself, put these three lines in a file named Clarity.command "
-                f"there:\n{shown}"
+                "Setup couldn't write Clarity.command to your Desktop "
+                f"({e.strerror or e}). To make the launcher yourself, put these three lines in "
+                f"a file named Clarity.command there:\n{shown}"
             )
             return
         self.say("Made Clarity.command on your Desktop: double-click it to start Clarity.")
@@ -255,7 +254,7 @@ class Setup:
         if not self.source.exists():
             return False
         # Only its own .git: git_state in a plain folder finds the clone around it (S1).
-        state = self.state(self.source) if (self.source / ".git").exists() else {}
+        state = self.state(self.source, self.git_env()) if (self.source / ".git").exists() else {}
         if state.get("commit") is None:
             why = "isn't a git checkout"
         elif state["commit"] != self.pin:
@@ -273,16 +272,10 @@ class Setup:
         """The one question (state 12), before anything is downloaded."""
         answer = self.ask(
             f"Setup will download about {gb(download)} GB and keep about {gb(keep)} GB in "
-            f"{self.shown(self.root)} and your Hugging Face cache. Free: {gb(self.mac.free)} "
-            "GB. Continue? [Y/n] "
+            f"{shell_folder(self.root, self.home)} and your Hugging Face and uv caches. Free: "
+            f"{gb(self.mac.free)} GB. Continue? [Y/n] "
         )
         return answer.strip().lower() in ("", "y", "yes")
-
-    def shown(self, folder: Path) -> str:
-        """A folder as the user knows it: ~/-relative under the home folder."""
-        if folder.is_relative_to(self.home):
-            return f"~/{folder.relative_to(self.home).as_posix()}"
-        return folder.as_posix()
 
     def git_env(self) -> dict[str, str]:
         """git with nothing of the user's: no GIT_* variables, and neither the global nor
@@ -311,14 +304,14 @@ class Setup:
             ["fetch", "--depth", "1", "-q", LLAMA_URL, self.pin],
             ["checkout", "--detach", "-q", self.pin],
         ):
-            code, output = self.run([*where, *step], self.git_env(), None)
+            code, output = self.run([*where, *step], self.git_env())
             if code != 0:
                 message = output.strip().splitlines()[-1] if output.strip() else f"exit {code}"
                 raise ConfigError(
                     f"Fetching llama.cpp's source failed: {message}. Run setup again: it "
                     "starts the fetch over."
                 )
-        state = self.state(self.partial)
+        state = self.state(self.partial, self.git_env())  # as the fetch ran (C7)
         if state.get("commit") != self.pin or state.get("dirty") is not False:
             raise ConfigError(
                 f"llama.cpp's source didn't check out at {self.pin[:12]} cleanly. Run setup "

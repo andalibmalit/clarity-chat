@@ -38,10 +38,11 @@ def set_hint_folder(folder: Path | None) -> None:
     HINT_FOLDER = folder
 
 
-def shell_folder(folder: Path) -> str:
+def shell_folder(folder: Path, home: Path | None = None) -> str:
     """A folder as a shell command takes it: ~/-relative under the home folder (the shell
-    expands the ~/ before the quoted rest), else whole; quoted only when it needs to be."""
-    home = Path.home()
+    expands the ~/ before the quoted rest), else whole; quoted only when it needs to be.
+    `home`: the home folder (setup passes its own; None is this user's)."""
+    home = home or Path.home()
     if folder.is_relative_to(home):
         return "~/" + shlex.quote(folder.relative_to(home).as_posix())
     return shlex.quote(folder.as_posix())
