@@ -568,9 +568,19 @@ def scratch_library(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(library_module, "LIBRARY", scratch / "local" / "documents")
 
 
+def words_chat(tmp_path) -> str:
+    """smol-chat searching by words, stated: CI's live-cpu job has no embedder (v0.4.1 Q4),
+    and since meaning became the default (B3) the shipped profile searches by meaning.
+    Meaning search's replay and resume are test_embed's."""
+    text = (REPO / "profiles" / "smol-chat.toml").read_text(encoding="utf-8")
+    path = tmp_path / "smol-chat-words.toml"
+    path.write_text(text + '\n[documents]\nsearch_method = "words"\n', encoding="utf-8")
+    return str(path)
+
+
 def test_a_searched_call_replays_identical(session, tmp_path, monkeypatch):
     scratch_library(tmp_path, monkeypatch)
-    session.new_conversation("smol-chat")
+    session.new_conversation(words_chat(tmp_path))
     session.set_search(["trail"])
     record = session.say("What marks the ridge?").record
     all_checks_ok(record)
@@ -584,7 +594,7 @@ def test_a_resumed_chat_with_found_parts_renders_identical(tmp_path, monkeypatch
     scratch_library(tmp_path, monkeypatch)
     session = Session(REPO, logs_dir=tmp_path / "logs")
     try:
-        session.new_conversation("smol-chat")
+        session.new_conversation(words_chat(tmp_path))
         session.set_search(["trail"])
         first = session.say("What marks the ridge?").record
         all_checks_ok(first)
