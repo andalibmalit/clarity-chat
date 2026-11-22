@@ -131,9 +131,13 @@ def to_the_build(setup: Setup) -> None:
         setup.go()
 
 
-def source(root: Path) -> Path:
+def source(root: Path, checkout: bool = True) -> Path:
+    """vendor/llama.cpp, with a .git of its own (a checkout, whose state the fake gives)
+    unless `checkout` is False (a plain folder)."""
     folder = load_server_config(root).llama_cpp_dir
     folder.mkdir(parents=True, exist_ok=True)
+    if checkout:
+        (folder / ".git").mkdir(exist_ok=True)
     return folder
 
 
@@ -294,7 +298,7 @@ def test_a_partial_that_isn_t_at_the_pin_and_clean_isn_t_renamed(root):
     ids=["another-commit", "dirty", "not-a-checkout"],
 )
 def test_a_source_setup_didn_t_make_is_refused_untouched(root, state, why):
-    folder = source(root)
+    folder = source(root, checkout=state is not None)
     (folder / "mine.txt").write_text("made up", encoding="utf-8")
     if state is not None and state["commit"] == "PIN":
         state = {**state, "commit": pin(root)}
@@ -308,7 +312,9 @@ def test_a_source_setup_didn_t_make_is_refused_untouched(root, state, why):
         "setup again."
     )
     assert run.calls == [] and says.asked == []
-    assert sorted(p.name for p in folder.iterdir()) == ["mine.txt"]
+    assert sorted(p.name for p in folder.iterdir()) == (
+        [".git", "mine.txt"] if state is not None else ["mine.txt"]
+    )
 
 
 # --- the lock (state 22)
@@ -433,7 +439,7 @@ def launcher_lines(folder: Path, uv: str = "/Users/made-up/.local/bin/uv") -> st
     return f"#!/bin/sh\ncd {shlex.quote(str(folder))}\nexec {shlex.quote(uv)} run clarity ui\n"
 
 
-def test_the_launcher_is_written_with_two_lines_and_mode_0755(tmp_path, root):
+def test_the_launcher_is_written_with_three_lines_and_mode_0755(tmp_path, root):
     import shlex
 
     folder = tmp_path / "Its folder, with a space and a 'quote'"
@@ -562,7 +568,7 @@ def test_a_plain_folder_inside_a_git_clone_isn_t_a_checkout(root):
     git(root, "init", "-q")
     git(root, "add", "defaults.toml")
     git(root, "commit", "-q", "-m", "made up")
-    folder = source(root)
+    folder = source(root, checkout=False)
     (folder / "mine.txt").write_text("made up", encoding="utf-8")
     run = FakeRunner()
     with pytest.raises(ConfigError) as refused:

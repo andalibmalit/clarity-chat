@@ -312,7 +312,8 @@ class FakeRunner:
     def __init__(self, results: list[tuple[int, str]] | None = None) -> None:
         self.results = list(results or [])
         self.calls: list[tuple[list[str], dict[str, str], Path | None]] = []
-        self.effects: dict[str, Any] = {}
+        # `git -C FOLDER init` leaves FOLDER/.git, which setup's never-touch check reads.
+        self.effects: dict[str, Any] = {"init": lambda argv: (Path(argv[2]) / ".git").mkdir()}
 
     def __call__(self, argv: list[str], env: dict[str, str], log: Path | None) -> tuple[int, str]:
         self.calls.append((list(argv), dict(env), log))

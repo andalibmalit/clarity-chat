@@ -16,6 +16,7 @@ import platform
 import shlex
 import shutil
 import sys
+import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -54,7 +55,13 @@ SIZES: dict[str, tuple[int, int]] = {
 # The models setup fetches, in order: bge-m3, meaning search's embedder; A4 puts the first
 # chat model before it (decision 8, after Q6a and Q6b).
 SETUP_MODELS: tuple[str, ...] = ("bge-m3",)
-BUILD_LINES = ("stub", "stub")  # stub (Checkpoint 1's S5)
+# Getting started's two build lines (decision 4), N the CPU count; a test checks the doc says
+# the same. Setup can't run them yet (A2's build step waits for Q2 and Q3a), so it says them.
+BUILD_LINES = (
+    "cmake -S vendor/llama.cpp -B vendor/llama.cpp/build -DCMAKE_BUILD_TYPE=Release "
+    "-DLLAMA_CURL=OFF -DLLAMA_USE_PREBUILT_UI=OFF",
+    "cmake --build vendor/llama.cpp/build --config Release -j N --target llama-server",
+)
 
 Runner = Callable[[list[str], dict[str, str], "Path | None"], tuple[int, str]]
 
@@ -104,21 +111,23 @@ class Setup:
         ask: Callable[[str], str],
         say: Callable[[str], None],
         state: Callable[[Path], dict[str, Any]] = git_state,
-        home: Path | None = None,
+        *,
+        home: Path,  # required, as desktop and uv are: nothing defaults to the real ones
+        desktop: Path,
+        uv: str,
         models: tuple[str, ...] = SETUP_MODELS,
         fetch: Callable[[Path, ModelEntry, ServerConfig], dict[str, Any]] = fetch_model,
-        desktop: Path | None = None,
-        uv: str = "",
     ) -> None:
         self.root, self.mac, self.run, self.ask, self.say = root, mac, run, ask, say
         self.state = state
-        self.home = home or Path.home()
+        self.home, self.desktop, self.uv = home, desktop, uv
         self.models, self.fetch = models, fetch
-        self.desktop = desktop or self.home / "Desktop"
-        self.uv = uv
         config = self.config = load_server_config(root)
         self.pin = config.llama_cpp_commit
-        self.source = config.llama_cpp_dir
+        # server.toml's folder as written, not resolved: load_server_config follows a link,
+        # and setup must see one to leave it alone (Checkpoint 1's S7).
+        written = tomllib.loads((root / "server.toml").read_text(encoding="utf-8"))
+        self.source = Path(os.path.normpath(root / written["llama_cpp_dir"]))
         self.partial = self.source.parent / f"{self.source.name}.partial"
 
     def go(self) -> None:
@@ -136,7 +145,7 @@ class Setup:
             missing.append("converter")
         download = sum(SIZES[piece][0] for piece in missing)
         keep = sum(SIZES[piece][1] for piece in missing)
-        if keep + SPARE > self.mac.free:
+        if missing and keep + SPARE > self.mac.free:  # nothing missing keeps nothing
             raise ConfigError(
                 f"Setup needs {gb(keep + SPARE)} GB free for what it still has to keep, with "
                 f"5 GB to spare; this disk has {gb(self.mac.free)} GB free."
@@ -154,17 +163,28 @@ class Setup:
             else:
                 self.say(f"{model.name}: already done.")
         self.launcher()
+        if not self.built():  # never "done" without the server (Checkpoint 1's S5)
+            n = os.cpu_count() or 1
+            raise ConfigError(
+                "Setup can't build llama-server yet. In Clarity's folder, run Getting "
+                f"started's two lines, then run setup again:\n{BUILD_LINES[0]}\n"
+                f"{BUILD_LINES[1].replace('-j N', f'-j {n}')}"
+            )
         self.say(
             "Setup is done. Next time, double-click Clarity.command on your Desktop to start "
             "Clarity, or run the same command again to check the setup."
         )
 
     def launcher(self) -> None:
-        """~/Desktop/Clarity.command (state 15; decision 13): two lines, `cd` to this folder
-        and `exec` uv's absolute path, so it needs no shell profile. A file of that name
+        """~/Desktop/Clarity.command (state 15; decision 13): three lines, #!/bin/sh (so it
+        runs under sh whatever the login shell: Checkpoint 1's C6), `cd` to this folder and
+        `exec` uv's absolute path, so it needs no shell profile. A file of that name
         setup didn't write is left alone; a Desktop macOS won't let setup write to is said.
         Either way the lines are printed, and setup still ends without an error."""
-        lines = f"cd {shlex.quote(str(self.root))}\nexec {shlex.quote(self.uv)} run clarity ui\n"
+        lines = (
+            f"#!/bin/sh\ncd {shlex.quote(str(self.root))}\n"
+            f"exec {shlex.quote(self.uv)} run clarity ui\n"
+        )
         shown = lines.rstrip("\n")
         path = self.desktop / "Clarity.command"
         if path.is_file() and path.read_text(encoding="utf-8", errors="replace") == lines:
@@ -173,7 +193,7 @@ class Setup:
         if path.exists() or path.is_symlink():
             self.say(
                 "Your Desktop already has a Clarity.command that setup didn't write, so it's "
-                f"left alone. To start Clarity from a file of your own, put these two lines in "
+                f"left alone. To start Clarity from a file of your own, put these three lines in "
                 f"it:\n{shown}"
             )
             return
@@ -183,7 +203,7 @@ class Setup:
         except OSError as e:  # "Don't Allow" at the Desktop prompt, or a managed Mac
             self.say(
                 f"Setup couldn't write Clarity.command to your Desktop ({e.strerror}). To make "
-                "the launcher yourself, put these two lines in a file named Clarity.command "
+                "the launcher yourself, put these three lines in a file named Clarity.command "
                 f"there:\n{shown}"
             )
             return
@@ -223,9 +243,19 @@ class Setup:
     def check_source(self) -> bool:
         """Whether vendor/llama.cpp is there at the pin; one setup didn't make is refused,
         untouched (state 9: it may be the user's own work, decision 5)."""
+        named = "vendor/llama.cpp"
+        if self.source.is_symlink():  # the rename would replace a link: never touch it (S7)
+            if not self.source.exists():
+                raise ConfigError(
+                    f"vendor/llama.cpp is a link to {os.readlink(self.source)}, which doesn't "
+                    "exist, so setup leaves it alone: it may be your own work. Move it out of "
+                    "vendor/, then run setup again."
+                )
+            named = f"vendor/llama.cpp (a link to {self.source.resolve()})"
         if not self.source.exists():
             return False
-        state = self.state(self.source)
+        # Only its own .git: git_state in a plain folder finds the clone around it (S1).
+        state = self.state(self.source) if (self.source / ".git").exists() else {}
         if state.get("commit") is None:
             why = "isn't a git checkout"
         elif state["commit"] != self.pin:
@@ -235,8 +265,8 @@ class Setup:
         else:
             return True
         raise ConfigError(
-            f"vendor/llama.cpp {why}, so setup leaves it alone: it may be your own work. Move "
-            "it out of vendor/, then run setup again."
+            f"{named} {why}, so setup leaves it alone: it may be your own work. Move it out of "
+            "vendor/, then run setup again."
         )
 
     def agreed(self, download: int, keep: int) -> bool:
@@ -298,17 +328,29 @@ class Setup:
         self.say("llama.cpp's source is in vendor/llama.cpp.")
 
 
+def answer(prompt: str) -> str:
+    """The question's answer from the terminal; the end of stdin (no terminal under
+    `curl | sh`) is "no" (Checkpoint 1's M3)."""
+    try:
+        return input(prompt)
+    except EOFError:
+        print()
+        return "n"
+
+
 def cmd_setup(root: Path) -> int:
-    """`clarity setup`, in the terminal: the real Mac, commands and question. uv's absolute
-    path, for the launcher: `uv run` gives it in UV; else the one on PATH."""
-    uv = os.environ.get("UV") or shutil.which("uv") or "uv"
+    """`clarity setup`, in the terminal: the real Mac, commands and question, the real home
+    folder and Desktop. uv's path, for the launcher: `uv run` gives it in UV, else the one
+    on PATH; absolute, not resolved, so a link that an update repoints still works (S6)."""
+    uv = os.environ.get("UV") or shutil.which("uv")
+    if not uv:
+        raise ConfigError(
+            "Setup can't find uv, which starts Clarity. Install it as Getting started says, "
+            "then run setup again."
+        )
+    home = Path.home()
     Setup(
-        root,
-        this_mac(root),
-        run_logged,
-        input,
-        print,
-        uv=str(Path(uv).resolve()),
-        models=SETUP_MODELS,  # stub (Checkpoint 1): read at the call, as tests patch it
-    ).go()
+        root, this_mac(root), run_logged, answer, print,
+        home=home, desktop=home / "Desktop", uv=str(Path(uv).absolute()), models=SETUP_MODELS,
+    ).go()  # fmt: skip
     return 0

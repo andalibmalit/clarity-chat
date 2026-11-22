@@ -29,8 +29,9 @@ def test_setup_fetches_llama_cpp_at_the_pin_into_a_new_folder(tmp_path):
         shutil.copy(REPO / name, tmp_path / name)
     said: list[str] = []
     setup = Setup(
-        tmp_path, this_mac(tmp_path), run_logged, lambda q: "n", said.append, home=tmp_path
-    )
+        tmp_path, this_mac(tmp_path), run_logged, lambda q: "n", said.append,
+        home=tmp_path, desktop=tmp_path / "Desktop", uv="uv",
+    )  # fmt: skip
     setup.check_mac()
     assert setup.check_source() is False  # nothing there yet
     setup.fetch_source()
