@@ -8,6 +8,7 @@ gated live by `-m setup` (tests/test_setup_live.py).
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
@@ -112,7 +113,8 @@ class FakeFetch:
 
 def binary(root: Path) -> Path:
     """Where the build puts llama-server, made so the build step finds it done."""
-    path = load_server_config(root).llama_cpp_dir / "build" / "bin" / "llama-server"
+    exe = "llama-server.exe" if os.name == "nt" else "llama-server"  # as server_binary finds it
+    path = load_server_config(root).llama_cpp_dir / "build" / "bin" / exe
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(b"made up")
     return path
@@ -241,7 +243,7 @@ def test_git_runs_with_a_cleared_environment(root, monkeypatch):
             "PATH", "HOME", "LANG", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL",
             "GIT_TERMINAL_PROMPT",
         }  # fmt: skip
-        assert env["GIT_CONFIG_GLOBAL"] == "/dev/null" and env["HOME"] == "/Users/made-up"
+        assert env["GIT_CONFIG_GLOBAL"] == os.devnull and env["HOME"] == "/Users/made-up"
 
 
 def test_a_failed_fetch_leaves_partial_and_the_next_run_starts_again(root):
@@ -435,7 +437,9 @@ def test_the_launcher_is_written_with_two_lines_and_mode_0755(tmp_path, root):
     assert shlex.split(text.splitlines()[0]) == ["cd", str(folder)]
     assert shlex.split(text.splitlines()[1]) == ["exec", "/Users/a b/.local/bin/uv", "run",
                                                  "clarity", "ui"]  # fmt: skip
-    assert launcher.stat().st_mode & 0o777 == 0o755
+    # Windows keeps only a read-only flag (chmod there can't mark a file executable), so
+    # its 0755 reads back as 0666. Setup runs on macOS; the file's content is checked above.
+    assert launcher.stat().st_mode & 0o777 == (0o666 if os.name == "nt" else 0o755)
     assert "Made Clarity.command on your Desktop: double-click it to start Clarity." in says.lines
 
 
