@@ -11,6 +11,7 @@ text only.
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 from clarity_chat.batch import run_batch
@@ -58,7 +59,8 @@ def test_try_says_the_closest_similarity_when_nothing_reaches_the_minimum(meanin
     loop.start()
     output.clear()
     loop.handle("/try " + ASKED)
-    assert f"Nothing matched; the closest was {best:.2f}, and the minimum is 0.99." in "".join(
+    shown = math.floor(best * 100) / 100  # rounded down, as the terminal shows it
+    assert f"Nothing matched; the closest was {shown:.2f}, and the minimum is 0.99." in "".join(
         output
     )
     # The message's own found and line don't carry it (/try only).

@@ -6,6 +6,7 @@ import argparse
 import atexit
 import io
 import json
+import math
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -1143,8 +1144,9 @@ def format_found(found: dict[str, Any], closest: float | None = None) -> str:
         lines.append(
             "Nothing matched."
             if closest is None
-            else f"Nothing matched; the closest was {closest:.2f}, and the minimum is "
-            f"{found['min_similarity']:g}."
+            # Rounded down, so the closest never reads as the minimum (0.4987 is "0.49").
+            else f"Nothing matched; the closest was {math.floor(closest * 100) / 100:.2f}, and "
+            f"the minimum is {found['min_similarity']:g}."
         )
         return "\n".join(lines)
     lines.append(
