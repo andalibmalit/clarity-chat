@@ -504,3 +504,75 @@ def test_a_call_missing_any_field_replay_reads_is_refused_naming_it(make_session
         second.replay(path, call_id)
     assert str(refused.value) == f"Call {call_id} can't be replayed: its record has no {field}."
     assert backend.started == []  # nothing started
+
+
+# --- v0.4.2 A1: replay compares how llama-server was built (decision 7, S2's path)
+
+# The two lines as a real start logged them (the main session's live check, 2026-11-22,
+# at b1b770d), with made-up neighbours.
+BUILD = (
+    "0.00.059.777 I cmn  common_param: common_params_print_info: build 162 (b1b770d) with "
+    "AppleClang 21.0.0.21000334 for Darwin arm64"
+)
+SYSTEM_INFO = (
+    "0.00.059.795 I cmn  common_param: system_info: n_threads = 8 (n_threads_batch = 8) / 12 "
+    "| MTL : EMBED_LIBRARY = 1 | CPU : NEON = 1 | ARM_FMA = 1 | FP16_VA = 1 | MATMUL_INT8 = 1 "
+    "| DOTPROD = 1 | ACCELERATE = 1 | REPACK = 1 |"
+)
+
+
+def started(*lines: str) -> dict:
+    output = "\n".join(["0.00.001.000 I made-up line", *lines, "0.00.070.000 I another"])
+    return {"backend": "llama.cpp", "build_info": "b162-b1b770d", "startup_output": output}
+
+
+def build_diffs(logged_output: dict, now_output: dict) -> dict:
+    from clarity_chat.replay import facts_from_call
+
+    call = {"model": {"gguf_sha256": "a"}, "client": {}}
+    return environment_diff(facts_from_call(call, logged_output), facts_from_call(call, now_output))
+
+
+def test_a_build_by_another_compiler_or_target_is_listed_under_build():
+    other = BUILD.replace("AppleClang 21.0.0.21000334", "AppleClang 17.0.0.17000013")
+    assert set(build_diffs(started(BUILD, SYSTEM_INFO), started(other, SYSTEM_INFO))) == {"build"}
+    target = BUILD.replace("Darwin arm64", "Darwin x86_64")
+    assert set(build_diffs(started(BUILD, SYSTEM_INFO), started(target, SYSTEM_INFO))) == {"build"}
+
+
+def test_a_build_with_another_cpu_feature_is_listed_under_build():
+    fewer = SYSTEM_INFO.replace(" MATMUL_INT8 = 1 |", "")
+    diffs = build_diffs(started(BUILD, SYSTEM_INFO), started(BUILD, fewer))
+    assert set(diffs) == {"build"}
+    assert not unexplained(False, diffs)  # another build can change a reply
+
+
+def test_the_time_and_the_thread_counts_aren_t_build_facts():
+    later = BUILD.replace("0.00.059.777", "0.00.081.204")
+    threads = SYSTEM_INFO.replace("n_threads = 8 (n_threads_batch = 8) / 12", "n_threads = 4 "
+                                  "(n_threads_batch = 4) / 10")  # fmt: skip
+    assert build_diffs(started(BUILD, SYSTEM_INFO), started(later, threads)) == {}
+
+
+def test_an_old_log_s_start_holds_the_lines_and_is_compared():
+    """Every server_start since v0.1.0 keeps the whole startup output, and server.toml has
+    logged at verbosity 4 since, so an old call's build is compared too."""
+    from clarity_chat.replay import facts_from_call
+
+    call = {"model": {"gguf_sha256": "a"}, "client": {}}
+    facts = facts_from_call(call, started(BUILD, SYSTEM_INFO))
+    assert facts.get("build") == {
+        "line": "build 162 (b1b770d) with AppleClang 21.0.0.21000334 for Darwin arm64",
+        "features": "MTL : EMBED_LIBRARY = 1 | CPU : NEON = 1 | ARM_FMA = 1 | FP16_VA = 1 | "
+        "MATMUL_INT8 = 1 | DOTPROD = 1 | ACCELERATE = 1 | REPACK = 1 |",
+    }
+
+
+def test_an_output_without_the_lines_compares_build_info_alone_and_lists_nothing_new():
+    from clarity_chat.replay import facts_from_call, not_recorded
+
+    call = {"model": {"gguf_sha256": "a"}, "client": {}}
+    logged = facts_from_call(call, started())  # golden v0.2.0's fake server, say
+    now = facts_from_call(call, started(BUILD, SYSTEM_INFO))
+    assert "build" not in not_recorded(logged, now)
+    assert environment_diff(logged, now) == {}
