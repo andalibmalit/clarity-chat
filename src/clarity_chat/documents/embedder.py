@@ -162,8 +162,20 @@ class Embedder:
                 raise BackendError(
                     f"llama-server reports {record['props'].get('total_slots')!r} slots, not 1"
                 )
-            if record["warnings"]:  # an inherited GGML_* variable, or a dirty checkout
-                raise BackendError(" ".join(record["warnings"]))
+            # The setup records neither of these, and either can change a vector (M2).
+            reasons = []
+            if kept := record["env_llama_ggml_kept"]:
+                reasons.append(
+                    f"llama-server would inherit {', '.join(kept)} from your environment, which "
+                    f"can change the vectors. Unset {'it' if len(kept) == 1 else 'them'}."
+                )
+            if record["llama_cpp"].get("dirty"):
+                reasons.append(
+                    "The llama.cpp checkout has uncommitted changes. Commit or discard them and "
+                    "rebuild llama-server."
+                )
+            if reasons:
+                raise BackendError(" ".join(reasons))
         except (ConfigError, BackendError) as e:
             self.close()
             raise EmbedderFailed(f"The embedder didn't start: {e}") from e
