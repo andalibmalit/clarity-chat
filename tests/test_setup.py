@@ -243,7 +243,8 @@ def test_git_runs_with_a_cleared_environment(root, monkeypatch):
             "PATH", "HOME", "LANG", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL",
             "GIT_TERMINAL_PROMPT",
         }  # fmt: skip
-        assert env["GIT_CONFIG_GLOBAL"] == os.devnull and env["HOME"] == "/Users/made-up"
+        # HOME as setup builds it, from a Path: backslashes on Windows
+        assert env["GIT_CONFIG_GLOBAL"] == os.devnull and env["HOME"] == str(Path("/Users/made-up"))
 
 
 def test_a_failed_fetch_leaves_partial_and_the_next_run_starts_again(root):

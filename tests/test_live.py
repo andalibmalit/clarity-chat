@@ -681,6 +681,9 @@ def test_a_start_s_output_holds_the_build_line_and_system_info(session):
     # A1: replay reads both from the start, so a call made on it compares its build.
     from clarity_chat.replay import facts_from_call
 
+    # A conversation of its own: an earlier test leaves the shared session searching a
+    # scratch library that's gone by now, so the order between tests doesn't matter.
+    session.new_conversation("smol-text")
     record = session.say("Name a colour.").record
     built = facts_from_call(record, session.backend.server_record).get("build") or {}
     assert built.get("line", "").startswith("build ") and built.get("features"), built
