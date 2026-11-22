@@ -186,8 +186,8 @@ class Embedder:
                     "The llama.cpp checkout has uncommitted changes. Commit or discard them and "
                     "rebuild llama-server."
                 )
-            if reasons:
-                raise BackendError(" ".join(reasons))
+            if reasons or record["warnings"]:  # any other kind, as llama_cpp words it
+                raise BackendError(" ".join(reasons or record["warnings"]))
         except (ConfigError, BackendError) as e:
             self.close()
             raise EmbedderFailed(f"The embedder didn't start: {e}") from e
