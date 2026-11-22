@@ -15,6 +15,7 @@ import dataclasses
 import hashlib
 import json
 import math
+import os
 import struct
 from pathlib import Path
 from typing import Any
@@ -263,6 +264,49 @@ def test_a_profile_can_t_chat_with_the_embedder(m3_root, backend):
     (m3_root / "profiles" / "on-bge.toml").write_text(text, encoding="utf-8")
     with pytest.raises(ConfigError, match="bge-m3 is meaning search's model"):
         Session(m3_root).profile_for("on-bge")
+
+
+def test_fetched_is_false_only_without_an_entry_or_its_file(m3_root):
+    """The main session's ruling on B1: a changed file is fetched (its remedy is `clarity
+    verify`, which the start's refusal names); state 5 is no entry, or no file."""
+    gguf = m3_root / "models" / "bge-m3" / "bge-m3-bf16.gguf"
+    assert made(m3_root).fetched()
+    os.utime(gguf, ns=(1, 1))  # size or time changed since the fetch
+    assert made(m3_root).fetched()
+    gguf.unlink()
+    assert not made(m3_root).fetched()
+
+
+def test_no_bge_m3_entry_is_not_fetched(root):
+    assert "bge-m3" not in (root / "models.toml").read_text(encoding="utf-8")
+    assert not made(root).fetched()
+
+
+def test_a_changed_gguf_at_send_says_the_lock_s_sentence_not_state_5(fetched_root, chat_tokenizer):
+    from clarity_chat.documents import SearchRefused, library_add, reading
+    from clarity_chat.session import Session
+    from tests.fakes import FakeBackend
+    from tests.test_meaning import ASKED, GLOSSARY, MEANING, profile, raised
+
+    with (fetched_root / "models.toml").open("a", encoding="utf-8") as f:
+        f.write(BGE_M3)
+    fake_fetch(fetched_root, "bge-m3")
+    os.utime(fetched_root / "models" / "bge-m3" / "bge-m3-bf16.gguf", ns=(1, 1))
+    reading._last = None
+    profile(fetched_root, "meaning", MEANING)
+    library_add(fetched_root, GLOSSARY.encode(), "notes.md")
+    session = Session(
+        fetched_root,
+        backend=FakeBackend([" R0."], tokenizer=chat_tokenizer),
+        tokenizer_loader=lambda r, v: chat_tokenizer,
+        embedder=made(fetched_root),
+    )
+    session.new_conversation("meaning")
+    refused = raised(lambda: session.say(ASKED))
+    assert isinstance(refused, SearchRefused), repr(refused)
+    assert refused.problems[0]["state"] == "embedder", refused.problems
+    assert "changed since it was fetched" in refused.terminal
+    assert "isn't fetched" not in refused.terminal
 
 
 # --- each vector -----------------------------------------------------------------------
