@@ -24,7 +24,7 @@ import httpx
 from clarity_chat.backends import BackendError
 from clarity_chat.backends.llama_cpp import LlamaServer
 from clarity_chat.logs import machine
-from clarity_chat.models import check_weights_quick, lock_entry
+from clarity_chat.models import check_weights_quick, lock_entry, weights_path
 from clarity_chat.profiles import ConfigError, ServerConfig, load_models
 
 MODEL = "bge-m3"
@@ -136,13 +136,17 @@ class Embedder:
         self.engine: dict[str, Any] = {}  # the setup's facts, while it runs
 
     def fetched(self) -> bool:
-        """Whether bge-m3 is fetched, with its file as the lock says: a file check, no
-        process (state 5; O1's warning at /search)."""
-        try:
-            check_weights_quick(self.root, lock_entry(self.root, load_models(self.root)[MODEL]))
-        except (ConfigError, KeyError):  # not fetched, its file gone or changed, or no entry
+        """Whether bge-m3 is fetched: its entry, its lock entry and its file are there. A
+        file check, no process (state 5; O1's warning at /search). A file that changed since
+        the fetch counts as fetched: the start refuses it with the lock's own remedy."""
+        model = load_models(self.root).get(MODEL)
+        if model is None:
             return False
-        return True
+        try:
+            entry = lock_entry(self.root, model)
+        except ConfigError:  # not in the lock, or fetched from other settings
+            return False
+        return weights_path(self.root, entry).is_file()
 
     def ids(self, text: str) -> list[int]:
         """`text`'s token IDs from bge-m3's own tokenizer, with <s> and </s>."""
