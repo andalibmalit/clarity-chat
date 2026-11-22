@@ -136,6 +136,12 @@ class Embedder:
         self.engine: dict[str, Any] = {}  # the setup's facts, while it runs
 
     def fetched(self) -> bool:
+        """Whether bge-m3 is fetched, with its file as the lock says: a file check, no
+        process (state 5; O1's warning at /search)."""
+        try:
+            check_weights_quick(self.root, lock_entry(self.root, load_models(self.root)[MODEL]))
+        except (ConfigError, KeyError):  # not fetched, its file gone or changed, or no entry
+            return False
         return True
 
     def ids(self, text: str) -> list[int]:
@@ -154,7 +160,10 @@ class Embedder:
             proc = self.server.proc
             if proc is None or proc.poll() is not None:
                 self.close()
-                raise EmbedderFailed("The embedder stopped. Clarity starts it again next time.")
+                raise EmbedderFailed(
+                    "The embedder sent a vector Clarity can't use: its process had stopped; the "
+                    "next search starts it again."
+                )
             return self.engine
         model = load_models(self.root)[MODEL]
         entry = lock_entry(self.root, model)

@@ -954,15 +954,17 @@ class Session:
             return SearchRefused([problem], at_send, where)
 
         embedder = self.embedder()
+        if not embedder.fetched():  # state 5, a file check: before any process
+            raise refused({"state": "no_embedder"})
         try:
-            engine = embedder.start()  # bge-m3 not fetched: a ConfigError, before any process
+            engine = embedder.start()
             ids = embedder.ids(text)
         except TooLong as e:
             raise refused({"state": "too_long", "tokens": e.tokens}) from None
         except EmbedderFailed as e:
             raise refused({"state": "embedder", "why": str(e)}) from None
-        except ConfigError as e:
-            raise refused({"state": "no_embedder", "why": str(e)}) from None
+        except ConfigError as e:  # its file changed since the check, or no tokenizer
+            raise refused({"state": "embedder", "why": f"The embedder didn't start: {e}"}) from None
         try:
             vectors = {
                 d.name: vectors_for(self.root, d, embedder, engine["setup"], self.on_building)
@@ -1617,6 +1619,12 @@ class Session:
         any document (v0.3.2's S1); else 0."""
         conversation = self.conversation
         return self.budget()[0] if conversation is not None and conversation.searching else 0
+
+    def search_warnings(self, conversation: Conversation) -> list[dict[str, Any]]:
+        """What /search says before a message is sent (O1): bge-m3 not fetched, for a chat
+        that searches by meaning. A file check: nothing starts."""
+        meaning = conversation.searching and conversation.search_method == "meaning"
+        return [{"state": "no_embedder"}] if meaning and not self.embedder().fetched() else []
 
     def searching(self, conversation: Conversation | None = None) -> list[dict[str, Any]]:
         """The documents this chat searches, each with its state: ready, missing or

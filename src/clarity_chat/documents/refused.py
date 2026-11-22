@@ -9,9 +9,10 @@ from collections.abc import Mapping
 from typing import Any
 
 from clarity_chat.documents.embedder import MAX_TOKENS
+from clarity_chat.documents.embedder import MODEL as EMBEDDER
 from clarity_chat.documents.library import way_out
 from clarity_chat.documents.search import NO_FTS5
-from clarity_chat.profiles import ConfigError, shown
+from clarity_chat.profiles import ConfigError, fetch_hint, shown
 
 NOTHING_SENT = "Nothing was sent."  # N29: a refusal at Send's first line
 WITHOUT_SEARCH = "To send without searching, stop searching every document in this chat."
@@ -51,8 +52,17 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
     if state == "profile_missing":  # N37; the page's start has no chat to add it in
         said = f"Profile {problem['profile']} searches {name}, which isn't in your documents."
         return f"{said} Add it with {add}, or {KEY}." if terminal else f"{said} {KEY.capitalize()}."
-    if state in ("no_embedder", "embedder"):  # states 5 and 6: the reason (B1: the ways out)
-        return problem["why"]
+    if state == "no_embedder":  # state 5: fetch it, or search by words in a new chat (S4)
+        fetch = fetch_hint(EMBEDDER) if terminal else "Getting started shows how to fetch it."
+        return (
+            f"Meaning search needs {EMBEDDER}, which isn't fetched. {fetch} Or set "
+            'search_method = "words" under [documents] in the profile and start a new chat.'
+        )
+    if state == "embedder":  # state 6: the reason, then how to send without searching
+        if not at_send:
+            return problem["why"]
+        off = "`/search none` turns search off for this chat." if terminal else WITHOUT_SEARCH
+        return f"{problem['why']} {off}"
     if state == "too_long" and not name:  # state 7, the message (decision 8)
         off = (
             "Shorten it, or turn search off with `/search none`."

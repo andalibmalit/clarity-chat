@@ -142,7 +142,12 @@ def test_the_last_search_record_wins_on_resume(root, chat_tokenizer):  # S13, 10
     log = session.conversation.log.path
     c.run("new", "", quiet)
     session.resume(log)
-    assert c.run("search", "", quiet) == {"searching": [], "origin": "chat", "method": "words"}
+    assert c.run("search", "", quiet) == {
+        "searching": [],
+        "origin": "chat",
+        "method": "words",
+        "warnings": [],
+    }
 
 
 def test_a_search_record_whose_documents_isn_t_a_list_is_refused(root, chat_tokenizer):  # S13, 17

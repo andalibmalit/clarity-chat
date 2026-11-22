@@ -131,7 +131,7 @@ def test_search_warns_when_bge_m3_isn_t_fetched_and_not_when_it_is(terminal):
     assert result.get("warnings") == [{"state": "no_embedder"}]
     output.clear()
     loop.handle("/search")
-    assert f"! {NOT_FETCHED}\n" in output
+    assert f"! {NOT_FETCHED}\n" in "".join(output)  # under /search's line, one block
     assert fake.made == 0 and fake.texts == []  # a file check: nothing started
 
 

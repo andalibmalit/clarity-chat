@@ -22,6 +22,7 @@ from clarity_chat.commands import (
     document_try,
     format_added,
     how_words,
+    problem_words,
     read_files,
     split_drops,
     summaries,
@@ -266,8 +267,17 @@ def format_history(result: dict[str, Any]) -> str:
 def searched_line(found: dict[str, Any]) -> str:
     """/history's line under a searched message: the words and what search added, or which
     empty state it was (Checkpoint 2's S7)."""
-    if found.get("method") == "meaning":
-        return ""
+    if found.get("method") == "meaning":  # the states table's 2 and 3
+        if not found["matched"]:
+            return "  searched by meaning: nothing matched"
+        if not found["parts"]:
+            return f"  searched by meaning: {found['matched']:,} matched, none added"
+        added = ", ".join(
+            p["id"] + (f' "{shown(p["title"])}"' if p["title"] else "")
+            + f" (similar in meaning: {p['score']:.2f})"
+            for p in found["parts"]
+        )  # fmt: skip
+        return f"  searched by meaning: added {added} ({found['tokens']:,} tokens)"
     if not found["words"]:
         return "  searched: nothing to search for, only common words and single letters or digits"
     words = f"  searched for {', '.join(found['words'])}"
@@ -814,6 +824,12 @@ class ChatLoop:
         elif event["event"] == "reply_start" and event["n"] > 1:
             gap = "\n\n" if event["k"] > 1 else ""
             self.write(f"{gap}— reply {event['k']} of {event['n']}, seed {event['seed']} —\n")
+        elif event["event"] == "building" and event["done"] == 0:  # state 4, said once
+            name = event["name"]
+            self.write(
+                f"Preparing {name} for meaning search: {counted(event['total'], 'part')}, saved "
+                f"in local/documents/{name}/.\n"
+            )
         elif event["event"] == "reading":
             self.write(f"Reading {shown(event['name'])}…\n")
         elif event["event"] == "writing":
@@ -1116,15 +1132,16 @@ def format_found(found: dict[str, Any]) -> str:
     """A search's result in lines, without the parts' text: the words, what was added and
     why, and what was left out."""
     if found.get("method") == "meaning":
-        return ""
-    if not found["words"]:  # no words at all (an emoji, say): no empty parenthesis
+        lines = [f"Searched by meaning (minimum {found['min_similarity']:g})."]
+    elif not found["words"]:  # no words at all (an emoji, say): no empty parenthesis
         listed = f" ({', '.join(found['ignored'])})" if found["ignored"] else ""
         return (
             "Nothing to search for: your message holds only common words and single letters or "
             f"digits{listed}."
         )
-    ignored = f" (ignored: {', '.join(found['ignored'])})" if found["ignored"] else ""
-    lines = [f"Searched for: {', '.join(found['words'])}{ignored}."]
+    else:
+        ignored = f" (ignored: {', '.join(found['ignored'])})" if found["ignored"] else ""
+        lines = [f"Searched for: {', '.join(found['words'])}{ignored}."]
     if not found["matched"]:
         lines.append("Nothing matched.")
         return "\n".join(lines)
@@ -1135,8 +1152,11 @@ def format_found(found: dict[str, Any]) -> str:
     for p in found["parts"]:
         title = f' "{shown(p["title"])}"' if p["title"] else ""  # a heading can hold ESC
         # N48, as the page says it: "title matches" read as the whole title matching (S19).
-        reasons = [f"in its title: {', '.join(p['title_words'])}"] if p["title_words"] else []
-        reasons += [f"in its text: {', '.join(p['words'])}"] if p["words"] else []
+        if found.get("method") == "meaning":
+            reasons = [f"similar in meaning: {p['score']:.2f}"]
+        else:
+            reasons = [f"in its title: {', '.join(p['title_words'])}"] if p["title_words"] else []
+            reasons += [f"in its text: {', '.join(p['words'])}"] if p["words"] else []
         lines.append(
             f"  {p['rank']}. {p['id']}{title}: {'; '.join(reasons)} ({p['tokens']:,} tokens)"
         )
@@ -1169,7 +1189,9 @@ def format_searching(result: dict[str, Any]) -> str:
             shown_.append(f"{d['name']} (unreadable: `/documents` says why)")
         else:
             shown_.append(f"{d['name']} (missing: /search without it)")
-    return f"Searching ({origin}): {', '.join(shown_)}."
+    said = f"Searching by {result.get('method', 'words')} ({origin}): {', '.join(shown_)}."
+    warned = [f"! {problem_words(w, True, 'chat', False)}" for w in result.get("warnings", [])]
+    return "\n".join([said, *warned])  # O1: bge-m3 not fetched, said before a Send
 
 
 def main(argv: list[str] | None = None) -> int:

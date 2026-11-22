@@ -91,7 +91,8 @@ def test_the_profile_s_list_budget_and_placement(root, chat_tokenizer):
     assert run(c, "search") == {
         "searching": [{"name": "glossary", "state": "ready", **NONE}],
         "origin": "profile",
-        "method": "words",  # v0.4.1
+        "method": "words",  # v0.4.1, and warnings (B1)
+        "warnings": [],
     }
     assert session.budget() == (900, "profile")
     assert session.conversation is not None and session.conversation.profile.placement == "end"
@@ -100,7 +101,12 @@ def test_the_profile_s_list_budget_and_placement(root, chat_tokenizer):
 
 def test_with_no_documents_table_nothing_is_searched_at_the_default_budget(root, chat_tokenizer):
     session, c = chat(root, chat_tokenizer)
-    assert run(c, "search") == {"searching": [], "origin": "profile", "method": "words"}
+    assert run(c, "search") == {
+        "searching": [],
+        "origin": "profile",
+        "method": "words",
+        "warnings": [],
+    }
     assert session.budget() == (1500, "default")
     assert session.conversation is not None and session.conversation.profile.placement == "start"
 
@@ -116,7 +122,8 @@ def test_search_sets_the_list_and_logs_the_whole_set(root, chat_tokenizer):
             {"name": "notes", "state": "ready", **NONE},
         ],
         "origin": "chat",
-        "method": "words",  # v0.4.1
+        "method": "words",  # v0.4.1, and warnings (B1)
+        "warnings": [],
     }
     run(c, "search notes")
     run(c, "search none")
@@ -155,13 +162,15 @@ def test_search_is_resumed_and_a_log_without_a_record_searches_the_profile_s(roo
     assert run(c, "search") == {
         "searching": [{"name": "glossary", "state": "ready", **NONE}],
         "origin": "profile",
-        "method": "words",  # v0.4.1
+        "method": "words",  # v0.4.1, and warnings (B1)
+        "warnings": [],
     }
     session.resume(second)
     assert run(c, "search") == {
         "searching": [{"name": "notes", "state": "ready", **NONE}],
         "origin": "chat",
-        "method": "words",  # v0.4.1
+        "method": "words",  # v0.4.1, and warnings (B1)
+        "warnings": [],
     }
 
 

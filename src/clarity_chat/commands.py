@@ -28,6 +28,7 @@ from clarity_chat.documents import (
     SearchRefused,
     counted,
     more_than,
+    problem_words,  # noqa: F401 (for cli: it can't import the documents package)
     summaries,
 )
 from clarity_chat.logs import LOG_NAME, list_chats, unreadable
@@ -148,6 +149,9 @@ class Commands:
             emit(event)
 
         self.session.on_record = lambda record: tracked({"event": "record", "record": record})
+        self.session.on_building = lambda name, done, total: tracked(
+            {"event": "building", "name": name, "done": done, "total": total}
+        )
         try:
             return self._call(name, args, tracked)
         except (BackendError, ConfigError) as e:
@@ -159,6 +163,7 @@ class Commands:
             raise
         finally:
             self.session.on_record = None
+            self.session.on_building = None
             self.cancel_event = None
             with self.progress:  # done, or failed: /state reads what runs now
                 self.streamed, self.streamed_end, self.running = [], 0, None
@@ -581,6 +586,7 @@ def _search(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "searching": c.session.searching(),
         "origin": conversation.searching_origin,
         "method": conversation.search_method,
+        "warnings": c.session.search_warnings(conversation),
     }
 
 

@@ -287,12 +287,17 @@ def test_a_build_that_fails_leaves_no_file_and_the_old_one_in_place(meaning):
 
 
 def test_the_build_reports_its_progress(meaning):
+    """Through the command's events (Commands.run sets Session.on_building, B1)."""
     session, c, _ = meaning
     seen: list[tuple[str, int, int]] = []
-    session.on_building = lambda name, done, total: seen.append((name, done, total))
-    say(c, ASKED)
+
+    def building(event: dict) -> None:
+        if event["event"] == "building":
+            seen.append((event["name"], event["done"], event["total"]))
+
+    c.run("say", ASKED, building)
     assert seen == [("notes", 0, 3), ("notes", 1, 3), ("notes", 2, 3), ("notes", 3, 3)]
-    say(c, ASKED)
+    c.run("say", ASKED, building)
     assert len(seen) == 4  # read, not built: no progress
 
 
