@@ -246,6 +246,10 @@ class FakeEmbedder:
         self.fail_at: int | None = None
         self.made = 0
         self.texts: list[str] = []
+        self.is_fetched = True  # False: bge-m3 not fetched (state 5)
+
+    def fetched(self) -> bool:
+        return self.is_fetched
 
     def ids(self, text: str) -> list[int]:
         import hashlib

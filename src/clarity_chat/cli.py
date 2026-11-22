@@ -266,6 +266,8 @@ def format_history(result: dict[str, Any]) -> str:
 def searched_line(found: dict[str, Any]) -> str:
     """/history's line under a searched message: the words and what search added, or which
     empty state it was (Checkpoint 2's S7)."""
+    if found.get("method") == "meaning":
+        return ""
     if not found["words"]:
         return "  searched: nothing to search for, only common words and single letters or digits"
     words = f"  searched for {', '.join(found['words'])}"
@@ -1113,6 +1115,8 @@ def format_tried(result: dict[str, Any]) -> str:
 def format_found(found: dict[str, Any]) -> str:
     """A search's result in lines, without the parts' text: the words, what was added and
     why, and what was left out."""
+    if found.get("method") == "meaning":
+        return ""
     if not found["words"]:  # no words at all (an emoji, say): no empty parenthesis
         listed = f" ({', '.join(found['ignored'])})" if found["ignored"] else ""
         return (

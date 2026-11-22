@@ -306,8 +306,13 @@ def test_a_dead_process_fails_that_search_and_the_next_need_starts_it_again(m3_r
     embedder = made(m3_root)
     assert embedder.vector([0, 5, 2]) == UNIT
     fake.procs[-1].returncode = -9  # killed between two vectors of one search
-    with pytest.raises(EmbedderFailed, match="stopped"):
+    with pytest.raises(EmbedderFailed) as refused:
         embedder.vector([0, 5, 2])
+    # Folded into state 6's second sentence (the main session's B1 ruling: no third one).
+    assert str(refused.value) == (
+        "The embedder sent a vector Clarity can't use: its process had stopped; the next "
+        "search starts it again."
+    )
     assert embedder.vector([0, 5, 2]) == UNIT
     assert len(fake.procs) == 2
 

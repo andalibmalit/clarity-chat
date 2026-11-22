@@ -135,6 +135,9 @@ class Embedder:
         self.server: LlamaServer | None = None
         self.engine: dict[str, Any] = {}  # the setup's facts, while it runs
 
+    def fetched(self) -> bool:
+        return True
+
     def ids(self, text: str) -> list[int]:
         """`text`'s token IDs from bge-m3's own tokenizer, with <s> and </s>."""
         model = load_models(self.root)[MODEL]
