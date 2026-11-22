@@ -686,4 +686,11 @@ def test_a_start_s_output_holds_the_build_line_and_system_info(session):
     session.new_conversation("smol-text")
     record = session.say("Name a colour.").record
     built = facts_from_call(record, session.backend.server_record).get("build") or {}
-    assert built.get("line", "").startswith("build ") and built.get("features"), built
+    # Checkpoint 1's S3: "COMMIT with COMPILER for TARGET", no build number; the commit as
+    # llama.cpp prints it, a short form of server.toml's pin.
+    line = built.get("line") or ""
+    commit = line.split(" with ")[0]
+    pin = load_server_config(REPO).llama_cpp_commit
+    assert len(commit) >= 7 and pin.startswith(commit), (line, pin)
+    assert " with " in line and " for " in line and not line.startswith("build "), line
+    assert built.get("features"), built
