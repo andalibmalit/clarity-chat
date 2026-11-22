@@ -706,3 +706,142 @@ def test_each_setting_reaches_its_own_request_field():
             assert request[field] == settings[name], (name, field)
 
     check()
+
+
+# --- A4 (v0.4.1, decision 14): the memory check beside the other server. Metal's "MiB free"
+# counts only this process (memory_use's docstring), so the second server to start adds the
+# running one's logged total. Made-up startup logs.
+
+
+def startup_using(limit: int, model: float, kv: float, compute: float) -> str:
+    return (
+        f"llama_prepare_model_devices: using device MTL0 (Apple M2 Max) (unknown id) - {limit} "
+        "MiB free\n"
+        "llama_model_loader: loaded meta data with 1 key-value pairs and 272 tensors from "
+        "model.gguf\n"
+        "llama_model_loader: - kv   0:                       general.architecture str     "
+        "         = llama\n"
+        f"load_tensors:  MTL0_Mapped model buffer size = {model:.2f} MiB\n"
+        f"llama_kv_cache:       MTL0 KV buffer size = {kv:.2f} MiB\n"
+        f"sched_reserve:       MTL0 compute buffer size = {compute:.2f} MiB\n"
+    )
+
+
+CHAT_9000 = startup_using(10700, 7000, 1200, 800)  # 9,000 MiB
+CHAT_8000 = startup_using(10700, 6000, 1200, 800)  # 8,000 MiB
+EMBEDDER_1800 = startup_using(10700, 1100, 0, 700)  # 1,800 MiB
+
+
+class Running:
+    """A llama-server process that hasn't exited, until it's stopped."""
+
+    pid = 4242
+
+    def __init__(self) -> None:
+        self.code = None
+
+    def poll(self):
+        return self.code
+
+    def terminate(self) -> None:
+        self.code = 0
+
+    def wait(self, timeout=None):
+        return self.code
+
+
+def running_server(monkeypatch, root, startup, embedder=False):
+    """A LlamaServer.start() that leaves its made-up process running (the chat server, or
+    with the embedder's flags the embedder): the server, or the ConfigError it raised."""
+    import dataclasses
+    from pathlib import Path
+
+    from clarity_chat.backends import llama_cpp
+    from clarity_chat.documents.embedder import FLAGS
+    from clarity_chat.profiles import ConfigError, load_server_config
+
+    config = load_server_config(root)
+    if embedder:
+        config = dataclasses.replace(config, flags=dict(FLAGS))
+    server = llama_cpp.LlamaServer(config, root / "model.gguf", root / "logs", None)
+
+    def launch(argv, env):
+        server.output = [startup]
+        server.proc = Running()  # ty: ignore[invalid-assignment]
+        return None
+
+    monkeypatch.setattr(llama_cpp, "llama_config_files", lambda: [])
+    monkeypatch.setattr(llama_cpp, "git_state", lambda d: {"commit": config.llama_cpp_commit})
+    monkeypatch.setattr(llama_cpp, "server_binary", lambda d: Path("llama-server"))
+    monkeypatch.setattr(server, "_launch", launch)
+    props = {"build_info": "b1-" + config.llama_cpp_commit[:7]}
+    monkeypatch.setattr(server, "get_props", lambda: props)
+    monkeypatch.setattr(server, "check_props", lambda p: [])
+    try:
+        server.start()
+    except ConfigError as e:
+        return e
+    return server
+
+
+@pytest.fixture
+def two_servers(monkeypatch, root):
+    from clarity_chat.backends import llama_cpp
+
+    monkeypatch.setattr(llama_cpp, "RUNNING", [], raising=False)  # no server from another test
+    return lambda startup, embedder=False: running_server(monkeypatch, root, startup, embedder)
+
+
+BOTH = (
+    "Meaning search's embedder needs 1,800 MiB of GPU memory and the chat model 9,000 MiB at "
+    "ctx_size {ctx}: together 10,800 MiB, more than Metal's recommended limit for this GPU, "
+    "10,700 MiB. Use a smaller chat model or a lower ctx_size, or set search_method = "
+    '"words" under [documents] in your own profile (copy a shipped one into local/profiles/ '
+    "first) and start a new chat."
+)
+
+
+def test_the_embedder_s_start_counts_the_running_chat_server(two_servers, root):
+    """The review's M1: a chat server at 9,000 MiB of a 10,700 MiB limit, then the embedder
+    at 1,800: each fits alone, the two don't. The refusal names both figures and only ways
+    out the user can take (never the embedder's fixed 8,192)."""
+    from clarity_chat.profiles import load_server_config
+
+    chat = two_servers(CHAT_9000)
+    assert not isinstance(chat, Exception), chat
+    refused = two_servers(EMBEDDER_1800, embedder=True)
+    assert isinstance(refused, Exception), "the embedder started"
+    assert str(refused) == BOTH.format(ctx=load_server_config(root).ctx_size)
+    assert chat.proc.poll() is None  # the chat server keeps running
+
+
+def test_the_chat_server_s_start_counts_the_running_embedder(two_servers, root):
+    from clarity_chat.profiles import load_server_config
+
+    embedder = two_servers(EMBEDDER_1800, embedder=True)
+    assert not isinstance(embedder, Exception), embedder
+    refused = two_servers(CHAT_9000)
+    assert isinstance(refused, Exception), "the chat server started"
+    assert str(refused) == BOTH.format(ctx=load_server_config(root).ctx_size)
+
+
+def test_two_servers_under_the_limit_both_start(two_servers):
+    assert not isinstance(two_servers(CHAT_8000), Exception)
+    assert not isinstance(two_servers(EMBEDDER_1800, embedder=True), Exception)
+
+
+def test_a_stopped_server_isn_t_counted(two_servers):
+    chat = two_servers(CHAT_9000)
+    chat.stop()
+    assert not isinstance(two_servers(EMBEDDER_1800, embedder=True), Exception)
+
+
+def test_the_embedder_alone_over_the_limit_isn_t_told_to_lower_its_ctx_size(two_servers):
+    refused = two_servers(startup_using(1500, 1100, 0, 700), embedder=True)
+    assert isinstance(refused, Exception), "the embedder started"
+    assert str(refused) == (
+        "Meaning search's embedder needs 1,800 MiB of GPU memory, more than Metal's "
+        'recommended limit for this GPU, 1,500 MiB. Set search_method = "words" under '
+        "[documents] in your own profile (copy a shipped one into local/profiles/ first) and "
+        "start a new chat."
+    )
