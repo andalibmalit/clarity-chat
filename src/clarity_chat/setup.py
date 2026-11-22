@@ -35,7 +35,9 @@ LLAMA_URL = "https://github.com/ggml-org/llama.cpp"
 SIZES: dict[str, tuple[int, int]] = {
     "source": (50 * 10**6, 250 * 10**6),
     "build": (0, 150 * 10**6),
+    "converter": (0, 0),  # stub (A3)
 }
+SETUP_MODELS: tuple[str, ...] = ()  # stub (A3)
 
 Runner = Callable[[list[str], dict[str, str], "Path | None"], tuple[int, str]]
 
@@ -86,6 +88,8 @@ class Setup:
         say: Callable[[str], None],
         state: Callable[[Path], dict[str, Any]] = git_state,
         home: Path | None = None,
+        models: tuple[str, ...] = (),  # stub (A3)
+        fetch: Any = None,
     ) -> None:
         self.root, self.mac, self.run, self.ask, self.say = root, mac, run, ask, say
         self.state = state

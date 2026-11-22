@@ -55,7 +55,11 @@ def states(root: Path, **by_folder: dict[str, Any]):
     return state
 
 
-def made(root: Path, mac: Mac = MAC, run=None, says=None, state=None, home=None) -> Setup:
+def made(
+    root: Path, mac: Mac = MAC, run=None, says=None, state=None, home=None, models=(), fetch=None
+) -> Setup:
+    """A Setup on fakes. `models`: the models it sets up (none by default: A2's tests);
+    `fetch`: a fake fetch (a FakeFetch)."""
     says = says or Says()
     return Setup(
         root,
@@ -65,7 +69,27 @@ def made(root: Path, mac: Mac = MAC, run=None, says=None, state=None, home=None)
         says.say,
         state or states(root, partial={"commit": pin(root), "dirty": False}),
         home=home or root.parent,
+        models=models,
+        fetch=fetch or FakeFetch(),
     )
+
+
+class FakeFetch:
+    """models.fetch offline: records each name, and leaves what a real fetch would (a
+    weights file and its lock entry, conftest's fake_fetch), or raises `fails[name]`."""
+
+    def __init__(self, fails: dict[str, Exception] | None = None) -> None:
+        self.names: list[str] = []
+        self.fails = fails or {}
+
+    def __call__(self, root: Path, model: Any, server: Any) -> dict[str, Any]:
+        from tests.conftest import fake_fetch
+
+        self.names.append(model.name)
+        if model.name in self.fails:
+            raise self.fails[model.name]
+        fake_fetch(root, model.name)
+        return {}
 
 
 def binary(root: Path) -> Path:
@@ -263,3 +287,96 @@ def test_setup_while_clarity_runs_is_refused(root, capsys, monkeypatch):
     with instance.hold(root, "ui"):
         assert cli.main(["--root", str(root), "setup"]) == 1
     assert "Clarity is already running in this project" in capsys.readouterr().err
+
+
+# --- A3: the models and the end (states 13, 14 and 16)
+
+TINY2 = """
+[tiny2]
+route = "gguf"
+repo = "test/tiny2-gguf"
+revision = "0123456789abcdef0123456789abcdef01234567"
+file = "tiny2.gguf"
+sha256 = "1111111111111111111111111111111111111111111111111111111111111111"
+tokenizer_repo = "test/tiny2"
+tokenizer_revision = "0123456789abcdef0123456789abcdef01234567"
+"""
+
+
+@pytest.fixture
+def two_models(root, monkeypatch):
+    """The made-up `tiny` (convert route) and `tiny2` (gguf route), with sizes, and
+    llama.cpp's source and build already there."""
+    with (root / "models.toml").open("a", encoding="utf-8") as f:
+        f.write(TINY2)
+    monkeypatch.setitem(SIZES, "tiny", (3 * 10**9, 4 * 10**9))
+    monkeypatch.setitem(SIZES, "tiny2", (2 * 10**9, 2 * 10**9))
+    source(root)
+    binary(root)
+    return root, states(root, source={"commit": pin(root), "dirty": False})
+
+
+def test_each_missing_model_is_fetched_in_order_after_one_question(two_models):
+    root, state = two_models
+    says, fetch = Says(), FakeFetch()
+    made(root, says=says, state=state, models=("tiny", "tiny2"), fetch=fetch).go()
+    download, keep = missing_bytes("tiny", "tiny2", "converter")
+    assert says.asked == [question(download, keep, f"~/{root.name}")]
+    assert fetch.names == ["tiny", "tiny2"]
+
+
+def test_a_fetched_model_is_already_done_and_nothing_is_asked(two_models):
+    from tests.conftest import fake_fetch
+
+    root, state = two_models
+    fake_fetch(root, "tiny")
+    fake_fetch(root, "tiny2")
+    says, fetch = Says(answers=[]), FakeFetch()
+    made(root, says=says, state=state, models=("tiny", "tiny2"), fetch=fetch).go()
+    assert fetch.names == [] and says.asked == []
+    assert "tiny: already done." in says.lines and "tiny2: already done." in says.lines
+
+
+def test_the_converter_counts_only_while_a_convert_model_is_missing(two_models):
+    from tests.conftest import fake_fetch
+
+    root, state = two_models
+    fake_fetch(root, "tiny")  # the convert route's model is there
+    says = Says()
+    made(root, says=says, state=state, models=("tiny", "tiny2"), fetch=FakeFetch()).go()
+    assert says.asked == [question(*missing_bytes("tiny2"), f"~/{root.name}")]
+
+
+def test_a_failed_fetch_stops_setup_and_the_next_run_fetches_only_what_s_missing(two_models):
+    root, state = two_models
+    failing = FakeFetch({"tiny2": ConfigError("A made-up refusal.")})
+    with pytest.raises(ConfigError, match="A made-up refusal."):
+        made(root, state=state, models=("tiny", "tiny2"), fetch=failing).go()
+    assert failing.names == ["tiny", "tiny2"]
+    again = FakeFetch()
+    made(root, state=state, models=("tiny", "tiny2"), fetch=again).go()
+    assert again.names == ["tiny2"]
+
+
+def test_the_end_says_how_to_start_next_time(two_models):
+    root, state = two_models
+    says = Says()
+    made(root, says=says, state=state, models=("tiny",), fetch=FakeFetch()).go()
+    assert says.lines[-1] == (
+        "Setup is done. Next time, double-click Clarity.command on your Desktop to start "
+        "Clarity, or run the same command again to check the setup."
+    )
+
+
+def test_the_sizes_table_covers_setup_s_models_as_models_toml_has_them():
+    from clarity_chat.profiles import load_models
+    from clarity_chat.setup import SETUP_MODELS
+    from tests.conftest import REPO
+
+    shipped = load_models(REPO)
+    assert SETUP_MODELS and set(SETUP_MODELS) <= set(shipped)
+    for name in SETUP_MODELS:
+        download, keep = SIZES[name]
+        assert 0 < download <= keep, name  # a model keeps at least what it downloads
+    if any(shipped[name].route == "convert" for name in SETUP_MODELS):
+        assert SIZES["converter"][0] > 0
