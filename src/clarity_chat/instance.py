@@ -56,15 +56,17 @@ def write_info(root: Path, info: dict[str, Any]) -> None:
 
 
 class Held:
-    """The lock, held. Records the running llama-server, so the next start can stop it if
-    this process dies without stopping it (kill -9, a crash, a closed laptop lid)."""
+    """The lock, held. Records the running llama-servers (the chat's, and from v0.4.1 meaning
+    search's embedder), so the next start can stop them if this process dies without
+    stopping them (kill -9, a crash, a closed laptop lid)."""
 
     def __init__(self, root: Path, info: dict[str, Any], orphan: str | None) -> None:
         self.root, self.info = root, info
         self.orphan = orphan  # what was found of a server a crashed run left behind
 
     def record_server(self, server: dict[str, Any] | None, kind: str = "server") -> None:
-        self.info["server"] = server
+        """`kind`: "server", the chat's, or "embedder"."""
+        self.info[kind] = server
         write_info(self.root, self.info)
 
 
@@ -128,11 +130,12 @@ def hold(root: Path, command: str) -> Generator[Held]:
                 f"Clarity is already running in this project (pid {info.get('pid', '?')}, "
                 f"`clarity {info.get('command', '?')}`, since {since}). Close it first."
             )
-        left = read_info(root).get("server")  # only a run that didn't exit normally leaves one
+        left = read_info(root)  # only a run that didn't exit normally leaves a record
+        found = [stop_orphan(left[kind]) for kind in ("server", "embedder") if left.get(kind)]
         held = Held(
             root,
             {"pid": os.getpid(), "command": command, "since": datetime.now().isoformat()},
-            stop_orphan(left) if left else None,
+            " ".join(found) or None,
         )
         write_info(root, held.info)
         if threading.current_thread() is threading.main_thread():
@@ -145,7 +148,8 @@ def hold(root: Path, command: str) -> Generator[Held]:
         finally:
             for number, handler in previous.items():
                 signal.signal(number, handler)
-            if not held.info.get("server"):  # a server that didn't stop stays recorded
+            # A server or embedder that didn't stop stays recorded, for the next start.
+            if not (held.info.get("server") or held.info.get("embedder")):
                 (local / "clarity.json").unlink(missing_ok=True)
     finally:
         if sys.platform == "win32":  # Microsoft asks for an unlock before the close

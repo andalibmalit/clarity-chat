@@ -130,6 +130,7 @@ class Embedder:
         on_change: Callable[[dict[str, Any] | None], None] | None = None,
     ) -> None:
         self.root = root
+        self.on_change = on_change  # told its port, PID and key on start, None on stop (D4)
         self.config = dataclasses.replace(server_config, flags=dict(FLAGS))
         self.logs_dir = logs_dir
         self.load_tokenizer = load_tokenizer
@@ -172,7 +173,8 @@ class Embedder:
             return self.engine
         model = load_models(self.root)[MODEL]
         entry = lock_entry(self.root, model)
-        self.server = LlamaServer(self.config, check_weights_quick(self.root, entry), self.logs_dir)
+        gguf = check_weights_quick(self.root, entry)
+        self.server = LlamaServer(self.config, gguf, self.logs_dir, self.on_change)
         try:
             record = self.server.start()
             if record["props"].get("total_slots") != 1:

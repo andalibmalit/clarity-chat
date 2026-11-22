@@ -467,11 +467,12 @@ class Session:
         backend: Backend | None = None,
         logs_dir: Path | None = None,
         tokenizer_loader: Callable[[str, str], Tokenizer] = Tokenizer.from_hub,
-        on_server: Callable[[dict[str, Any] | None], None] | None = None,
+        on_server: Callable[..., None] | None = None,
         embedder: Embedder | None = None,
     ) -> None:
         """`on_server` hears each llama-server's port, PID and key when it starts, and None
-        when it stops (the instance lock keeps them, to clean up after a crash)."""
+        when it stops (the instance lock keeps them, to clean up after a crash); the
+        embedder's come with a second argument, "embedder"."""
         self.root = root
         self.on_server = on_server
         self.on_record: Callable[[dict[str, Any]], None] | None = None  # every record logged
@@ -544,8 +545,13 @@ class Session:
         """bge-m3's server, made on a meaning search's first need and stopped at close (v0.4.1
         decision 3); its first vector starts it."""
         if self._embedder is None:
+            on_server = self.on_server  # D4: recorded as "embedder", beside the chat's server
             self._embedder = Embedder(
-                self.root, self.server_config, self.logs_dir, self.load_tokenizer
+                self.root,
+                self.server_config,
+                self.logs_dir,
+                self.load_tokenizer,
+                (lambda info: on_server(info, "embedder")) if on_server else None,
             )
         return self._embedder
 

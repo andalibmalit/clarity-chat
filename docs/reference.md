@@ -449,7 +449,7 @@ Search finds the parts of the chat's documents that share words with your messag
 | `runs/RUN_ID/key.json` | Which label is which profile, seed and call, and the shuffle seed. |
 | `logs/exports/ID.jsonl` | A conversation exported for a notebook (`clarity export`, `/export`), named by its log file, so a copied log's export doesn't replace the original's. `clarity chats` doesn't list it. |
 | `local/clarity.lock` | Locked while `chat`, `ui`, `run` or `replay` runs, so only one of them runs in a project at a time. Empty. |
-| `local/clarity.json` | Who holds the lock: process ID, command and start time, and the running llama-server's port, process ID and key. Readable only by you on Linux and macOS (mode 0600); on Windows it gets your folder's permissions. Removed on a normal exit; one left behind means Clarity didn't exit normally, and the next start uses it to stop that server. |
+| `local/clarity.json` | Who holds the lock: process ID, command and start time, and the running llama-server's port, process ID and key (`server`), and meaning search's embedder's (`embedder`). Readable only by you on Linux and macOS (mode 0600); on Windows it gets your folder's permissions. Removed on a normal exit; one left behind means Clarity didn't exit normally, and the next start uses it to stop that server or embedder. |
 | `local/documents/NAME/` | A document Clarity searches ([The library](#the-library)). |
 | `local/clarity-open.html` | The private page that opens `clarity ui`'s link, with that start's secret. Readable only by you on Linux and macOS (mode 0600). Deleted when the page it opened connects, and when Clarity stops; Enter in Clarity's terminal writes it again. |
 
