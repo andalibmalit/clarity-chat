@@ -86,7 +86,9 @@ def test_nothing_matched_by_meaning(fetched_root, chat_tokenizer):
     assert "  searched by meaning: nothing matched\n" in output
     output.clear()
     loop.handle("/try " + ASKED)
-    assert "Searched by meaning (minimum 0.99).\nNothing matched." in "".join(output)
+    assert "Searched by meaning (minimum 0.99).\nNothing matched; the closest was" in "".join(
+        output
+    )
 
 
 def test_try_lists_each_part_with_its_similarity(terminal):
