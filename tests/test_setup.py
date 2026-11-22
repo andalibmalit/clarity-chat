@@ -47,13 +47,16 @@ def states(root: Path, **by_folder: dict[str, Any]):
     """A git_state fake: each folder's state by name (`partial`, `source`); a folder not
     named isn't a checkout. Records the folders asked about."""
     asked: list[Path] = []
+    envs: list[dict[str, str] | None] = []  # the environment each git_state ran with (C7)
 
-    def state(folder: Path) -> dict[str, Any]:
+    def state(folder: Path, env: dict[str, str] | None = None) -> dict[str, Any]:
         asked.append(folder)
+        envs.append(env)
         key = "partial" if folder.name.endswith(".partial") else "source"
         return by_folder.get(key, {"commit": None, "dirty": None, "error": "not a git repo"})
 
     state.asked = asked  # ty: ignore[unresolved-attribute]
+    state.envs = envs  # ty: ignore[unresolved-attribute]
     return state
 
 
@@ -191,7 +194,7 @@ def test_too_little_disk_is_refused_before_the_question(root):
 def question(download: int, keep: int, folder: str = "~/Clarity") -> str:
     return (
         f"Setup will download about {download / 1e9:.1f} GB and keep about {keep / 1e9:.1f} GB "
-        f"in {folder} and your Hugging Face cache. Free: 212.0 GB. Continue? [Y/n] "
+        f"in {folder} and your Hugging Face and uv caches. Free: 212.0 GB. Continue? [Y/n] "
     )
 
 
@@ -219,8 +222,9 @@ def test_nothing_missing_asks_nothing_and_says_each_step_is_done(root):
     assert "llama.cpp's source: already done." in says.lines
 
 
-def test_no_runs_nothing(root):
-    run, says = FakeRunner(), Says(answers=["n"])
+@pytest.mark.parametrize("no", ["n", "no", "N"])
+def test_no_runs_nothing(root, no):
+    run, says = FakeRunner(), Says(answers=[no])
     made(root, run=run, says=says).go()
     assert run.calls == []
     assert says.lines[-1:] == ["Setup stopped. Nothing was downloaded."]
@@ -679,3 +683,105 @@ def test_a_link_in_vendor_s_place_is_refused_naming_where_it_points(root, tmp_pa
     assert str(refused.value).startswith(
         f"vendor/llama.cpp (a link to {nowhere}) isn't a git checkout"
     )
+
+
+# --- Checkpoint 1's S8 to S11, C2, C5 and C7
+
+
+def test_a_dangling_link_named_clarity_command_is_left_alone(root, tmp_path):
+    """S8 (#13): a link counts as a file setup didn't write, even when it points nowhere."""
+    root, state = done_root(root)
+    launcher = desktop_of(root) / "Clarity.command"
+    try:
+        launcher.symlink_to(tmp_path / "nowhere")
+    except OSError:
+        pytest.skip("symlinks need privileges on Windows")
+    says = Says()
+    made(root, says=says, state=state).go()
+    assert launcher.is_symlink() and not (tmp_path / "nowhere").exists()
+    assert any(line.startswith("Your Desktop already has a Clarity.command") for line in says.lines)
+
+
+def test_a_missing_desktop_is_said_and_setup_ends(root):
+    """S8 (#15): any OSError from the write is said in its own words, not only macOS's."""
+    root, state = done_root(root)
+    says = Says()
+    made(root, says=says, state=state, desktop=root / "no-such-desktop").go()
+    said = "\n".join(says.lines)
+    assert (
+        "Setup couldn't write Clarity.command to your Desktop (No such file or directory)" in said
+    )
+
+
+def test_a_partial_at_another_commit_isn_t_renamed(root):
+    """S9 (#3): the rename needs the pin, not only a clean tree."""
+    state = states(root, partial={"commit": "0" * 40, "dirty": False})
+    with pytest.raises(ConfigError, match="didn't check out"):
+        made(root, state=state).go()
+    assert not load_server_config(root).llama_cpp_dir.exists()
+
+
+def test_a_source_whose_git_status_failed_is_refused(root):
+    """S9 (#1): git_state's dirty is None when `git status` failed; that isn't clean."""
+    source(root)
+    run = FakeRunner()
+    state = states(root, source={"commit": pin(root), "dirty": None, "error": "made up"})
+    with pytest.raises(ConfigError, match="so setup leaves it alone"):
+        made(root, run=run, state=state).go()
+    assert run.calls == []
+
+
+def test_git_s_whole_environment(root):
+    """S10 (#5, #7): every value but PATH, not only the names."""
+    run = FakeRunner()
+    to_the_build(made(root, run=run, home=Path("/Users/made-up")))
+    for call in run.calls:
+        env = call[1]
+        assert {k: v for k, v in env.items() if k != "PATH"} == {
+            "HOME": str(Path("/Users/made-up")), "LANG": "C", "GIT_CONFIG_NOSYSTEM": "1",
+            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0",
+        }  # fmt: skip
+
+
+def test_git_state_runs_with_git_s_cleared_environment(root):
+    """C7: the rename check reads git_state under the same environment as the fetch."""
+    state = states(root, partial={"commit": pin(root), "dirty": False})
+    setup = made(root, state=state, home=Path("/Users/made-up"))
+    to_the_build(setup)
+    assert state.envs and all(env == setup.git_env() for env in state.envs)
+
+
+def test_a_model_whose_weights_are_gone_is_fetched_again(two_models):
+    """S11 (#11): its lock entry alone isn't "already done"."""
+    from tests.conftest import fake_fetch
+
+    root, state = two_models
+    fake_fetch(root, "tiny")
+    (root / "models" / "tiny" / "tiny-bf16.gguf").unlink()  # where fake_fetch puts it
+    fetch = FakeFetch()
+    made(root, state=state, models=("tiny",), fetch=fetch).go()
+    assert fetch.names == ["tiny"]
+
+
+def test_bge_m3_keeps_at_least_its_gguf():
+    """C2: the sizes table against the lock's own figure."""
+    import json
+
+    from tests.conftest import REPO
+
+    lock = json.loads((REPO / "models.lock").read_text(encoding="utf-8"))
+    assert SIZES["bge-m3"][1] >= lock["models"]["bge-m3"]["gguf"]["size"]
+
+
+def test_an_os_error_without_its_own_words_is_still_said(root, monkeypatch):
+    """C5: an OSError's strerror can be None; the sentence then names the error itself."""
+    root, state = done_root(root)
+
+    def refused(self, *args, **kwargs):
+        raise OSError("made up")
+
+    monkeypatch.setattr(Path, "write_text", refused)
+    says = Says()
+    made(root, says=says, state=state).go()
+    said = "\n".join(says.lines)
+    assert "Setup couldn't write Clarity.command to your Desktop (made up)." in said

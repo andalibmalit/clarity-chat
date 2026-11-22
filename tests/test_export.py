@@ -533,3 +533,18 @@ def test_a_log_file_name_clarity_wouldn_t_write_needs_out(make, tmp_path):
     with pytest.raises(ConfigError, match="--out"):
         export_log(session, odd)
     assert export_log(session, odd, tmp_path / "out.jsonl")["path"] == str(tmp_path / "out.jsonl")
+
+
+def test_an_export_row_s_facts_and_conditions_hold_the_build(make, tiny_tokenizer):
+    """Checkpoint 1's C1 (#29): export reads the same build fact replay compares."""
+    from tests.test_replay import BUILD, SYSTEM_INFO
+
+    backend = Tagged("one", replies=[" Hello!"], tokenizer=tiny_tokenizer)
+    backend.extra = {"startup_output": f"{BUILD}\n{SYSTEM_INFO}\n"}
+    session, _ = make(backend=backend)
+    session.new_conversation("text")
+    session.say("Hi")
+    header, rows = read_export(Path(export_log(session, session.conversation.log.path)["path"]))
+    build = rows[0]["facts"].get("build") or {}
+    assert build.get("line", "").startswith("b1b770d with AppleClang"), rows[0]["facts"]
+    assert header["conditions"][0]["conditions"]["build"] == build
