@@ -240,6 +240,16 @@ def test_a_dirty_llama_cpp_checkout_refuses_the_start(m3_root, fake, monkeypatch
     assert fake.procs[-1].terminated
 
 
+def test_a_start_warning_of_another_kind_refuses_the_start_too(m3_root, fake, monkeypatch):
+    """The main session's follow-up to S3: the embedder words the two warnings it knows, and
+    any other that start_warnings gains later still refuses the start, as itself."""
+    monkeypatch.setattr(llama_cpp, "start_warnings", lambda checkout, kept: ["A made-up one."])
+    with pytest.raises(EmbedderFailed) as refused:
+        made(m3_root).vector([0, 5, 2])
+    assert str(refused.value) == "The embedder didn't start: A made-up one."
+    assert fake.procs[-1].terminated
+
+
 @pytest.mark.parametrize("backend", ["transformers", "llama.cpp"])
 def test_a_profile_can_t_chat_with_the_embedder(m3_root, backend):
     """The fix review's M1: a chat on bge-m3 would load its pickle on Transformers without the
