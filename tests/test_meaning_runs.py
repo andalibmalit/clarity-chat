@@ -132,3 +132,31 @@ def test_the_closest_is_shown_rounded_down_so_it_never_reads_as_the_minimum():
     found = {"method": "meaning", "min_similarity": 0.5, "matched": 0}
     said = format_found(found, 0.4987)
     assert said.endswith("Nothing matched; the closest was 0.49, and the minimum is 0.5."), said
+
+
+def test_a_run_comparing_meaning_and_words_names_the_method_as_what_differs():
+    """The whole-branch review's S2: the guide's "Compare meaning and words" recipe."""
+    from types import SimpleNamespace
+
+    from clarity_chat.batch import parts_differ
+
+    def p(method=None, minimum=None):
+        profile = SimpleNamespace(
+            budget=None,
+            search=("notes",),
+            placement="start",
+            search_method=method,
+            min_similarity=minimum,
+        )
+        model = SimpleNamespace(tokenizer_repo="t", tokenizer_revision="r")
+        return SimpleNamespace(profile=profile, model=model)
+
+    got = {"meaning": ["notes:1"], "words": ["notes:2"]}
+    said = "Opening 1: the profiles got different parts (meaning: notes:1; words: notes:2)."
+    assert parts_differ(1, got, {"meaning": p(), "words": p("words")}) == (
+        f"{said} Their search methods differ, so the replies differ in what they were given too."
+    )
+    assert parts_differ(1, got, {"meaning": p(), "words": p(minimum=0.7)}) == (
+        f"{said} Their minimum similarities differ, so the replies differ in what they were "
+        "given too."
+    )

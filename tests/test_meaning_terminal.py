@@ -9,6 +9,7 @@ text only.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import pytest
@@ -23,8 +24,14 @@ from tests.test_meaning import ASKED, GLOSSARY, MEANING, profile, raised
 NOT_FETCHED = (  # state 5, the terminal's words
     "Meaning search needs bge-m3, which isn't fetched. In a new terminal window, in "
     "Clarity's folder, run: uv run clarity fetch bge-m3. Then try again. Or set "
-    'search_method = "words" under [documents] in the profile and start a new chat.'
+    'search_method = "words" under [documents] in your own profile (copy a shipped one into '
+    "local/profiles/ first) and start a new chat."
 )
+
+
+def floored(score: float) -> str:
+    """A score as Clarity shows it under a two-place minimum: rounded down to 2 places."""
+    return f"{math.floor(score * 100) / 100:.2f}"
 
 
 def session_on(root, chat_tokenizer, embedder: Any) -> Session:
@@ -69,9 +76,49 @@ def test_the_line_after_a_message_says_what_meaning_search_added(terminal):
     loop.handle(ASKED)
     found = found_of(session)
     added = ", ".join(
-        f'{p["id"]} "{p["title"]}" (similar in meaning: {p["score"]:.2f})' for p in found["parts"]
+        f'{p["id"]} "{p["title"]}" (similar in meaning: {floored(p["score"])})'
+        for p in found["parts"]
     )
     assert f"  searched by meaning: added {added} ({found['tokens']:,} tokens)\n" in output
+
+
+def test_parts_that_matched_but_didn_t_fit_say_none_added(fetched_root, chat_tokenizer):
+    """The whole-branch review's #14: a budget smaller than any part."""
+    reading._last = None
+    profile(fetched_root, "tight", MEANING + "budget = 1\n")
+    library_add(fetched_root, GLOSSARY.encode(), "notes.md")
+    output: list[str] = []
+    session = session_on(fetched_root, chat_tokenizer, FakeEmbedder())
+    loop = ChatLoop(session, "tight", read=lambda default: "", write=output.append)
+    loop.start()
+    loop.handle(ASKED)
+    found = found_of(session)
+    assert found["matched"] and not found["parts"]
+    assert f"  searched by meaning: {found['matched']:,} matched, none added\n" in output
+
+
+def test_a_score_is_shown_to_the_minimum_s_places_and_never_below_it():
+    """The whole-branch review's could 6 (the main session's ruling): rounded down to the
+    larger of 2 places and the minimum's own, and a part at or above the minimum never
+    reads below it."""
+    from clarity_chat.cli import format_found, searched_line
+
+    def found(score: float, minimum: float) -> dict:
+        part = {"id": "notes:1", "title": "", "rank": 1, "score": score, "tokens": 9}
+        return {
+            "method": "meaning", "min_similarity": minimum, "matched": 1, "parts": [part],
+            "tokens": 9, "budget": 1500, "considered": 8, "left_out": [],
+        }  # fmt: skip
+
+    for score, minimum, shown in [
+        (0.5521, 0.552, "0.552"),
+        (0.552, 0.552, "0.552"),  # the float nearest 0.552 is below it: still "0.552"
+        (0.719, 0.5, "0.71"),  # rounded down, not to nearest
+        (0.5, 0.5, "0.50"),
+    ]:
+        said = f"(similar in meaning: {shown})"
+        assert said in searched_line(found(score, minimum)), (score, minimum)
+        assert f"similar in meaning: {shown} (9 tokens)" in format_found(found(score, minimum))
 
 
 def test_nothing_matched_by_meaning(fetched_root, chat_tokenizer):
@@ -106,7 +153,7 @@ def test_try_lists_each_part_with_its_similarity(terminal):
     ) in shown
     for p in found["parts"]:
         assert (
-            f'  {p["rank"]}. {p["id"]} "{p["title"]}": similar in meaning: {p["score"]:.2f} '
+            f'  {p["rank"]}. {p["id"]} "{p["title"]}": similar in meaning: {floored(p["score"])} '
             f"({p['tokens']:,} tokens)"
         ) in shown
 

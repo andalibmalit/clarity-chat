@@ -666,7 +666,13 @@ def test_t3_a_chat_that_uses_it_resumes_exports_and_replays(
     session.new_conversation("chat")
     record = session.resume(log)
     assert record["render"] is None or record["render"]["identical"], record["render"]
-    assert export_log(session, log)["path"]
+    exported = export_log(session, log)["path"]
+    assert exported
+    if name == "meaning":  # each row's found names its method (the whole-branch review's #10)
+        rows = [
+            json.loads(line) for line in Path(exported).read_text(encoding="utf-8").splitlines()
+        ]
+        assert {f["method"] for row in rows for f in row.get("found") or []} == {"meaning"}
     calls = [r for r in read_records(log) if r["type"] == "call" and r.get("turn_id")]
     assert calls
     for call in calls:  # with no chat open, as `clarity replay` does

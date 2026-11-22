@@ -377,6 +377,38 @@ def test_twenty_thousand_parts_are_scored_within_a_loose_bound():
 # --- /history, /state and /search ------------------------------------------------------------
 
 
+def test_a_part_exactly_at_the_minimum_is_added_through_a_chat(meaning):
+    """The whole-branch review's S1: the boundary on the path a chat takes. The best part's
+    exact score, written into the profile as its minimum, still matches."""
+    session, c, _ = meaning
+    profile(session.root, "all", MEANING.replace("0.2", "-1"))
+    c.run("profile", "all", lambda e: None)
+    best = c.run("try", ASKED, lambda e: None)["found"]["parts"][0]["score"]
+    profile(session.root, "edge", MEANING.replace("0.2", repr(best)))
+    c.run("profile", "edge", lambda e: None)
+    found = c.run("try", ASKED, lambda e: None)["found"]
+    assert found["min_similarity"] == best
+    assert found["matched"] >= 1 and found["parts"][0]["score"] == best
+
+
+def test_a_conversation_s_method_defaults_to_clarity_s_default():
+    """Could 2: a constructor that doesn't set it searches as Clarity does by default."""
+    import dataclasses
+
+    from clarity_chat.profiles import SEARCH_METHOD
+    from clarity_chat.session import Conversation
+
+    (field,) = [f for f in dataclasses.fields(Conversation) if f.name == "search_method"]
+    assert field.default == SEARCH_METHOD == "meaning"
+
+
+def test_search_on_a_chat_that_searches_nothing_doesn_t_warn(meaning):
+    """Could 3 (#11): bge-m3 not fetched matters only to a chat that searches a document."""
+    session, c, fake = meaning
+    fake.is_fetched = False
+    assert c.run("search", "none", lambda e: None).get("warnings") == []
+
+
 def test_history_summarises_a_meaning_found_and_a_words_one_names_its_method(meaning):
     session, c, _ = meaning
     found = say(c, ASKED)
@@ -387,7 +419,7 @@ def test_history_summarises_a_meaning_found_and_a_words_one_names_its_method(mea
         "parts",
     }  # fmt: skip
     assert summary["method"] == "meaning" and summary["documents"] == ["notes"]
-    assert set(summary["parts"][0]) == {"id", "title", "rank", "score"}
+    assert set(summary["parts"][0]) == {"id", "title", "page", "rank", "score"}  # could 5
     assert summary["min_similarity"] == 0.2 == found["min_similarity"]
     assert [p["score"] for p in summary["parts"]] == [p["score"] for p in found["parts"]]
     c.run("profile", "chat", lambda e: None)
@@ -529,6 +561,15 @@ def test_each_document_logs_its_own_vectors_hash(meaning):
         assert doc["vectors_sha256"] == hashlib.sha256(path.read_bytes()).hexdigest(), doc
 
 
+def wrong_engine_model(found: dict) -> None:
+    """A model that isn't a string, with the setup recomputed so only the type is wrong."""
+    from clarity_chat.documents.embedder import ENGINE_FACTS, setup_of
+
+    engine = found["engine"]
+    engine["model"] = ["made up"]
+    engine["setup"] = setup_of({k: engine[k] for k in ENGINE_FACTS})
+
+
 def wrong_engine_key(found: dict) -> None:
     found["engine"]["extra"] = "made up"  # setup is the hash of ENGINE_FACTS: unchanged
 
@@ -542,6 +583,7 @@ def wrong_engine_key(found: dict) -> None:
         (("query", "sha256"), 7),
         (("documents", 0, "vectors_sha256"), 7),
         (("engine",), wrong_engine_key),
+        (("engine",), wrong_engine_model),  # the whole-branch review's S5
     ],
     ids=lambda v: str(v),
 )

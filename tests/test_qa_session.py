@@ -395,3 +395,19 @@ def test_each_step_is_checked_for_links_and_your_model_entries_before_typing():
     loop = inspect.getsource(qa.main)
     for check in ("no_links(root)", "no_local_models(root)", "check_step("):
         assert check in loop, check
+
+
+def test_a_record_written_while_the_root_is_prepared_is_refused(root, repo, monkeypatch):
+    """The QA-driver check's should 1: prepare_root checks clarity.json again as its last
+    step, so a record that appears while it copies (a run started meanwhile) is refused."""
+    original = qa.no_local_models
+
+    def then_a_record(at):
+        original(at)
+        (at / "local").mkdir(exist_ok=True)
+        info = {"embedder": {"pid": 1, "port": 1, "api_key": "k", "model_path": "m"}}
+        (at / "local" / "clarity.json").write_text(json.dumps(info), encoding="utf-8")
+
+    monkeypatch.setattr(qa, "no_local_models", then_a_record)
+    with pytest.raises(qa.Refused, match="records an embedder"):
+        qa.prepare_root(root, repo, init=False)

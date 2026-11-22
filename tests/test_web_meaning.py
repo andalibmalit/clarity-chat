@@ -7,6 +7,7 @@ bge-m3 (its live gate is tests/test_embed.py). Made-up text only."""
 
 from __future__ import annotations
 
+import math
 import re
 import shutil
 from pathlib import Path
@@ -45,6 +46,11 @@ def meaning(fetched_root, chat_tokenizer):
     with TestClient(web.make_app(session, SECRET.encode(), port=PORT), base_url=ORIGIN) as client:
         command(client, "profile", "meaning")
         yield client, session, fake
+
+
+def floored(score: float) -> str:
+    """A score as the page shows it under a two-place minimum: rounded down to 2 places."""
+    return f"{math.floor(score * 100) / 100:.2f}"
 
 
 def found_lines(client) -> list[str]:
@@ -86,7 +92,7 @@ def test_from_documents_gives_each_part_s_similarity(meaning):
     found = last_found(client)
     assert found["method"] == "meaning" and found["parts"]
     reasons = " ".join(
-        f'{i + 1} notes · "{p["title"]}" similar in meaning: {p["score"]:.2f}'
+        f'{i + 1} notes · "{p["title"]}" similar in meaning: {floored(p["score"])}'
         for i, p in enumerate(found["parts"])
     )
     tokens = f"{found['tokens']:,}"
@@ -113,8 +119,11 @@ def test_details_names_the_method_model_and_minimum(meaning):
     for _ in range(2):  # before and after a resume
         said = documents_section(client, last_call(client))
         assert "Search meaning, by bge-m3 (minimum similarity 0.2, this profile)" in said
-        assert f'1 notes · "{best["title"]}" similar in meaning: {best["score"]:.2f}' in said
+        assert f'1 notes · "{best["title"]}" similar in meaning: {floored(best["score"])}' in said
         assert "Words searched" not in said and "Rank 1 is the best match" not in said  # C4
+        n = found["matched"]
+        considered = f"Considered {n} part{'s' if n > 1 else ''} matched; Clarity considers the "
+        assert f"{considered}best 8 at most." in said  # the review's #25
         resumed(client)
 
 
@@ -186,8 +195,8 @@ def test_search_it_carries_the_warning_for_bge_m3_not_fetched(meaning):
     assert words, "no warning words on Search it"
     assert text_of(words.group(1)) == (
         "Meaning search needs bge-m3, which isn't fetched. Getting started shows how to fetch "
-        'it. Or set search_method = "words" under [documents] in the profile and start a new '
-        "chat."
+        'it. Or set search_method = "words" under [documents] in your own profile (copy a '
+        "shipped one into local/profiles/ first) and start a new chat."
     )
 
 
@@ -208,8 +217,8 @@ def test_send_refused_for_bge_m3_not_fetched_names_getting_started(meaning):
     assert command(client, "say", ASKED).json()["type"] == "SearchRefused"
     assert refusal(client) == (
         "! Nothing was sent. Meaning search needs bge-m3, which isn't fetched. Getting started "
-        'shows how to fetch it. Or set search_method = "words" under [documents] in the '
-        "profile and start a new chat."
+        'shows how to fetch it. Or set search_method = "words" under [documents] in your own '
+        "profile (copy a shipped one into local/profiles/ first) and start a new chat."
     )
 
 
@@ -297,5 +306,57 @@ def test_a_words_chat_draws_v0_3_2_s_line_and_section_exactly(fetched_root, chat
     session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
     with TestClient(web.make_app(session, SECRET.encode(), port=PORT), base_url=ORIGIN) as client:
         assert "result" in command(client, "resume", GOLDEN.stem).json()
+        # D4's rule on a shipped log (could 8): its last found was by words.
+        assert command(client, "state").json()["result"]["search_method"] == "words"
         assert found_lines(client) == V032_LINES
         assert {c: documents_section(client, c) for c in V032_SECTIONS} == V032_SECTIONS
+
+
+# --- The whole-branch review's fix batch
+
+
+def test_parts_that_matched_but_didn_t_fit_say_nothing_added(meaning):
+    """#24: a budget smaller than any part."""
+    client, session, _ = meaning
+    profile(session.root, "tight", MEANING + "budget = 1\n")
+    command(client, "profile", "tight")
+    command(client, "say", ASKED)
+    found = last_found(client)
+    assert found["matched"] and not found["parts"]
+    (line,) = found_lines(client)
+    assert line.startswith("From documents · nothing added Searched when you sent")
+
+
+def test_a_part_past_8192_tokens_is_named_in_the_box_with_stop_searching_it(meaning):
+    """#28 and #29: a part's too_long is that document's line, with its button."""
+    client, session, _ = meaning
+    library_add(session.root, b"## Long\n" + b"a." * 8300 + b"\n", "long.md")
+    command(client, "search", "notes long")
+    assert command(client, "say", ASKED).json()["type"] == "SearchRefused"
+    box = re.search(
+        r'<div class="problem refused".*?<!-- /refused -->', get(client, "thread"), re.S
+    )
+    assert box, "no refusal box"
+    said = text_of(box.group(0))
+    assert said.startswith('! Nothing was sent. Part 1 of long ("Long") is too long for meaning')
+    assert 'data-action="refused-stop" data-name="long"' in box.group(0)
+
+
+def test_from_documents_names_a_part_s_page_as_details_does():
+    """Could 5: /history's meaning summary carries each part's page."""
+    summary = {
+        "method": "meaning", "documents": ["notes"], "matched": 1, "tokens": 9,
+        "budget": 1500, "considered": 8, "min_similarity": 0.5,
+        "parts": [{"id": "notes:4", "title": "", "rank": 1, "score": 0.7, "page": 3}],
+    }  # fmt: skip
+    assert web.found_view(summary)["rows"][0]["label"] == "notes · page 3 · part 4"
+
+
+def test_the_page_shows_a_score_to_the_minimum_s_places():
+    """Could 6: as the terminal, rounded down to the larger of 2 places and the minimum's."""
+    summary = {
+        "method": "meaning", "documents": ["notes"], "matched": 1, "tokens": 9,
+        "budget": 1500, "considered": 8, "min_similarity": 0.552,
+        "parts": [{"id": "notes:1", "title": "", "rank": 1, "score": 0.552, "page": None}],
+    }  # fmt: skip
+    assert web.found_view(summary)["rows"][0]["why"] == "similar in meaning: 0.552"

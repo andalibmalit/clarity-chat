@@ -499,3 +499,42 @@ def test_a_words_chat_resume_replay_and_export_never_use_it(
         fresh = session(FakeBackend([call["output_text"]], tokenizer=chat_tokenizer))
         assert fresh.replay(log, call["call_id"])["identical"]
         fresh.close()
+
+
+# --- The whole-branch review's fix batch
+
+
+def test_ids_use_the_tokenizer_the_start_logged(m3_root, fake):
+    """Could 1: the entry start() read tokenizes every part, so a models.toml changed during a
+    long session (a git pull) can't tokenize with another revision than `engine` logged."""
+    asked: list[tuple[str, str]] = []
+
+    def load(repo: str, revision: str):
+        asked.append((repo, revision))
+        return Words
+
+    config = load_server_config(m3_root)
+    embedder = Embedder(m3_root, config, m3_root / "logs", load)
+    engine = embedder.start()
+    models = m3_root / "models.toml"
+    models.write_text(
+        models.read_text(encoding="utf-8").replace(engine["tokenizer_revision"], "f" * 40),
+        encoding="utf-8",
+    )
+    embedder.ids("Made-up words.")
+    assert asked == [(engine["tokenizer_repo"], engine["tokenizer_revision"])]
+
+
+def test_the_logged_device_is_the_one_the_start_used(m3_root, fake):
+    """#5: not a constant."""
+    fake.startup = fake.startup.replace("MTL0", "MTL1")
+    assert made(m3_root).start()["device"] == "MTL1"
+
+
+def test_a_reply_whose_one_vector_has_another_index_is_refused(m3_root, fake):
+    """Could 4 (#3): one vector, but at index 1."""
+    reply = body(UNIT)
+    reply["data"][0]["index"] = 1
+    fake.reply = reply
+    with pytest.raises(EmbedderFailed, match="1 vectors for one input"):
+        made(m3_root).vector([0, 5, 2])
