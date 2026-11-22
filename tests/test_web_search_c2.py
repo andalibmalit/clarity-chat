@@ -162,7 +162,7 @@ def test_the_chooser_lists_the_chat_s_documents_then_the_others(root, make):
     client, _ = make('search = ["glossary"]')
     said = text_of(chooser(client))
     assert said.startswith(
-        "Searched for each message you send A change applies from your next message. "
+        "Searched by words for each message you send A change applies from your next message. "
         "Regenerate keeps the parts a message already has. From this chat's profile, chat. A "
         "change here applies to this chat only."
     )

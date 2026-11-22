@@ -153,16 +153,27 @@ def test_the_chooser_s_heading_says_meaning(meaning):
     assert text_of(chooser(client)).startswith("Searched by meaning for each message you send")
 
 
-def test_search_it_says_parts_are_chosen_by_meaning(meaning):
-    client, _, _ = meaning
+def search_it(client) -> str:
     upload_id = upload(client, b"## Heron\nTall.\n", "Herons.md").json()["upload"]
-    said = text_of(search_option(get(client, "attach", upload=upload_id)))
-    assert said.startswith(
-        "Search it For each message you send, Clarity adds the parts of this document that "
-        "are closest in meaning to your message, best match first. A message gets at most 8 "
-        "parts and 1,500 tokens (Clarity's default budget), shared by every document this "
-        "chat searches. Added parts stay in the chat with that message."
+    return text_of(search_option(get(client, "attach", upload=upload_id)))
+
+
+def test_search_it_says_parts_are_chosen_by_meaning_and_the_minimum(meaning):
+    """The main session's ruling on C1 (UI matches backend): the sheet names the minimum, so
+    nobody expects a part every time ("hi" adds none at 0.5)."""
+    client, session, _ = meaning
+    assert search_it(client).startswith(
+        "Search it For each message you send, Clarity adds the parts of this document whose "
+        "meaning is close enough to your message (similarity at least 0.2, this profile), best "
+        "match first. A message gets at most 8 parts and 1,500 tokens (Clarity's default "
+        "budget), shared by every document this chat searches. Added parts stay in the chat "
+        "with that message."
     )
+    profile(session.root, "plain", MEANING.replace("min_similarity = 0.2\n", ""))
+    command(client, "profile", "plain")
+    assert "(similarity at least 0.5, Clarity's default)" in search_it(client)
+    state = command(client, "state").json()["result"]
+    assert state.get("min_similarity") == {"value": 0.5, "origin": "default"}
 
 
 def test_search_it_carries_the_warning_for_bge_m3_not_fetched(meaning):
