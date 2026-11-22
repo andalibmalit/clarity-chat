@@ -529,7 +529,7 @@ A `call` record holds:
 `output_ids` include the tokens of a stop string and the end-of-sequence token; `output_text` leaves out the stop string.
 
 A replay compares the output token IDs and stop type, or the text if the logged IDs were incomplete. Its `differences` list every recorded fact that changed since the call:
-- llama.cpp: the build and checkout, server flags, `/props`, `GGML_*` and `LLAMA_*` variables, and the GGUF's sha256.
+- llama.cpp: the build and checkout, server flags, `/props`, `GGML_*` and `LLAMA_*` variables, and the GGUF's sha256. The build is `build_info`, and `build`: the build line llama-server logs at start ("build N (commit) with COMPILER for TARGET") and its `system_info` list of backends and CPU features, both read from the call's `server_start.startup_output`, so two builds of one commit made with another compiler, for another target or with other CPU features are told apart, for old logs too. Not compared: each line's time, and the thread counts in `system_info`, which describe the start, not the build. A start whose output lacks both lines (a fake server's) compares `build_info` alone.
 - Transformers: the torch and Transformers versions, device, dtype, attention implementation, `PYTORCH_*` and `TORCH_*` variables, deterministic-mode state, and the weights' commit.
 - Both: the machine, the client's commit, and the rendering libraries.
 

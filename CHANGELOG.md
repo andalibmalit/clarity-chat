@@ -9,6 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Added
+- Replay compares how llama-server was built: the build line it logs at start (commit, compiler and target) and its list of backends and CPU features, read from the logged start's output, so two builds of one commit made differently are told apart. Logs from earlier versions hold the lines, so their calls are compared too.
 - `clarity setup` sets up a Mac with Apple silicon and 16 GB of memory or more: it checks the platform, memory and disk, asks once with the sizes before downloading anything, fetches llama.cpp's source at the pinned commit into `vendor/llama.cpp` (a folder it didn't make is left alone), then fetches bge-m3, puts a `Clarity.command` launcher on the Desktop, and says how to start Clarity next time. Each step says when it's already done, so setup can be run again.
 
 ## [0.4.1] - 2026-11-22

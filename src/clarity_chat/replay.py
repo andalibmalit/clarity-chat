@@ -10,6 +10,7 @@ which can't affect a replay: the token IDs are sent as logged).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -93,7 +94,13 @@ def not_recorded(logged: dict[str, Any], now: dict[str, Any]) -> list[str]:
     compared, and machine values known on one side only (`machine.macos.chip`: a sandbox
     hides the chip's name; a newer Clarity records a new key). Listed in the replay record,
     so the gap is visible."""
-    names = [name for name in now if logged.get(name) is None and now[name] is not None]
+    # "build" is read from the start's output, which every log holds; a fake server's has
+    # no such lines, so it's compared as build_info alone, not listed (v0.4.2 A1).
+    names = [
+        name
+        for name in now
+        if logged.get(name) is None and now[name] is not None and name != "build"
+    ]
     if logged.get("machine") is not None and now.get("machine") is not None:
         found = deep_diff(logged["machine"], now["machine"])
         names += [f"machine.{d['path']}" for d in found if one_sided(d)]
@@ -111,6 +118,8 @@ def environment_diff(logged: dict[str, Any], now: dict[str, Any]) -> dict[str, l
     Facts the log didn't record are left out (see not_recorded)."""
     diffs = {}
     skipped = set(not_recorded(logged, now))
+    if "build" not in logged:  # an output without the lines: build_info alone, as before
+        skipped.add("build")
     for name in sorted((set(logged) | set(now)) - skipped):
         found = deep_diff(logged.get(name), now.get(name))
         if name == "machine":  # values known on one side only are not recorded, above
@@ -122,6 +131,31 @@ def environment_diff(logged: dict[str, Any], now: dict[str, Any]) -> dict[str, l
                 else []
             )
     return diffs
+
+
+# How llama-server was built, from the two lines it logs at start (common.cpp:418-439, at
+# server.toml's log-verbosity 4): "build N (commit) with COMPILER for TARGET", and
+# system_info's backends and CPU features. Not compared: each line's leading time, and
+# system_info's thread counts (n_threads, n_threads_batch, the CPU count), which describe
+# the start, not the build; the flags fact holds the threads asked for.
+BUILD_LINE = re.compile(r"common_params_print_info: (build \d+ \(\S+\) with .+ for .+)$", re.M)
+FEATURES = re.compile(
+    r"system_info: n_threads = \d+ \(n_threads_batch = \d+\) / \d+ \| (.*)$", re.M
+)
+
+
+def build_of(startup_output: Any) -> dict[str, str | None] | None:
+    """The build line and the CPU features from a start's output, or None when it holds
+    neither (a fake server's, say): then build_info is compared alone, as before v0.4.2."""
+    if not isinstance(startup_output, str):
+        return None
+    line, features = BUILD_LINE.search(startup_output), FEATURES.search(startup_output)
+    if line is None and features is None:
+        return None
+    return {
+        "line": line[1].rstrip() if line else None,
+        "features": features[1].rstrip() if features else None,
+    }
 
 
 def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict[str, Any]:
@@ -152,9 +186,11 @@ def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict
             "libraries": call.get("libraries"),
         }
     eog = (server.get("model_file") or {}).get("eog_tokens")
+    built = build_of(server.get("startup_output"))
     return {
         "end_tokens": sorted(t["id"] for t in eog) if eog is not None else None,
         "build_info": server.get("build_info"),
+        **({"build": built} if built is not None else {}),
         "llama_cpp": (
             {k: v for k, v in server["llama_cpp"].items() if k != "dir"}
             if server.get("llama_cpp") is not None
