@@ -55,7 +55,7 @@ uv run clarity verify smollm2-135m-instruct
 ok    smollm2-135m-instruct: sha256 matches (0f049d7126689b64…)
 ```
 
-A chat that searches your documents finds the parts closest in meaning to your message, with a second model, bge-m3. Fetch it too (a 2.27 GB download, about 1.1 GB kept):
+A chat that searches your documents finds the parts closest in meaning to your message, with a second model, bge-m3. Fetch it too (a 2.27 GB download, about 1.16 GB kept):
 
 ```
 uv run clarity fetch bge-m3

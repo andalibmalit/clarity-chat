@@ -222,7 +222,9 @@ def shown_score(score: float, minimum: float) -> str:
 def similarity(a: Sequence[float], b: Sequence[float]) -> float:
     """The dot product of two vectors, which for L2-normalized ones is their similarity,
     from -1 to 1 (decision 10). Each product of two float32 values is exact in float64, and
-    math.fsum rounds the sum once, correctly: the same bits on every 64-bit system."""
+    math.fsum rounds the sum once. The Python docs make that depend on IEEE 754 double
+    arithmetic with round-half-even and no extended-precision addition, which holds on
+    x86-64 (SSE2) and arm64, the platforms CI checks the golden order on."""
     return math.fsum(map(operator.mul, a, b))
 
 
