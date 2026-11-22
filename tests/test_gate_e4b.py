@@ -7,7 +7,8 @@ Run on a scratch root that `notes/tools/gate_root.py` made and `clarity fetch` f
 
 On the real llama-server at the pin: the model loads; the profile's template turns thinking
 off (the prompt ends at the model's turn) and writes no date; the start records the file's
-suppress_tokens; a call replays Identical; and both servers' logged memory, the model's and
+suppress_tokens; a call replays Identical; bge-m3's GGUF (a copy in the root) has the
+lock's sha256; and both servers' logged memory, the model's and
 bge-m3's at 8,192 tokens, is printed with this Mac's limit: the 16 GB verdict is read from
 those figures, not asserted here. Made-up text.
 Evaluation only: nothing here ships the model.
@@ -20,6 +21,8 @@ from pathlib import Path
 
 import pytest
 
+from clarity_chat.files import sha256_file
+from clarity_chat.models import read_lock
 from clarity_chat.session import Session
 
 pytestmark = pytest.mark.gate
@@ -60,6 +63,9 @@ def test_the_first_model_passes_the_gate(gate):
         assert result.get("ok", True), (check, result)
     replayed = session.replay_current()
     assert replayed["identical"], replayed
+    # bge-m3's GGUF is a copy (gate_root.py): its bytes must be the lock's.
+    lock = read_lock(session.root)["models"]["bge-m3"]["gguf"]
+    assert sha256_file(session.root / lock["path"]) == lock["sha256"], "bge-m3's copy differs"
     embedder = session.embedder()
     embedder.start()
     assert embedder.server is not None
