@@ -264,7 +264,7 @@ def test_try_says_a_part_s_control_token_would_refuse_the_message(root, chat_tok
 
     session, c, _ = chat(root, chat_tokenizer, 'search = ["odd"]')
     result = c.run("try", "Tell me about the wren", quiet)
-    assert set(result) == {"found", "refused"}
+    assert set(result) == {"found", "refused", "closest"}  # closest: v0.4.1 B2
     assert [p["id"] for p in result["found"]["parts"]] == ["odd:1"]
     assert result["refused"] == TERMINAL["control"]
     page = Commands(session, uploads={})

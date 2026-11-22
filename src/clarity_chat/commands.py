@@ -563,7 +563,13 @@ def _try(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     # uploads, so its Commands has them; the terminal and --json name their commands.
     terminal = c.uploads is None
     refused = SearchRefused([problem]).words(terminal) if problem else None
-    return {"found": found, "refused": refused}
+    # Nothing reached the minimum: how close the best part came (decision 12; /try only).
+    nothing = found["method"] == "meaning" and not found["matched"]
+    return {
+        "found": found,
+        "refused": refused,
+        "closest": c.session.last_closest if nothing else None,
+    }
 
 
 def document_try(root: Path, names: list[str], profile: str, text: str) -> dict[str, Any]:

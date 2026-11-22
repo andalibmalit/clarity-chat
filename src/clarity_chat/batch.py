@@ -36,6 +36,7 @@ from clarity_chat.session import (
     SearchRefused,
     Session,
     budget_of,
+    preparing_line,
     room_left,
 )
 
@@ -189,6 +190,12 @@ def run_batch(
     Each call uses the profile exactly as checked before the run, even if its file changes
     meanwhile. A server that restarts mid-run (say, after a crash) stops the run."""
     text, openings = read_openings(openings_path)
+
+    def building(name: str, done: int, total: int) -> None:  # state 4: said once a document
+        if done == 0:
+            write(preparing_line(name, total) + "\n")
+
+    session.on_building = building  # the pre-check builds before any chat model loads
     checked = check_run(session, profile_names, openings, n_seeds)
     prepared = dict(zip(profile_names, checked, strict=True))
     # Each searched document's build before the run: the run stops if one changes.

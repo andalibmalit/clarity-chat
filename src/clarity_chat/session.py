@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import secrets
 import threading
@@ -499,6 +500,7 @@ class Session:
         self._tokenizers: dict[tuple[str, str], Tokenizer] = {}
         self._embedder = embedder
         self.on_building: Callable[[str, int, int], None] | None = None
+        self.last_closest: float | None = None  # the last meaning search's best similarity
 
     # --- setup ----------------------------------------------------------------------------
 
@@ -990,6 +992,11 @@ class Session:
         except EmbedderFailed as e:
             raise refused({"state": "embedder", "why": str(e)}) from None
         minimum, origin = minimum_of(profile)
+        # Every part scored once: the best is /try's closest when none reaches the minimum.
+        query_vector = memoryview(query).cast("f")
+        found_vectors = {name: v for name, (v, _) in vectors.items()}
+        scored = meaning_search(docs, found_vectors, query_vector, -math.inf)
+        self.last_closest = scored[0]["score"] if scored else None
         return {
             "method": "meaning",
             "searched_for": text,
@@ -1006,12 +1013,7 @@ class Session:
             "query": {"tokens": len(ids), "sha256": hashlib.sha256(query).hexdigest()},
             "min_similarity": minimum,
             "min_similarity_origin": origin,
-            "matches": meaning_search(
-                docs,
-                {name: v for name, (v, _) in vectors.items()},
-                memoryview(query).cast("f"),
-                minimum,
-            ),
+            "matches": [m for m in scored if m["score"] >= minimum],
         }
 
     def _unsearchable(self, name: str) -> dict[str, Any] | None:
@@ -2539,6 +2541,12 @@ def attached_tokens(spans: Any, conversation: Conversation, user_turn: Turn) -> 
 def budget_of(profile: Profile) -> tuple[int, str]:
     """Search's budget for a message on `profile`, and where it comes from."""
     return (BUDGET, "default") if profile.budget is None else (profile.budget, "profile")
+
+
+def preparing_line(name: str, total: int) -> str:
+    """Said once before a document's vectors are built (state 4), by the terminal and a run."""
+    parts = f"{total:,} part" + ("" if total == 1 else "s")
+    return f"Preparing {name} for meaning search: {parts}, saved in local/documents/{name}/."
 
 
 def minimum_of(profile: Profile) -> tuple[float, str]:

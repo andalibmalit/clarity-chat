@@ -46,6 +46,7 @@ from clarity_chat.session import (
     SearchRefused,
     Session,
     found_summary,
+    preparing_line,
 )
 
 OnServer = Callable[[dict[str, Any] | None], None]  # told each llama-server's port, PID, key
@@ -825,11 +826,7 @@ class ChatLoop:
             gap = "\n\n" if event["k"] > 1 else ""
             self.write(f"{gap}— reply {event['k']} of {event['n']}, seed {event['seed']} —\n")
         elif event["event"] == "building" and event["done"] == 0:  # state 4, said once
-            name = event["name"]
-            self.write(
-                f"Preparing {name} for meaning search: {counted(event['total'], 'part')}, saved "
-                f"in local/documents/{name}/.\n"
-            )
+            self.write(preparing_line(event["name"], event["total"]) + "\n")
         elif event["event"] == "reading":
             self.write(f"Reading {shown(event['name'])}…\n")
         elif event["event"] == "writing":
@@ -1125,10 +1122,10 @@ def format_tried(result: dict[str, Any]) -> str:
     """/try's and `document try`'s answer: what was found, then the refusal a message that
     found it would meet, if any."""
     refused = f"\n! {result['refused']}" if result["refused"] else ""
-    return format_found(result["found"]) + refused
+    return format_found(result["found"], result.get("closest")) + refused
 
 
-def format_found(found: dict[str, Any]) -> str:
+def format_found(found: dict[str, Any], closest: float | None = None) -> str:
     """A search's result in lines, without the parts' text: the words, what was added and
     why, and what was left out."""
     if found.get("method") == "meaning":
@@ -1143,7 +1140,12 @@ def format_found(found: dict[str, Any]) -> str:
         ignored = f" (ignored: {', '.join(found['ignored'])})" if found["ignored"] else ""
         lines = [f"Searched for: {', '.join(found['words'])}{ignored}."]
     if not found["matched"]:
-        lines.append("Nothing matched.")
+        lines.append(
+            "Nothing matched."
+            if closest is None
+            else f"Nothing matched; the closest was {closest:.2f}, and the minimum is "
+            f"{found['min_similarity']:g}."
+        )
         return "\n".join(lines)
     lines.append(
         f"{found['matched']:,} matched; {counted(len(found['parts']), 'part')} added, "
