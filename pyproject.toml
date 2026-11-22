@@ -75,8 +75,9 @@ testpaths = ["tests"]
 # `pytest -m olmo` (OLMo 3, needs it fetched), `pytest -m llama` (Llama 3.1 8B, needs it
 # fetched), `pytest -m hf` (Transformers backend) or
 # `pytest -m measure -s` (timings and memory for design decisions; prints, barely asserts) or
-# `pytest -m browser` (the web UI in Chrome; needs `uv sync --group browser`).
-addopts = "-m 'not live and not olmo and not llama and not hf and not measure and not embed and not browser'"
+# `pytest -m browser` (the web UI in Chrome; needs `uv sync --group browser`) or
+# `pytest -m gate -s` (a first model's gate on a scratch root: tests/test_gate_e4b.py).
+addopts = "-m 'not live and not olmo and not llama and not hf and not measure and not embed and not browser and not gate'"
 markers = [
     "live: needs the built llama-server and the fetched SmolLM2 model",
     "gpu: a live test that needs the model on a GPU; CI's CPU job deselects it",
@@ -86,4 +87,5 @@ markers = [
     "measure: measurements on OLMo 3 for design decisions; run with -s to see them",
     "embed: needs the fetched bge-m3, the embedding model for meaning search",
     "browser: the web UI in a real browser (Playwright; `uv sync --group browser`)",
+    "gate: a first model's gate (v0.4.2 A0); needs CLARITY_GATE_ROOT and GATE_MODEL",
 ]
