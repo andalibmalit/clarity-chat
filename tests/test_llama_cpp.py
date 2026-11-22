@@ -763,6 +763,8 @@ def running_server(monkeypatch, root, startup, embedder=False):
     config = load_server_config(root)
     if embedder:
         config = dataclasses.replace(config, flags=dict(FLAGS))
+    else:  # not the embedder's 8,192, so a mix-up of the two shows (the fix review's #14)
+        config = dataclasses.replace(config, flags={**config.flags, "ctx-size": CHAT_CTX})
     server = llama_cpp.LlamaServer(config, root / "model.gguf", root / "logs", None)
 
     def launch(argv, env):
@@ -784,6 +786,9 @@ def running_server(monkeypatch, root, startup, embedder=False):
     return server
 
 
+CHAT_CTX = 4096
+
+
 @pytest.fixture
 def two_servers(monkeypatch, root):  # conftest's no_running_servers empties RUNNING first
     return lambda startup, embedder=False: running_server(monkeypatch, root, startup, embedder)
@@ -802,28 +807,33 @@ def test_the_embedder_s_start_counts_the_running_chat_server(two_servers, root):
     """The review's M1: a chat server at 9,000 MiB of a 10,700 MiB limit, then the embedder
     at 1,800: each fits alone, the two don't. The refusal names both figures and only ways
     out the user can take (never the embedder's fixed 8,192)."""
-    from clarity_chat.profiles import load_server_config
 
     chat = two_servers(CHAT_9000)
     assert not isinstance(chat, Exception), chat
     refused = two_servers(EMBEDDER_1800, embedder=True)
     assert isinstance(refused, Exception), "the embedder started"
-    assert str(refused) == BOTH.format(ctx=load_server_config(root).ctx_size)
+    assert str(refused) == BOTH.format(ctx=CHAT_CTX)
     assert chat.proc.poll() is None  # the chat server keeps running
 
 
 def test_the_chat_server_s_start_counts_the_running_embedder(two_servers, root):
-    from clarity_chat.profiles import load_server_config
 
     embedder = two_servers(EMBEDDER_1800, embedder=True)
     assert not isinstance(embedder, Exception), embedder
     refused = two_servers(CHAT_9000)
     assert isinstance(refused, Exception), "the chat server started"
-    assert str(refused) == BOTH.format(ctx=load_server_config(root).ctx_size)
+    assert str(refused) == BOTH.format(ctx=CHAT_CTX)
 
 
 def test_two_servers_under_the_limit_both_start(two_servers):
     assert not isinstance(two_servers(CHAT_8000), Exception)
+    assert not isinstance(two_servers(EMBEDDER_1800, embedder=True), Exception)
+
+
+def test_a_chat_server_that_exited_on_its_own_isn_t_counted(two_servers):
+    """The fix review's #13: a crash isn't a stop(), so only the process's state says it."""
+    chat = two_servers(CHAT_9000)
+    chat.proc.code = 1  # exited, never stopped
     assert not isinstance(two_servers(EMBEDDER_1800, embedder=True), Exception)
 
 

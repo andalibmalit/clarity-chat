@@ -579,6 +579,7 @@ def wrong_engine_key(found: dict) -> None:
         (("documents", 0, "vectors_sha256"), 7),
         (("engine",), wrong_engine_key),
         (("engine",), wrong_engine_model),  # the whole-branch review's S5
+        (("parts", 0, "score"), float("inf")),  # the fix review's F2
     ],
     ids=lambda v: str(v),
 )

@@ -156,6 +156,10 @@ def test_a_run_comparing_meaning_and_words_names_the_method_as_what_differs():
     assert parts_differ(1, got, {"meaning": p(), "words": p("words")}) == (
         f"{said} Their search methods differ, so the replies differ in what they were given too."
     )
+    # A words profile's minimum does nothing, so it's no difference (the fix review's could 2).
+    assert parts_differ(1, got, {"meaning": p(minimum=0.2), "words": p("words")}) == (
+        f"{said} Their search methods differ, so the replies differ in what they were given too."
+    )
     assert parts_differ(1, got, {"meaning": p(), "words": p(minimum=0.7)}) == (
         f"{said} Their minimum similarities differ, so the replies differ in what they were "
         "given too."

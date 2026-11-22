@@ -112,7 +112,8 @@ def test_a_score_is_shown_to_the_minimum_s_places_and_never_below_it():
 
     for score, minimum, shown in [
         (0.5521, 0.552, "0.552"),
-        (0.552, 0.552, "0.552"),  # the float nearest 0.552 is below it: still "0.552"
+        (0.552, 0.552, "0.552"),
+        (0.3, 0.3, "0.30"),  # the float nearest 0.3 is a little below it: still "0.30" (#20)
         (0.719, 0.5, "0.71"),  # rounded down, not to nearest
         (0.5, 0.5, "0.50"),
     ]:
@@ -266,3 +267,19 @@ def test_the_terminal_never_prints_a_part_s_text(terminal):
     shown = "".join(output)
     for text in ("How leaves turn light into sugar.", "How water and wind wear rock away."):
         assert text not in shown
+
+
+def test_a_score_shows_for_any_minimum_and_any_number_a_log_holds():
+    """The fix review's F2: rounding past 28 digits raised instead of answering."""
+    from clarity_chat.commands import shown_score
+
+    def said(score: float, minimum: float) -> str | Exception:
+        try:
+            return shown_score(score, minimum)
+        except Exception as e:  # a red fails on the assertion below, not on this
+            return e
+
+    tiny = said(0.3, 1e-30)
+    assert isinstance(tiny, str) and tiny.startswith("0.29999999999999998889"), tiny
+    huge = said(1e30, 0.5)
+    assert huge == "1000000000000000019884624838656.00", huge

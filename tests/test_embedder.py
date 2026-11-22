@@ -30,6 +30,7 @@ from clarity_chat.profiles import ConfigError, load_server_config
 from clarity_chat.render import Tokenizer
 from tests.conftest import fake_fetch
 from tests.fake_llama import DEVICE_LINES, Running, dump, startup
+from tests.test_llama_cpp import running_server
 
 BGE_M3 = """
 [bge-m3]
@@ -155,6 +156,10 @@ def fake(monkeypatch) -> Fake:
 @pytest.fixture
 def m3_root(root) -> Path:
     """A root whose models.toml has bge-m3, fetched (a made-up GGUF and lock entry)."""
+    return m3_fetched(root)
+
+
+def m3_fetched(root: Path) -> Path:
     with (root / "models.toml").open("a", encoding="utf-8") as f:
         f.write(BGE_M3)
     fake_fetch(root, "bge-m3")
@@ -538,3 +543,47 @@ def test_a_reply_whose_one_vector_has_another_index_is_refused(m3_root, fake):
     fake.reply = reply
     with pytest.raises(EmbedderFailed, match="1 vectors for one input"):
         made(m3_root).vector([0, 5, 2])
+
+
+def test_close_drops_the_entry_so_the_next_start_reads_models_toml_again(m3_root, fake):
+    """The fix review's #23: the next start reads the changed entry, which the lock then
+    refuses (a cached entry would start with the old revision)."""
+    embedder = made(m3_root)
+    first = embedder.start()["tokenizer_revision"]
+    embedder.close()
+    models = m3_root / "models.toml"
+    line = f'tokenizer_revision = "{first}"'  # the tokenizer's line only: the lock pins the rest
+    models.write_text(
+        models.read_text(encoding="utf-8").replace(line, f'tokenizer_revision = "{"f" * 40}"'),
+        "utf-8",
+    )
+    with pytest.raises(ConfigError, match="with tokenizer_revision"):
+        embedder.start()
+
+
+def test_a_chat_that_doesn_t_search_by_meaning_stops_the_embedder(
+    fetched_root, fake, chat_tokenizer, monkeypatch
+):
+    """The fix review's F1 (ruled): following the memory refusal's way out, words and a new
+    chat, frees the embedder's memory, so the chat server that didn't fit beside it starts.
+    The embedder starts again at the next need."""
+    from clarity_chat.session import Session
+    from tests.fakes import FakeBackend
+    from tests.test_llama_cpp import CHAT_9000, startup_using
+
+    m3_root = m3_fetched(fetched_root)  # the chat model fetched too
+    fake.startup = startup_using(10700, 1100, 0, 700)  # the embedder: 1,800 MiB
+    backend = FakeBackend([" R."] * 4, tokenizer=chat_tokenizer)
+    session = Session(m3_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
+    session.embedder().vector([0, 5, 2])
+    embedder = fake.procs[-1]
+    conversation = session.new_conversation("chat")  # conftest's chat profile: words
+    assert embedder.terminated, "the embedder still runs"
+    assert not isinstance(running_server(monkeypatch, m3_root, CHAT_9000), Exception)
+    session.embedder().vector([0, 5, 2])  # the next need starts it again
+    assert not fake.procs[-1].terminated
+    session.new_conversation("chat")
+    session.embedder().vector([0, 5, 2])
+    again = fake.procs[-1]
+    session.resume(conversation.log.path)  # a resumed words chat frees it too
+    assert again.terminated
