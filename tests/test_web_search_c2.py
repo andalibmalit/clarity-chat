@@ -30,7 +30,7 @@ def make(fetched_root, chat_tokenizer):
         if documents:
             path = fetched_root / "profiles" / "chat.toml"
             text = path.read_text(encoding="utf-8")
-            path.write_text(f"{text}\n[documents]\n{documents}\n", encoding="utf-8")
+            path.write_text(f"{text}\n{documents}\n", encoding="utf-8")
         backend = FakeBackend([" Hello!"] * 9, n_ctx=n_ctx, tokenizer=chat_tokenizer)
         session = Session(
             fetched_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer

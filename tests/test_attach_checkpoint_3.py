@@ -18,7 +18,7 @@ from tests.test_web_upload import upload
 
 __all__ = ["make"]  # the fixture, used by name
 
-MARKER = '\n[documents]\nexcerpt_marker = "Made-up part: {units} {first} to {last}."\n'
+MARKER = '\nexcerpt_marker = "Made-up part: {units} {first} to {last}."\n'  # chat's [documents]
 
 
 def add_button(text: str) -> str:
@@ -45,7 +45,7 @@ def test_a_range_that_covers_the_file_still_says_excerpts_carry_a_marker(make):
 
 
 def test_a_profile_with_no_marker_says_so_before_any_range(make):
-    client, _, _ = make(extra='\n[documents]\nexcerpt_marker = ""\n')
+    client, _, _ = make(extra='\nexcerpt_marker = ""\n')  # into the chat profile's [documents]
     upload_id = upload(client, NOTES).json()["upload"]
     assert checked(client, upload_id)["excerpt_marker_origin"] == "none"
     text = sheet(client, upload=upload_id)

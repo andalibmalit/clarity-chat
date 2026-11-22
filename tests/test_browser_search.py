@@ -82,7 +82,7 @@ def test_a_name_typed_in_the_box_keeps_both(clarity, page, fetched_root):  # noq
 def test_unticking_a_missing_document_lets_send_go(clarity, page, fetched_root):  # noqa: F811
     library_add(fetched_root, GLOSSARY, "glossary.md")
     path = fetched_root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nsearch = ["glossary"]\n')
+    path.write_text(path.read_text(encoding="utf-8") + '\nsearch = ["glossary"]\n')
     redirect, backend = clarity
     chat(page, redirect)
     shutil.rmtree(fetched_root / "local/documents/glossary")
@@ -104,7 +104,7 @@ def test_unticking_a_missing_document_lets_send_go(clarity, page, fetched_root):
 def searching_chat(page, redirect, fetched_root) -> None:
     library_add(fetched_root, GLOSSARY, "glossary.md")
     path = fetched_root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nsearch = ["glossary"]\n')
+    path.write_text(path.read_text(encoding="utf-8") + '\nsearch = ["glossary"]\n')
     chat(page, redirect)
 
 

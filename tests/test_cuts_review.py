@@ -24,7 +24,7 @@ KEY = "Take it out of search under [documents] in the profile's file."
 
 def searches(root, name: str) -> None:  # noqa: F811
     path = root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + f'\n[documents]\nsearch = ["{name}"]\n')
+    path.write_text(path.read_text(encoding="utf-8") + f'\nsearch = ["{name}"]\n')
 
 
 def test_the_page_s_start_says_only_the_profile_s_key(root, make):  # noqa: F811

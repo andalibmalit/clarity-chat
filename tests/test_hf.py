@@ -543,13 +543,13 @@ def test_a_searched_message_gives_the_same_prompt_ids_on_both_backends(
     session = Session(REPO, logs_dir=tmp_path / "logs", embedder=FakeEmbedder())  # ty: ignore[invalid-argument-type]
     folder = tmp_path / "profiles"
     folder.mkdir()
-    meaning = '\n[documents]\nsearch_method = "meaning"\nmin_similarity = 0.0\n'
+    minimum = "min_similarity = 0.0\n" if method == "meaning" else ""
+    documents = f'\n[documents]\nsearch_method = "{method}"\n{minimum}'  # stated, both
     records = {}
     try:
         for backend in ("llama.cpp", "transformers"):
             path = Path(profile(folder, "smol-chat", backend, temperature="0.0"))
-            if method == "meaning":
-                path.write_text(path.read_text(encoding="utf-8") + meaning, encoding="utf-8")
+            path.write_text(path.read_text(encoding="utf-8") + documents, encoding="utf-8")
             session.new_conversation(str(path))
             session.set_search(["trail"])
             records[backend] = session.say("What marks the ridge?").record

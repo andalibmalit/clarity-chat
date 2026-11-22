@@ -46,7 +46,7 @@ def root(fetched_root):
 def chat(root, tokenizer, documents: str = ""):
     if documents:
         path = root / "profiles" / "chat.toml"
-        path.write_text(path.read_text(encoding="utf-8") + f"\n[documents]\n{documents}\n")
+        path.write_text(path.read_text(encoding="utf-8") + f"\n{documents}\n")
     backend = FakeBackend([f" R{i}." for i in range(20)], tokenizer=tokenizer)
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: tokenizer)
     c = Commands(session)
@@ -240,7 +240,7 @@ def test_the_terminal_s_added_notice_leads_with_what_was_written(root, tmp_path,
 
 def test_a_profile_naming_a_missing_document_in_the_page_s_terms(root, chat_tokenizer):
     path = root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nsearch = ["birds"]\n')
+    path.write_text(path.read_text(encoding="utf-8") + '\nsearch = ["birds"]\n')
     backend = FakeBackend([" R."], tokenizer=chat_tokenizer)
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
     assert refusal(lambda: Commands(session).run("profile", "chat", quiet)) == (
@@ -347,7 +347,7 @@ def test_a_refusal_at_send_is_logged_and_given_back(
     from clarity_chat.logs import read_records
 
     path = root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nsearch = ["notes"]\n')
+    path.write_text(path.read_text(encoding="utf-8") + '\nsearch = ["notes"]\n')
     backend = FakeBackend([" R."], tokenizer=chat_tokenizer)
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
     output: list[str] = []

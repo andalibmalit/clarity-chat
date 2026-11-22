@@ -506,7 +506,7 @@ def test_an_empty_excerpt_is_refused_without_a_marker_too(fetched_root, chat_tok
     """Confirmation should 1: with `excerpt_marker = ""` the excerpt has no marker; it's
     still an excerpt, and empty."""
     path = fetched_root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nexcerpt_marker = ""\n')
+    path.write_text(path.read_text(encoding="utf-8") + '\nexcerpt_marker = ""\n')
     reading._last = None
     session, _ = chat_session(fetched_root, chat_tokenizer)
     scan = tmp_path / "scan.pdf"

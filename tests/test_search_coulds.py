@@ -104,7 +104,7 @@ def test_the_stop_s_fallback_counts_found_parts(root, chat_tokenizer):
 
 def test_the_context_figure_skips_a_refused_send(root, chat_tokenizer):
     path = root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nsearch = ["glossary"]\n')
+    path.write_text(path.read_text(encoding="utf-8") + '\nsearch = ["glossary"]\n')
     backend = FakeBackend([" R0.", " R1."], tokenizer=chat_tokenizer)
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
     app = web.make_app(session, SECRET.encode(), port=PORT)

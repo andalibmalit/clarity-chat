@@ -34,7 +34,7 @@ def root(fetched_root):
 
 def profile(root, documents: str) -> None:
     path = root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + f"\n[documents]\n{documents}\n")
+    path.write_text(path.read_text(encoding="utf-8") + f"\n{documents}\n")
 
 
 def chat(root, chat_tokenizer, events: list | None = None) -> tuple[Session, Commands]:

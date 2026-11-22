@@ -607,7 +607,9 @@ def searching_profiles(tmp_path) -> list[str]:
     paths = []
     for where in ("start", "end"):
         path = tmp_path / f"trail-{where}.toml"
-        documents = f'\n[documents]\nsearch = ["trail"]\nplacement = "{where}"\n'
+        documents = (  # by words: CI's live-cpu job has no embedder (v0.4.1 Q4)
+            f'\n[documents]\nsearch = ["trail"]\nplacement = "{where}"\nsearch_method = "words"\n'
+        )
         path.write_text(text + documents, encoding="utf-8", newline="\n")
         paths.append(str(path))
     return paths

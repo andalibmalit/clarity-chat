@@ -177,7 +177,7 @@ def test_the_framing_line_shows_its_source_and_how_to_change_it(make):
 
 
 def test_a_profile_without_a_framing_line_says_so(make):
-    client, _, _ = make(extra='\n[documents]\nframing = ""\n')
+    client, _, _ = make(extra='\nframing = ""\n')  # into the chat profile's [documents]
     upload_id = upload(client, NOTES).json()["upload"]
     text = sheet(client, upload=upload_id)
     assert SENTENCES["no_framing"].format(origin=SENTENCES["origin_profile"]) in text

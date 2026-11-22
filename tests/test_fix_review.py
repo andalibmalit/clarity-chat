@@ -55,7 +55,9 @@ def test_a_block_at_the_end_is_counted_at_the_end(root, olmo_tokenizer, message)
         path = root / "profiles" / "chat.toml"
         base = path.read_text(encoding="utf-8").split("\n[documents]")[0]
         documents = f'search = ["glossary"]\nplacement = "{placement}"\nbudget = {budget}'
-        path.write_text(f"{base}\n[documents]\n{documents}\n", encoding="utf-8")
+        path.write_text(
+            f'{base}\n[documents]\nsearch_method = "words"\n{documents}\n', encoding="utf-8"
+        )
         c.run("profile", "chat", quiet)
         c.run("say", message, quiet)
         assert session.conversation is not None

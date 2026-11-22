@@ -34,7 +34,7 @@ def root(fetched_root):
     reading._last = None
     library_add(fetched_root, GLOSSARY, "glossary.md")
     profiles = fetched_root / "profiles"
-    searching = CHAT_PROFILE + '\n[documents]\nsearch = ["glossary"]\n'
+    searching = CHAT_PROFILE + '\n[documents]\nsearch = ["glossary"]\nsearch_method = "words"\n'
     (profiles / "chat.toml").write_text(searching, encoding="utf-8")
     small = searching.replace('search = ["glossary"]', 'search = ["glossary"]\nbudget = 60')
     (profiles / "small.toml").write_text(small, encoding="utf-8")

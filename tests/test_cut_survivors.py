@@ -27,7 +27,7 @@ def test_the_chooser_says_a_change_applies_from_the_next_message(root, make):  #
 
 def started_with_an_unreadable_document(root, chat_tokenizer) -> SearchRefused:  # noqa: F811
     path = root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nsearch = ["glossary"]\n')
+    path.write_text(path.read_text(encoding="utf-8") + '\nsearch = ["glossary"]\n')
     (root / "local/documents/glossary/manifest.json").write_text("{garbage", encoding="utf-8")
     backend = FakeBackend([" R."], tokenizer=chat_tokenizer)
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)

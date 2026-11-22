@@ -39,7 +39,9 @@ def not_built(root: Path) -> None:
 def search(root: Path, names: list[str], extra: str = "", profile: str = "chat") -> None:
     path = root / "profiles" / f"{profile}.toml"
     text = path.read_text(encoding="utf-8")
-    path.write_text(f"{text}\n[documents]\nsearch = {json.dumps(names)}\n{extra}", encoding="utf-8")
+    # Into the profile's [documents] table if it has one (conftest's chat states word search).
+    head = "" if "\n[documents]\n" in text else '\n[documents]\nsearch_method = "words"'
+    path.write_text(f"{text}{head}\nsearch = {json.dumps(names)}\n{extra}", encoding="utf-8")
 
 
 def with_tokenizer(monkeypatch, tokenizer) -> None:

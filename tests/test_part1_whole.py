@@ -91,7 +91,7 @@ KINDS = list(TERMINAL)
 def started(root: Path, tokenizer, how: str) -> Session:
     path = root / "profiles" / "chat.toml"
     text = path.read_text(encoding="utf-8")
-    path.write_text(text + f'\n[documents]\nsearch = ["{NAME[how]}"]\n', encoding="utf-8")
+    path.write_text(text + f'\nsearch = ["{NAME[how]}"]\n', encoding="utf-8")
     backend = FakeBackend([" R."], tokenizer=tokenizer)
     return Session(root, backend=backend, tokenizer_loader=lambda r, v: tokenizer)
 
@@ -154,7 +154,7 @@ def test_the_page_and_the_log_keep_the_board_s_words(root, chat_tokenizer):
 def test_a_run_s_pre_check_names_the_terminal_command(root, chat_tokenizer):
     not_built(root)
     path = root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nsearch = ["glossary"]\n')
+    path.write_text(path.read_text(encoding="utf-8") + '\nsearch = ["glossary"]\n')
     (root / "openings.txt").write_text("Tell me about the wren.\n", encoding="utf-8")
     backend = FakeBackend([" R."], tokenizer=chat_tokenizer)
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
@@ -170,7 +170,7 @@ def test_a_run_s_pre_check_names_the_terminal_command(root, chat_tokenizer):
 
 def test_a_profile_s_missing_document_names_the_terminal_command(root, chat_tokenizer):
     path = root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nsearch = ["birds"]\n')
+    path.write_text(path.read_text(encoding="utf-8") + '\nsearch = ["birds"]\n')
     backend = FakeBackend([" R."], tokenizer=chat_tokenizer)
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
     with pytest.raises(ConfigError) as refused:

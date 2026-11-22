@@ -40,7 +40,7 @@ def root(fetched_root):
 def chat(root, tokenizer, documents: str = 'search = ["glossary"]', replies=None):
     path = root / "profiles" / "chat.toml"
     if documents:
-        path.write_text(path.read_text(encoding="utf-8") + f"\n[documents]\n{documents}\n")
+        path.write_text(path.read_text(encoding="utf-8") + f"\n{documents}\n")
     backend = FakeBackend(replies or [f" R{i}." for i in range(30)], tokenizer=tokenizer)
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: tokenizer)
     c = Commands(session)
@@ -230,7 +230,7 @@ def test_a_stale_document_refuses_the_call_with_its_way_out(root, chat_tokenizer
 def test_the_terminal_gives_a_refused_message_back(root, chat_tokenizer):
     (root / "local/documents/glossary/parts.jsonl").write_text("Edited.\n", encoding="utf-8")
     path = root / "profiles" / "chat.toml"
-    path.write_text(path.read_text(encoding="utf-8") + '\n[documents]\nsearch = ["glossary"]\n')
+    path.write_text(path.read_text(encoding="utf-8") + '\nsearch = ["glossary"]\n')
     backend = FakeBackend([" R."], tokenizer=chat_tokenizer)
     session = Session(root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
     output: list[str] = []

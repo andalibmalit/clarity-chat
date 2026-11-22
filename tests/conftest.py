@@ -45,6 +45,10 @@ max_tokens = 16
 seed = 42
 """
 
+# The `chat` profile's search method, stated (v0.4.1 B3): tests written for word search keep
+# it when a chat on a profile with no key searches by meaning.
+WORD_SEARCH = '\n[documents]\nsearch_method = "words"\n'
+
 # A toy chat template: <role>content</s> per message, then <assistant> to generate.
 TOY_TEMPLATE = (
     "{% if greeting is defined %}[{{ greeting }}]{% endif %}"
@@ -131,7 +135,9 @@ def root(tmp_path: Path) -> Path:
     # newline="\n": the same bytes on every OS (Windows would write CRLF), so a profile
     # file matches the text a log recorded from it.
     (tmp_path / "profiles" / "text.toml").write_text(TEXT_PROFILE, encoding="utf-8", newline="\n")
-    (tmp_path / "profiles" / "chat.toml").write_text(CHAT_PROFILE, encoding="utf-8", newline="\n")
+    (tmp_path / "profiles" / "chat.toml").write_text(
+        CHAT_PROFILE + WORD_SEARCH, encoding="utf-8", newline="\n"
+    )
     return tmp_path
 
 
