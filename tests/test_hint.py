@@ -23,6 +23,9 @@ def home(tmp_path, monkeypatch) -> Path:
     home.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))  # Path.home() on Windows
+    # The folder is named for a POSIX shell (S12): these tests check that wording on every
+    # CI system; the Windows one sets win32 itself.
+    monkeypatch.setattr("sys.platform", "darwin")
     return home
 
 
@@ -77,3 +80,11 @@ def test_a_command_run_sets_the_folder_and_clears_it_when_it_ends(root, monkeypa
         "fetch tiny. Then try again."
     ]
     assert fetch_hint("tiny") == BEFORE  # cleared: a later run or test can't read it
+
+
+def test_on_windows_the_hint_keeps_its_words(home, monkeypatch):
+    """S12: "cd ~/… && uv run …" is a POSIX shell's; Windows' shells read it otherwise."""
+    import sys
+
+    monkeypatch.setattr(sys, "platform", "win32")  # not os.name: pathlib reads that
+    assert named(home / "Clarity") == BEFORE
