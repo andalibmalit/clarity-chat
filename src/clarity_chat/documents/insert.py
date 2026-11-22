@@ -145,10 +145,11 @@ SENTENCES = {
     # search_it's slot, how parts are chosen (v0.4.1 C1, the states table's 13)
     "search_it_words": "that share a word with your message, best match first; common words such "
     'as "the" don\'t count',
-    "search_it_meaning": "that are closest in meaning to your message, best match first",
+    "search_it_meaning": "whose meaning is close enough to your message (similarity at least "
+    "{minimum}, {origin}), best match first",
     "searching_some": "Searching: {documents}",
     "searching_none": "Searching: no documents",
-    "searching_head": "Searched for each message you send",
+    "searching_head": "Searched by words for each message you send",
     "searching_head_meaning": "Searched by meaning for each message you send",  # state 14
     "searching_applies": "A change applies from your next message. Regenerate keeps the parts a "
     "message already has.",  # the walkthrough's M2, T1

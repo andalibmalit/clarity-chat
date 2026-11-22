@@ -33,7 +33,13 @@ from clarity_chat.documents import (
 )
 from clarity_chat.logs import LOG_NAME, list_chats, unreadable
 from clarity_chat.profiles import ConfigError, profile_path
-from clarity_chat.session import CallOutcome, CancelledBeforeReply, DoesntFit, Session
+from clarity_chat.session import (
+    CallOutcome,
+    CancelledBeforeReply,
+    DoesntFit,
+    Session,
+    minimum_of,
+)
 
 Emit = Callable[[dict[str, Any]], None]
 MESSAGE_COMMANDS = {"say", "edit"}  # their args are message text, sent exactly
@@ -1145,6 +1151,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "searching_origin": None,
         "search_method": None,
         "budget": None,
+        "min_similarity": None,
     }
     if conversation is None:
         return out
@@ -1165,6 +1172,10 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "search_method": conversation.search_method,
         # One conversation for every field (the part 2 whole-branch review's could 1).
         "budget": dict(zip(("tokens", "origin"), session.budget(conversation), strict=True)),
+        # Meaning search's minimum, as Search it says it (the C1 review's ruling).
+        "min_similarity": dict(
+            zip(("value", "origin"), minimum_of(conversation.profile), strict=True)
+        ),
         "head": conversation.head,
         "turns": turns,
         "unanswered": conversation.unanswered,
