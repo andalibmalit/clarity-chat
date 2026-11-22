@@ -33,6 +33,10 @@ def run_hint(command: str) -> str:
     )
 
 
+def set_hint_folder(folder: Path | None) -> None:  # stub (v0.4.2 A8)
+    pass
+
+
 def fetch_hint(name: str) -> str:
     """The fetch hint every "fetch it" sentence ends with."""
     return run_hint(f"fetch {name}")
