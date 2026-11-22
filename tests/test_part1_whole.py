@@ -237,7 +237,8 @@ def test_the_run_notice_names_what_differs():
     from clarity_chat.batch import parts_differ
 
     def p(repo="t", budget=None, placement="start"):
-        profile = SimpleNamespace(budget=budget, search=("glossary",), placement=placement)
+        profile = SimpleNamespace(budget=budget, search=("glossary",), placement=placement,
+                                  search_method=None, min_similarity=None)  # fmt: skip
         return SimpleNamespace(profile=profile, model=SimpleNamespace(
             tokenizer_repo=repo, tokenizer_revision="r"))  # fmt: skip
 

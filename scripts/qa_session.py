@@ -145,6 +145,7 @@ def prepare_root(root: Path, repo: Path = REPO, init: bool = False) -> None:
     )
     (profiles / "smol-steer-hf.toml").write_text(steer, encoding="utf-8", newline="\n")
     check_server_toml(root, repo, init)
+    left_server(root)  # again, last: a record written while the root was prepared (should 1)
 
 
 def no_links(root: Path) -> None:

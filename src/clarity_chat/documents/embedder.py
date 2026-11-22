@@ -25,7 +25,7 @@ from clarity_chat.backends import BackendError
 from clarity_chat.backends.llama_cpp import LlamaServer
 from clarity_chat.logs import machine
 from clarity_chat.models import check_weights_quick, lock_entry, weights_path
-from clarity_chat.profiles import ConfigError, ServerConfig, load_models
+from clarity_chat.profiles import ConfigError, ModelEntry, ServerConfig, load_models
 
 MODEL = "bge-m3"
 DIMENSIONS = 1024
@@ -136,6 +136,7 @@ class Embedder:
         self.load_tokenizer = load_tokenizer
         self.server: LlamaServer | None = None
         self.engine: dict[str, Any] = {}  # the setup's facts, while it runs
+        self.model: ModelEntry | None = None  # bge-m3's entry, read once per start (could 1)
 
     def fetched(self) -> bool:
         """Whether bge-m3 is fetched: its entry, its lock entry and its file are there. A
@@ -151,8 +152,9 @@ class Embedder:
         return weights_path(self.root, entry).is_file()
 
     def ids(self, text: str) -> list[int]:
-        """`text`'s token IDs from bge-m3's own tokenizer, with <s> and </s>."""
-        model = load_models(self.root)[MODEL]
+        """`text`'s token IDs from bge-m3's own tokenizer, with <s> and </s>: the revision
+        `engine` logs, even if models.toml changes while it runs."""
+        model = self.entry()
         tokenizer = self.load_tokenizer(model.tokenizer_repo, model.tokenizer_revision)
         ids = list(tokenizer.tok.encode(text, add_special_tokens=True))
         if len(ids) > MAX_TOKENS:
@@ -171,7 +173,7 @@ class Embedder:
                     "next search starts it again."
                 )
             return self.engine
-        model = load_models(self.root)[MODEL]
+        model = self.entry()
         entry = lock_entry(self.root, model)
         gguf = check_weights_quick(self.root, entry)
         self.server = LlamaServer(self.config, gguf, self.logs_dir, self.on_change)
@@ -233,7 +235,13 @@ class Embedder:
             self.close()
             raise EmbedderFailed(f"The embedder sent a vector Clarity can't use: {e}") from e
 
+    def entry(self) -> ModelEntry:
+        """bge-m3's models.toml entry, read once: the next start after a close reads it again."""
+        if self.model is None:
+            self.model = load_models(self.root)[MODEL]
+        return self.model
+
     def close(self) -> None:
         if self.server is not None:
             self.server.stop()
-        self.server, self.engine = None, {}
+        self.server, self.engine, self.model = None, {}, None

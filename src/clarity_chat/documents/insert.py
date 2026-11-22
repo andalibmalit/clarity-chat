@@ -512,6 +512,7 @@ FOUND_BY_METHOD: dict[str, dict[str, Callable[[Any], bool]]] = {
             isinstance(v, dict)
             and set(v) == {*ENGINE_FACTS, "setup"}
             and v["setup"] == setup_of({k: v[k] for k in ENGINE_FACTS})
+            and isinstance(v["model"], str)  # Details shows it (the whole-branch review's S5)
         ),
         "query": lambda v: (
             isinstance(v, dict)

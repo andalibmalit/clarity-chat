@@ -208,3 +208,12 @@ def pytest_runtest_makereport(item, call):
     if not any(reason in str(report.longrepr) for reason in CI_SKIPS):
         report.outcome = "failed"
         report.longrepr = f"Skipped in CI, where offline tests must run: {report.longrepr}"
+
+
+@pytest.fixture(autouse=True)
+def no_running_servers(monkeypatch):
+    """Each test starts with no llama-server counted as running (v0.4.1 A4's memory check
+    adds the other server's figure): a fake one a test left running can't reach the next."""
+    from clarity_chat.backends import llama_cpp
+
+    monkeypatch.setattr(llama_cpp, "RUNNING", [])

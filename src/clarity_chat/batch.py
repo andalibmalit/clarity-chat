@@ -28,7 +28,7 @@ from clarity_chat.backends import BackendError
 from clarity_chat.files import read_text, sha256_text, write_text_atomic
 from clarity_chat.logs import LogFile, client_git, machine
 from clarity_chat.models import portable_path
-from clarity_chat.profiles import SEED_MAX, ConfigError, Setting
+from clarity_chat.profiles import SEARCH_METHOD, SEED_MAX, ConfigError, Setting
 from clarity_chat.render import build_prompt
 from clarity_chat.session import (
     ContextError,
@@ -36,6 +36,7 @@ from clarity_chat.session import (
     SearchRefused,
     Session,
     budget_of,
+    minimum_of,
     preparing_line,
     room_left,
 )
@@ -152,6 +153,8 @@ DIFFERS = {  # what can give two profiles different parts for one opening
     "budgets": lambda p: budget_of(p.profile)[0],  # none written is the default (fix 2's C3)
     "search lists": lambda p: tuple(p.profile.search),
     "placements": lambda p: p.profile.placement,
+    "search methods": lambda p: p.profile.search_method or SEARCH_METHOD,  # v0.4.1 review S2
+    "minimum similarities": lambda p: minimum_of(p.profile)[0],
 }
 
 

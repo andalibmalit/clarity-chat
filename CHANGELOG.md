@@ -9,7 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Migration
-- New chats that search documents search by meaning, which needs `clarity fetch bge-m3`. Chats you resume keep their method. To keep word search in new chats, add `search_method = "words"` under `[documents]` in the profile.
+- New chats that search documents search by meaning, which needs `clarity fetch bge-m3`. Chats you resume keep their method. To keep word search in new chats, add `search_method = "words"` under `[documents]` in your own profile (copy a shipped one into `local/profiles/` first).
 
 ### Added
 - A converted model's entry in `models.toml` can say `weights = "pytorch_model.bin"`, for a model whose publisher ships its weights only in PyTorch's pickle format. `clarity fetch` then downloads that one file too; without the key it downloads no pickle, as before. The key accepts no other value, and needs `weights_sha256`, the file's sha256: `clarity fetch` checks it before the converter loads the file, and a mismatch stops the fetch. Only the shipped `models.toml` has these keys: an entry of yours in `local/models.toml` can't.

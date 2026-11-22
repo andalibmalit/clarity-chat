@@ -11,6 +11,7 @@ import sqlite3
 import unicodedata
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from decimal import ROUND_FLOOR, Decimal
 from pathlib import Path
 from typing import Any
 
@@ -201,6 +202,20 @@ def search(docs: list[Loaded], message: str) -> dict[str, Any]:
     return found
 
 
+def shown_score(score: float, minimum: float) -> str:
+    """A similarity as Clarity says it (the whole-branch review's could 6): rounded down to
+    the larger of 2 places and the minimum's own, so it's never more than it was, and a
+    part at or above the minimum never reads below it (the float nearest 0.552 is a little
+    under 0.552)."""
+    least = Decimal(repr(minimum))
+    exponent = least.normalize().as_tuple().exponent  # an int for a finite minimum
+    places = max(2, -min(0, int(exponent)))
+    shown = Decimal(score).quantize(Decimal(1).scaleb(-places), rounding=ROUND_FLOOR)
+    if score >= minimum:
+        shown = max(shown, least)
+    return f"{shown:.{places}f}"
+
+
 def similarity(a: Sequence[float], b: Sequence[float]) -> float:
     """The dot product of two vectors, which for L2-normalized ones is their similarity,
     from -1 to 1 (decision 10). Each product of two float32 values is exact in float64, and
@@ -212,17 +227,17 @@ def meaning_search(
     docs: list[Loaded],
     vectors: Mapping[str, Sequence[Sequence[float]]],
     query: Sequence[float],
-    minimum: float,
 ) -> list[dict[str, Any]]:
-    """Every part whose similarity to `query` is at least `minimum`, highest first, then by
-    document name, then ordinal: a total order (decision 11). In word search's shape, with
-    no words: `score` is the similarity."""
+    """Every part with its similarity to `query`, highest first, then by document name,
+    then ordinal: a total order (decision 11). In word search's shape, with no words:
+    `score` is the similarity. The chat keeps those at or above its minimum (session's
+    `_meaning`), and the best of all is /try's closest."""
     scored = [
         (-similarity(query, v), doc.name, part["ordinal"], part)
         for doc in docs
         for part, v in zip(doc.parts, vectors[doc.name], strict=True)
     ]
-    order = sorted((s for s in scored if -s[0] >= minimum), key=lambda s: s[:3])
+    order = sorted(scored, key=lambda s: s[:3])
     keys = ("document", "ordinal", "title", "page", "text", "sha256")
     return [
         {

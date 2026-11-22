@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import math
 import os
 import secrets
 import threading
@@ -264,7 +263,7 @@ class Conversation:
     # changes it ("chat"), logged as `search` records and resumed.
     searching: list[str] = field(default_factory=list)
     searching_origin: str = "profile"
-    search_method: str = "words"
+    search_method: str = SEARCH_METHOD  # the whole-branch review's could 2
 
     @property
     def settings(self) -> dict[str, Setting]:
@@ -995,7 +994,7 @@ class Session:
         # Every part scored once: the best is /try's closest when none reaches the minimum.
         query_vector = memoryview(query).cast("f")
         found_vectors = {name: v for name, (v, _) in vectors.items()}
-        scored = meaning_search(docs, found_vectors, query_vector, -math.inf)
+        scored = meaning_search(docs, found_vectors, query_vector)
         self.last_closest = scored[0]["score"] if scored else None
         return {
             "method": "meaning",
@@ -2588,7 +2587,7 @@ def found_summary(found: dict[str, Any]) -> dict[str, Any]:
     why it matched, with no text (the Shapes table's commands; part 1's whole-branch S1).
     By meaning (v0.4.1): the minimum, and each part's ID, title, rank and similarity."""
     if found["method"] == "meaning":
-        keys = ("id", "title", "rank", "score")
+        keys = ("id", "title", "page", "rank", "score")  # page: could 5
         return {
             "method": "meaning",
             "documents": [d["name"] for d in found["documents"]],

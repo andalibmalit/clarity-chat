@@ -29,6 +29,7 @@ from clarity_chat.documents import (
     counted,
     more_than,
     problem_words,  # noqa: F401 (for cli: it can't import the documents package)
+    shown_score,  # noqa: F401 (the same)
     summaries,
 )
 from clarity_chat.logs import LOG_NAME, list_chats, unreadable

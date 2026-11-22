@@ -785,10 +785,7 @@ def running_server(monkeypatch, root, startup, embedder=False):
 
 
 @pytest.fixture
-def two_servers(monkeypatch, root):
-    from clarity_chat.backends import llama_cpp
-
-    monkeypatch.setattr(llama_cpp, "RUNNING", [], raising=False)  # no server from another test
+def two_servers(monkeypatch, root):  # conftest's no_running_servers empties RUNNING first
     return lambda startup, embedder=False: running_server(monkeypatch, root, startup, embedder)
 
 

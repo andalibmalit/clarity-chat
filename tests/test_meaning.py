@@ -327,7 +327,7 @@ def test_equal_scores_order_by_document_then_ordinal():
     text = "## A\nOne.\n\n## B\nTwo.\n"
     docs = [loaded("beta", text), loaded("alpha", text)]
     same = [packed([1.0, 0.0]), packed([1.0, 0.0])]
-    found = meaning_search(docs, {"alpha": same, "beta": same}, packed([1.0, 0.0]), -1.0)
+    found = meaning_search(docs, {"alpha": same, "beta": same}, packed([1.0, 0.0]))
     assert [m["id"] for m in found] == ["alpha:1", "alpha:2", "beta:1", "beta:2"]
     assert [m["rank"] for m in found] == [1, 2, 3, 4]
 
@@ -350,17 +350,8 @@ GOLDEN_ORDER = [
 def test_the_golden_order_is_the_same_on_every_system():
     doc = loaded("golden", "".join(f"## H{k}\nMade-up {k}.\n\n" for k in range(1, 6)))
     vectors = {"golden": [golden_vector(k) for k in range(1, 6)]}
-    found = meaning_search([doc], vectors, golden_vector(0), -100.0)  # not unit vectors
+    found = meaning_search([doc], vectors, golden_vector(0))  # not unit vectors
     assert [(m["id"], repr(m["score"])) for m in found] == GOLDEN_ORDER
-
-
-def test_a_part_at_the_minimum_matches_and_one_just_under_doesn_t():
-    under = struct.unpack("<f", struct.pack("<I", 0x3EFFFFFF))[0]  # the float32 below 0.5
-    assert under < 0.5
-    doc = loaded("edge", "## At\nOne.\n\n## Under\nTwo.\n")
-    vectors = {"edge": [packed([0.5, 0.0]), packed([under, 0.0])]}
-    found = meaning_search([doc], vectors, packed([1.0, 0.0]), 0.5)
-    assert [(m["id"], m["score"]) for m in found] == [("edge:1", 0.5)]
 
 
 def test_twenty_thousand_parts_are_scored_within_a_loose_bound():
@@ -369,7 +360,7 @@ def test_twenty_thousand_parts_are_scored_within_a_loose_bound():
     assert len(doc.parts) == 20_000
     vectors = {"big": [golden_vector(i % 50) for i in range(20_000)]}
     started = time.monotonic()
-    found = meaning_search([doc], vectors, golden_vector(0), -100.0)
+    found = meaning_search([doc], vectors, golden_vector(0))
     assert time.monotonic() - started < 60
     assert len(found) == 20_000
 
@@ -389,6 +380,10 @@ def test_a_part_exactly_at_the_minimum_is_added_through_a_chat(meaning):
     found = c.run("try", ASKED, lambda e: None)["found"]
     assert found["min_similarity"] == best
     assert found["matched"] >= 1 and found["parts"][0]["score"] == best
+    above = math.nextafter(best, 2.0)  # the next float up: the best part is just under it
+    profile(session.root, "over", MEANING.replace("0.2", repr(above)))
+    c.run("profile", "over", lambda e: None)
+    assert c.run("try", ASKED, lambda e: None)["found"]["matched"] == 0
 
 
 def test_a_conversation_s_method_defaults_to_clarity_s_default():

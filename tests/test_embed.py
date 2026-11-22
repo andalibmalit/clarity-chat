@@ -660,7 +660,7 @@ def test_a5_the_minimum_s_measurement(tmp_path):
             print(f"\n{name}: {len(doc.parts)} parts; minimums {minimums}")
             for kind, message, target in messages:
                 query = memoryview(embedder.vector(embedder.ids(message))).cast("f")
-                found = meaning_search([doc], {name: vectors}, query, -1.0)
+                found = meaning_search([doc], {name: vectors}, query)
                 best = found[0]
                 hit = next((m for m in found if m["title"] == target), None)
                 admitted = [sum(m["score"] >= x for m in found) for x in minimums]

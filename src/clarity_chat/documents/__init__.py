@@ -75,6 +75,7 @@ from clarity_chat.documents.search import (
     CONSIDERED,
     Loaded,
     meaning_search,
+    shown_score,
     words_of,
 )
 from clarity_chat.documents.search import load as load_document
@@ -87,6 +88,7 @@ __all__ = [
     "EmbedderFailed",
     "TooLong",
     "meaning_search",
+    "shown_score",
     "PartTooLong",
     "vectors_for",
     "NOTHING_SENT",

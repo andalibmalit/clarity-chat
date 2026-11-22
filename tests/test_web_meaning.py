@@ -340,6 +340,8 @@ def test_a_part_past_8192_tokens_is_named_in_the_box_with_stop_searching_it(mean
     said = text_of(box.group(0))
     assert said.startswith('! Nothing was sent. Part 1 of long ("Long") is too long for meaning')
     assert 'data-action="refused-stop" data-name="long"' in box.group(0)
+    command(client, "search", "notes")  # what its Stop searching it sends: the line goes (#28)
+    assert "Part 1 of long" not in text_of(get(client, "thread"))
 
 
 def test_from_documents_names_a_part_s_page_as_details_does():

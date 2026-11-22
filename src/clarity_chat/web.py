@@ -70,6 +70,7 @@ from clarity_chat.documents import (
     how_words,
     more_than,
     problem_words,
+    shown_score,
     slow_read,
     too_big,
     visible_bidi,
@@ -2124,7 +2125,8 @@ def meaning_view(found: dict[str, Any]) -> dict[str, Any]:
             "empty": below_minimum(found),
         }
     view["rows"] = [
-        {"rank": p["rank"], "label": part_label(p), "why": similar(p)} for p in found["parts"]
+        {"rank": p["rank"], "label": part_label(p), "why": similar(p, found["min_similarity"])}
+        for p in found["parts"]
     ]
     if not found["parts"]:
         return {**view, "summary": SENTENCES["found_nothing_added"]}
@@ -2135,9 +2137,9 @@ def meaning_view(found: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def similar(part: dict[str, Any]) -> str:
-    """Why a part was found by meaning: its similarity, to two places as the terminal says it."""
-    return SENTENCES["found_similar"].format(score=f"{part['score']:.2f}")
+def similar(part: dict[str, Any], minimum: float) -> str:
+    """Why a part was found by meaning: its similarity, as the terminal says it."""
+    return SENTENCES["found_similar"].format(score=shown_score(part["score"], minimum))
 
 
 def below_minimum(found: dict[str, Any]) -> str:
@@ -2258,7 +2260,7 @@ def documents_section(
             {
                 "rank": p["rank"],
                 "label": part_label(p),
-                "why": similar(p) if meaning else match_words(p),
+                "why": similar(p, found["min_similarity"]) if meaning else match_words(p),
                 "tokens": tokens,
             }
         )

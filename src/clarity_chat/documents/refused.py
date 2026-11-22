@@ -56,7 +56,8 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
         fetch = fetch_hint(EMBEDDER) if terminal else "Getting started shows how to fetch it."
         return (
             f"Meaning search needs {EMBEDDER}, which isn't fetched. {fetch} Or set "
-            'search_method = "words" under [documents] in the profile and start a new chat.'
+            'search_method = "words" under [documents] in your own profile (copy a shipped one '
+            "into local/profiles/ first) and start a new chat."
         )
     if state == "embedder":  # state 6: the reason, then how to send without searching
         if not at_send:

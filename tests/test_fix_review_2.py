@@ -243,7 +243,8 @@ def test_the_default_budget_written_out_isn_t_a_difference():
     from clarity_chat.batch import parts_differ
 
     def p(budget):
-        profile = SimpleNamespace(budget=budget, search=("g",), placement="start")
+        profile = SimpleNamespace(budget=budget, search=("g",), placement="start",
+                                  search_method=None, min_similarity=None)  # fmt: skip
         return SimpleNamespace(profile=profile, model=SimpleNamespace(
             tokenizer_repo="t", tokenizer_revision="r"))  # fmt: skip
 

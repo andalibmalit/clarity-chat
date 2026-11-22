@@ -6,7 +6,6 @@ import argparse
 import atexit
 import io
 import json
-import math
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -25,6 +24,7 @@ from clarity_chat.commands import (
     how_words,
     problem_words,
     read_files,
+    shown_score,
     split_drops,
     summaries,
     way_out,
@@ -276,7 +276,7 @@ def searched_line(found: dict[str, Any]) -> str:
             return f"  searched by meaning: {found['matched']:,} matched, none added"
         added = ", ".join(
             p["id"] + (f' "{shown(p["title"])}"' if p["title"] else "")
-            + f" (similar in meaning: {p['score']:.2f})"
+            + f" (similar in meaning: {shown_score(p['score'], found['min_similarity'])})"
             for p in found["parts"]
         )  # fmt: skip
         return f"  searched by meaning: added {added} ({found['tokens']:,} tokens)"
@@ -1145,8 +1145,9 @@ def format_found(found: dict[str, Any], closest: float | None = None) -> str:
             "Nothing matched."
             if closest is None
             # Rounded down, so the closest never reads as the minimum (0.4987 is "0.49").
-            else f"Nothing matched; the closest was {math.floor(closest * 100) / 100:.2f}, and "
-            f"the minimum is {found['min_similarity']:g}."
+            else f"Nothing matched; the closest was "
+            f"{shown_score(closest, found['min_similarity'])}, and the minimum is "
+            f"{found['min_similarity']:g}."
         )
         return "\n".join(lines)
     lines.append(
@@ -1157,7 +1158,7 @@ def format_found(found: dict[str, Any], closest: float | None = None) -> str:
         title = f' "{shown(p["title"])}"' if p["title"] else ""  # a heading can hold ESC
         # N48, as the page says it: "title matches" read as the whole title matching (S19).
         if found.get("method") == "meaning":
-            reasons = [f"similar in meaning: {p['score']:.2f}"]
+            reasons = [f"similar in meaning: {shown_score(p['score'], found['min_similarity'])}"]
         else:
             reasons = [f"in its title: {', '.join(p['title_words'])}"] if p["title_words"] else []
             reasons += [f"in its text: {', '.join(p['words'])}"] if p["words"] else []
