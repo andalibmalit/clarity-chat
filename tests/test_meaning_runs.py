@@ -119,3 +119,14 @@ def test_a_run_searches_each_opening_once_per_profile_by_its_method(
         if r["type"] == "turn" and "found" in r
     }
     assert methods == {("meaning", "meaning"), ("words", "words")}
+
+
+def test_the_closest_is_shown_rounded_down_so_it_never_reads_as_the_minimum():
+    """A5's small-talk case: 0.4987 under the default 0.5 must not read "0.50" (the main
+    session's ruling on B2). The terminal rounds down to two places; the result's `closest`
+    stays exact."""
+    from clarity_chat.cli import format_found
+
+    found = {"method": "meaning", "min_similarity": 0.5, "matched": 0}
+    said = format_found(found, 0.4987)
+    assert said.endswith("Nothing matched; the closest was 0.49, and the minimum is 0.5."), said
