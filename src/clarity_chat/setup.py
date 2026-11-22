@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import platform
+import shlex
 import shutil
 import sys
 from collections.abc import Callable
@@ -105,13 +106,15 @@ class Setup:
         home: Path | None = None,
         models: tuple[str, ...] = SETUP_MODELS,
         fetch: Callable[[Path, ModelEntry, ServerConfig], dict[str, Any]] = fetch_model,
-        desktop: Path | None = None,  # stub (A7)
+        desktop: Path | None = None,
         uv: str = "",
     ) -> None:
         self.root, self.mac, self.run, self.ask, self.say = root, mac, run, ask, say
         self.state = state
         self.home = home or Path.home()
         self.models, self.fetch = models, fetch
+        self.desktop = desktop or self.home / "Desktop"
+        self.uv = uv
         config = self.config = load_server_config(root)
         self.pin = config.llama_cpp_commit
         self.source = config.llama_cpp_dir
@@ -149,10 +152,41 @@ class Setup:
                 self.fetch(self.root, model, self.config)
             else:
                 self.say(f"{model.name}: already done.")
+        self.launcher()
         self.say(
             "Setup is done. Next time, double-click Clarity.command on your Desktop to start "
             "Clarity, or run the same command again to check the setup."
         )
+
+    def launcher(self) -> None:
+        """~/Desktop/Clarity.command (state 15; decision 13): two lines, `cd` to this folder
+        and `exec` uv's absolute path, so it needs no shell profile. A file of that name
+        setup didn't write is left alone; a Desktop macOS won't let setup write to is said.
+        Either way the lines are printed, and setup still ends without an error."""
+        lines = f"cd {shlex.quote(str(self.root))}\nexec {shlex.quote(self.uv)} run clarity ui\n"
+        shown = lines.rstrip("\n")
+        path = self.desktop / "Clarity.command"
+        if path.is_file() and path.read_text(encoding="utf-8", errors="replace") == lines:
+            self.say("Clarity.command on your Desktop: already done.")
+            return
+        if path.exists() or path.is_symlink():
+            self.say(
+                "Your Desktop already has a Clarity.command that setup didn't write, so it's "
+                f"left alone. To start Clarity from a file of your own, put these two lines in "
+                f"it:\n{shown}"
+            )
+            return
+        try:
+            path.write_text(lines, encoding="utf-8")
+            path.chmod(0o755)
+        except OSError as e:  # "Don't Allow" at the Desktop prompt, or a managed Mac
+            self.say(
+                f"Setup couldn't write Clarity.command to your Desktop ({e.strerror}). To make "
+                "the launcher yourself, put these two lines in a file named Clarity.command "
+                f"there:\n{shown}"
+            )
+            return
+        self.say("Made Clarity.command on your Desktop: double-click it to start Clarity.")
 
     def fetched(self, model: ModelEntry) -> bool:
         """Its lock entry, and its weights' size and time against it (state 13)."""
@@ -264,6 +298,8 @@ class Setup:
 
 
 def cmd_setup(root: Path) -> int:
-    """`clarity setup`, in the terminal: the real Mac, commands and question."""
-    Setup(root, this_mac(root), run_logged, input, print).go()
+    """`clarity setup`, in the terminal: the real Mac, commands and question. uv's absolute
+    path, for the launcher: `uv run` gives it in UV; else the one on PATH."""
+    uv = os.environ.get("UV") or shutil.which("uv") or "uv"
+    Setup(root, this_mac(root), run_logged, input, print, uv=str(Path(uv).resolve())).go()
     return 0

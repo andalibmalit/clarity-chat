@@ -80,9 +80,16 @@ def made(
         home=home or root.parent,
         models=models,
         fetch=fetch or FakeFetch(),
-        desktop=desktop or root.parent / "Desktop",
+        desktop=desktop or desktop_of(root),
         uv=uv,
     )
+
+
+def desktop_of(root: Path) -> Path:
+    """A Desktop of the test's own (root's parent is shared by a session's tests)."""
+    desktop = root / "Desktop"
+    desktop.mkdir(exist_ok=True)
+    return desktop
 
 
 class FakeFetch:
@@ -434,9 +441,7 @@ def test_the_launcher_is_written_with_two_lines_and_mode_0755(tmp_path, root):
 
 def test_the_same_launcher_is_left_and_already_done(root):
     root, state = done_root(root)
-    desktop = root.parent / "Desktop"
-    desktop.mkdir(exist_ok=True)
-    launcher = desktop / "Clarity.command"
+    launcher = desktop_of(root) / "Clarity.command"
     launcher.write_text(launcher_lines(root), encoding="utf-8")
     launcher.chmod(0o755)
     before = launcher.stat().st_mtime_ns
@@ -448,9 +453,7 @@ def test_the_same_launcher_is_left_and_already_done(root):
 
 def test_another_file_of_that_name_is_left_alone_and_the_lines_printed(root):
     root, state = done_root(root)
-    desktop = root.parent / "Desktop"
-    desktop.mkdir(exist_ok=True)
-    launcher = desktop / "Clarity.command"
+    launcher = desktop_of(root) / "Clarity.command"
     launcher.write_text("echo mine\n", encoding="utf-8")
     says = Says()
     made(root, says=says, state=state).go()
@@ -465,8 +468,7 @@ def test_another_file_of_that_name_is_left_alone_and_the_lines_printed(root):
 
 def test_a_desktop_macos_won_t_let_setup_write_is_said_and_setup_still_ends(root, monkeypatch):
     root, state = done_root(root)
-    desktop = root.parent / "Desktop"
-    desktop.mkdir(exist_ok=True)
+    desktop = desktop_of(root)
 
     def refused(self, *args, **kwargs):
         raise PermissionError(1, "Operation not permitted", str(self))
@@ -476,8 +478,9 @@ def test_a_desktop_macos_won_t_let_setup_write_is_said_and_setup_still_ends(root
     made(root, says=says, state=state).go()  # no exception: setup ends with 0
     said = "\n".join(says.lines)
     assert (
-        "macOS didn't let setup write to your Desktop. To make the launcher yourself, put "
-        "these two lines in a file named Clarity.command there:" in said
+        "Setup couldn't write Clarity.command to your Desktop (Operation not permitted). To "
+        "make the launcher yourself, put these two lines in a file named Clarity.command "
+        "there:" in said
     )
     assert launcher_lines(root).rstrip("\n") in said
     assert not (desktop / "Clarity.command").exists()
