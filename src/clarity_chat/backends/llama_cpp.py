@@ -807,8 +807,9 @@ class LlamaCppBackend:
 
     def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
         """Start llama-server with `weights` and a context of `ctx_size`. The old server stops
-        first, so two models never share memory. Returns the new server_start record, or None
-        if the same GGUF already runs at that size."""
+        first, so two chat models never share memory (meaning search's embedder, a second
+        LlamaServer, can run beside it; the memory check counts both). Returns the new
+        server_start record, or None if the same GGUF already runs at that size."""
         # `fetch` replaces a file by rename: same path, new bytes, while the server still has
         # the old ones open. Its inode, size and modification time tell the two apart without
         # hashing (fetch and verify hash). An overwrite in place isn't covered.

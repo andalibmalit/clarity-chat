@@ -3,6 +3,8 @@
 # --port, --no-slots and --no-webui itself, passes a new key in LLAMA_API_KEY at each
 # start, and sets ctx-size from the profile (if it has ctx_size). Flags use their long names; `true` passes a bare flag and `false`
 # leaves it out (for flags with no "off" form, whose default is off).
+# These are the chat server's flags. Meaning search's embedder has its own, fixed in
+# src/clarity_chat/documents/embedder.py, so nothing here changes a vector.
 
 llama_cpp_dir = "vendor/llama.cpp"                            # relative to this file
 llama_cpp_commit = "b1b770d90d94cad9e9ea5b993bdbc383a522fb28"  # the checkout must be here

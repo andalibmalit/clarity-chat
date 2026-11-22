@@ -403,7 +403,7 @@ The shipped models are SmolLM2-135M-Instruct, OLMo 3 7B Instruct and base, Llama
 | `startup_timeout_s` | Seconds to wait for the server to become healthy. |
 | `[flags]` | llama-server flags by long name, without dashes. `true` passes a bare flag; `false` leaves it out. |
 
-Every flag that affects output must be set explicitly. The shipped `server.toml` sets them all, with comments, and Clarity names any that is missing or has the wrong value. These values are fixed: one slot (`parallel = 1`), no prompt cache, no context shift, and `fit = "off"`.
+These are the chat server's flags; meaning search's embedder has its own ([Meaning search](#meaning-search)). Every flag that affects output must be set explicitly. The shipped `server.toml` sets them all, with comments, and Clarity names any that is missing or has the wrong value. These values are fixed: one slot (`parallel = 1`), no prompt cache, no context shift, and `fit = "off"`.
 
 Only these flags are allowed: the ones the shipped `server.toml` sets (`ctx-size`, `n-gpu-layers`, `flash-attn`, `cache-type-k`, `cache-type-v`, `batch-size`, `ubatch-size`, `fit`, `parallel`, `no-context-shift`, `swa-full`, `ctx-checkpoints`, `cache-ram`, `no-cache-idle-slots`, `cache-reuse`, `threads`, `threads-batch`, `log-verbosity`, `no-jinja`, `chat-template`), and `kv-unified` or `no-kv-unified` (exactly one). Any other flag is refused, including another name for an allowed one, so a new flag is added on purpose, with a test. Clarity passes `--model`, `--host`, `--port`, `--no-slots` and `--no-webui` itself. `auto` and `-1` are refused as values. `kv-unified`, `no-kv-unified` and `no-jinja` must be `true` when set, since `false` would leave the flag out. `threads` and `threads-batch` must be positive, since llama-server reads 0 or less as every core.
 
@@ -441,6 +441,38 @@ Search finds the parts of the chat's documents that share words with your messag
 
 **Common words, version 1** (182): a, about, above, after, again, against, all, also, am, an, and, any, are, aren, as, at, be, because, been, before, being, below, between, both, but, by, can, cannot, could, couldn, did, didn, do, does, doesn, doing, don, done, down, during, each, either, else, ever, every, few, for, from, further, get, gets, got, had, hadn, has, hasn, have, haven, having, he, hello, her, here, hers, herself, hi, him, himself, his, how, i, if, in, into, is, isn, it, its, itself, just, let, lets, like, ll, many, may, me, might, mightn, more, most, much, must, mustn, my, myself, needn, no, nor, not, now, of, off, ok, okay, on, once, only, or, other, our, ours, ourselves, out, over, own, please, re, really, same, say, says, shall, shan, she, should, shouldn, so, some, such, tell, than, thank, thanks, that, the, their, theirs, them, themselves, then, there, these, they, this, those, through, to, too, under, until, up, us, ve, very, was, wasn, we, well, were, weren, what, when, where, which, while, who, whom, whose, why, will, with, won, would, wouldn, yes, yet, you, your, yours, yourself, yourselves.
 
+## Meaning search
+
+Search by meaning finds the parts of the chat's documents closest in meaning to your message, with bge-m3 on a second llama-server, the embedder. Version 1 of the rules:
+
+- **The input (input rule 1):** a part's input is its title, a blank line, then its text; the text alone when it has no title. The message's input is the message as you typed it.
+- **The tokens:** bge-m3's own tokenizer, at the revision in `models.toml`, with `<s>` and `</s>` around the IDs. Clarity sends the IDs, one input per request. An input past 8,192 tokens is refused, never cut.
+- **The checks:** each reply must hold one vector of 1,024 finite values whose length is within 1e-3 of 1, and count the tokens sent. At start, the server must report one slot and a context of 8,192, and its weights must be on the GPU. Any failure refuses the search, and the next search starts the embedder again.
+- **The order:** similarity is the dot product of the two vectors, from -1 to 1, the same bits on every 64-bit system for the same vectors. Parts at or above `min_similarity` match, highest first, ties by the document's name, then the part's number.
+- **The same result** comes from the same message, documents and setup on one machine, OS and build.
+
+**The embedder's flags.** They are constants in `src/clarity_chat/documents/embedder.py`, not in `server.toml`, so a change to the chat server's flags never changes a vector. Each searched message logs them in `found.engine.flags`.
+
+| Flag | Value | Why |
+|---|---|---|
+| `embedding` | on | Serves `/v1/embeddings`. |
+| `pooling` | `cls` | bge-m3's pooling. |
+| `embd-normalize` | 2 | L2 length 1, as bge-m3's own code gives. |
+| `parallel` | 1 | One slot: each input is evaluated alone. |
+| `no-kv-unified` | on | One cache per slot. |
+| `ctx-size`, `batch-size`, `ubatch-size` | 8,192 | bge-m3 reads 8,192 tokens, and its attention needs the whole input in one ubatch. |
+| `n-gpu-layers` | `all` | Every layer on the GPU. |
+| `flash-attn` | `on` | No full attention matrix at 8,192 tokens. |
+| `cache-type-k`, `cache-type-v` | `f16` | |
+| `cache-ram`, `cache-reuse`, `ctx-checkpoints` | 0 | No prompt cache. |
+| `no-cache-idle-slots`, `no-context-shift` | on | |
+| `fit` | `off` | Layers never move to the CPU on a tight machine. |
+| `threads`, `threads-batch` | 4 | |
+| `log-verbosity` | 4 | The placement check reads lines logged at level 4. |
+| `no-jinja`, `chat-template` | on, `chatml` | The server never parses the model's own template; the embedder uses none. |
+
+The embedder writes its own output to `server-ID.log`, as the chat server does ([Files Clarity writes](#files-clarity-writes)). At verbosity 4 it holds no token text.
+
 ## Files Clarity writes
 
 | Path | Contents |
@@ -449,7 +481,7 @@ Search finds the parts of the chat's documents that share words with your messag
 | `local/models.lock` | What `fetch` resolved for your own models. Not committed. |
 | `models/NAME/` | A converted model's GGUF, plus `convert.log` and the converter's package versions. A downloaded GGUF stays in the Hugging Face cache instead. |
 | `logs/CONVERSATION_ID.jsonl` | One chat conversation, one record per line. The ID is the start time and a random suffix, such as `20261108-142530-a1b2c3`. |
-| `server-ID.log` | One llama-server's own output, next to the log it serves: in `logs/` for a chat, in `runs/RUN_ID/` for a batch run. |
+| `server-ID.log` | One llama-server's own output, the chat server's or meaning search's embedder's, next to the log it serves: in `logs/` for a chat, in `runs/RUN_ID/` for a batch run. |
 | `runs/RUN_ID/calls.jsonl` | Every call of a batch run, after a first `run` record. |
 | `runs/RUN_ID/blind.md` | Openings and shuffled, labelled replies, for raters. Written only if the whole run succeeds. |
 | `runs/RUN_ID/key.json` | Which label is which profile, seed and call, and the shuffle seed. |

@@ -482,7 +482,8 @@ class Session:
         self.logs_dir = logs_dir or root / "logs"
         self.tokenizer_loader = tokenizer_loader
         # An injected backend (tests) serves every profile; otherwise one per backend name
-        # and device, made when a profile first needs it. Only one is ever loaded.
+        # and device, made when a profile first needs it. Only one chat model is ever loaded
+        # (meaning search's embedder runs beside it: Session.embedder).
         self.fixed_backend = backend
         self.backends: dict[tuple[str, str | None], Backend] = {}
         self.backend = backend or self.backend_for("llama.cpp", None)
@@ -535,7 +536,7 @@ class Session:
         self.backends["llama.cpp", None] = self.backend = backend
 
     def use_backend(self, name: str, device: str | None) -> Backend:
-        """Make a backend the active one, closing the other first (one model in memory)."""
+        """Make a backend the active one, closing the other first (one chat model in memory)."""
         backend = self.backend_for(name, device)
         if backend is not self.backend:
             self.backend.close()

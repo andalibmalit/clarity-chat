@@ -50,8 +50,8 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 
 ## The server
 
-**Clarity starts its own llama-server.** Every output-affecting flag is set in `server.toml`, nothing is left on `auto`, `server.toml` accepts only a fixed list of flags, and the environment variables and config files llama.cpp would read are removed or refused. After startup, Clarity checks `/props` to confirm that the server it started has the expected model and context size, and that its build is the pinned commit; a build from another commit is an error. After each call, it checks that the process is still running. Nothing can change a running server's model or context: `server.toml` allows no flag that would, and the per-start key keeps other programs out.
-- Cost: one model at a time. Switching to a profile with another model restarts the server.
+**Clarity starts its own llama-server.** Every output-affecting flag of the chat server is set in `server.toml` (meaning search's embedder has its own; [Meaning search](#meaning-search)), nothing is left on `auto`, `server.toml` accepts only a fixed list of flags, and the environment variables and config files llama.cpp would read are removed or refused. After startup, Clarity checks `/props` to confirm that the server it started has the expected model and context size, and that its build is the pinned commit; a build from another commit is an error. After each call, it checks that the process is still running. Nothing can change a running server's model or context: `server.toml` allows no flag that would, and the per-start key keeps other programs out.
+- Cost: one chat model at a time. Switching to a profile with another model restarts the server.
 - The server never parses the model's chat template (`no-jinja`). Clarity doesn't use it, and OLMo 3's fails to parse in llama.cpp, which would stop the server from starting.
 - With GPU layers requested, a model that lands on the CPU is an error. Clarity reads where the weights went from llama.cpp's startup output, which reports it only at `log-verbosity` 4.
 
@@ -125,7 +125,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
   - Block 0 is refused, only because llama.cpp has no vector slot for block 0 and its loader refuses `direction.0`; Clarity keeps a vector usable on both. The last block can be steered, but repeng, which steers it by default, reads that block's output after the model's final normalization (Transformers' last `hidden_states` entry), so such a vector is trained on a different quantity than the one it's added to. The guide says to leave it out.
   - Steering runs on model types `llama` and `olmo3`, whose blocks Clarity has checked return a plain tensor from `model.model.layers`. Other types are refused until checked.
   - Clarity reads the file with its own small reader rather than the `gguf` package: it parses the bytes it hashed, in one read, and every malformed file gets a message saying what was wrong.
-- Only one model is ever in memory. If a new model fails to start, the previous one is started again, so a bad `/new` or `/profile` leaves you where you were. A failed start that was the open conversation's own (the same backend, model, weights and context size), as "Start the model again", a Replay or `/new` on the same profile make after its server stopped, is the exception: the same start would fail the same way, so it isn't tried again, and the conversation stays with its model stopped, to be tried again.
+- Only one chat model is ever in memory (a chat that searches by meaning also runs the embedder beside it). If a new model fails to start, the previous one is started again, so a bad `/new` or `/profile` leaves you where you were. A failed start that was the open conversation's own (the same backend, model, weights and context size), as "Start the model again", a Replay or `/new` on the same profile make after its server stopped, is the exception: the same start would fail the same way, so it isn't tried again, and the conversation stays with its model stopped, to be tried again.
 
 ## Conversations and runs
 
@@ -180,7 +180,28 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 
 **What a chat searches is part of the chat.** The profile's `search` list sets the start, and `/search` changes it for one chat, logged as a `search` record as `/set` logs a setting, so a resumed chat searches what you chose. A profile naming a document that isn't in the library doesn't start, and says which key to change, rather than starting with a gap you'd only notice in the replies. A document that goes missing later is listed as missing, and `/search` without it works.
 
-**Word search, and its limits.** Search uses SQLite's FTS5, from the standard library: no new dependency, and 20,000 parts are searched in about half a second. A part matches if it shares any one uncommon word with your message, so a message with such a word matches every part that shares it, and only the best 8 are considered. A message of common words only ("ok, thanks") matches nothing. The words come from the message you typed, never from earlier ones or from an attachment, so a follow-up like "tell me more" finds nothing. A paraphrase that shares no word is missed; meaning search is planned for that. The stemmer and the common words are English only. The order is the same for the same text, build and SQLite version; Clarity claims no more than that across systems.
+**Word search, and its limits.** Search uses SQLite's FTS5, from the standard library: no new dependency, and 20,000 parts are searched in about half a second. A part matches if it shares any one uncommon word with your message, so a message with such a word matches every part that shares it, and only the best 8 are considered. A message of common words only ("ok, thanks") matches nothing. The words come from the message you typed, never from earlier ones or from an attachment, so a follow-up like "tell me more" finds nothing. A paraphrase that shares no word is missed; meaning search, the default, finds it. The stemmer and the common words are English only. The order is the same for the same text, build and SQLite version; Clarity claims no more than that across systems.
+
+## Meaning search
+
+**A chat searches by meaning unless its profile says words.** Word search misses a paraphrase that shares no word with your message, and finds nothing for a follow-up like "tell me more". Meaning search finds the parts closest in meaning to the message. `search_method = "words"` in a profile keeps word search. There's one method per profile and no chat command to switch, so comparing the two is a `clarity run` with two profiles. A resumed chat keeps the method of its last searched message, unless its logged profile names one, so a chat begun before meaning search keeps searching by words and needs no embedder.
+
+**The model is bge-m3, on a second llama-server.** It was chosen because it reads up to 8,192 tokens and needs no query or document prefix. Cost: newer models score higher on retrieval of short passages. `clarity fetch` converts it to a bf16 GGUF of about 1.1 GB.
+- The embedder is a second llama-server, started through the same code as the chat server. It starts the first time a session needs a meaning search (a message, `/try`, a run's first search) and stops when the session closes. `/search`, opening, resuming, replaying and exporting never start it, and neither does a chat that searches by words.
+- Its flags are constants in `documents/embedder.py`, not in `server.toml`, so a change to the chat server's flags never changes a vector; each searched message logs them. Its context, batch and ubatch are all 8,192 tokens: bge-m3's attention isn't causal, so llama.cpp needs the whole input in one ubatch, and flash attention keeps it from building the full attention matrix.
+- Two servers share the GPU, and the memory check counts both ([The server](#the-server)).
+- The Transformers backend has no embedder of its own: meaning search on an `hf` profile still needs the llama-server binary.
+- `local/clarity.json` records the embedder as it records the chat server, so the next start stops one a crash left. An older Clarity doesn't read that key, and leaves such an embedder running.
+
+**The vectors are a cache, keyed by what's known to change them.** The setup is the sha256 of the embedder's facts: the model's name, the GGUF's sha256, the tokenizer's repo and revision, the `tokenizers` version, the llama.cpp commit, the flag table, the input rule, the device and the machine (OS version and build, chip). A document's vectors file is keyed by its build ID and the setup. It's built before the first search that needs it, and Clarity says so first, naming where it saves. It's read as untrusted: its size, every value and every vector's length are checked, and its sha256 is logged with the message.
+- The embedder won't start with a `GGML_*` or `LLAMA_*` variable inherited from your environment, or on a llama.cpp checkout with uncommitted changes, since the setup records neither.
+- Cost: an OS update changes the setup, so every document's vectors are built again. And a vector can still change with no recorded fact changing (another compiler, say).
+
+**Scoring is exact, and the minimum decides what matches.** The similarity of two vectors of length 1 is their dot product, from -1 to 1. Clarity computes it in plain Python: each product of two float32 values is exact in float64, and `math.fsum` rounds the sum once, so the same vectors give the same bits on every 64-bit system. Parts at or above `min_similarity` match, highest first, then by document name and part number; the best 8 are considered and added until the budget is full, as for word search.
+- The default minimum, 0.5, was measured on made-up glossary, prose and reference-list text as the lowest value that leaves out "ok, thanks" and "hi". Some loosely worded true matches score just under it, so `/try` says how close the best part came when nothing matched.
+- A message or a part past 8,192 tokens is refused, never cut.
+
+**What meaning search claims, and no more.** Replay, regeneration and resume are exact because they never search: the parts are stored with the message. On one machine, OS and build, with the same setup, the same message and documents give the same parts, byte for byte. Across machines, OS versions or builds, vectors can differ; the setup changes, and the vectors are built again. It's tested on Apple silicon (Metal) only. Its flags put every layer on the GPU, and the placement check refuses a start whose weights land on the CPU, so where llama.cpp finds no GPU, meaning search is refused and `search_method = "words"` is the way out.
 
 ## Determinism and replay
 
@@ -219,7 +240,7 @@ There is no general "results may vary" notice. Replay flags the one case that ne
 Left out from the start: tools or agents; metrics or LLM judges; multi-user features; an Ollama backend; llama-server's router mode; MLflow export.
 
 Also left out:
-- Running two models side by side. Two 7B models in bf16 need about 29 GB, more than a 32 GB laptop can spare.
+- Running two chat models side by side. Two 7B models in bf16 need about 29 GB, more than a 32 GB laptop can spare.
 - Speculative decoding, LoRA and llama.cpp's control vectors, which `server.toml` refuses. Steering runs on the Transformers backend.
 - Live tests on Windows, and on Linux beyond one CI job. Offline CI covers all three systems, and CI runs the SmolLM2 live tier on a Linux CPU build; every other live test has run on macOS (Metal) only.
 
@@ -229,6 +250,7 @@ When a choice above changes, the old one, the new one and the reason go here, ne
 
 | Date | Was | Now | Why |
 |---|---|---|---|
+| 2026-11-22 | A chat searched its documents by words, and one model was ever in memory. | A chat searches by meaning by default, with bge-m3 on a second llama-server beside the chat model; `search_method = "words"` keeps word search. | Word search misses a paraphrase and a follow-up like "tell me more". The embedder is small (a 1.1 GB file), its flags are fixed in code, and the memory check counts both servers. |
 | 2026-11-14 | The default seed was `"random"`, and a batch run's seeds started at 333. | The default seed is 42, and a run's seeds start at 42. | With a random default, sending the same message twice gave two replies, which looked like a difference worth studying. A fixed seed makes a chat repeat until you change something; `"random"` is still a value you can choose. |
 | 2026-11-11 | Steering vectors were left out: `server.toml` refuses llama.cpp's control-vector flags. | A pinned vector made by another tool is added by a hook on the Transformers backend. llama.cpp's control-vector route stays refused. | The owner's experiments need a chat with a steered model that can be replayed. A hook on the in-process backend can be applied, logged, checked and replayed exactly. |
 | 2026-11-11 | A llama-server built from another commit was a warning, as the brief asked. | It's an error at start. | The binary is what runs. A checkout at another commit was already an error, so a binary built from one shouldn't pass with a warning. |
