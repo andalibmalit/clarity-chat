@@ -5,6 +5,7 @@ tests/test_contract.py holds it to the shapes the real backends write (tests/con
 
 from __future__ import annotations
 
+import os
 import re
 import threading
 import time
@@ -303,20 +304,50 @@ class FakeEmbedder:
 
 class FakeRunner:
     """setup's `run(argv, env)` offline (v0.4.2 A2): records each argv and environment and
-    plays back a scripted result, (exit code, output), in order; anything unscripted exits 0
-    with no output. `effects` maps a git step (the word after `git -C FOLDER`) to a callable
-    that leaves the files the real step would: `init` leaves FOLDER/.git. What it imitates
-    is gated live in tests/test_setup_live.py (-m setup): the shallow fetch by full hash."""
+    plays back a scripted result, (exit code, output), in order, for git's and cmake's
+    steps; anything unscripted exits 0 with no output. `--version` isn't scripted: cmake
+    reports 4.4.5, and llama-server `llama_commit` (the pin's short form by default).
+    `effects` maps a step to a callable that leaves the files the real step would: `init`
+    leaves FOLDER/.git (setup's never-touch check reads it), `build` leaves BUILD/bin's
+    llama-server. What it imitates is gated live in tests/test_setup_live.py (-m setup): the
+    shallow fetch by full hash and the build."""
 
-    def __init__(self, results: list[tuple[int, str]] | None = None) -> None:
+    def __init__(
+        self, results: list[tuple[int, str]] | None = None, llama_commit: str | None = None
+    ) -> None:
+        from clarity_chat.profiles import load_server_config
+        from tests.conftest import REPO
+
         self.results = list(results or [])
         self.calls: list[tuple[list[str], dict[str, str]]] = []
-        # `git -C FOLDER init` leaves FOLDER/.git, which setup's never-touch check reads.
-        self.effects: dict[str, Any] = {"init": lambda argv: (Path(argv[2]) / ".git").mkdir()}
+        self.llama_commit = llama_commit or load_server_config(REPO).llama_cpp_commit[:7]
+        self.effects: dict[str, Any] = {
+            "init": lambda argv: (Path(argv[2]) / ".git").mkdir(),
+            "build": self.built,
+        }
+
+    @staticmethod
+    def step(argv: list[str]) -> str:
+        if argv[:2] == ["git", "-C"] and len(argv) > 3:
+            return argv[3]
+        if "--version" in argv:
+            return "version"
+        return "build" if "--build" in argv else "configure" if "-S" in argv else argv[0]
+
+    def built(self, argv: list[str]) -> None:
+        exe = "llama-server.exe" if os.name == "nt" else "llama-server"
+        binary = Path(argv[argv.index("--build") + 1]) / "bin" / exe
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        binary.write_bytes(b"made up")
 
     def __call__(self, argv: list[str], env: dict[str, str]) -> tuple[int, str]:
         self.calls.append((list(argv), dict(env)))
-        step = argv[3] if argv[:2] == ["git", "-C"] and len(argv) > 3 else argv[0]
+        step = self.step(argv)
+        if step == "version":
+            if Path(argv[0]).name.startswith("cmake"):
+                return 0, "cmake version 4.4.5\n"
+            commit = self.llama_commit
+            return 0, f"version: 1 (build 1, commit {commit})\nbuilt with made-up for arm64\n"
         if step in self.effects:
             self.effects[step](argv)
         return self.results.pop(0) if self.results else (0, "")
@@ -324,3 +355,12 @@ class FakeRunner:
     @property
     def argvs(self) -> list[list[str]]:
         return [argv for argv, _ in self.calls]
+
+    def of(self, step: str) -> list[list[str]]:
+        """The argvs of one kind of step: "git", "cmake" (configure and build) or "version"."""
+        kinds = {
+            "git": lambda a: a[0] == "git",
+            "cmake": lambda a: self.step(a) in ("configure", "build"),
+            "version": lambda a: self.step(a) == "version",
+        }
+        return [argv for argv in self.argvs if kinds[step](argv)]

@@ -114,6 +114,7 @@ class Setup:
         home: Path,  # required, as desktop and uv are: nothing defaults to the real ones
         desktop: Path,
         uv: str,
+        cmake: str = "",  # stub (A2's build step)
         models: tuple[str, ...] = SETUP_MODELS,
         fetch: Callable[[Path, ModelEntry, ServerConfig], dict[str, Any]] = fetch_model,
     ) -> None:
@@ -162,7 +163,7 @@ class Setup:
             else:
                 self.say(f"{model.name}: already done.")
         self.launcher()
-        if not self.built():  # never "done" without the server (Checkpoint 1's S5)
+        if False:  # stub (A2's build step replaces S5's refusal)
             n = os.cpu_count() or 1
             raise ConfigError(
                 "Setup can't build llama-server yet. In Clarity's folder, run Getting "
@@ -329,6 +330,10 @@ def answer(prompt: str) -> str:
     except EOFError:
         print()
         return "n"
+
+
+def venv_cmake() -> Path:  # stub (A2's build step)
+    return Path()
 
 
 def cmd_setup(root: Path) -> int:

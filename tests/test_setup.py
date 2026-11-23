@@ -9,7 +9,6 @@ gated live by `-m setup` (tests/test_setup_live.py).
 from __future__ import annotations
 
 import os
-import re
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +20,7 @@ from clarity_chat.setup import GIB, SIZES, Mac, Setup
 from tests.fakes import FakeRunner
 
 MAC = Mac(system="Darwin", machine="arm64", memory=32 * GIB, free=212 * 10**9)
+CMAKE = "/Users/made-up/Clarity/.venv/bin/cmake"  # the venv's own, by path
 
 
 class Says:
@@ -71,6 +71,7 @@ def made(
     fetch=None,
     desktop=None,
     uv="/Users/made-up/.local/bin/uv",
+    cmake=CMAKE,
 ) -> Setup:
     """A Setup on fakes. `models`: the models it sets up (none by default: A2's tests);
     `fetch`: a fake fetch (a FakeFetch)."""
@@ -87,6 +88,7 @@ def made(
         fetch=fetch or FakeFetch(),
         desktop=desktop or desktop_of(root),
         uv=uv,
+        cmake=cmake,
     )
 
 
@@ -124,16 +126,6 @@ def binary(root: Path) -> Path:
     return path
 
 
-NOT_BUILT = "Setup can't build llama-server yet."
-
-
-def to_the_build(setup: Setup) -> None:
-    """go() up to Checkpoint 1's S5 refusal: llama-server isn't built, and this version of
-    setup can't build it (A2's build step waits for Q2 and Q3a), so it never says "done"."""
-    with pytest.raises(ConfigError, match=re.escape(NOT_BUILT)):
-        setup.go()
-
-
 def source(root: Path, checkout: bool = True) -> Path:
     """vendor/llama.cpp, with a .git of its own (a checkout, whose state the fake gives)
     unless `checkout` is False (a plain folder)."""
@@ -167,7 +159,7 @@ def test_less_than_16_gb_of_memory_is_refused_and_16_passes(root):
         made(root, Mac("Darwin", "arm64", 15 * GIB, MAC.free), run, says).go()
     assert str(refused.value) == "Clarity needs 16 GB of memory; this Mac has 15 GB."
     assert run.calls == [] and says.asked == []
-    to_the_build(made(root, Mac("Darwin", "arm64", 16 * GIB, MAC.free)))
+    made(root, Mac("Darwin", "arm64", 16 * GIB, MAC.free)).go()
 
 
 # --- the disk (state 7) and the one question (states 12 and 13)
@@ -201,13 +193,11 @@ def question(download: int, keep: int, folder: str = "~/Clarity") -> str:
 def test_the_question_adds_up_what_is_missing(root):
     folder = f"~/{root.name}"  # the home folder is root's parent here
     says = Says()
-    to_the_build(made(root, says=says))
+    made(root, says=says).go()
     assert says.asked == [question(*missing_bytes("source", "build"), folder)]
     source(root)
     says = Says()
-    to_the_build(
-        made(root, says=says, state=states(root, source={"commit": pin(root), "dirty": False}))
-    )
+    made(root, says=says, state=states(root, source={"commit": pin(root), "dirty": False})).go()
     assert says.asked == [question(*missing_bytes("build"), folder)]
 
 
@@ -218,7 +208,7 @@ def test_nothing_missing_asks_nothing_and_says_each_step_is_done(root):
     made(
         root, run=run, says=says, state=states(root, source={"commit": pin(root), "dirty": False})
     ).go()
-    assert says.asked == [] and run.calls == []
+    assert says.asked == [] and run.of("git") == [] and run.of("cmake") == []
     assert "llama.cpp's source: already done." in says.lines
 
 
@@ -246,8 +236,8 @@ def git_argvs(root: Path) -> list[list[str]]:
 
 def test_the_source_is_fetched_into_partial_and_renamed(root):
     run, says = FakeRunner(), Says()
-    to_the_build(made(root, run=run, says=says))
-    assert run.argvs == git_argvs(root)
+    made(root, run=run, says=says).go()
+    assert run.of("git") == git_argvs(root)
     folder = load_server_config(root).llama_cpp_dir
     assert folder.is_dir() and not (folder.parent / "llama.cpp.partial").exists()
     assert f"Fetching llama.cpp's source at {pin(root)[:12]} …" in says.lines
@@ -257,9 +247,11 @@ def test_git_runs_with_a_cleared_environment(root, monkeypatch):
     monkeypatch.setenv("GIT_DIR", "/elsewhere")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/made/up/gitconfig")
     run = FakeRunner()
-    to_the_build(made(root, run=run, home=Path("/Users/made-up")))
+    made(root, run=run, home=Path("/Users/made-up")).go()
     assert run.calls, "git never ran"
-    for _, env in run.calls:
+    for argv, env in run.calls:
+        if argv[0] != "git":
+            continue
         assert set(env) == {
             "PATH", "HOME", "LANG", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL",
             "GIT_TERMINAL_PROMPT",
@@ -279,9 +271,9 @@ def test_a_failed_fetch_leaves_partial_and_the_next_run_starts_again(root):
     partial = load_server_config(root).llama_cpp_dir.parent / "llama.cpp.partial"
     assert partial.is_dir() and not load_server_config(root).llama_cpp_dir.exists()
     run, says = FakeRunner(), Says()
-    to_the_build(made(root, run=run, says=says))
+    made(root, run=run, says=says).go()
     assert "Deleting vendor/llama.cpp.partial, left by a setup that didn't finish." in says.lines
-    assert run.argvs == git_argvs(root)
+    assert run.of("git") == git_argvs(root)
 
 
 def test_a_partial_that_isn_t_at_the_pin_and_clean_isn_t_renamed(root):
@@ -592,21 +584,6 @@ def test_nothing_missing_needs_no_free_disk(root):
         pytest.fail(f"refused with nothing to keep: {e}")
 
 
-def test_setup_never_says_done_while_llama_server_isn_t_built(root):
-    """S5: until A2's build step lands, an unbuilt llama-server stops setup with Getting
-    started's two build lines (the constant, checked against the doc below)."""
-    says = Says()
-    with pytest.raises(ConfigError) as refused:
-        made(root, says=says).go()
-    n = os.cpu_count() or 1
-    assert str(refused.value) == (
-        f"{NOT_BUILT} In Clarity's folder, run Getting started's two lines, then run setup "
-        f"again:\n{clarity_setup.BUILD_LINES[0]}\n"
-        f"{clarity_setup.BUILD_LINES[1].replace('-j N', f'-j {n}')}"
-    )
-    assert not any(line.startswith("Setup is done.") for line in says.lines)
-
-
 def test_the_build_lines_are_getting_started_s():
     from tests.conftest import REPO
 
@@ -734,9 +711,10 @@ def test_a_source_whose_git_status_failed_is_refused(root):
 def test_git_s_whole_environment(root):
     """S10 (#5, #7): every value but PATH, not only the names."""
     run = FakeRunner()
-    to_the_build(made(root, run=run, home=Path("/Users/made-up")))
-    for call in run.calls:
-        env = call[1]
+    made(root, run=run, home=Path("/Users/made-up")).go()
+    for argv, env in run.calls:
+        if argv[0] != "git":
+            continue
         assert {k: v for k, v in env.items() if k != "PATH"} == {
             "HOME": str(Path("/Users/made-up")), "LANG": "C", "GIT_CONFIG_NOSYSTEM": "1",
             "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0",
@@ -747,7 +725,7 @@ def test_git_state_runs_with_git_s_cleared_environment(root):
     """C7: the rename check reads git_state under the same environment as the fetch."""
     state = states(root, partial={"commit": pin(root), "dirty": False})
     setup = made(root, state=state, home=Path("/Users/made-up"))
-    to_the_build(setup)
+    setup.go()
     assert state.envs and all(env == setup.git_env() for env in state.envs)
 
 
@@ -785,3 +763,116 @@ def test_an_os_error_without_its_own_words_is_still_said(root, monkeypatch):
     made(root, says=says, state=state).go()
     said = "\n".join(says.lines)
     assert "Setup couldn't write Clarity.command to your Desktop (made up)." in said
+
+
+# --- A2's build step (states 10 and 11; decisions 4 and 6)
+
+
+def cmake_argvs(root: Path, cmake: str = CMAKE) -> list[list[str]]:
+    """Getting started's two lines, as setup runs them: the venv's cmake by path, the
+    folders under this root, -j the CPU count."""
+    import shlex
+
+    argvs = []
+    for line in clarity_setup.BUILD_LINES:
+        words = shlex.split(line.replace("-j N", f"-j {os.cpu_count() or 1}"))
+        argvs.append([cmake, *(str(root / w) if w.startswith("vendor/") else w for w in words[1:])])
+    return argvs
+
+
+def test_llama_server_at_the_pin_is_already_done(root):
+    root, state = done_root(root)
+    run, says = FakeRunner(), Says(answers=[])
+    made(root, run=run, says=says, state=state).go()
+    assert run.of("cmake") == []
+    assert "llama-server: already done." in says.lines
+
+
+def test_a_missing_llama_server_is_built_with_getting_started_s_lines(root):
+    source(root)
+    run, says = FakeRunner(), Says()
+    made(
+        root, run=run, says=says, state=states(root, source={"commit": pin(root), "dirty": False})
+    ).go()
+    assert run.of("cmake") == cmake_argvs(root)
+    log = root / "vendor" / "llama.cpp" / "build" / "clarity-build.log"
+    assert log.read_text(encoding="utf-8").startswith("cmake version 4.4.5")
+    assert any(line.startswith(f"Building llama-server at {pin(root)[:12]} with cmake 4.4.5")
+               for line in says.lines)  # fmt: skip
+    assert "llama-server is built." in says.lines
+    assert says.lines[-1].startswith("Setup is done.")
+
+
+def test_a_llama_server_from_another_commit_is_built_again(root):
+    root, state = done_root(root)
+    run = FakeRunner(llama_commit="0000000")
+    built = run.effects["build"]
+
+    def at_the_pin(argv):  # the new build reports the pin
+        built(argv)
+        run.llama_commit = pin(root)[:7]
+
+    run.effects["build"] = at_the_pin
+    says = Says()
+    made(root, run=run, says=says, state=state).go()
+    assert run.of("cmake") == cmake_argvs(root)
+    assert says.asked == [question(*missing_bytes("build"), f"~/{root.name}")]
+
+
+def test_a_build_that_doesn_t_report_the_pin_is_refused(root):
+    source(root)
+    run = FakeRunner(llama_commit="0000000")
+    with pytest.raises(ConfigError) as refused:
+        made(root, run=run, state=states(root, source={"commit": pin(root), "dirty": False})).go()
+    assert str(refused.value) == (
+        f"The llama-server setup built reports commit 0000000, not the pinned {pin(root)[:12]}. "
+        "The build's output is in vendor/llama.cpp/build/clarity-build.log."
+    )
+
+
+def test_a_failed_build_is_refused_naming_its_log(root):
+    source(root)
+    run = FakeRunner([(1, "CMake Error: made up\n")])  # the first scripted step: configure
+    with pytest.raises(ConfigError) as refused:
+        made(root, run=run, state=states(root, source={"commit": pin(root), "dirty": False})).go()
+    assert str(refused.value) == (
+        "Building llama-server failed: CMake Error: made up. Its whole output is in "
+        "vendor/llama.cpp/build/clarity-build.log."
+    )
+    log = root / "vendor" / "llama.cpp" / "build" / "clarity-build.log"
+    assert "CMake Error: made up" in log.read_text(encoding="utf-8")
+
+
+def test_the_build_runs_with_four_names_and_says_which_it_dropped(root, monkeypatch):
+    monkeypatch.setenv("CC", "/made/up/cc")
+    monkeypatch.setenv("SDKROOT", "/made/up/sdk")
+    monkeypatch.setenv("GGML_METAL", "0")
+    source(root)
+    run, says = FakeRunner(), Says()
+    made(root, run=run, says=says, state=states(root, source={"commit": pin(root), "dirty": False}),
+         home=Path("/Users/made-up")).go()  # fmt: skip
+    cmake_envs = [env for argv, env in run.calls if argv[0] == CMAKE]
+    assert cmake_envs
+    for env in cmake_envs:
+        assert set(env) <= {"PATH", "HOME", "TMPDIR", "LANG"} and env["HOME"] == str(
+            Path("/Users/made-up")
+        )
+    assert (
+        "The build runs without CC, GGML_METAL and SDKROOT from your environment, so they "
+        "can't change it." in says.lines
+    )
+
+
+def test_setup_needs_the_cmake_of_its_own_environment(root, monkeypatch, capsys, tmp_path):
+    from clarity_chat import cli
+
+    monkeypatch.setattr(clarity_setup, "venv_cmake", lambda: tmp_path / "no-cmake")
+    monkeypatch.setattr(clarity_setup, "this_mac", lambda r: MAC)
+    monkeypatch.setattr(clarity_setup, "SETUP_MODELS", ())
+    monkeypatch.setattr("sys.stdin", __import__("io").StringIO("n\n"))
+    monkeypatch.setenv("UV", "/Users/made-up/.local/bin/uv")
+    assert cli.main(["--root", str(root), "setup"]) == 1
+    assert (
+        "clarity: Setup needs the cmake in its own environment. Run it as: uv run --group "
+        "setup clarity setup" in capsys.readouterr().err
+    )
