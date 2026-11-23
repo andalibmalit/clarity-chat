@@ -14,6 +14,7 @@ WATCHED = (
     "pyproject.toml",
     "uv.lock",
     "tests/test_setup_live.py",
+    "tests/test_install.py",
     ".github/workflows/setup.yml",
 )
 
@@ -41,6 +42,12 @@ def test_it_fetches_and_builds_on_apple_silicon_with_the_setup_group():
     # A skip or an empty run fails the job, as live-cpu's guard does.
     assert "uv run python scripts/junit_guard.py setup.xml --at-least 1" in workflow
     assert "--extra hf" not in workflow  # no torch: the tier fetches and builds only
+
+
+def test_it_runs_the_install_command_s_tests_on_the_mac():
+    """A6: install.sh's tests run on every offline job, and here too, on the platform it's
+    for, whenever install.sh or what it runs changes."""
+    assert "uv run pytest tests/test_install.py -v" in text()
 
 
 def test_its_actions_are_pinned_as_tests_yml_pins_them():

@@ -36,6 +36,19 @@ Exit status:
 - `2`: wrong command-line arguments.
 - `130`: interrupted with Ctrl-C.
 
+### The install command
+
+`install.sh`, in the repository's root, is the command Getting started's [Install with one command](getting-started.md#install-with-one-command) pipes into `sh`. It's POSIX `sh` with `set -eu`, and its whole body is one function called on its last line, so a download cut short runs nothing. It takes no options, and nothing changes where it installs. It reads `HOME` and `PATH`, and `TMPDIR` for the folder that holds uv's installer while it's checked, in a file only you can read, removed however the install ends. In order, it:
+
+1. Stops if there's no terminal (`/dev/tty`) to ask setup's question on.
+2. Stops unless this is macOS on Apple silicon (`uname`) with 16 GB of memory or more (`sysctl hw.memsize`) and 15 GB free in your home folder (`df`): about 10 GB for the whole install, plus 5 GB to spare. Each refusal names the figure. It writes nothing before these checks pass.
+3. Runs `xcode-select -p`. If Apple's command line tools are missing, it runs `xcode-select --install`, which opens Apple's installer, and stops.
+4. If `uv` isn't on `PATH`, downloads uv's installer for the version in `UV_VERSION` from `astral.sh`, checks it against `UV_INSTALLER_SHA256`, and runs it. An installer with another sha256 is deleted unrun, and the install stops.
+5. If `~/Clarity` doesn't exist, clones Clarity at the tag in `VERSION`, with git's global and system config off. If it exists and holds Clarity (`defaults.toml`, `server.toml`, and a `pyproject.toml` naming `clarity-chat`), it goes on; otherwise it stops and leaves the folder alone.
+6. In `~/Clarity`, runs `uv sync --locked --group setup`, then `uv run --group setup clarity setup` and `uv run clarity ui`, both reading the terminal, not the pipe.
+
+Each command it runs gets an environment of `HOME` and `PATH` only (`env -i`). Every download uses `curl --proto '=https' --tlsv1.2`.
+
 ## Chat commands
 
 Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted text keeps its newlines. Ctrl-C while the model works cancels the call. If part of the reply has arrived, it's kept and logged. If nothing has, no reply is added: the call is logged like a failed one, and your message comes back in the input to edit or send again. A message that's too long for the context, or whose call fails, comes back the same way; an edit comes back as `/edit TEXT`, so Enter edits again.

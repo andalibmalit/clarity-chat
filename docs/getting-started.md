@@ -1,8 +1,39 @@
 # Getting started
 
-This tutorial takes you from a fresh clone to a first chat and a first blind test, using SmolLM2-135M-Instruct, a tiny model that downloads in a minute. It takes about 20 minutes, most of it building llama.cpp.
+This tutorial takes you from nothing to a first chat. On a Mac with Apple silicon and 16 GB of memory or more, one command does the setup; everywhere else, or to make your own build, install by hand.
 
-## Before you begin
+## Install with one command
+
+On a Mac with Apple silicon and 16 GB of memory or more, paste this into Terminal:
+
+```
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/andalibmalit/clarity-chat/v0.4.1/install.sh | sh
+```
+
+In order, it:
+1. Checks the Mac: Apple silicon, 16 GB of memory, and about 15 GB free in your home folder. It writes nothing until these pass.
+2. Checks for Apple's command line tools, which bring git and the compiler. If they're missing, it opens Apple's installer and stops: click Install, then paste the command again.
+3. Installs [uv](https://docs.astral.sh/uv/), which runs Clarity, if it's missing. It downloads uv's own installer at a pinned version, checks its sha256, then runs it. uv's installer puts `uv` in `~/.local/bin` and adds that folder to your shell's profile.
+4. Puts Clarity in `~/Clarity`, at this release's tag. If `~/Clarity` exists and isn't Clarity, it stops and leaves it alone.
+5. Runs `clarity setup`, which asks once, with the sizes, before it downloads anything: about 7.5 GB to download and 10 GB to keep. It then fetches llama.cpp's source at the pinned commit, builds `llama-server` (a few minutes), fetches Gemma 4 E4B and bge-m3 (the model meaning search uses), and puts `Clarity.command` on your Desktop.
+6. Opens Clarity in your browser.
+
+Most of the time goes to the build and the downloads.
+
+The models go in the Hugging Face cache (`~/.cache/huggingface`) and in `~/Clarity/models/`; the converter's Python environment goes in uv's cache. From then on, double-click `Clarity.command` on your Desktop to start Clarity. Paste the command again at any time: each step that's already done says so, and it does only what's missing, including after an interruption.
+
+To read the script before it runs, download it, read it, then run it:
+
+```
+curl --proto '=https' --tlsv1.2 -fsSL -o install.sh https://raw.githubusercontent.com/andalibmalit/clarity-chat/v0.4.1/install.sh
+sh install.sh
+```
+
+## Install by hand
+
+For Linux, an Intel Mac or a Mac with less than 16 GB of memory, or to make your own build. This takes you from a fresh clone to a first chat and a first blind test, using SmolLM2-135M-Instruct, a tiny model that downloads in a minute. It takes about 20 minutes, most of it building llama.cpp.
+
+### Before you begin
 
 You need:
 - [uv](https://docs.astral.sh/uv/), CMake and a C++ compiler.

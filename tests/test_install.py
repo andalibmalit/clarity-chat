@@ -25,11 +25,15 @@ TERMINAL = "made-up terminal"  # what the file standing for /dev/tty holds
 
 SCRIPT = REPO / "install.sh"
 GIB = 1024**3
-# The made-up uv installer the curl stub serves: it puts a uv stub in ~/.local/bin.
+# The made-up uv installer the curl stub serves: it logs its environment's names and puts a
+# uv stub in ~/.local/bin. The paths are written in, since the install runs the installer
+# with HOME and PATH only.
 INSTALLER = """#!/bin/sh
+echo "installer-env $(env | cut -d= -f1 | sort | tr '\\n' ' ')" >> "{log}"
 mkdir -p "$HOME/.local/bin"
-cp "$STUB_UV" "$HOME/.local/bin/uv"
+cp "{stub_uv}" "$HOME/.local/bin/uv"
 """
+SH_SETS = {"PWD", "SHLVL", "_", "OLDPWD"}  # what sh itself puts in a child's environment
 
 
 class Bench:
@@ -46,7 +50,11 @@ class Bench:
         self.facts = {"SYSTEM": "Darwin", "MACHINE": "arm64", "MEMORY": str(32 * GIB),
                       "FREE_KB": str(500 * 10**6), "TOOLS": "1"}  # fmt: skip
         self.uv_on_path = True
-        self.installer = INSTALLER.encode()
+        self.stub_uv = tmp_path / "uv-stub"
+        self.installer = INSTALLER.format(stub_uv=self.stub_uv, log=self.log).encode()
+        self.served: bytes | None = None  # what the curl stub serves, if not the installer
+        self.curl_fails = False
+        self.tmp = tmp_path / "tmp"  # mktemp's folder, as Terminal's TMPDIR gives it
 
     def stub(self, name: str, body: str) -> Path:
         path = self.bin / name
@@ -71,11 +79,13 @@ class Bench:
             f'[ "$1" = "-p" ] && {{ [ "{f["TOOLS"]}" = 1 ] && exit 0 || exit 2; }}\nexit 0\n',
         )
         installer = self.root / "installer.sh"
-        installer.write_bytes(self.installer)
+        installer.write_bytes(self.installer if self.served is None else self.served)
         self.stub(
             "curl",
             'echo "curl $*" >> "$LOG"\n'
             'out=""; while [ $# -gt 0 ]; do [ "$1" = "-o" ] && out="$2"; shift; done\n'
+            'echo "curl-mode $(ls -l "$out" | cut -c1-10)" >> "$LOG"\n'
+            f'[ "{int(self.curl_fails)}" = 1 ] && {{ echo "curl: (22) made up" >&2; exit 22; }}\n'
             f'cp "{installer}" "$out"\n',
         )
         self.stub(
@@ -93,9 +103,7 @@ class Bench:
             "echo \"env $(env | cut -d= -f1 | sort | tr '\\n' ' ')\" >> \"$LOG\"\n",
         )
         if not self.uv_on_path:
-            stub_uv = self.root / "uv-stub"
-            uv.rename(stub_uv)
-            self.stub_uv = stub_uv
+            uv.rename(self.stub_uv)
 
     def script(self, text: str | None = None, tty: bool = True) -> str:
         """install.sh, with its uv installer's sha256 swapped for the made-up installer's,
@@ -113,12 +121,13 @@ class Bench:
     def run(self, text: str | None = None, tty: bool = True) -> subprocess.CompletedProcess:
         """`… | sh`: the script on sh's stdin, as curl's pipe gives it."""
         self.write_stubs()
-        env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin"}
-        if not self.uv_on_path:
-            env["STUB_UV"] = str(self.stub_uv)
+        self.tmp.mkdir(exist_ok=True)
+        env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin", "TMPDIR": str(self.tmp)}
+        # Its working folder is the test's own, so a relative path lands there, not in the
+        # checkout (nothing_outside checks).
         return subprocess.run(
             ["sh"], input=self.script(text, tty), env=env, capture_output=True, text=True,
-            timeout=60, check=False,
+            timeout=60, check=False, cwd=self.root,
         )  # fmt: skip
 
     def lines(self) -> list[str]:
@@ -131,6 +140,15 @@ class Bench:
 @pytest.fixture
 def bench(tmp_path) -> Bench:
     return Bench(tmp_path)
+
+
+@pytest.fixture(autouse=True)
+def nothing_outside():
+    """No test here writes in the checkout: a made-up installer once wrote a file named
+    `{log}` there, run unformatted from the checkout's folder."""
+    before = set(REPO.iterdir())
+    yield
+    assert set(REPO.iterdir()) == before, set(REPO.iterdir()) ^ before
 
 
 def text() -> str:
@@ -155,9 +173,24 @@ def test_its_version_is_pyproject_s_and_every_curl_is_https_only():
     script = text()
     assert f"\nVERSION=v{version['version']}\n" in script
     assert re.search(r"\nUV_VERSION=\d+\.\d+\.\d+\n", script)
-    assert re.search(r"\nUV_INSTALLER_SHA256=[0-9a-f]{64}\n", script)
+    sha = re.search(r"\nUV_INSTALLER_SHA256=([0-9a-f]{64})\n", script)
+    assert sha and len(set(sha[1])) > 1, "UV_INSTALLER_SHA256 isn't a real sha256"
     curls = [line for line in script.splitlines() if re.search(r"\bcurl\b", line.split("#")[0])]
     assert curls and all("--proto '=https' --tlsv1.2" in line for line in curls), curls
+
+
+@pytest.mark.parametrize("doc", ["README.md", "docs/getting-started.md"])
+def test_the_docs_command_fetches_this_script_at_its_own_tag(doc):
+    """The release checklist's "install.sh's VERSION and the README's command name the new
+    tag", checked: a command naming another tag would fetch another release's script."""
+    version = re.search(r"\nVERSION=(\S+)\n", text())
+    assert version
+    url = "https://raw.githubusercontent.com/andalibmalit/clarity-chat/{}/install.sh"
+    commands = re.findall(r"curl .*install\.sh.*", (REPO / doc).read_text(encoding="utf-8"))
+    assert commands
+    for command in commands:
+        assert command.startswith("curl --proto '=https' --tlsv1.2 -fsSL "), command
+        assert url.format(version[1]) in command, command
 
 
 def test_its_body_is_one_function_called_on_the_last_line():
@@ -185,7 +218,7 @@ def test_a_mac_installs_clarity_and_runs_setup_and_the_page_on_the_terminal(benc
     envs = bench.ran("env ")
     assert envs
     for line in envs:  # env -i: only HOME and PATH, and what sh itself sets
-        assert set(line.split()[1:]) <= {"HOME", "PATH", "PWD", "SHLVL", "_", "OLDPWD"}, line
+        assert set(line.split()[1:]) <= {"HOME", "PATH"} | SH_SETS, line
 
 
 def test_a_script_cut_off_at_any_line_runs_nothing(bench):
@@ -238,18 +271,34 @@ def test_without_uv_its_installer_is_checked_then_run(bench):
         r"https://astral\.sh/uv/[\d.]+/", fetch
     )
     assert (bench.home / ".local" / "bin" / "uv").is_file()
+    (env,) = bench.ran("installer-env ")  # run once, with HOME and PATH only
+    assert set(env.split()[1:]) <= {"HOME", "PATH"} | SH_SETS, env
     assert bench.ran("uv sync --locked --group setup")
 
 
 def test_an_installer_with_another_sha256_is_refused_and_not_run(bench):
     bench.uv_on_path = False
-    bench.run()  # writes the stubs
-    bench.log.write_text("", encoding="utf-8")
-    script = bench.script()
-    wrong = re.sub(r"UV_INSTALLER_SHA256=\w+", "UV_INSTALLER_SHA256=" + "0" * 64, script)
-    done = bench.run(wrong)
+    bench.served = bench.installer.replace(b"mkdir", b"echo made up; mkdir")  # not the pinned
+    done = bench.run()
     assert done.returncode != 0
     assert "uv's installer doesn't match its checked sha256" in done.stderr
+    assert not (bench.home / ".local").exists() and not bench.ran("uv ") and not bench.ran("git ")
+    assert list(bench.tmp.iterdir()) == []  # removed on the way out
+
+
+def test_uv_s_installer_is_private_while_checked_and_removed_after(bench):
+    bench.uv_on_path = False
+    assert bench.run().returncode == 0
+    assert bench.ran("curl-mode ") == ["curl-mode -rw-------"]  # 0600 from birth (mktemp)
+    assert list(bench.tmp.iterdir()) == []
+
+
+def test_a_download_of_uv_s_installer_that_fails_stops_and_leaves_nothing(bench):
+    bench.uv_on_path = False
+    bench.curl_fails = True
+    done = bench.run()
+    assert done.returncode != 0 and "curl: (22) made up" in done.stderr
+    assert list(bench.tmp.iterdir()) == []
     assert not (bench.home / ".local").exists() and not bench.ran("uv ") and not bench.ran("git ")
 
 

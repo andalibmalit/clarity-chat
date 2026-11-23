@@ -44,9 +44,19 @@ The same call on the same machine and llama.cpp build gives the same output. Liv
 - A llama-server that Clarity starts and checks itself, and a Transformers backend that runs the same weights in-process (`uv sync --extra hf`).
 - Steering on the Transformers backend: a vector made by another tool, pinned by its hash, logged with every reply and replayed.
 
-## Quick start
+## Install on a Mac
 
-Needs [uv](https://docs.astral.sh/uv/), CMake, a C++ compiler and a GPU that llama.cpp supports (or see [Getting started](docs/getting-started.md#before-you-begin) to run on the CPU). Live tests have run on Apple Silicon only; other GPUs are untested. Getting started also walks through these steps.
+On a Mac with Apple silicon and 16 GB of memory or more, paste this into Terminal:
+
+```
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/andalibmalit/clarity-chat/v0.4.1/install.sh | sh
+```
+
+It checks the Mac, installs uv if it's missing, puts Clarity in `~/Clarity`, builds llama.cpp, fetches a first chat model (Gemma 4 E4B) and the model meaning search uses, and puts a `Clarity.command` launcher on your Desktop. It asks once, with the sizes, before it downloads anything. See [Getting started](docs/getting-started.md#install-with-one-command) for what it does and writes, and how to read the script first.
+
+## Quick start (by hand)
+
+On Linux, an Intel Mac or a Mac with less memory, or to make your own build. Needs [uv](https://docs.astral.sh/uv/), CMake, a C++ compiler and a GPU that llama.cpp supports (or see [Getting started](docs/getting-started.md#before-you-begin) to run on the CPU). Live tests have run on Apple Silicon only; other GPUs are untested. Getting started also walks through these steps.
 
 ```
 uv sync
