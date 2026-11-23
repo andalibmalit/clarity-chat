@@ -21,6 +21,19 @@ from clarity_chat.setup import GIB, SIZES, Mac, Setup
 from tests.fakes import FakeRunner
 
 MAC = Mac(system="Darwin", machine="arm64", memory=32 * GIB, free=212 * 10**9)
+
+
+@pytest.fixture(autouse=True)
+def made_up_cmake(monkeypatch, tmp_path_factory):
+    """Every test here stands in a made-up cmake for the setup group's, so `clarity setup`
+    through cli.main gets past its cmake check whatever this environment synced: CI syncs
+    without the setup group, and a local .venv may keep its cmake from an earlier sync. The
+    test of the refusal sets its own missing path."""
+    cmake = tmp_path_factory.mktemp("venv") / "cmake"
+    cmake.write_text("made up", encoding="utf-8")
+    monkeypatch.setattr(clarity_setup, "venv_cmake", lambda: cmake)
+
+
 CMAKE = "/Users/made-up/Clarity/.venv/bin/cmake"  # the venv's own, by path
 
 
