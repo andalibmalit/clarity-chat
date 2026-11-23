@@ -54,10 +54,13 @@ SIZES: dict[str, tuple[int, int]] = {
     "build": (0, 150 * 10**6),
     "converter": (500 * 10**6, 1_200 * 10**6),
     "bge-m3": (2_300 * 10**6, 3_460 * 10**6),
+    # The Q4_0 file is 4,590,807,392 bytes and its tokenizer.json 32,156,428 (Hugging Face);
+    # the gguf route keeps both in the Hugging Face cache, nothing more.
+    "gemma-4-e4b": (4_630 * 10**6, 4_630 * 10**6),
 }
-# The models setup fetches, in order: bge-m3, meaning search's embedder; A4 puts the first
-# chat model before it (decision 8, after Q6a and Q6b).
-SETUP_MODELS: tuple[str, ...] = ("bge-m3",)
+# The models setup fetches, in order: the first chat model (decision 8, Q6a to Q6c), then
+# bge-m3, meaning search's embedder.
+SETUP_MODELS: tuple[str, ...] = ("gemma-4-e4b", "bge-m3")
 # What can change a build from the environment; the build runs without all of it.
 BUILD_CHANGERS = re.compile(
     r"(CC|CXX|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|OBJC|OBJCXX|SDKROOT|MACOSX_DEPLOYMENT_TARGET"

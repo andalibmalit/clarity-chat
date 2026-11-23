@@ -391,7 +391,11 @@ Each table is one model, and its name is the model's name in profiles and `clari
 | `weights` | `convert` | Optional, and only `"pytorch_model.bin"`: also download that file, for a model whose publisher ships its weights only in PyTorch's pickle format. Without it, `clarity fetch` downloads no pickle (`.bin` or `.pt` file). The converter loads it with PyTorch's restricted loader (`weights_only`). Only the shipped `models.toml` has it, for a file that was reviewed; your own entries can't. |
 | `weights_sha256` | `convert` | With `weights`, and only with it: the file's sha256, 64 lowercase hex characters. `clarity fetch` checks it before the converter loads the file; a mismatch stops the fetch, and nothing is converted or recorded. |
 
-The shipped models are SmolLM2-135M-Instruct, OLMo 3 7B Instruct and base, Llama 3.1 8B Instruct and base (gated), and bge-m3, the embedding model for meaning search, which a profile can't chat with.
+The shipped models are Gemma 4 E4B (the one `clarity setup` fetches), SmolLM2-135M-Instruct, OLMo 3 7B Instruct and base, Llama 3.1 8B Instruct and base (gated), and bge-m3, the embedding model for meaning search, which a profile can't chat with.
+
+| Model | Licence | File | Memory on a Mac | Profile |
+|---|---|---|---|---|
+| `gemma-4-e4b`: Gemma 4 E4B, quantized by llama.cpp's ggml-org | Apache 2.0, not gated | `gemma-4-E4B-it-Q4_0.gguf`, 4.59 GB, kept in the Hugging Face cache | about 3.2 GB on the GPU, plus about 2.2 GB of input embeddings in host memory; with bge-m3 beside it, about 4.2 GB on the GPU (measured on Apple silicon at the pin) | `gemma-4-e4b`: thinking off, the model's recommended settings |
 
 `clarity fetch` writes what it resolved to `models.lock` (JSON, committed), or for your own entries to `local/models.lock` (not committed): paths, size, modification time and sha256 of the GGUF, the converter's package versions, and the model's recommended settings. Clarity never edits `models.toml`.
 

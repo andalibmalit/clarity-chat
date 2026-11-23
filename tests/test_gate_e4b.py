@@ -1,9 +1,16 @@
-"""v0.4.2 A0, the first model's gate (rule 15: the design rests on it), before any setup code.
+"""v0.4.2 A0, the first model's gate (rule 15: the design rests on it), before any setup code;
+and since A4, the shipped first model's live check.
 
-Run on a scratch root that `notes/tools/gate_root.py` made and `clarity fetch` filled, with
-`HF_HOME` the same folder the fetch used (empty before it, so a gated tokenizer repo shows):
+A gate: on a scratch root that `notes/tools/gate_root.py` made and `clarity fetch` filled,
+with `HF_HOME` the same folder the fetch used (empty before it, so a gated tokenizer repo
+shows):
 
     CLARITY_GATE_ROOT=ROOT GATE_MODEL=NAME HF_HOME=HF uv run pytest -m gate -v -s
+
+The shipped first model (A4): with none of those set, on this checkout's gemma-4-e4b, once
+`uv run clarity fetch gemma-4-e4b` has fetched it (logs in a temporary folder):
+
+    uv run pytest -m gate -v -s
 
 On the real llama-server at the pin: the model loads; the profile's template turns thinking
 off (the prompt ends at the model's turn) and writes no date; the start records the file's
@@ -31,11 +38,17 @@ DATE_WARNING = "This model's chat template can write today's date"
 
 
 @pytest.fixture
-def gate():
+def gate(tmp_path):
     root, name = os.environ.get("CLARITY_GATE_ROOT"), os.environ.get("GATE_MODEL")
-    assert root and name, "Set CLARITY_GATE_ROOT and GATE_MODEL (notes/tools/gate_root.py)."
-    assert os.environ.get("HF_HOME"), "Set HF_HOME to the folder the fetch used."
-    session = Session(Path(root), logs_dir=Path(root) / "logs")
+    if root is None and name is None:  # A4: the shipped first model, in this checkout
+        from tests.conftest import REPO
+
+        root, name, logs = str(REPO), "gemma-4-e4b", tmp_path / "logs"  # never REPO/logs
+    else:
+        assert root and name, "Set both CLARITY_GATE_ROOT and GATE_MODEL (gate_root.py)."
+        assert os.environ.get("HF_HOME"), "Set HF_HOME to the folder the fetch used."
+        logs = Path(root) / "logs"
+    session = Session(Path(root), logs_dir=logs)
     try:
         yield session, name
     finally:

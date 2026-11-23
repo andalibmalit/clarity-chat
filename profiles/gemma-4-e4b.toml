@@ -1,0 +1,11 @@
+# The first model setup fetches: Gemma 4 E4B through its own chat template, thinking off.
+description = "Gemma 4 E4B, Google's small model (Q4_0), in chat format, with its recommended settings"
+backend = "llama.cpp"
+model = "gemma-4-e4b"
+mode = "chat"
+use_recommended = true  # the model's generation_config.json, logged with origin `model`
+# Gemma 4's template thinks only when asked; false keeps its prompt without <|think|>.
+template_kwargs = { enable_thinking = false }
+
+[settings]
+seed = 42
