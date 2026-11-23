@@ -103,8 +103,10 @@ def run_logged(argv: list[str], env: dict[str, str]) -> tuple[int, str]:
     return done.returncode, done.stdout
 
 
-def shown_link(path: str) -> str:  # stub (CI run 45085021195)
-    return path
+def shown_link(path: str) -> str:
+    """A link's target as the user writes it: without the \\\\?\\ prefix Windows' readlink
+    and resolve() add to a long path (CI run 45085021195)."""
+    return path.removeprefix("\\\\?\\")
 
 
 def gb(n: int) -> str:
@@ -320,12 +322,13 @@ class Setup:
         named = "vendor/llama.cpp"
         if self.source.is_symlink():  # the rename would replace a link: never touch it (S7)
             if not self.source.exists():
+                target = shown_link(os.readlink(self.source))
                 raise ConfigError(
-                    f"vendor/llama.cpp is a link to {os.readlink(self.source)}, which doesn't "
-                    "exist, so setup leaves it alone: it may be your own work. Move it out of "
-                    "vendor/, then run setup again."
+                    f"vendor/llama.cpp is a link to {target}, which doesn't exist, so setup "
+                    "leaves it alone: it may be your own work. Move it out of vendor/, then run "
+                    "setup again."
                 )
-            named = f"vendor/llama.cpp (a link to {self.source.resolve()})"
+            named = f"vendor/llama.cpp (a link to {shown_link(str(self.source.resolve()))})"
         if not self.source.exists():
             return False
         # Only its own .git: git_state in a plain folder finds the clone around it (S1).
