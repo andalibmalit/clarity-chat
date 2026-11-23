@@ -103,6 +103,10 @@ def run_logged(argv: list[str], env: dict[str, str]) -> tuple[int, str]:
     return done.returncode, done.stdout
 
 
+def shown_link(path: str) -> str:  # stub (CI run 45085021195)
+    return path
+
+
 def gb(n: int) -> str:
     return f"{n / 1e9:.1f}"
 

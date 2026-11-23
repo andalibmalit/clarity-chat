@@ -877,3 +877,13 @@ def test_setup_needs_the_cmake_of_its_own_environment(root, monkeypatch, capsys,
         "clarity: Setup needs the cmake in its own environment. Run it as: uv run --group "
         "setup clarity setup" in capsys.readouterr().err
     )
+
+
+def test_a_windows_long_path_prefix_isn_t_shown():
+    """CI run 45085021195: Windows' readlink gives \\\\?\\C:\\…; a sentence names the folder as
+    the user writes it. On every OS, since the helper takes the string."""
+    assert (
+        clarity_setup.shown_link("\\\\?\\C:\\Users\\made-up\\nowhere")
+        == "C:\\Users\\made-up\\nowhere"
+    )
+    assert clarity_setup.shown_link("/Users/made-up/nowhere") == "/Users/made-up/nowhere"
