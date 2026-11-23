@@ -496,6 +496,8 @@ TERMINAL_ONLY = {
         "a setup step outside Clarity, not a terminal equivalent of a page control"
     ),
     " isn't set in this chat. Usage: /set NAME VALUE": "the page resets only a changed row",
+    "Setup needs the cmake in its own environment. Run it as: uv run --group setup clarity "
+    "setup": "only `clarity setup` raises it, and setup has no page (v0.4.2)",
 }
 
 

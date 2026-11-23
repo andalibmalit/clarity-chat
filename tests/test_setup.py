@@ -9,6 +9,7 @@ gated live by `-m setup` (tests/test_setup_live.py).
 from __future__ import annotations
 
 import os
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -195,7 +196,7 @@ def test_the_question_adds_up_what_is_missing(root):
     says = Says()
     made(root, says=says).go()
     assert says.asked == [question(*missing_bytes("source", "build"), folder)]
-    source(root)
+    shutil.rmtree(source(root) / "build")  # the source there, llama-server not built
     says = Says()
     made(root, says=says, state=states(root, source={"commit": pin(root), "dirty": False})).go()
     assert says.asked == [question(*missing_bytes("build"), folder)]

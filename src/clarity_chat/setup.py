@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import platform
+import re
 import shlex
 import shutil
 import sys
@@ -57,6 +58,11 @@ SIZES: dict[str, tuple[int, int]] = {
 # The models setup fetches, in order: bge-m3, meaning search's embedder; A4 puts the first
 # chat model before it (decision 8, after Q6a and Q6b).
 SETUP_MODELS: tuple[str, ...] = ("bge-m3",)
+# What can change a build from the environment; the build runs without all of it.
+BUILD_CHANGERS = re.compile(
+    r"(CC|CXX|CFLAGS|CXXFLAGS|CPPFLAGS|LDFLAGS|OBJC|OBJCXX|SDKROOT|MACOSX_DEPLOYMENT_TARGET"
+    r"|CMAKE_\w*|GGML_\w*|LLAMA_\w*)"
+)
 # Getting started's two build lines (decision 4), N the CPU count; a test checks the doc says
 # the same. Setup can't run them yet (A2's build step waits for Q2 and Q3a), so it says them.
 BUILD_LINES = (
@@ -114,13 +120,13 @@ class Setup:
         home: Path,  # required, as desktop and uv are: nothing defaults to the real ones
         desktop: Path,
         uv: str,
-        cmake: str = "",  # stub (A2's build step)
+        cmake: str,
         models: tuple[str, ...] = SETUP_MODELS,
         fetch: Callable[[Path, ModelEntry, ServerConfig], dict[str, Any]] = fetch_model,
     ) -> None:
         self.root, self.mac, self.run, self.ask, self.say = root, mac, run, ask, say
         self.state = state
-        self.home, self.desktop, self.uv = home, desktop, uv
+        self.home, self.desktop, self.uv, self.cmake = home, desktop, uv, cmake
         self.models, self.fetch = models, fetch
         config = self.config = load_server_config(root)
         self.pin = config.llama_cpp_commit
@@ -135,7 +141,8 @@ class Setup:
         self.check_mac()
         source_done = self.check_source()
         missing = [] if source_done else ["source"]
-        if not self.built():
+        built = self.built()
+        if not built:
             missing.append("build")
         entries = load_models(self.root)
         models = [entries[name] for name in self.models]
@@ -157,19 +164,16 @@ class Setup:
             self.say("llama.cpp's source: already done.")
         else:
             self.fetch_source()
+        if built:
+            self.say("llama-server: already done.")
+        else:
+            self.build()
         for model in models:  # in order; a failed fetch stops here, and a run again goes on
             if model in to_fetch:
                 self.fetch(self.root, model, self.config)
             else:
                 self.say(f"{model.name}: already done.")
         self.launcher()
-        if False:  # stub (A2's build step replaces S5's refusal)
-            n = os.cpu_count() or 1
-            raise ConfigError(
-                "Setup can't build llama-server yet. In Clarity's folder, run Getting "
-                f"started's two lines, then run setup again:\n{BUILD_LINES[0]}\n"
-                f"{BUILD_LINES[1].replace('-j N', f'-j {n}')}"
-            )
         self.say(
             "Setup is done. Next time, double-click Clarity.command on your Desktop to start "
             "Clarity, or run the same command again to check the setup."
@@ -218,13 +222,79 @@ class Setup:
         return True
 
     def built(self) -> bool:
-        """Whether llama-server is there. Whether it's from the pin is the build step's check
-        (A2's build step, held for Q2 and Q3a)."""
+        """Whether llama-server is there and reports the pin (state 13); one from another
+        commit is built again (state 10)."""
         try:
-            server_binary(self.source)
+            binary = server_binary(self.source)
         except ConfigError:
             return False
-        return True
+        return self.pin.startswith(self.reported(binary) or "?")
+
+    def reported(self, binary: Path) -> str | None:
+        """The commit `llama-server --version` says it was built from."""
+        _, output = self.run([str(binary), "--version"], self.build_env())
+        found = re.search(r"commit (\w+)\)", output)
+        return found[1] if found else None
+
+    def build_env(self) -> dict[str, str]:
+        """cmake's environment: PATH, HOME, TMPDIR and LANG only, so nothing else from the
+        user's (CC, CFLAGS, SDKROOT, CMAKE_*, GGML_*, LLAMA_* …) changes the build unseen
+        (decision 4)."""
+        env = {k: os.environ[k] for k in ("PATH", "TMPDIR", "LANG") if k in os.environ}
+        return {**env, "HOME": str(self.home)}
+
+    def build(self) -> None:
+        """llama-server at the pin, with Getting started's two lines and the venv's cmake
+        (decisions 4 and 6). Its output goes to vendor/llama.cpp/build/clarity-build.log,
+        which starts with cmake's version; a failure, or a binary that doesn't report the
+        pin, is refused naming it (state 11)."""
+        env, build = self.build_env(), self.source / "build"
+        log, named = build / "clarity-build.log", "vendor/llama.cpp/build/clarity-build.log"
+        build.mkdir(parents=True, exist_ok=True)
+        _, version = self.run([self.cmake, "--version"], env)
+        log.write_text(version, encoding="utf-8")
+        dropped = sorted(k for k in os.environ if BUILD_CHANGERS.fullmatch(k))
+        if dropped:
+            names = ", ".join(dropped[:-1]) + " and " + dropped[-1] if dropped[1:] else dropped[0]
+            self.say(
+                f"The build runs without {names} from your environment, so they can't change it."
+            )
+        cmake = version.split()[2] if version.startswith("cmake version ") else "?"
+        self.say(
+            f"Building llama-server at {self.pin[:12]} with cmake {cmake} (a few minutes; its "
+            f"output goes to {named}) …"
+        )
+        for argv in self.cmake_argvs():
+            code, output = self.run(argv, env)
+            with log.open("a", encoding="utf-8") as f:
+                f.write(f"$ {shlex.join(argv)}\n{output}")
+            if code != 0:
+                last = output.strip().splitlines()[-1] if output.strip() else f"exit {code}"
+                raise ConfigError(
+                    f"Building llama-server failed: {last}. Its whole output is in {named}."
+                )
+        commit = self.reported(server_binary(self.source))
+        if not self.pin.startswith(commit or "?"):
+            raise ConfigError(
+                f"The llama-server setup built reports commit {commit}, not the pinned "
+                f"{self.pin[:12]}. The build's output is in {named}."
+            )
+        self.say("llama-server is built.")
+
+    def cmake_argvs(self) -> list[list[str]]:
+        """BUILD_LINES as argvs: the venv's cmake by path, vendor/ folders under this root."""
+        n = str(os.cpu_count() or 1)
+        argvs = []
+        for line in BUILD_LINES:
+            words = shlex.split(line.replace("-j N", f"-j {n}"))
+            folder = self.source.parent.parent  # vendor/'s parent: the root the lines are in
+            argvs.append(
+                [
+                    self.cmake,
+                    *(str(folder / w) if w.startswith("vendor/") else w for w in words[1:]),
+                ]
+            )
+        return argvs
 
     def check_mac(self) -> None:
         """States 1 and 2, before anything runs or is written."""
@@ -332,8 +402,9 @@ def answer(prompt: str) -> str:
         return "n"
 
 
-def venv_cmake() -> Path:  # stub (A2's build step)
-    return Path()
+def venv_cmake() -> Path:
+    """The cmake of the environment running setup (`uv run --group setup`), by path."""
+    return Path(sys.executable).parent / ("cmake.exe" if sys.platform == "win32" else "cmake")
 
 
 def cmd_setup(root: Path) -> int:
@@ -346,9 +417,16 @@ def cmd_setup(root: Path) -> int:
             "Setup can't find uv, which starts Clarity. Install it as Getting started says, "
             "then run setup again."
         )
+    cmake = venv_cmake()
+    if not cmake.is_file():
+        raise ConfigError(
+            "Setup needs the cmake in its own environment. Run it as: uv run --group setup "
+            "clarity setup"
+        )
     home = Path.home()
     Setup(
         root, this_mac(root), run_logged, answer, print,
-        home=home, desktop=home / "Desktop", uv=str(Path(uv).absolute()), models=SETUP_MODELS,
+        home=home, desktop=home / "Desktop", uv=str(Path(uv).absolute()), cmake=str(cmake),
+        models=SETUP_MODELS,
     ).go()  # fmt: skip
     return 0
