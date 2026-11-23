@@ -14,6 +14,7 @@ Two headings are Clarity's own, used when they apply:
 - `clarity setup` sets up a Mac with Apple silicon and 16 GB of memory or more: it checks the platform, memory and disk, asks once with the sizes before downloading anything, fetches llama.cpp's source at the pinned commit into `vendor/llama.cpp` (a folder it didn't make is left alone), builds `llama-server` with Getting started's lines and a cleared environment, then fetches bge-m3, puts a `Clarity.command` launcher on the Desktop, and says how to start Clarity next time. Each step says when it's already done, so setup can be run again.
 
 ### Changed
+- A new dev dependency, `shellcheck-py` 0.11.0.1 (ShellCheck 0.11.0), so the tests check the install script with ShellCheck; `uv.lock` pins it with its hashes.
 - A new `setup` dependency group holds `cmake` 4.4.5 from PyPI, which `clarity setup` uses to build `llama-server` (`uv sync --group setup`); `uv.lock` pins it with its hashes.
 - A refusal that ends "fetch it" (a model that isn't fetched, say) names Clarity's folder: "In a new Terminal window, run: cd ~/Clarity && uv run clarity fetch NAME. Then try again."
 

@@ -44,6 +44,7 @@ dev = [
     "hypothesis>=6.170.15",
     "pytest>=9.2.0",
     "ruff>=0.17.4",
+    "shellcheck-py==0.11.0.1",  # pinned: tests/test_install.py runs ShellCheck 0.11.0 on install.sh
     "ty==0.0.99",  # pinned: ty is pre-1.0 and its checks change between releases
 ]
 setup = [  # clarity setup builds llama-server with this cmake, run by its path (v0.4.2 A2)
