@@ -1,0 +1,46 @@
+# `clarity setup`'s fetch and build on a Mac with Apple silicon, the only platform setup
+# supports (v0.4.2 E1): llama.cpp's source fetched at server.toml's pin into a temporary
+# folder and llama-server built from it with the setup group's cmake (the `setup` tier).
+# No model and no torch. It runs only when what setup depends on changes. The runner has
+# Xcode and Homebrew, so it isn't a fresh Mac (the plan's "What nobody tests").
+name: setup
+
+on:
+  push:
+    paths:
+      - src/clarity_chat/setup.py
+      - install.sh
+      - server.toml
+      - pyproject.toml
+      - uv.lock
+      - tests/test_setup_live.py
+      - .github/workflows/setup.yml
+  pull_request:
+    paths:
+      - src/clarity_chat/setup.py
+      - install.sh
+      - server.toml
+      - pyproject.toml
+      - uv.lock
+      - tests/test_setup_live.py
+      - .github/workflows/setup.yml
+
+permissions:
+  contents: read
+
+jobs:
+  setup-macos:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      # Actions are pinned to commit SHAs (a tag can be moved); Dependabot updates them.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      # The setup group brings cmake from PyPI, pinned in uv.lock; no hf extra.
+      - run: uv sync --locked --group setup
+      # A fresh fetch and build each run, in a temporary folder: no built binary is cached,
+      # since building it is what the tier tests.
+      - run: uv run --group setup pytest -m setup -v -rs --junitxml=setup.xml
+      - run: uv run python scripts/junit_guard.py setup.xml --at-least 1
