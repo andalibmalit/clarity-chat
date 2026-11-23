@@ -38,8 +38,9 @@ is_clarity() {
 }
 
 main() {
-    # State 23: setup asks one question, so there must be a terminal to ask on.
-    if ! { : </dev/tty; } 2>/dev/null; then
+    # State 23: setup asks one question, so there must be a terminal to ask on. `true`, not
+    # `:`: a redirection that fails on a special builtin like `:` ends a POSIX sh (dash).
+    if ! true 2>/dev/null </dev/tty; then
         refuse "The install needs a terminal to ask you one question. Paste the command into Terminal."
     fi
     # State 1: the only platform with live tests.
