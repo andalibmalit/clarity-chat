@@ -8,13 +8,14 @@ about 5 minutes; nothing here touches the checkout's vendor/llama.cpp.
 
 from __future__ import annotations
 
+import dataclasses
 import shutil
 
 import pytest
 
 from clarity_chat.logs import git_state
 from clarity_chat.profiles import load_server_config
-from clarity_chat.setup import Setup, run_logged, this_mac, venv_cmake
+from clarity_chat.setup import MEMORY_FLOOR, Setup, run_logged, this_mac, venv_cmake
 from tests.conftest import REPO
 
 pytestmark = pytest.mark.setup
@@ -24,12 +25,19 @@ def test_setup_fetches_and_builds_llama_cpp_at_the_pin_in_a_new_folder(tmp_path)
     """The source step alone, through setup's own functions: the Mac's checks, the
     never-touch check, then the .partial fetch and rename. Not go(): since A3 it fetches the
     models (bge-m3: 2.27 GB) and writes the launcher on the real Desktop. Without network
-    the fetch is refused (a ConfigError), so the test fails; it never skips."""
+    the fetch is refused (a ConfigError), so the test fails; it never skips.
+
+    The platform check is real, but the memory is the larger of this Mac's and the 16 GB
+    floor: CI's macOS runner has 7 GB, and this tier tests the fetch and build, which need
+    no model's memory. The floor's refusal is tested offline (tests/test_setup.py)."""
     for name in ("defaults.toml", "server.toml"):
         shutil.copy(REPO / name, tmp_path / name)
     said: list[str] = []
+    mac = this_mac(tmp_path)
+    print(f"\nthis Mac's memory: {mac.memory / 1024**3:.1f} GiB")
+    mac = dataclasses.replace(mac, memory=max(mac.memory, MEMORY_FLOOR))
     setup = Setup(
-        tmp_path, this_mac(tmp_path), run_logged, lambda q: "n", said.append,
+        tmp_path, mac, run_logged, lambda q: "n", said.append,
         home=tmp_path, desktop=tmp_path / "Desktop", uv="uv", cmake=str(venv_cmake()),
     )  # fmt: skip
     setup.check_mac()
