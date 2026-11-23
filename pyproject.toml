@@ -46,6 +46,9 @@ dev = [
     "ruff>=0.17.4",
     "ty==0.0.99",  # pinned: ty is pre-1.0 and its checks change between releases
 ]
+setup = [  # clarity setup builds llama-server with this cmake, run by its path (v0.4.2 A2)
+    "cmake==4.4.5",  # pinned: the build tool can change the binary
+]
 
 [tool.ruff]
 line-length = 100
