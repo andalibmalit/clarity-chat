@@ -118,15 +118,18 @@ class Bench:
         terminal.write_text(f"{TERMINAL}\n", encoding="utf-8")
         return text.replace("/dev/tty", str(terminal if tty else self.root / "no" / "tty"))
 
-    def run(self, text: str | None = None, tty: bool = True) -> subprocess.CompletedProcess:
-        """`… | sh`: the script on sh's stdin, as curl's pipe gives it."""
+    def run(
+        self, text: str | None = None, tty: bool = True, shell: str = "sh"
+    ) -> subprocess.CompletedProcess:
+        """`… | sh`: the script on sh's stdin, as curl's pipe gives it. `shell` is another
+        POSIX sh to pipe it into instead (dash, Ubuntu's sh)."""
         self.write_stubs()
         self.tmp.mkdir(exist_ok=True)
         env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin", "TMPDIR": str(self.tmp)}
         # Its working folder is the test's own, so a relative path lands there, not in the
         # checkout (nothing_outside checks).
         return subprocess.run(
-            ["sh"], input=self.script(text, tty), env=env, capture_output=True, text=True,
+            [shell], input=self.script(text, tty), env=env, capture_output=True, text=True,
             timeout=60, check=False, cwd=self.root,
         )  # fmt: skip
 
@@ -230,8 +233,11 @@ def test_a_script_cut_off_at_any_line_runs_nothing(bench):
         assert list(bench.home.iterdir()) == [], cut
 
 
-def test_without_a_terminal_it_stops_before_anything(bench):
-    done = bench.run(tty=False)
+@pytest.mark.parametrize("shell", ["sh", "/bin/dash"])
+def test_without_a_terminal_it_stops_before_anything(bench, shell):
+    """In dash too (CI run 45105458693: Ubuntu's sh is dash, and macOS ships /bin/dash): a
+    redirection that fails on `:`, a special builtin, ends a POSIX sh before it says why."""
+    done = bench.run(tty=False, shell=shell)
     assert done.returncode != 0
     assert "The install needs a terminal to ask you one question." in done.stderr
     assert bench.lines() == [] and list(bench.home.iterdir()) == []
