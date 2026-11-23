@@ -193,6 +193,7 @@ CI_SKIPS = (
     "no process groups on Windows",
     "a backslash can't be in a Windows file name",
     "symlinks need privileges on Windows",
+    "no POSIX sh on Windows",  # install.sh is for macOS (v0.4.2 A6)
 )
 
 
