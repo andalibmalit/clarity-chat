@@ -94,6 +94,9 @@ def test_send_refused_names_getting_started(clarity, page):
     start(page, redirect, "meaning")
     page.fill("#message", ASKED)
     page.click("#send")
+    # settled() alone can return before the send starts (CI's Firefox run 45085021195): wait
+    # for the refusal's box, as test_browser_search's refused send does.
+    page.wait_for_selector("#thread .problem.refused")
     settled(page)  # the refused say has ended and its redraw landed
     assert f"! Nothing was sent. {NO_EMBEDDER}" in " ".join(page.inner_text("#thread").split())
     shot(page, "refused-no-embedder", "v041-c1")
