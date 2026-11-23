@@ -55,7 +55,7 @@ tokenizer_revision = "d04e592bb4f6aa9cfee91e2e20afa771667e1d4b"
 [gemma-4-e4b]
 # The first chat model `clarity setup` fetches (v0.4.2; Apache 2.0, not gated): Google's
 # Gemma 4 E4B, quantized to Q4_0 by llama.cpp's ggml-org, with Google's own tokenizer and
-# chat template. On a Mac it uses about 3.2 GB of GPU memory and keeps about 2.2 GB of
+# chat template. On a Mac it uses about 3.3 GB of GPU memory and keeps about 2.4 GB of
 # input embeddings in host memory (measured at the pin, 2026-11-22).
 route = "gguf"
 repo = "ggml-org/gemma-4-E4B-it-GGUF"

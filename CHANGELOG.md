@@ -9,7 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Added
-- Gemma 4 E4B (`gemma-4-e4b`, Apache 2.0), quantized to Q4_0 by llama.cpp's ggml-org, with a profile of the same name that turns thinking off and uses the model's recommended settings. It's the chat model `clarity setup` fetches first. On a Mac it uses about 3.2 GB of GPU memory, plus about 2.2 GB of input embeddings in host memory.
+- Gemma 4 E4B (`gemma-4-e4b`, Apache 2.0), quantized to Q4_0 by llama.cpp's ggml-org, with a profile of the same name that turns thinking off and uses the model's recommended settings. It's the chat model `clarity setup` fetches first. On a Mac it uses about 3.3 GB of GPU memory, plus about 2.4 GB of input embeddings in host memory.
 - Replay compares how llama-server was built: the commit, compiler and target from the build line it logs at start, and its list of backends and CPU features, read from the logged start's output, so two builds of one commit made differently are told apart. Earlier logs whose start holds these lines are compared too; a line one side lacks is listed as not recorded.
 - `clarity setup` sets up a Mac with Apple silicon and 16 GB of memory or more: it checks the platform, memory and disk, asks once with the sizes before downloading anything, fetches llama.cpp's source at the pinned commit into `vendor/llama.cpp` (a folder it didn't make is left alone), builds `llama-server` with Getting started's lines and a cleared environment, then fetches bge-m3, puts a `Clarity.command` launcher on the Desktop, and says how to start Clarity next time. Each step says when it's already done, so setup can be run again.
 

@@ -395,7 +395,7 @@ The shipped models are Gemma 4 E4B (the one `clarity setup` fetches), SmolLM2-13
 
 | Model | Licence | File | Memory on a Mac | Profile |
 |---|---|---|---|---|
-| `gemma-4-e4b`: Gemma 4 E4B, quantized by llama.cpp's ggml-org | Apache 2.0, not gated | `gemma-4-E4B-it-Q4_0.gguf`, 4.59 GB, kept in the Hugging Face cache | about 3.2 GB on the GPU, plus about 2.2 GB of input embeddings in host memory; with bge-m3 beside it, about 4.2 GB on the GPU (measured on Apple silicon at the pin) | `gemma-4-e4b`: thinking off, the model's recommended settings |
+| `gemma-4-e4b`: Gemma 4 E4B, quantized by llama.cpp's ggml-org | Apache 2.0, not gated | `gemma-4-E4B-it-Q4_0.gguf`, 4.59 GB, kept in the Hugging Face cache | about 3.3 GB on the GPU, plus about 2.4 GB of input embeddings in host memory; with bge-m3 beside it, about 4.4 GB on the GPU (measured on Apple silicon at the pin) | `gemma-4-e4b`: thinking off, the model's recommended settings |
 
 `clarity fetch` writes what it resolved to `models.lock` (JSON, committed), or for your own entries to `local/models.lock` (not committed): paths, size, modification time and sha256 of the GGUF, the converter's package versions, and the model's recommended settings. Clarity never edits `models.toml`.
 
