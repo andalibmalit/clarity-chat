@@ -30,7 +30,7 @@ Two headings are Clarity's own, used when they apply:
 
 ### Fixed
 - When the embedder alone needs more GPU memory than Metal's recommended limit, its refusal no longer tells you to use a smaller chat model or a lower `ctx_size` if a chat server is running; only searching by words helps.
-- A run whose profile searches by meaning, with bge-m3 not fetched, tells you to search by words and run the command again, not to start a new chat.
+- A run whose profile searches by meaning tells you to search by words and run the command again, not to start a new chat, when bge-m3 isn't fetched or a server would be over Metal's recommended memory limit.
 
 ## [0.4.1] - 2026-11-22
 

@@ -24,6 +24,7 @@ import jinja2
 
 from clarity_chat import steering
 from clarity_chat.backends import Backend, BackendError, Result
+from clarity_chat.backends.llama_cpp import outside_chat_words
 from clarity_chat.documents import (
     EMBEDDER_MODEL,
     SENTENCES,
@@ -969,6 +970,8 @@ class Session:
         vectors file Clarity can't write is said as it is."""
 
         def refused(problem: dict[str, Any]) -> SearchRefused:
+            if "why" in problem and where != "chat":  # no chat to start in a run (#6b)
+                problem = {**problem, "why": outside_chat_words(problem["why"])}
             return SearchRefused([problem], at_send, where)
 
         embedder = self.embedder()

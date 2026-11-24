@@ -354,6 +354,14 @@ WORDS_WAY_OUT = (
 )
 
 
+def outside_chat_words(said: str) -> str:
+    """A memory refusal said where no chat is open (a run): its way out by words ends by
+    running the command again, as state 5's does there (#6b). Other sentences are kept."""
+    if not said.endswith(WORDS_WAY_OUT[1:]):
+        return said
+    return said.removesuffix("start a new chat.") + "run the command again."
+
+
 def memory_problem(
     ctx_size: int,
     memory: list[dict[str, Any]],
