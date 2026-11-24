@@ -12,11 +12,13 @@ from __future__ import annotations
 
 import json
 import math
+from pathlib import Path
 from typing import Any
 
-from clarity_chat.batch import run_batch
+from clarity_chat.batch import RunError, run_batch
 from clarity_chat.cli import ChatLoop
 from clarity_chat.documents import SearchRefused, library_add, reading
+from clarity_chat.profiles import ConfigError
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend, FakeEmbedder
 from tests.test_meaning import (
@@ -154,6 +156,81 @@ def test_a_run_without_bge_m3_isn_t_told_to_start_a_new_chat(fetched_root, chat_
         "one into local/profiles/ first) and run the command again."
     ), refused.terminal
     assert fake.made == 0
+
+
+def metal(total: float, limit: int) -> dict[str, Any]:
+    return {"device": "MTL0", "limit_mib": limit, "model_mib": total - 700, "kv_mib": 0,
+            "compute_mib": 700, "total_mib": total}  # fmt: skip
+
+
+def unfetched_run(root: Path, chat_tokenizer: Any, embedder: Any, backend: Any) -> Exception:
+    """A one-opening run of profile meaning; what it raised."""
+    profile(root, "meaning", MEANING)
+    library_add(root, GLOSSARY.encode(), "notes.md")
+    openings = root / "openings.txt"
+    openings.write_text(OPENINGS[0] + "\n", encoding="utf-8")
+    run_dir = root / "runs" / "run-refused"
+    session = Session(
+        root,
+        backend=backend,
+        logs_dir=run_dir,
+        tokenizer_loader=lambda r, v: chat_tokenizer,
+        embedder=embedder,
+    )
+    said: list[str] = []
+    try:
+        run_batch(session, "run-refused", run_dir, openings, ["meaning"], 1, said.append)
+    except Exception as e:
+        return e
+    raise AssertionError("the run wasn't refused")
+
+
+WORDS_IN_A_RUN = (
+    'set search_method = "words" under [documents] in your own profile (copy a shipped '
+    "one into local/profiles/ first) and run the command again."
+)
+
+
+def test_a_run_whose_embedder_is_over_metal_s_limit_isn_t_told_to_start_a_new_chat(
+    fetched_root, chat_tokenizer
+):
+    """#6b's sibling (the S-e ruling): the memory refusal's way out by words, said in a
+    run through state 6's reason, says to run the command again, as state 5 does."""
+    from clarity_chat.backends.llama_cpp import memory_problem
+
+    too_big = memory_problem(8192, [metal(1800, 1500)], embedder=True)
+    assert too_big is not None and too_big.endswith("and start a new chat.")  # a chat's
+
+    class OverTheLimit(FakeEmbedder):
+        def start(self) -> dict[str, Any]:
+            raise ConfigError(too_big)
+
+    refused = unfetched_run(fetched_root, chat_tokenizer, OverTheLimit(),
+                            FakeBackend([], tokenizer=chat_tokenizer))  # fmt: skip
+    assert isinstance(refused, SearchRefused), repr(refused)
+    assert "new chat" not in refused.terminal, refused.terminal
+    assert refused.terminal.endswith("S" + WORDS_IN_A_RUN[1:]), refused.terminal
+
+
+def test_a_run_whose_chat_model_is_over_metal_s_limit_beside_the_embedder_says_run_again(
+    fetched_root, chat_tokenizer
+):
+    """The same sentence from the chat model's start beside the embedder: a run says the
+    run's way out."""
+    from clarity_chat.backends.llama_cpp import memory_problem
+
+    both = memory_problem(4096, [metal(9000, 10700)], beside=(8192, [metal(1800, 10700)]))
+    assert both is not None and both.endswith("and start a new chat.")  # a chat's
+    backend = FakeBackend([" R."], tokenizer=chat_tokenizer)
+
+    def refuse(*args: Any, **kwargs: Any) -> Any:
+        raise ConfigError(both)
+
+    backend.start = refuse
+    refused = unfetched_run(fetched_root, chat_tokenizer, FakeEmbedder(), backend)
+    assert isinstance(refused, RunError), repr(refused)
+    assert "new chat" not in str(refused), str(refused)
+    assert str(refused).endswith("or " + WORDS_IN_A_RUN), str(refused)
 
 
 def test_the_closest_is_shown_rounded_down_so_it_never_reads_as_the_minimum():
