@@ -238,6 +238,38 @@ There is no general "results may vary" notice. Replay flags the one case that ne
 
 **The page's fonts ship with Clarity, unmodified.** Rasa (Rosetta) for what was said, IBM Plex Sans for what you can do and IBM Plex Mono for what is exact, so the page looks the same on every computer and loads nothing from the network. They're the publishers' own files, under the SIL Open Font License 1.1, each family with its licence beside it in `web_static/fonts/`. IBM reserves the name "Plex", which a modified font couldn't keep, so neither family is subset or converted: Rasa reserves no name, but it ships unmodified too, for one rule (as TTF, as Rosetta publishes it). Only the weights the page uses are included.
 
+## Setup
+
+**Clarity lives in a git clone.** The install command clones Clarity at the release's tag into `~/Clarity`. Clarity finds its folder by looking upwards for `defaults.toml` and `server.toml`, and logs its own commit, and whether it has changes, with every call. A clone keeps both working as they do in a developer's checkout; a wheel would have neither. Updating an install isn't supported yet: run again, the install command says when `~/Clarity` is at another release, and leaves it as it is.
+
+**llama-server is built from source on your Mac.** Setup fetches llama.cpp's source at the commit in `server.toml` and builds `llama-server` with Getting started's two lines. The source is needed anyway, since bge-m3's conversion runs llama.cpp's converter from it, and Apple's command line tools bring git and the compiler together. So a prebuilt binary would save only cmake and a few minutes, at the cost of trusting a binary built on another machine. A prebuilt is the right path where a compiler is hard to get, as on Windows.
+- The build's environment is cleared: cmake gets only `PATH`, `HOME`, `TMPDIR` and `LANG`, so variables such as `CC`, `CFLAGS`, `CMAKE_*`, `GGML_*`, `LLAMA_*` and `SDKROOT` can't change the build unseen. Setup names the ones it leaves out. `PATH` stays because cmake finds `cc`, `make`, `git` and `xcrun` through it. The cost: `PATH` still chooses the compiler, and llama.cpp's build uses a `ccache` it finds there.
+- Setup builds only into a `build/` folder it made (none yet, or one holding `clarity-build.log`), and never through a link. A `vendor/llama.cpp`, or a `build/` in it, that setup didn't make may be your own work, so setup stops and leaves it alone.
+
+**Every download is pinned.**
+
+| What | From | Pinned by |
+|---|---|---|
+| `install.sh` and Clarity | GitHub, at the release's tag | the tag |
+| uv's installer | `astral.sh`, at the version in `install.sh` | a sha256 in `install.sh`, checked before it runs; an installer that doesn't match is deleted unrun |
+| uv | GitHub, by uv's installer | TODO (S4): what uv's installer checks before it installs uv is being confirmed. |
+| Python 3.13 | GitHub (python-build-standalone), by uv | uv's own checks, at uv's version |
+| Clarity's packages and `cmake` | PyPI | the hashes in `uv.lock` (`uv sync --locked`); `pyproject.toml` requires a uv (0.11 to 0.13) that builds Clarity with its own build backend, not one fetched without a hash |
+| llama.cpp's source | GitHub, `ggml-org/llama.cpp` | the full commit hash in `server.toml`, which git checks every object against; the built `llama-server --version` must report it |
+| The converter's environment | PyPI | every package's hashes in `converter-requirements.txt`, wheels only |
+| Gemma 4 E4B | Hugging Face, `ggml-org` | the revision and sha256 in `models.toml`, checked before the file is recorded or used |
+| Gemma 4's tokenizer and chat template | Hugging Face, `google` | the revision in `models.toml` |
+| bge-m3 | Hugging Face, `BAAI` | the revision, and the weights' sha256, checked before the converter loads them |
+
+**What the install writes, and where.**
+- In `~/Clarity`: Clarity, its `.venv`, `vendor/llama.cpp` and its build (the build's output in `vendor/llama.cpp/build/clarity-build.log`), `models/` (with the converter's environment in `models/.converter`) and `local/models.lock`.
+- By uv's installer: `uv`, `uvx`, `env` and `env.fish` in `~/.local/bin`; a line in your shell's profile files that adds that folder to `PATH`; and `~/.config/uv/uv-receipt.json`.
+- By uv: its cache, `~/.cache/uv`, and the Python it installs, in `~/.local/share/uv/python`.
+- By setup: the Hugging Face cache, `~/.cache/huggingface`, and the launcher, `~/Desktop/Clarity.command`.
+- Temporary files: uv's installer, in `$TMPDIR` while it's checked, removed however the install ends; and what the commands it runs put in `/tmp`, since they don't get `TMPDIR`.
+
+**What the install command passes on.** uv's installer, git, uv and Clarity get only `HOME` and `PATH` (`env -i`), so nothing else in your environment changes what they do; git also runs with its global and system config off, and never asks for a password. The checks before them, and the download of uv's installer, run in your environment. The cost: proxy settings such as `HTTPS_PROXY` don't reach them, so behind a proxy, install by hand.
+
 ## Not in scope
 
 Left out from the start: tools or agents; metrics or LLM judges; multi-user features; an Ollama backend; llama-server's router mode; MLflow export.

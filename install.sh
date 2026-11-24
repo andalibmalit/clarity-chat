@@ -10,7 +10,8 @@
 #
 # The whole script is one function, called on its last line, so a download cut short runs
 # nothing. Under `curl … | sh` the script itself is sh's input, so setup's question and the
-# web interface read the terminal (/dev/tty) instead. What it runs gets only HOME and PATH.
+# web interface read the terminal (/dev/tty) instead. uv's installer, git, uv and Clarity get
+# only HOME and PATH.
 set -eu
 
 VERSION=v0.4.1

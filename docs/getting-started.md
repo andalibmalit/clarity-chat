@@ -18,9 +18,9 @@ In order, it:
 5. Runs `clarity setup`, which asks once, with the sizes, before it downloads anything: about 7.5 GB to download and 10 GB to keep. It then fetches llama.cpp's source at the pinned commit, builds `llama-server` (a few minutes), fetches Gemma 4 E4B and bge-m3 (the model meaning search uses), and puts `Clarity.command` on your Desktop.
 6. Opens Clarity in your browser.
 
-Most of the time goes to the build and the downloads.
+Most of the time goes to the build and the downloads. uv's installer, git and uv get only your `HOME` and `PATH` from it, so proxy settings don't reach them: behind a proxy, install by hand.
 
-The models go in the Hugging Face cache (`~/.cache/huggingface`) and in `~/Clarity/models/`; the converter's Python environment goes in `~/Clarity/models/.converter`. From then on, double-click `Clarity.command` on your Desktop to start Clarity. Paste the command again at any time: each step that's already done says so, and it does only what's missing, including after an interruption.
+The models go in the Hugging Face cache (`~/.cache/huggingface`) and in `~/Clarity/models/`; the converter's Python environment goes in `~/Clarity/models/.converter`. uv keeps its cache in `~/.cache/uv`, and the Python it installs in `~/.local/share/uv/python`. From then on, double-click `Clarity.command` on your Desktop to start Clarity. Paste the command again at any time: each step that's already done says so, and it does only what's missing, including after an interruption.
 
 To read the script before it runs, download it, read it, then run it:
 
