@@ -61,7 +61,7 @@ Every merged contribution of any kind counts: code, docs, design, testing, resea
 - **[`CONTRIBUTORS.md`](CONTRIBUTORS.md)** lists everyone with a merged contribution, with their roles from the [CRediT taxonomy](https://credit.niso.org/), such as Software, Validation or Writing – review & editing. Your pull request can add you, or the maintainer will.
 - **Authors in [`CITATION.cff`](CITATION.cff)**, and so in the citation and the Zenodo record, are people who made a substantial contribution: a feature, a meaningful part of a release, or sustained work. The bar is generous. You can ask to be added, decline, or add your ORCID.
 - **Order:** the maintainer first, then others in the order of their first substantial contribution.
-- **AI tools** are disclosed in commit trailers (`Co-Authored-By`), not credited as authors, because a tool can't take an author's responsibility for the work. Clarity is built with AI assistance. The maintainer sets the plans' direction and reads the review findings; from v0.2.3 to 0.8.0, in one sprint, the plans are approved under the maintainer's delegation and the maintainer uses the whole after 0.8.0, through extended use, rather than each release.
+- **AI tools** are disclosed in an `Assisted-by: TOOL:MODEL` trailer on each commit they helped with (such as `Assisted-by: Claude Code:claude-opus-5-5`), not credited as authors, because a tool can't take an author's responsibility for the work. Clarity is built with AI assistance. The maintainer sets the plans' direction and reads the review findings; from v0.2.3 to 0.8.0, in one sprint, the plans are approved under the maintainer's delegation and the maintainer uses the whole after 0.8.0, through extended use, rather than each release.
 
 ## Reviews
 
