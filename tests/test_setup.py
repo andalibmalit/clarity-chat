@@ -530,7 +530,7 @@ def test_a_launcher_setup_can_t_read_is_said_and_setup_still_ends(root, monkeypa
     revoked after the first run) is said, with the lines printed, and left alone."""
     root, state = done_root(root)
     launcher = desktop_of(root) / "Clarity.command"
-    launcher.write_text("echo mine\n", encoding="utf-8")
+    launcher.write_bytes(b"echo mine\n")  # the bytes compared at the end, on Windows too
     real_read_text = Path.read_text
 
     def refused(self, *args, **kwargs):
