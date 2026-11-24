@@ -23,6 +23,7 @@ Two headings are Clarity's own, used when they apply:
 - A new dev dependency, `pytest-xdist` 3.8.0 (with `execnet`), so the offline tests can run in parallel: `uv run pytest -n 8 --dist loadfile`. `uv run pytest`, CI and the live tiers still run serially.
 - A new dev dependency, `shellcheck-py` 0.11.0.1 (ShellCheck 0.11.0), so the tests check the install script with ShellCheck; `uv.lock` pins it with its hashes.
 - A new `setup` dependency group holds `cmake` 4.4.5 from PyPI, which `clarity setup` uses to build `llama-server` (`uv sync --group setup`); `uv.lock` pins it with its hashes.
+- The converter's environment is made in `models/.converter` from `converter-requirements.txt`, which pins every package bge-m3's conversion used with its sha256, and installed with `uv pip install --require-hashes`, so a package file that doesn't match is refused. It was made by `uv run --with-requirements`, which checks no hashes. A model's `converter.command` in the lock is now the three commands: make the environment, install, convert.
 - A refusal that ends "fetch it" (a model that isn't fetched, say) names Clarity's folder: "In a new Terminal window, run: cd ~/Clarity && uv run clarity fetch NAME. Then try again."
 
 ## [0.4.1] - 2026-11-22

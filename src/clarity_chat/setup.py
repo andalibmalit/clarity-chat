@@ -47,7 +47,8 @@ LLAMA_URL = "https://github.com/ggml-org/llama.cpp"
 # downloads (the Hugging Face cache) and, for the convert route, its GGUF: bge-m3's pickle
 # is 2,271,145,830 bytes (its file on Hugging Face) and its GGUF 1,157,671,136 (models.lock),
 # plus its tokenizer. The
-# converter's environment (torch, transformers and the rest, in uv's cache) is an estimate
+# converter's environment (torch, transformers and the rest, in uv's cache and in
+# models/.converter) is an estimate
 # until the owner's fresh-account run measures it.
 SIZES: dict[str, tuple[int, int]] = {
     "source": (50 * 10**6, 250 * 10**6),

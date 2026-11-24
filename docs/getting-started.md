@@ -20,7 +20,7 @@ In order, it:
 
 Most of the time goes to the build and the downloads.
 
-The models go in the Hugging Face cache (`~/.cache/huggingface`) and in `~/Clarity/models/`; the converter's Python environment goes in uv's cache. From then on, double-click `Clarity.command` on your Desktop to start Clarity. Paste the command again at any time: each step that's already done says so, and it does only what's missing, including after an interruption.
+The models go in the Hugging Face cache (`~/.cache/huggingface`) and in `~/Clarity/models/`; the converter's Python environment goes in `~/Clarity/models/.converter`. From then on, double-click `Clarity.command` on your Desktop to start Clarity. Paste the command again at any time: each step that's already done says so, and it does only what's missing, including after an interruption.
 
 To read the script before it runs, download it, read it, then run it:
 

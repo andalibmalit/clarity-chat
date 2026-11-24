@@ -603,15 +603,23 @@ def test_the_converter_s_sentencepiece_is_pinned():
 
 
 @pytest.mark.live
-def test_the_converter_sees_nothing_of_claritys_environment_and_imports_its_pinned_transformers():
-    """The probe behind the isolation fix, through the command fetch_convert runs, from
-    Clarity's folder (where uv would find Clarity's .venv): no .venv or src on sys.path, none
-    of Clarity's dev tools installed, and llama.cpp's pinned transformers imported. Live:
-    it needs the llama.cpp checkout and the pinned packages (uv's cache, or the network)."""
+def test_the_converter_sees_nothing_of_claritys_environment_and_imports_its_pinned_transformers(
+    tmp_path,
+):
+    """The probe behind the isolation fix, through the commands fetch_convert runs, from
+    Clarity's folder (where uv would find Clarity's .venv), with the environment made in a
+    scratch folder: no .venv or src on sys.path, none of Clarity's dev tools installed, and
+    the transformers llama.cpp pins imported. Live: it needs the llama.cpp checkout and
+    the pinned packages (uv's cache, or the network)."""
+    import shutil
     import subprocess
 
     repo = Path(__file__).resolve().parents[1]
     server = load_server_config(repo)
+    shutil.copy(REQUIREMENTS, tmp_path / REQUIREMENTS.name)
+    venv, install, python = models.converter_commands(tmp_path)
+    for command in (venv, install):
+        subprocess.run(command, cwd=repo, check=True, stdin=subprocess.DEVNULL)
     probe = (
         "import json, sys, transformers\n"
         "from importlib.metadata import distributions\n"
@@ -620,7 +628,7 @@ def test_the_converter_sees_nothing_of_claritys_environment_and_imports_its_pinn
         " 'transformers': transformers.__version__}))\n"
     )
     done = subprocess.run(
-        [*models.converter_python(server), "-c", probe],
+        [*python, "-c", probe],
         cwd=repo,
         capture_output=True,
         text=True,
@@ -628,8 +636,8 @@ def test_the_converter_sees_nothing_of_claritys_environment_and_imports_its_pinn
         check=True,
     )
     seen = json.loads(done.stdout.strip().splitlines()[-1])
-    venv, src = str(repo / ".venv"), str(repo / "src")
-    assert [p for p in seen["path"] if p.startswith((venv, src))] == []
+    venv_dir, src = str(repo / ".venv"), str(repo / "src")
+    assert [p for p in seen["path"] if p.startswith((venv_dir, src))] == []
     assert {"pytest", "ruff", "ty", "clarity-chat"} & set(seen["names"]) == set()
     pinned = server.llama_cpp_dir / "requirements" / "requirements-convert_legacy_llama.txt"
     assert f"transformers=={seen['transformers']}" in pinned.read_text("utf-8"), seen

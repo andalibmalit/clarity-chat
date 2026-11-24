@@ -497,6 +497,7 @@ The embedder writes its own output to `server-ID.log`, as the chat server does (
 |---|---|
 | `local/models.lock` | What `fetch` resolved for each model, and the new time `verify` records. Not committed. |
 | `models/NAME/` | A converted model's GGUF, plus `convert.log` and the converter's package versions. A downloaded GGUF stays in the Hugging Face cache instead. |
+| `models/.converter/` | The converter's Python environment, made from `converter-requirements.txt` with every file's hash checked. Made again when that file changes; safe to delete. |
 | `logs/CONVERSATION_ID.jsonl` | One chat conversation, one record per line. The ID is the start time and a random suffix, such as `20261108-142530-a1b2c3`. |
 | `server-ID.log` | One llama-server's own output, the chat server's or meaning search's embedder's, next to the log it serves: in `logs/` for a chat, in `runs/RUN_ID/` for a batch run. |
 | `runs/RUN_ID/calls.jsonl` | Every call of a batch run, after a first `run` record. |

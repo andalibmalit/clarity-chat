@@ -13,7 +13,7 @@ import json
 import os
 import subprocess
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from clarity_chat.files import read_text, sha256_file, write_text_atomic
 from clarity_chat.logs import git_state, now_utc
@@ -49,6 +49,9 @@ LOCK_SCHEMA_VERSION = 1
 # (`.bin`, `.pt`): an entry's `weights` key adds the one file it names (v0.4.1 decision 2).
 SOURCE_PATTERNS = ["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model"]
 CONVERTER_PYTHON = "3.13"
+CONVERTER_REQUIREMENTS = "converter-requirements.txt"
+CONVERTER_ENV = "models/.converter"
+CONVERTER_MARKER = "clarity-requirements.sha256"  # the sha256 of the file it was made from
 
 
 def portable_path(text: str, root: Path, resolve: bool = True) -> str:
@@ -368,33 +371,80 @@ def fetch_gguf(root: Path, model: ModelEntry) -> dict[str, Any]:
     return entry
 
 
-def converter_python(server: ServerConfig) -> list[str]:
-    """The command that runs Python in llama.cpp's converter environment: its pinned
-    requirements in an environment of their own. --isolated gives that environment a fresh
-    base: from Clarity's folder, uv would otherwise build it on Clarity's .venv (the 3.13 it
-    finds there), putting Clarity's packages and src on the converter's sys.path. -I keeps
-    the working folder and PYTHON* variables out. So nothing from Clarity's folder or
-    environment leaks into the converter."""
-    requirements = server.llama_cpp_dir / "requirements" / "requirements-convert_hf_to_gguf.txt"
+def converter_commands(root: Path) -> list[list[str]]:
+    """A conversion's three commands: make the converter's environment, install its
+    requirements, and run its Python. `uv run --with-requirements` doesn't check a file's
+    hashes, so Clarity makes the environment itself (v0.4.2 decision 15): a fresh venv,
+    with nothing from Clarity's project or your uv settings (--no-project, --no-config),
+    then converter-requirements.txt installed with every file's sha256 checked. The
+    first-index strategy is set so UV_INDEX_STRATEGY can't merge indexes. -I keeps the
+    working folder and PYTHON* variables out of the converter."""
+    env = root / CONVERTER_ENV
+    python = env / "Scripts" / "python.exe" if os.name == "nt" else env / "bin" / "python"
     return [
-        "uv",
-        "run",
-        "--no-project",
-        "--isolated",
-        "--index-strategy",  # uv's default, set so UV_INDEX_STRATEGY can't merge indexes
-        "first-index",
-        "--python",
-        CONVERTER_PYTHON,
-        "--with-requirements",
-        str(requirements),
-        # The requirements allow sentencepiece <0.3.0 but cap protobuf <5.0.0, and 0.2.3's
-        # model_pb2 needs protobuf 5.26 or later: a SentencePiece vocabulary (bge-m3's)
-        # failed to load. 0.2.2 imports with protobuf 4.
-        "--with",
-        "sentencepiece==0.2.2",
-        "python",
-        "-I",
+        [
+            "uv",
+            "venv",
+            "--clear",
+            "--no-project",
+            "--no-config",
+            "--python",
+            CONVERTER_PYTHON,
+            str(env),
+        ],
+        [
+            "uv",
+            "pip",
+            "install",
+            "--no-config",
+            "--require-hashes",
+            "--index-strategy",
+            "first-index",
+            "--python",
+            str(env),
+            "-r",
+            str(root / CONVERTER_REQUIREMENTS),
+        ],
+        [str(python), "-I"],
     ]
+
+
+def _logged(command: list[str], log: TextIO, env: dict[str, str] | None = None) -> int:
+    """Run `command` with no terminal input, its output written to `log`; its exit code."""
+    proc = subprocess.Popen(
+        command,
+        env=env,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        log.write(line)
+    return proc.wait()
+
+
+def _make_converter_environment(
+    root: Path, commands: list[list[str]], log: TextIO, log_path: Path
+) -> None:
+    """Make the converter's environment unless it was made from this
+    converter-requirements.txt: a marker in it holds the file's sha256, written only after
+    the install succeeds, so a failed or interrupted one is made again next time."""
+    marker = root / CONVERTER_ENV / CONVERTER_MARKER
+    digest = sha256_file(root / CONVERTER_REQUIREMENTS)
+    if marker.is_file() and read_text(marker).strip() == digest:
+        return
+    print(
+        f"Making the converter's environment in {CONVERTER_ENV}: Python {CONVERTER_PYTHON} and "
+        f"the packages {CONVERTER_REQUIREMENTS} pins, each checked by its sha256 …",
+        flush=True,
+    )
+    for command in commands:
+        if _logged(command, log) != 0:
+            raise ConfigError(f"Making the converter's environment failed; see {log_path}.")
+    marker.write_text(digest + "\n", encoding="utf-8")
 
 
 def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[str, Any]:
@@ -428,8 +478,9 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
     versions = out_dir / "converter-versions.json"
     converter = server.llama_cpp_dir / "convert_hf_to_gguf.py"
     shim = Path(__file__).with_name("convert_shim.py")
+    *setup, python = converter_commands(root)
     command = [
-        *converter_python(server),
+        *python,
         str(shim),
         str(versions),
         str(converter),
@@ -439,25 +490,15 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
         "--outfile",
         str(partial),
     ]
-    shown = [portable_path(part, root) for part in command]
-    print("Converting:", " ".join(shown), flush=True)
+    # As run: not resolved, since the environment's python is a link to the one uv chose.
+    shown = [[portable_path(part, root, resolve=False) for part in c] for c in (*setup, command)]
     with (out_dir / "convert.log").open("w", encoding="utf-8", newline="") as log:
+        _make_converter_environment(root, setup, log, out_dir / "convert.log")
+        print("Converting:", " ".join(shown[-1]), flush=True)
         # Offline: it reads only the snapshot, so a tokenizer's auto_map can't fetch code
         # from another repo. No stdin: a "run the custom code?" prompt is refused, not left
         # waiting in convert.log (v0.4.1's security review, S2).
-        proc = subprocess.Popen(
-            command,
-            env={**os.environ, "HF_HUB_OFFLINE": "1"},
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-        )
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            log.write(line)
-        if proc.wait() != 0:
+        if _logged(command, log, env={**os.environ, "HF_HUB_OFFLINE": "1"}) != 0:
             raise ConfigError(f"The converter failed; see {out_dir / 'convert.log'}.")
     os.replace(partial, out)
     print(f"Hashing {out.name} …", flush=True)

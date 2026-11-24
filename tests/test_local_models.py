@@ -51,15 +51,22 @@ def mine(fetched_root, tmp_path, monkeypatch):
     server = load_server_config(root)
     monkeypatch.setattr(models, "git_state", lambda path: {"commit": server.llama_cpp_commit})
 
+    (root / models.CONVERTER_REQUIREMENTS).write_text("made-up==1.0\n", encoding="utf-8")
+
     class Converted:
-        """The converter: writes the --outfile and the versions file the shim writes."""
+        """The converter: writes the --outfile and the versions file the shim writes. Before
+        it, the converter's environment (v0.4.2 A9): `uv venv` makes its folder."""
 
         def __init__(self, command, **kwargs):
+            self.stdout = iter(())
+            if command[:2] == ["uv", "venv"]:
+                Path(command[-1]).mkdir(parents=True)
+            if "--outfile" not in command:
+                return
             outfile = Path(command[command.index("--outfile") + 1])
             outfile.write_bytes(b"GGUF converted")
             versions = {"python": "3.13", "packages": {"torch": "0", "transformers": "0"}}
             (outfile.parent / "converter-versions.json").write_text(json.dumps(versions))
-            self.stdout = iter(())
 
         def wait(self):
             return 0
