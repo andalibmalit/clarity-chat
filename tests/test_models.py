@@ -494,6 +494,7 @@ def test_the_converter_s_environment_is_made_from_the_hashed_requirements(tmp_pa
     with -I. A fresh venv holds only what the file installs (earlier, from Clarity's folder,
     the converter's sys.path held Clarity's .venv and src); --no-project and --no-config keep
     Clarity's pyproject.toml and your uv settings out. The lock records the three commands."""
+    monkeypatch.delenv("UV", raising=False)  # run from a shell, not by uv: plain `uv`
     started = converting(tmp_path, monkeypatch)
     assert len(started) == 3, started  # make the environment, install, convert
     venv, install, convert = [command for command, _ in started]
@@ -516,6 +517,27 @@ def test_the_converter_s_environment_is_made_from_the_hashed_requirements(tmp_pa
         for command in (venv, install, convert)
     ]
     assert recorded[0][-1] == "models/.converter", recorded
+
+
+def test_the_converter_runs_the_uv_that_runs_clarity(tmp_path, monkeypatch):
+    """install.sh runs Clarity under `env -i` with a PATH that doesn't hold ~/.local/bin,
+    where uv's installer puts uv; uv sets UV to itself for what it runs, so the converter
+    uses that uv, as setup does (the whole-branch review's M1)."""
+    uv = "/Users/made-up/.local/bin/uv"
+    monkeypatch.setenv("UV", uv)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")  # install.sh's PATH: no ~/.local/bin
+    venv, install, _ = models.converter_commands(tmp_path)
+    assert venv[0] == uv and install[0] == uv
+
+
+def test_a_uv_in_the_home_folder_is_recorded_from_the_home_folder(tmp_path, monkeypatch):
+    """The lock may be committed (scripts/refresh_lock.py), so a uv under the home folder is
+    recorded as `~/...`, with no user name, like the lock's other paths."""
+    monkeypatch.setenv("UV", str(Path.home() / ".local" / "bin" / "uv"))
+    converting(tmp_path, monkeypatch)
+    lock = json.loads((tmp_path / "local" / "models.lock").read_text("utf-8"))
+    recorded = lock["models"]["smollm2-135m-instruct"]["converter"]["command"]
+    assert [recorded[0][0], recorded[1][0]] == ["~/.local/bin/uv"] * 2, recorded
 
 
 def test_the_converter_s_environment_is_said_before_it_is_made(tmp_path, monkeypatch, capsys):
