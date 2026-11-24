@@ -290,8 +290,11 @@ def test_a_failed_fetch_leaves_partial_and_the_next_run_starts_again(root):
     assert run.of("git") == git_argvs(root)
 
 
-def test_a_partial_that_isn_t_at_the_pin_and_clean_isn_t_renamed(root):
-    state = states(root, partial={"commit": pin(root), "dirty": True})
+@pytest.mark.parametrize("dirty", [True, None], ids=["dirty", "status-failed"])
+def test_a_partial_that_isn_t_at_the_pin_and_clean_isn_t_renamed(root, dirty):
+    """At the pin, with changes or with a git status that failed (dirty None, the
+    whole-branch review's S7): neither is known clean, so neither is renamed."""
+    state = states(root, partial={"commit": pin(root), "dirty": dirty})
     with pytest.raises(ConfigError) as refused:
         made(root, state=state).go()
     assert "didn't check out" in str(refused.value)
@@ -834,6 +837,30 @@ def test_a_llama_server_from_another_commit_is_built_again(root):
     assert says.asked == [question(*missing_bytes("build"), f"~/{root.name}")]
 
 
+def test_a_llama_server_that_can_t_run_is_built_again(root):
+    """A llama-server the system can't run (OSError: a truncated file, another
+    architecture's) isn't built, so setup builds it again instead of stopping with a
+    traceback (the whole-branch review's C5)."""
+    root, state = done_root(root)
+    setup_built(root)
+    run, says = FakeRunner(), Says()
+    fake = run.__call__
+    runs = []
+
+    def runner(argv, env):
+        if Path(argv[0]).name.startswith("llama-server") and not runs:
+            runs.append(argv)
+            raise OSError(8, "Exec format error")
+        return fake(argv, env)
+
+    try:
+        made(root, run=runner, says=says, state=state).go()
+    except OSError as error:
+        raise AssertionError(f"setup stopped with a traceback: {error!r}") from error
+    assert runs and run.of("cmake") == cmake_argvs(root)
+    assert "llama-server is built." in says.lines
+
+
 def test_a_build_that_doesn_t_report_the_pin_is_refused(root):
     source(root)
     run = FakeRunner(llama_commit="0000000")
@@ -856,6 +883,30 @@ def test_a_failed_build_is_refused_naming_its_log(root):
     )
     log = root / "vendor" / "llama.cpp" / "build" / "clarity-build.log"
     assert "CMake Error: made up" in log.read_text(encoding="utf-8")
+
+
+BUILD_CHANGER_NAMES = [
+    "CC", "CXX", "CFLAGS", "CXXFLAGS", "CPPFLAGS", "LDFLAGS", "OBJC", "OBJCXX", "SDKROOT",
+    "MACOSX_DEPLOYMENT_TARGET", "CMAKE_PREFIX_PATH", "GGML_METAL", "LLAMA_CURL",
+]  # fmt: skip
+
+
+@pytest.mark.parametrize("name", BUILD_CHANGER_NAMES)
+def test_each_name_that_can_change_a_build_is_said_and_dropped(root, monkeypatch, name):
+    """Every name BUILD_CHANGERS matches (one of each prefix's) is said and kept out of
+    cmake's environment (the whole-branch review's C1)."""
+    for other in [k for k in os.environ if clarity_setup.BUILD_CHANGERS.fullmatch(k)]:
+        monkeypatch.delenv(other)
+    monkeypatch.setenv(name, "made-up")
+    source(root)
+    run, says = FakeRunner(), Says()
+    made(root, run=run, says=says, state=states(root, source={"commit": pin(root), "dirty": False}),
+         home=Path("/Users/made-up")).go()  # fmt: skip
+    assert all(name not in env for argv, env in run.calls if argv[0] == CMAKE)
+    assert (
+        f"The build runs without {name} from your environment, so they can't change it."
+        in says.lines
+    ), says.lines
 
 
 def test_the_build_runs_with_four_names_and_says_which_it_dropped(root, monkeypatch):
@@ -901,6 +952,22 @@ def test_a_windows_long_path_prefix_isn_t_shown():
         == "C:\\Users\\made-up\\nowhere"
     )
     assert clarity_setup.shown_link("/Users/made-up/nowhere") == "/Users/made-up/nowhere"
+
+
+def test_another_platform_is_said_before_uv_or_cmake(root, monkeypatch, capsys, tmp_path):
+    """State 1's sentence comes first: on Linux, without uv or the setup group's cmake,
+    setup says it needs a Mac, not how to run it with the setup group (the whole-branch
+    review's C4)."""
+    from clarity_chat import cli
+
+    monkeypatch.setattr(clarity_setup, "venv_cmake", lambda: tmp_path / "no-cmake")
+    monkeypatch.setattr(clarity_setup, "this_mac", lambda r: Mac("Linux", "x86_64", 32 * GIB, 0))
+    monkeypatch.delenv("UV", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path))  # no uv on it
+    assert cli.main(["--root", str(root), "setup"]) == 1
+    assert capsys.readouterr().err.startswith(
+        "clarity: Setup needs a Mac with Apple silicon; this computer is Linux on x86_64."
+    )
 
 
 # --- the security review's S2, S3 and C2: setup builds into, and deletes, only what it made
