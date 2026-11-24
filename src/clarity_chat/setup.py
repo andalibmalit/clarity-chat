@@ -145,6 +145,7 @@ class Setup:
         written = tomllib.loads((root / "server.toml").read_text(encoding="utf-8"))
         self.source = Path(os.path.normpath(root / written["llama_cpp_dir"]))
         self.partial = self.source.parent / f"{self.source.name}.partial"
+        self.named = Path(os.path.relpath(self.source, root)).as_posix()  # as a sentence says it
 
     def go(self) -> None:
         """Every step, in order; a ConfigError says why setup stopped."""
@@ -153,6 +154,7 @@ class Setup:
         missing = [] if source_done else ["source"]
         built = self.built()
         if not built:
+            self.check_build_folder()
             missing.append("build")
         entries = load_models(self.root)
         models = [entries[name] for name in self.models]
@@ -233,7 +235,7 @@ class Setup:
 
     def built(self) -> bool:
         """Whether llama-server is there and reports the pin (state 13); one from another
-        commit is built again (state 10)."""
+        commit is built again (state 10), in a build folder setup made (check_build_folder)."""
         try:
             binary = server_binary(self.source)
         except ConfigError:
@@ -255,11 +257,11 @@ class Setup:
 
     def build(self) -> None:
         """llama-server at the pin, with Getting started's two lines and the venv's cmake
-        (decisions 4 and 6). Its output goes to vendor/llama.cpp/build/clarity-build.log,
+        (decisions 4 and 6). Its output goes to the build folder's clarity-build.log,
         which starts with cmake's version; a failure, or a binary that doesn't report the
         pin, is refused naming it (state 11)."""
         env, build = self.build_env(), self.source / "build"
-        log, named = build / "clarity-build.log", "vendor/llama.cpp/build/clarity-build.log"
+        log, named = build / "clarity-build.log", f"{self.named}/build/clarity-build.log"
         build.mkdir(parents=True, exist_ok=True)
         _, version = self.run([self.cmake, "--version"], env)
         log.write_text(version, encoding="utf-8")
@@ -292,19 +294,46 @@ class Setup:
         self.say("llama-server is built.")
 
     def cmake_argvs(self) -> list[list[str]]:
-        """BUILD_LINES as argvs: the venv's cmake by path, vendor/ folders under this root."""
-        n = str(os.cpu_count() or 1)
-        argvs = []
-        for line in BUILD_LINES:
-            words = shlex.split(line.replace("-j N", f"-j {n}"))
-            folder = self.source.parent.parent  # vendor/'s parent: the root the lines are in
-            argvs.append(
-                [
-                    self.cmake,
-                    *(str(folder / w) if w.startswith("vendor/") else w for w in words[1:]),
-                ]
-            )
-        return argvs
+        """BUILD_LINES as argvs: the venv's cmake by path, in server.toml's folder (S3)."""
+        source = "vendor/llama.cpp"
+        return [
+            [
+                self.cmake,
+                *(
+                    str(self.source / w.removeprefix(source).lstrip("/"))
+                    if w.startswith(source)
+                    else w
+                    for w in words[1:]
+                ),
+            ]
+            for words in build_words()
+        ]
+
+    def check_build_folder(self) -> None:
+        """A llama-server to build goes only into a build folder setup made, which holds
+        clarity-build.log (written before cmake, so an interrupted build resumes), and never
+        through a link (the security review's S2). Anything else is refused untouched, before
+        the question, with Getting started's two lines: it may be the user's own build, whose
+        CMakeCache.txt would also outlive the cleared environment."""
+        build = self.source / "build"
+        if self.source.is_symlink():
+            thing = f"{self.named} is a link to {shown_link(os.readlink(self.source))}"
+        elif build.is_symlink():
+            thing = f"{self.named}/build is a link to {shown_link(os.readlink(build))}"
+        elif build.exists() and not (build / "clarity-build.log").is_file():
+            thing = f"{self.named}/build holds a build setup didn't make"
+        else:
+            return
+        lines = "\n".join(  # in server.toml's folder, as the argvs are
+            shlex.join(w.replace("vendor/llama.cpp", self.named, 1) for w in words)
+            for words in build_words()
+        )
+        raise ConfigError(
+            f"llama-server needs building at {self.pin[:12]}, but {thing}, so setup leaves it "
+            "alone: it may be your own work. Setup builds only into a build folder it made, "
+            "never through a link. To build llama-server yourself, run Getting started's two "
+            f"lines in {shell_folder(self.root, self.home)}, then run setup again:\n{lines}"
+        )
 
     def check_mac(self) -> None:
         """States 1 and 2, before anything runs or is written."""
@@ -334,6 +363,7 @@ class Setup:
                 )
             named = f"vendor/llama.cpp (a link to {shown_link(str(self.source.resolve()))})"
         if not self.source.exists():
+            self.check_partial()
             return False
         # Only its own .git: git_state in a plain folder finds the clone around it (S1).
         state = self.state(self.source, self.git_env()) if (self.source / ".git").exists() else {}
@@ -348,6 +378,21 @@ class Setup:
         raise ConfigError(
             f"{named} {why}, so setup leaves it alone: it may be your own work. Move it out of "
             "vendor/, then run setup again."
+        )
+
+    def check_partial(self) -> None:
+        """The .partial fetch_source deletes is one it started: a folder with a .git, as
+        `git init` leaves it, and not a link (the security review's C2)."""
+        partial = f"{self.named}.partial"
+        if self.partial.is_symlink():
+            why = f"is a link to {shown_link(os.readlink(self.partial))}"
+        elif self.partial.exists() and not (self.partial / ".git").exists():
+            why = "isn't a fetch setup started (it has no .git)"
+        else:
+            return
+        raise ConfigError(
+            f"{partial} {why}, so setup leaves it alone: it may be your own work. Move it out "
+            "of vendor/, then run setup again."
         )
 
     def agreed(self, download: int, keep: int) -> bool:
@@ -401,6 +446,12 @@ class Setup:
             )
         self.partial.rename(self.source)
         self.say("llama.cpp's source is in vendor/llama.cpp.")
+
+
+def build_words() -> list[list[str]]:
+    """BUILD_LINES split into words, with -j the CPU count."""
+    n = str(os.cpu_count() or 1)
+    return [shlex.split(line.replace("-j N", f"-j {n}")) for line in BUILD_LINES]
 
 
 def answer(prompt: str) -> str:
