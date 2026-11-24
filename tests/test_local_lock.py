@@ -223,6 +223,7 @@ def test_ci_verifies_the_linux_fetch_against_the_committed_lock():
     check the committed entry, so the step before it removes local/models.lock (where
     `git restore models.lock` did, before A10)."""
     workflow = (REPO / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
-    steps = workflow.split("- run: uv run clarity fetch smollm2-135m-instruct\n", 1)[1]
+    fetch = '"$uv" run clarity fetch smollm2-135m-instruct\n'  # in the install's env (C4)
+    steps = workflow.split(fetch, 1)[1]
     between = steps.split("- run: uv run clarity verify smollm2-135m-instruct", 1)[0]
     assert "rm local/models.lock" in between, between

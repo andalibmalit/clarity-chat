@@ -161,8 +161,15 @@ jobs:
       # Fetch on every run, so a fetch regression shows at once. Fetch records the model in
       # local/models.lock with its own hash, so remove that and verify the Linux-made file
       # against the committed entry (made on the Mac); verify also records the file's new
-      # time, in local/models.lock.
-      - run: uv run clarity fetch smollm2-135m-instruct
+      # time, in local/models.lock. The fetch runs as install.sh runs Clarity: `env -i` with
+      # HOME and a PATH without uv's folder, as on a fresh Mac, so a command found only on the
+      # job's PATH (the whole-branch review's M1: the converter ran a bare `uv`) fails here.
+      - name: Fetch SmolLM2 in the install's environment
+        run: |
+          uv=$(command -v uv)
+          bare=/usr/bin:/bin:/usr/sbin:/sbin
+          if env -i PATH="$bare" sh -c 'command -v uv'; then echo "uv is on the bare PATH"; exit 1; fi
+          env -i HOME="$HOME" PATH="$bare" "$uv" run clarity fetch smollm2-135m-instruct
       - run: rm local/models.lock
       - run: uv run clarity verify smollm2-135m-instruct
       - name: server.toml for the CPU, one line and nothing else

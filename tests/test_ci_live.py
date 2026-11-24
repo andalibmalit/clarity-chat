@@ -170,3 +170,18 @@ def test_the_guard_passes_a_run_where_every_test_ran(tmp_path, capsys):
     assert guard.problem(path, at_least=20) is None
     assert guard.main([str(path), "--at-least", "20"]) == 0
     assert "20 tests ran" in capsys.readouterr().out
+
+
+def test_the_fetch_runs_under_the_install_s_environment():
+    """The sprint audit's C4: install.sh runs Clarity as `env -i HOME PATH "$uv" run …`,
+    with a PATH that doesn't hold uv's folder on a fresh Mac. The job's fetch converts
+    SmolLM2, so it runs the same way, with a PATH the job first checks has no uv: a bare
+    `uv` (the whole-branch review's M1) then fails in CI."""
+    workflow = (REPO / ".github/workflows/tests.yml").read_text(encoding="utf-8")
+    job = workflow.split("\n  live-cpu:\n", 1)[1]
+    assert "\n      - run: uv run clarity fetch smollm2-135m-instruct\n" not in job
+    assert "bare=/usr/bin:/bin:/usr/sbin:/sbin\n" in job
+    assert "if env -i PATH=\"$bare\" sh -c 'command -v uv'; then" in job
+    assert (
+        'env -i HOME="$HOME" PATH="$bare" "$uv" run clarity fetch smollm2-135m-instruct\n'
+    ) in job
