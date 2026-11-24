@@ -569,6 +569,28 @@ def test_an_old_log_s_start_holds_the_lines_and_is_compared():
     }
 
 
+def test_build_info_s_build_number_isn_t_compared():
+    """Q14 (the owner, 2026-11-22: (a)): llama-server's build_info is "bN-COMMIT", and N
+    counts commits, so setup's shallow clone says b1 where a full checkout says b162 for the
+    same commit. Only the commit is compared, as in the build line (Checkpoint 1's S3)."""
+    shallow, full = started(BUILD, SYSTEM_INFO), started(BUILD, SYSTEM_INFO)
+    shallow["build_info"] = "b1-b1b770d"
+    assert build_diffs(shallow, full) == {}
+    other = {**full, "build_info": "b162-0000000"}
+    assert build_diffs(full, other) == {
+        "build_info": [{"path": "(value)", "logged": "b1b770d", "now": "0000000"}]
+    }
+
+
+def test_a_build_info_in_another_form_is_compared_whole():
+    """A value that isn't "bN-COMMIT" (a fake server's, an unknown build) is kept as is."""
+    a, b = started(BUILD, SYSTEM_INFO), started(BUILD, SYSTEM_INFO)
+    a["build_info"], b["build_info"] = "unknown", "b162"
+    assert build_diffs(a, b) == {
+        "build_info": [{"path": "(value)", "logged": "unknown", "now": "b162"}]
+    }
+
+
 def test_an_output_without_the_lines_lists_build_as_not_recorded():
     """Checkpoint 1's S2: a build known on one side only is a gap to show, not a difference
     and not silence (the first version said nothing)."""
