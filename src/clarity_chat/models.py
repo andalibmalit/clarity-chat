@@ -415,15 +415,21 @@ def converter_commands(root: Path) -> list[list[str]]:
 
 def _logged(command: list[str], log: TextIO, env: dict[str, str] | None = None) -> int:
     """Run `command` with no terminal input, its output written to `log`; its exit code."""
-    proc = subprocess.Popen(
-        command,
-        env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-    )
+    try:
+        proc = subprocess.Popen(
+            command,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+        )
+    except OSError as error:  # uv not on PATH, or the environment's python unrunnable
+        raise ConfigError(
+            f"Couldn't run {command[0]}: {error.strerror or error}. The converter's "
+            f"environment, {CONVERTER_ENV}, is safe to delete: the next fetch makes it again."
+        ) from error
     assert proc.stdout is not None
     for line in proc.stdout:
         log.write(line)
@@ -431,16 +437,16 @@ def _logged(command: list[str], log: TextIO, env: dict[str, str] | None = None) 
 
 
 def _make_converter_environment(
-    root: Path, commands: list[list[str]], log: TextIO, log_path: Path
+    root: Path, commands: list[list[str]], python: Path, log: TextIO, log_path: Path
 ) -> None:
     """Make the converter's environment unless it was made by these commands from this
     converter-requirements.txt: a marker in it holds the sha256 of both, written only after
     the install succeeds, so a failed or interrupted one, or one made with other flags, is
-    made again next time."""
+    made again next time. So is one whose python is gone: it's a link to the one uv chose."""
     marker = root / CONVERTER_ENV / CONVERTER_MARKER
     made_by = {"commands": commands, "requirements": sha256_file(CONVERTER_REQUIREMENTS)}
     digest = hashlib.sha256(json.dumps(made_by).encode("utf-8")).hexdigest()
-    if marker.is_file() and read_text(marker).strip() == digest:
+    if marker.is_file() and read_text(marker).strip() == digest and python.is_file():
         return
     print(
         f"Making the converter's environment in {CONVERTER_ENV}: Python {CONVERTER_PYTHON} and "
@@ -449,7 +455,11 @@ def _make_converter_environment(
     )
     for command in commands:
         if _logged(command, log) != 0:
-            raise ConfigError(f"Making the converter's environment failed; see {log_path}.")
+            raise ConfigError(
+                f"Making the converter's environment failed; see {log_path}. If it says "
+                '"Hash mismatch", a package file differs from the one '
+                f"{CONVERTER_REQUIREMENTS.name} pins, and it wasn't installed."
+            )
     marker.write_text(digest + "\n", encoding="utf-8")
 
 
@@ -504,7 +514,7 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
     # As run: not resolved, since the environment's python is a link to the one uv chose.
     shown = [[portable_path(part, root, resolve=False) for part in c] for c in (*setup, command)]
     with (out_dir / "convert.log").open("w", encoding="utf-8", newline="") as log:
-        _make_converter_environment(root, setup, log, out_dir / "convert.log")
+        _make_converter_environment(root, setup, Path(python[0]), log, out_dir / "convert.log")
         print("Converting:", " ".join(shown[-1]), flush=True)
         # Offline: it reads only the snapshot, so a tokenizer's auto_map can't fetch code
         # from another repo. No stdin: a "run the custom code?" prompt is refused, not left
