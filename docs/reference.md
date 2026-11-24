@@ -392,7 +392,7 @@ The Transformers backend applies its samplers in a fixed order: penalties, tempe
 
 ## models.toml
 
-Each table is one model, and its name is the model's name in profiles and `clarity fetch`. Your own entries go in `local/models.toml`, with the same keys (except `weights` and `weights_sha256`); their lock entries are read from `local/models.lock` only. A name in both files is an error. Quote a name with a dot in it, such as `["llama-3.1-8b-instruct"]`: in TOML, a bare dot starts a nested table. Every revision is a full 40-character commit hash.
+Each table is one model, and its name is the model's name in profiles and `clarity fetch`. Your own entries go in `local/models.toml`, with the same keys (except `weights` and `weights_sha256`); their lock entries are read from `local/models.lock` only. A name in both files is an error, and so is a name that starts with a dot: the model's files go in `models/NAME`, beside the converter's environment in `models/.converter`. Quote a name with a dot in it, such as `["llama-3.1-8b-instruct"]`: in TOML, a bare dot starts a nested table. Every revision is a full 40-character commit hash.
 
 | Key | Routes | Value |
 |---|---|---|

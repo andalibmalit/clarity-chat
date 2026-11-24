@@ -913,6 +913,8 @@ def read_models(path: Path, yours: bool = False) -> dict[str, ModelEntry]:
     models = {}
     for name, entry in data.items():
         where = f"{path} [{name}]"
+        if name.startswith("."):  # its folder, models/NAME, would be models/.converter or above
+            raise ConfigError(f"{where}: a model's name can't start with \".\"")
         if not isinstance(entry, dict):
             raise ConfigError(f"{where}: must be a table.")
         route = entry.get("route")
