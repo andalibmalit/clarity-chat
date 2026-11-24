@@ -19,6 +19,7 @@ Two headings are Clarity's own, used when they apply:
 
 ### Changed
 - Every fetch records its model in `local/models.lock`, which git ignores, so fetching no longer changes a tracked file and a call logs `client.dirty: true` only for a real edit. The shipped `models.lock` changes only when the maintainer copies entries into it with `scripts/refresh_lock.py`.
+- A new dev dependency, `pytest-xdist` 3.8.0 (with `execnet`), so the offline tests can run in parallel: `uv run pytest -n 8 --dist loadfile`. `uv run pytest`, CI and the live tiers still run serially.
 - A new dev dependency, `shellcheck-py` 0.11.0.1 (ShellCheck 0.11.0), so the tests check the install script with ShellCheck; `uv.lock` pins it with its hashes.
 - A new `setup` dependency group holds `cmake` 4.4.5 from PyPI, which `clarity setup` uses to build `llama-server` (`uv sync --group setup`); `uv.lock` pins it with its hashes.
 - A refusal that ends "fetch it" (a model that isn't fetched, say) names Clarity's folder: "In a new Terminal window, run: cd ~/Clarity && uv run clarity fetch NAME. Then try again."

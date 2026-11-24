@@ -581,7 +581,7 @@ def wrong_engine_key(found: dict) -> None:
         (("engine",), wrong_engine_model),  # the whole-branch review's S5
         (("parts", 0, "score"), float("inf")),  # the fix review's F2
     ],
-    ids=lambda v: str(v),
+    ids=lambda v: getattr(v, "__name__", str(v)),  # a function's name, not its address (xdist)
 )
 def test_a_meaning_found_field_of_the_wrong_type_is_refused(meaning_session, path, value):  # noqa: F811
     """S3f: as test_search_survivors' word-search sweep, for a meaning found's own fields."""
