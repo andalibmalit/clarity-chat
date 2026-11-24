@@ -402,26 +402,45 @@ REQUIREMENTS = Path(__file__).resolve().parents[1] / "converter-requirements.txt
 MADE_UP_REQUIREMENTS = "made-up==1.0 --hash=sha256:" + "0" * 64 + "\n"
 
 
+def made_up_requirements(root: Path) -> Path:
+    """Where `converting` puts its made-up requirements file: outside the root's top level,
+    since Clarity reads the file from its own code, not from the root."""
+    return root / "code" / "converter-requirements.txt"
+
+
 def converting(
-    root: Path, monkeypatch, fail: str | None = None, seen=lambda command: None
+    root: Path,
+    monkeypatch,
+    fail: str | None = None,
+    seen=lambda command: None,
+    requirements: Path | None = None,
 ) -> list[tuple[list[str], dict]]:
     """fetch_convert on the shipped SmolLM2 entry, into `root`, with every command stubbed:
     `uv venv` makes its folder; the converter writes its outfile and versions file. `fail`
     names the command that exits 1 (venv, install or convert); `seen` is called with each
-    command as it starts. Writes a made-up
-    converter-requirements.txt unless `root` has one. Returns the commands started, with
-    their keyword arguments."""
+    command as it starts, and with ["download", REPO] for the download. The requirements
+    file is `requirements`, or a made-up one (made_up_requirements) written unless it's
+    there. Returns the commands started, with their keyword arguments."""
     import subprocess
 
     repo = Path(__file__).resolve().parents[1]
     server = load_server_config(repo)
     model = read_models(repo / "models.toml")["smollm2-135m-instruct"]  # shipped only
-    if not (root / "converter-requirements.txt").is_file():
-        (root / "converter-requirements.txt").write_text(MADE_UP_REQUIREMENTS, "utf-8")
+    if requirements is None:
+        requirements = made_up_requirements(root)
+        requirements.parent.mkdir(parents=True, exist_ok=True)
+        if not requirements.is_file():
+            requirements.write_text(MADE_UP_REQUIREMENTS, "utf-8")
+    monkeypatch.setattr(models, "CONVERTER_REQUIREMENTS", requirements)
     snapshot = root / "snapshot"
     snapshot.mkdir(exist_ok=True)
     monkeypatch.setattr(models, "git_state", lambda path: {"commit": server.llama_cpp_commit})
-    monkeypatch.setattr(models, "_download", lambda repo, revision, patterns: snapshot)
+
+    def download(repo, revision, patterns):
+        seen(["download", repo])
+        return snapshot
+
+    monkeypatch.setattr(models, "_download", download)
     started: list[tuple[list[str], dict]] = []
 
     class Process:
@@ -466,7 +485,7 @@ def test_the_converter_s_environment_is_made_from_the_hashed_requirements(tmp_pa
     assert venv[venv.index("--python") + 1] == "3.13", venv
     assert {"--clear", "--no-project", "--no-config"} <= set(venv), venv
     assert install[:3] == ["uv", "pip", "install"] and "--require-hashes" in install, install
-    assert install[install.index("-r") + 1] == str(tmp_path / "converter-requirements.txt")
+    assert install[install.index("-r") + 1] == str(made_up_requirements(tmp_path)), install
     assert install[install.index("--python") + 1] == str(env), install
     assert "--no-config" in install, install
     assert convert[:2] == [str(env_python(env)), "-I"], convert
@@ -502,9 +521,7 @@ def test_the_converter_s_environment_is_made_again_only_when_the_requirements_ch
     assert [command[:2] for command, _ in again] == [
         [str(env_python(tmp_path / "models" / ".converter")), "-I"]
     ]
-    (tmp_path / "converter-requirements.txt").write_text(
-        MADE_UP_REQUIREMENTS.replace("1.0", "1.1"), "utf-8"
-    )
+    made_up_requirements(tmp_path).write_text(MADE_UP_REQUIREMENTS.replace("1.0", "1.1"), "utf-8")
     assert len(converting(tmp_path, monkeypatch)) == 3
 
 
@@ -518,6 +535,29 @@ def test_a_failed_environment_leaves_no_marker_so_the_next_fetch_makes_it_again(
         converting(tmp_path, monkeypatch, fail=fail)
     assert not (tmp_path / "local" / "models.lock").exists()
     assert len(converting(tmp_path, monkeypatch)) == 3
+
+
+def test_the_requirements_come_from_clarity_s_code_not_the_root(tmp_path):
+    """The file goes with the code that uses it, beside convert_shim.py: a root holds only
+    what fetch writes (models/, local/models.lock), so a scratch root converts as is. At
+    bd14b9c it was read from the root, and -m live's convert test, whose root is a scratch
+    folder, failed with FileNotFoundError."""
+    install = models.converter_commands(tmp_path)[1]
+    shipped = Path(models.__file__).with_name("converter-requirements.txt")
+    assert install[install.index("-r") + 1] == str(shipped), install
+    assert shipped.is_file(), shipped
+
+
+def test_a_missing_requirements_file_stops_before_any_download(tmp_path, monkeypatch):
+    """A checkout without the file (deleted, say) stops with a ConfigError that names it,
+    before anything is downloaded or run, not with a raw FileNotFoundError."""
+    missing = tmp_path / "code" / "converter-requirements.txt"
+    started: list[list[str]] = []
+    with pytest.raises(Exception) as raised:
+        converting(tmp_path, monkeypatch, seen=started.append, requirements=missing)
+    assert isinstance(raised.value, ConfigError), repr(raised.value)
+    assert str(missing) in str(raised.value), raised.value
+    assert started == [], started  # no download, no command
 
 
 def test_the_converter_runs_offline_with_no_terminal_input(tmp_path, monkeypatch):
