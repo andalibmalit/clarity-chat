@@ -562,4 +562,17 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
         "fetched_at": now_utc(),
     }
     write_lock_entry(root, model.name, entry)
+    # local/models.lock wins over the shipped entry, so a conversion that came out
+    # different would be used without a word (v0.4.2's security review, S6): a flag.
+    shipped = read_lock_file(root / LOCK_FILE)["models"].get(model.name, {})
+    same_source = shipped.get("revision") == model.revision
+    if same_source and shipped.get("llama_cpp", {}).get("commit") == checkout["commit"]:
+        theirs = shipped.get("gguf", {}).get("sha256")
+        if theirs and theirs != entry["gguf"]["sha256"]:
+            print(
+                f"Note: {model.name}'s GGUF (sha256 {entry['gguf']['sha256'][:12]}) differs "
+                f"from the shipped one in models.lock ({theirs[:12]}), though both were "
+                "converted from the same revision at the same llama.cpp commit; compare the "
+                "two entries' converter records to look for what else differed."
+            )
     return entry

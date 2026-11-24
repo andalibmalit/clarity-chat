@@ -5,17 +5,32 @@
 Every fetch writes local/models.lock (v0.4.2 A10), so the shipped lock changes only here:
 the maintainer fetches a shipped model at its new pin, then copies its entry. A name not in
 local/models.lock, or not in the shipped models.toml (your own entries never go in the
-shipped lock), is refused, and nothing is written.
+shipped lock), is refused, and nothing is written. So is an entry models.toml no longer
+pins (lock_entry's check), or one with a path outside Clarity's folder and the home folder,
+which would carry this computer's layout into the shipped lock.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from typing import Any
 
-from clarity_chat.models import LOCK_FILE, read_lock_file, write_lock_file
-from clarity_chat.profiles import LOCAL_LOCK, read_toml
+from clarity_chat.models import LOCK_FILE, lock_entry, read_lock_file, write_lock_file
+from clarity_chat.profiles import LOCAL_LOCK, ConfigError, read_models, read_toml
+
+
+def paths(entry: dict[str, Any]) -> list[str]:
+    """The paths an entry records: portable_path made each relative or ~/ when it could."""
+    command = entry.get("converter", {}).get("command") or []
+    words = [word for argv in command for word in argv]
+    fields = [entry.get("source_dir"), entry.get("tokenizer_dir"), entry["gguf"].get("path")]
+    return [text for text in [*fields, *words] if isinstance(text, str)]
+
+
+def absolute(text: str) -> bool:
+    return PurePosixPath(text).is_absolute() or PureWindowsPath(text).is_absolute()
 
 
 def main(argv: list[str]) -> int:
@@ -32,6 +47,20 @@ def main(argv: list[str]) -> int:
         if name not in shipped:
             print(f"{name} isn't in models.toml, so it isn't a shipped model.", file=sys.stderr)
             return 1
+        try:
+            lock_entry(args.root, read_models(args.root / "models.toml")[name])
+        except ConfigError as e:
+            print(e, file=sys.stderr)
+            return 1
+        for text in paths(local[name]):
+            if absolute(text):
+                print(
+                    f"{name}'s entry in local/models.lock has the path {text}, outside "
+                    "Clarity's folder and the home folder, so it isn't copied to the shipped "
+                    "lock. Fetch it again with the Hugging Face cache under the home folder.",
+                    file=sys.stderr,
+                )
+                return 1
     lock = read_lock_file(args.root / LOCK_FILE)
     lock["models"] |= {name: local[name] for name in args.names}
     write_lock_file(args.root / LOCK_FILE, lock)
