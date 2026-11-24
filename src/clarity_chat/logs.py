@@ -315,7 +315,13 @@ def git_state(
             found = top.stderr.strip()
             return {"commit": None, "dirty": None, "error": f"{NOT_OWN_CHECKOUT}: {found}"}
         found = top.stdout.strip()
-        if Path(found).resolve() != folder.resolve():
+        # The same folder, not the same spelling: on a Mac `--root ~/clarity` reaches the
+        # folder Clarity, and git names it in its own case (the sprint audit, S3).
+        try:
+            own = os.path.samefile(found, folder)
+        except OSError:  # either one missing: not the same folder
+            own = False
+        if not own:
             return {
                 "commit": None,
                 "dirty": None,

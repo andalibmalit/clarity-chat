@@ -23,7 +23,7 @@ UV_INSTALLER_SHA256=ef8cf0575d37cf3c72e05f153dd72a845a87a7bb9be86184d5fe931b8c42
 # 4 E4B and bge-m3, Clarity, uv and Python), about 10 GB, plus 5 GB to spare: 15 GB (10^9
 # bytes, as setup counts) in df -Pk's 1024-byte blocks.
 NEED_KB=14648438
-GETTING_STARTED=https://github.com/andalibmalit/clarity-chat/blob/main/docs/getting-started.md
+GETTING_STARTED=$REPO_URL/blob/$VERSION/docs/getting-started.md
 
 say() {
     printf '%s\n' "$*"

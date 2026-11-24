@@ -36,6 +36,8 @@ Live tests on an M2 Max (macOS), 2026-11-24, at the release's code (built in the
 - When the embedder alone needs more GPU memory than Metal's recommended limit, its refusal no longer tells you to use a smaller chat model or a lower `ctx_size` if a chat server is running; only searching by words helps.
 - A llama.cpp folder that isn't a git checkout of its own, inside another repository (`~/Clarity` is a clone), is refused as having no commit git can read, at the server start and before a convert fetch. Before, git found the repository around it, and the refusal named that repository's commit as llama.cpp's.
 - A run whose profile searches by meaning tells you to search by words and run the command again, not to start a new chat, when bge-m3 isn't fetched or a server would be over Metal's recommended memory limit.
+- A `--root` typed in another letter case than its folder's (`~/clarity` for `~/Clarity`) no longer gets llama.cpp's folder refused as not a git checkout of its own at every start and convert fetch. Git names the folder in its own case, and the check compared the two spellings rather than the folders.
+- On a computer that isn't a Mac with Apple silicon, the install command's refusal links Getting started at the release it installs, which has "Install by hand". Before, it linked the copy on the main branch, an older release's without that section.
 
 ## [0.4.1] - 2026-11-22
 
