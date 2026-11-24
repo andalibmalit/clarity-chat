@@ -49,7 +49,9 @@ LOCK_SCHEMA_VERSION = 1
 # (`.bin`, `.pt`): an entry's `weights` key adds the one file it names (v0.4.1 decision 2).
 SOURCE_PATTERNS = ["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model"]
 CONVERTER_PYTHON = "3.13"
-CONVERTER_REQUIREMENTS = "converter-requirements.txt"
+# Shipped with the code that uses it, as convert_shim.py is: a root holds only what fetch
+# writes, so any root converts (A9's fix: -m live's scratch root had no copy).
+CONVERTER_REQUIREMENTS = Path(__file__).with_name("converter-requirements.txt")
 CONVERTER_ENV = "models/.converter"
 CONVERTER_MARKER = "clarity-requirements.sha256"  # the sha256 of the file it was made from
 
@@ -403,7 +405,7 @@ def converter_commands(root: Path) -> list[list[str]]:
             "--python",
             str(env),
             "-r",
-            str(root / CONVERTER_REQUIREMENTS),
+            str(CONVERTER_REQUIREMENTS),
         ],
         [str(python), "-I"],
     ]
@@ -433,12 +435,12 @@ def _make_converter_environment(
     converter-requirements.txt: a marker in it holds the file's sha256, written only after
     the install succeeds, so a failed or interrupted one is made again next time."""
     marker = root / CONVERTER_ENV / CONVERTER_MARKER
-    digest = sha256_file(root / CONVERTER_REQUIREMENTS)
+    digest = sha256_file(CONVERTER_REQUIREMENTS)
     if marker.is_file() and read_text(marker).strip() == digest:
         return
     print(
         f"Making the converter's environment in {CONVERTER_ENV}: Python {CONVERTER_PYTHON} and "
-        f"the packages {CONVERTER_REQUIREMENTS} pins, each checked by its sha256 …",
+        f"the packages {CONVERTER_REQUIREMENTS.name} pins, each checked by its sha256 …",
         flush=True,
     )
     for command in commands:
@@ -453,6 +455,11 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
         raise ConfigError(
             f"{server.llama_cpp_dir} is at {checkout.get('commit')}, but server.toml pins "
             f"{server.llama_cpp_commit}."
+        )
+    if not CONVERTER_REQUIREMENTS.is_file():  # before the download, which can take minutes
+        raise ConfigError(
+            f"{CONVERTER_REQUIREMENTS} is missing, so the converter's environment can't be "
+            "made. It's part of Clarity: restore it with git restore in Clarity's folder."
         )
     print(f"Downloading {model.repo}@{model.revision[:12]} …", flush=True)
     weights = [] if model.weights is None else [model.weights]

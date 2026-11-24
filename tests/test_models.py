@@ -324,7 +324,6 @@ def fetched_with(root: Path, tmp_path: Path, monkeypatch, pickle: bytes) -> list
     snapshot.mkdir()
     (snapshot / "pytorch_model.bin").write_bytes(pickle)
     (root / "models.toml").write_text(WITH_WEIGHTS, encoding="utf-8")
-    (root / "converter-requirements.txt").write_text(MADE_UP_REQUIREMENTS, "utf-8")
     server = load_server_config(root)
     monkeypatch.setattr(models, "git_state", lambda path: {"commit": server.llama_cpp_commit})
     monkeypatch.setattr(models, "_download", lambda repo, revision, patterns: snapshot)
@@ -398,7 +397,7 @@ def test_the_converter_record_keeps_the_version_python_imports(tmp_path, monkeyp
 
 # --- The converter's environment, hashed (v0.4.2 decision 15, A9) ---------------------------
 
-REQUIREMENTS = Path(__file__).resolve().parents[1] / "converter-requirements.txt"
+REQUIREMENTS = Path(models.__file__).with_name("converter-requirements.txt")
 MADE_UP_REQUIREMENTS = "made-up==1.0 --hash=sha256:" + "0" * 64 + "\n"
 
 
@@ -543,9 +542,8 @@ def test_the_requirements_come_from_clarity_s_code_not_the_root(tmp_path):
     bd14b9c it was read from the root, and -m live's convert test, whose root is a scratch
     folder, failed with FileNotFoundError."""
     install = models.converter_commands(tmp_path)[1]
-    shipped = Path(models.__file__).with_name("converter-requirements.txt")
-    assert install[install.index("-r") + 1] == str(shipped), install
-    assert shipped.is_file(), shipped
+    assert install[install.index("-r") + 1] == str(REQUIREMENTS), install
+    assert REQUIREMENTS.is_file(), REQUIREMENTS
 
 
 def test_a_missing_requirements_file_stops_before_any_download(tmp_path, monkeypatch):
@@ -627,7 +625,7 @@ def test_the_converter_requirements_are_the_versions_bge_m3_s_conversion_recorde
             markers.add(marker)
         else:
             everywhere[canonical(name)] = version
-    lock = json.loads((REQUIREMENTS.parent / "models.lock").read_text("utf-8"))
+    lock = json.loads((Path(__file__).resolve().parents[1] / "models.lock").read_text("utf-8"))
     record = lock["models"]["bge-m3"]["converter"]["packages"]
     assert everywhere == {canonical(name): version for name, version in record.items()}
     assert markers <= {"sys_platform == 'linux'", "sys_platform == 'win32'"}, markers
@@ -651,12 +649,10 @@ def test_the_converter_sees_nothing_of_claritys_environment_and_imports_its_pinn
     scratch folder: no .venv or src on sys.path, none of Clarity's dev tools installed, and
     the transformers llama.cpp pins imported. Live: it needs the llama.cpp checkout and
     the pinned packages (uv's cache, or the network)."""
-    import shutil
     import subprocess
 
     repo = Path(__file__).resolve().parents[1]
     server = load_server_config(repo)
-    shutil.copy(REQUIREMENTS, tmp_path / REQUIREMENTS.name)
     venv, install, python = models.converter_commands(tmp_path)
     for command in (venv, install):
         subprocess.run(command, cwd=repo, check=True, stdin=subprocess.DEVNULL)
