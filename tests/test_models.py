@@ -416,9 +416,9 @@ def converting(
     requirements: Path | None = None,
 ) -> list[tuple[list[str], dict]]:
     """fetch_convert on the shipped SmolLM2 entry, into `root`, with every command stubbed:
-    `uv venv` makes its folder; the converter writes its outfile and versions file. `fail`
-    names the command that exits 1 (venv, install or convert); `seen` is called with each
-    command as it starts, and with ["download", REPO] for the download. The requirements
+    `uv venv` makes its folder and python; the converter writes its outfile and versions
+    file. `fail` names the command that exits 1 (venv, install or convert); `seen` is called
+    with each command as it starts, and with ["download", REPO] for the download. The requirements
     file is `requirements`, or a made-up one (made_up_requirements) written unless it's
     there. Returns the commands started, with their keyword arguments."""
     import subprocess
@@ -450,7 +450,8 @@ def converting(
             kind = {"venv": "venv", "pip": "install"}.get(command[1], "convert")
             if kind == "venv":  # --clear: whatever was in the folder goes, the marker too
                 shutil.rmtree(command[-1], ignore_errors=True)
-                Path(command[-1]).mkdir(parents=True)
+                env_python(Path(command[-1])).parent.mkdir(parents=True)
+                env_python(Path(command[-1])).write_text("")
             if kind == "convert" and fail != "convert":
                 outfile = Path(command[command.index("--outfile") + 1])
                 outfile.write_bytes(b"GGUF converted")
@@ -551,14 +552,48 @@ def test_a_failed_remake_then_the_old_file_makes_it_again_in_full(tmp_path, monk
     assert len(converting(tmp_path, monkeypatch)) == 3
 
 
+def test_an_environment_whose_python_is_gone_is_made_again(tmp_path, monkeypatch):
+    """The marker alone doesn't make an environment usable: its python is a link to the one
+    uv chose, which can be removed (`uv python uninstall`, a Homebrew upgrade)."""
+    assert len(converting(tmp_path, monkeypatch)) == 3
+    env_python(tmp_path / "models" / ".converter").unlink()
+    again = [command for command, _ in converting(tmp_path, monkeypatch)]
+    assert [command[1] for command in again][:2] == ["venv", "pip"], again
+
+
+@pytest.mark.parametrize("kind", ["venv", "pip", "-I"])
+def test_a_command_that_can_t_start_names_the_environment_as_safe_to_delete(
+    tmp_path, monkeypatch, kind
+):
+    """uv missing from PATH, or the environment's python unrunnable, is a ConfigError, not a
+    traceback: it names the environment and says deleting it is safe."""
+
+    def cannot_start(command):
+        if command[0] != "download" and command[1] == kind:
+            raise FileNotFoundError(2, "No such file or directory", command[0])
+
+    if kind == "-I":  # the environment exists, so only the converter runs
+        converting(tmp_path, monkeypatch)
+    try:
+        converting(tmp_path, monkeypatch, seen=cannot_start)
+    except Exception as error:  # noqa: BLE001 - the red is the type, asserted below
+        caught = error
+    else:
+        pytest.fail("no error")
+    assert isinstance(caught, ConfigError), repr(caught)
+    assert "models/.converter" in str(caught) and "safe to delete" in str(caught), caught
+
+
 @pytest.mark.parametrize("fail", ["venv", "install"])
 def test_a_failed_environment_leaves_no_marker_so_the_next_fetch_makes_it_again(
     tmp_path, monkeypatch, fail
 ):
     """A failed `uv venv` or install stops the fetch before the converter, names
     convert.log, records nothing, and leaves no marker, so the next fetch starts over."""
-    with pytest.raises(ConfigError, match=r"converter's environment.*convert\.log"):
+    with pytest.raises(ConfigError, match=r"converter's environment.*convert\.log") as caught:
         converting(tmp_path, monkeypatch, fail=fail)
+    # uv's words for a file whose sha256 isn't the pinned one: say what they mean
+    assert '"Hash mismatch"' in str(caught.value), caught.value
     assert not (tmp_path / "local" / "models.lock").exists()
     assert len(converting(tmp_path, monkeypatch)) == 3
 
