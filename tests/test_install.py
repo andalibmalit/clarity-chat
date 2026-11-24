@@ -288,6 +288,19 @@ def test_another_mac_is_refused_with_nothing_written(bench, fact, value, said):
     assert bench.lines() == [] and list(bench.home.iterdir()) == []
 
 
+def test_the_refusal_links_getting_started_at_this_release_s_tag(bench):
+    """The sprint audit's S9: a computer that isn't a Mac with Apple silicon is sent to
+    Getting started's "Install by hand", at the tag the script clones; main's copy can be
+    another release's, without that section."""
+    bench.facts["SYSTEM"] = "Linux"
+    done = bench.run()
+    url = f"https://github.com/andalibmalit/clarity-chat/blob/{version()}/docs/getting-started.md"
+    assert done.returncode != 0 and url in done.stderr, done.stderr
+    assert (REPO / "docs" / "getting-started.md").read_text(encoding="utf-8").count(
+        "## Install by hand"
+    ) == 1
+
+
 def test_without_the_command_line_tools_it_starts_apple_s_installer_and_stops(bench):
     bench.facts["TOOLS"] = "0"
     done = bench.run()

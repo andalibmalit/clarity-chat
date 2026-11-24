@@ -671,6 +671,43 @@ def test_git_state_answers_for_a_folder_s_own_repository_only_unless_enclosing(r
     made(root, state=git_state).check_partial()  # setup's: no refusal
 
 
+def test_git_state_answers_for_its_folder_reached_in_another_letter_case(tmp_path):
+    """The sprint audit's S3: on a filesystem that ignores case (a Mac's, by default),
+    `--root ~/clarity` reaches the folder Clarity. resolve() keeps the case typed, while git
+    names the folder in its own, so comparing the two paths read it as another repository
+    and every start was refused. Real git; skipped where the filesystem tells case apart
+    (CI's Linux), since there the other case is another folder."""
+    from clarity_chat.logs import git_state
+
+    folder = tmp_path / "Clarity"
+    folder.mkdir()
+    other_case = tmp_path / "clarity"
+    if not other_case.exists():
+        pytest.skip("this filesystem tells letter case apart")
+    (folder / "made-up.txt").touch()
+    git(folder, "init", "-q")
+    git(folder, "add", "made-up.txt")
+    git(folder, "commit", "-q", "-m", "made up")
+    own = git_state(folder)["commit"]
+    assert own is not None
+    assert git_state(other_case)["commit"] == own
+
+
+def test_client_git_finds_the_clone_around_clarity_s_package():
+    """The sprint audit's S4: Clarity's package folder sits inside its clone, so client_git
+    reads the clone around it (enclosing=True); without that every record's client.commit
+    would be None. Real git, in this checkout."""
+    import subprocess
+
+    from clarity_chat.logs import client_git
+    from tests.conftest import REPO
+
+    head = subprocess.run(
+        ["git", "-C", str(REPO), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
+    )
+    assert client_git.__wrapped__()["commit"] == head.stdout.strip()
+
+
 def test_git_state_reads_the_folder_with_the_env_it_s_given(root, tmp_path, monkeypatch):
     """The whole-branch review's C2: setup passes git_state its cleared env, and git runs in
     that env, not this process's. Here GIT_DIR points at another repository: git_state
