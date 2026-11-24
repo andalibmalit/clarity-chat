@@ -246,6 +246,38 @@ def test_an_embedder_failure_refuses_with_the_reason_and_the_way_to_turn_search_
     )
 
 
+def test_a_chat_whose_embedder_is_over_metal_s_limit_is_told_to_start_a_new_chat(
+    fetched_root, chat_tokenizer
+):
+    """The chat side of the run's sentence (the whole-branch fix review's N1): in a chat,
+    the memory refusal's way out by words keeps "and start a new chat." Guards, green now."""
+    from clarity_chat.backends.llama_cpp import memory_problem
+    from clarity_chat.profiles import ConfigError
+    from tests.test_meaning_runs import metal
+
+    too_big = memory_problem(8192, [metal(1800, 1500)], embedder=True)
+    assert too_big is not None and too_big.endswith("and start a new chat.")
+
+    class OverTheLimit(FakeEmbedder):
+        def start(self) -> dict[str, Any]:
+            raise ConfigError(too_big)
+
+    reading._last = None
+    profile(fetched_root, "meaning", MEANING)
+    library_add(fetched_root, GLOSSARY.encode(), "notes.md")
+    session = session_on(fetched_root, chat_tokenizer, OverTheLimit())
+    loop = ChatLoop(session, "meaning", read=lambda default: "", write=lambda text: None)
+    loop.start()
+    refused = raised(lambda: loop.commands.run("say", ASKED, lambda e: None))
+    assert isinstance(refused, SearchRefused), repr(refused)
+    assert refused.problems == [
+        {"state": "embedder", "why": f"The embedder didn't start: {too_big}"}
+    ]
+    assert refused.terminal.endswith(
+        "and start a new chat. `/search none` turns search off for this chat."
+    ), refused.terminal
+
+
 def test_a_message_past_8192_tokens_sends_after_search_none(terminal):
     """State 7's way out, as written: `/search none`, then the same message sends."""
     loop, output, session, _ = terminal

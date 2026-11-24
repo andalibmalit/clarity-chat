@@ -606,9 +606,12 @@ def test_git_state_reads_the_folder_with_the_env_it_s_given(root, tmp_path, monk
         git(folder, "commit", "-q", "-m", "made up")
     own, other = (git_state(folder)["commit"] for folder in (root, elsewhere))
     assert own != other
+    (elsewhere / "made-up.txt").write_text("changed", encoding="utf-8")  # the other is dirty
     monkeypatch.setenv("GIT_DIR", str(elsewhere / ".git"))
     assert git_state(root)["commit"] == other  # the inherited env reads the other repository
     assert git_state(root, made(root).git_env())["commit"] == own
+    # git status too (the fix review's C2): this folder is clean, the other isn't
+    assert git_state(root, made(root).git_env())["dirty"] is False
 
 
 def test_nothing_missing_needs_no_free_disk(root):
@@ -1255,3 +1258,27 @@ def test_the_fetch_s_sentences_name_server_toml_s_folder(root):
     )
     assert "llama.cpp's source is in third_party/llama.cpp." in says.lines
     assert folder.is_dir()
+
+
+# --- the whole-branch fix review's N2
+
+
+def test_an_empty_build_folder_is_setup_s_and_built_into(root):
+    """N2: setup makes build/ before it writes clarity-build.log; a setup stopped between
+    the two leaves it empty, which holds nothing of anyone's, so it's built into."""
+    (source(root) / "build").mkdir()
+    run, says = FakeRunner(), Says()
+    state = states(root, source={"commit": pin(root), "dirty": False})
+    made(root, run=run, says=says, state=state).go()
+    assert run.of("cmake") == cmake_argvs(root)
+    assert "llama-server is built." in says.lines
+
+
+def test_an_empty_partial_is_setup_s_and_fetched_over(root):
+    """N2: setup makes .partial before `git init`; a setup stopped between the two leaves it
+    empty, so it's deleted and fetched over, as R1's rule has it."""
+    partial_of(root).mkdir(parents=True)
+    run, says = FakeRunner(), Says()
+    made(root, run=run, says=says).go()
+    assert "Deleting vendor/llama.cpp.partial, left by a setup that didn't finish." in says.lines
+    assert run.of("git") == git_argvs(root)
