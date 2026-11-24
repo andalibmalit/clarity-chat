@@ -324,7 +324,8 @@ class Setup:
 
     def check_build_folder(self) -> None:
         """A llama-server to build goes only into a build folder setup made, which holds
-        clarity-build.log (written before cmake, so an interrupted build resumes), and never
+        clarity-build.log (written before cmake, so an interrupted build resumes) or nothing
+        yet, and never
         through a link, in the folder's path or as build/ (the security review's S2, and the
         fix review's N2). Anything else is refused untouched, before the question, with
         Getting started's two lines: it may be the user's own build, whose CMakeCache.txt
@@ -334,7 +335,7 @@ class Setup:
             thing = link
         elif build.is_symlink():
             thing = f"{self.named}/build is a link to {os.readlink(build)}"
-        elif build.exists() and not (build / "clarity-build.log").is_file():
+        elif build.exists() and not (build / "clarity-build.log").is_file() and not empty(build):
             thing = f"{self.named}/build holds a build setup didn't make"
         else:
             return
@@ -404,13 +405,16 @@ class Setup:
         )
 
     def check_partial(self) -> None:
-        """The .partial fetch_source deletes is one it started: a folder, not a link, with
-        a .git, as `git init` leaves it, and either nothing fetched yet (`git rev-parse
+        """The .partial fetch_source deletes is one it started: a folder, not a link,
+        either empty (made, then stopped) or with a .git, as `git init` leaves it, and either
+        nothing fetched yet (`git rev-parse
         HEAD` fails) or the pin checked out (the security review's C2, the fix review's R1)."""
         partial = f"{self.named}.partial"
         if self.partial.is_symlink():
             why = f"is a link to {os.readlink(self.partial)}"
         elif not self.partial.exists():
+            return
+        elif empty(self.partial):  # made, then stopped before `git init`
             return
         elif not (self.partial / ".git").exists():
             why = "isn't a fetch setup started (it has no .git)"
@@ -480,6 +484,12 @@ class Setup:
             )
         self.partial.rename(self.source)
         self.say(f"llama.cpp's source is in {self.named}.")
+
+
+def empty(folder: Path) -> bool:
+    """A folder with nothing in it: what setup leaves when it stops between making build/
+    or .partial and writing into it (the whole-branch fix review's N2), so it's setup's."""
+    return folder.is_dir() and not any(folder.iterdir())
 
 
 def build_words() -> list[list[str]]:
