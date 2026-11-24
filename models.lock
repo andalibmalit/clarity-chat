@@ -96,6 +96,45 @@
       },
       "fetched_at": "2026-11-18T19:16:56.457+00:00"
     },
+    "gemma-4-e4b": {
+      "name": "gemma-4-e4b",
+      "route": "gguf",
+      "repo": "ggml-org/gemma-4-E4B-it-GGUF",
+      "revision": "8903cb408c7df39cde2ed15fac397e6d7be92951",
+      "file": "gemma-4-E4B-it-Q4_0.gguf",
+      "tokenizer_repo": "google/gemma-4-E4B-it",
+      "tokenizer_revision": "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c",
+      "tokenizer_dir": "~/.cache/huggingface/hub/models--google--gemma-4-E4B-it/snapshots/4ecc2ba63bcac23ba4a767fc87025b1450f84c9c",
+      "gguf": {
+        "path": "~/.cache/huggingface/hub/models--ggml-org--gemma-4-E4B-it-GGUF/snapshots/8903cb408c7df39cde2ed15fac397e6d7be92951/gemma-4-E4B-it-Q4_0.gguf",
+        "size": 4590807392,
+        "mtime_ns": 1795400148999357240,
+        "sha256": "a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2"
+      },
+      "recommended": {
+        "source": {
+          "file": "generation_config.json",
+          "repo": "google/gemma-4-E4B-it",
+          "revision": "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c"
+        },
+        "values": {
+          "temperature": 1.0,
+          "top_k": 64,
+          "top_p": 0.95
+        },
+        "not_applied": {
+          "bos_token_id": 2,
+          "eos_token_id": [
+            1,
+            106,
+            50
+          ],
+          "pad_token_id": 0
+        },
+        "notes": []
+      },
+      "fetched_at": "2026-11-23T02:15:53.281+00:00"
+    },
     "llama-3.1-8b-base": {
       "name": "llama-3.1-8b-base",
       "route": "convert",
