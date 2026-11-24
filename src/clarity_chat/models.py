@@ -378,10 +378,12 @@ def converter_commands(root: Path) -> list[list[str]]:
     """A conversion's three commands: make the converter's environment, install its
     requirements, and run its Python. `uv run --with-requirements` doesn't check a file's
     hashes, so Clarity makes the environment itself (v0.4.2 decision 15): a fresh venv,
-    with nothing from Clarity's project or your uv settings (--no-project, --no-config),
-    then converter-requirements.txt installed with every file's sha256 checked. The
-    first-index strategy is set so UV_INDEX_STRATEGY can't merge indexes. -I keeps the
-    working folder and PYTHON* variables out of the converter."""
+    with nothing from Clarity's project or uv's config files (--no-project, --no-config),
+    then converter-requirements.txt installed with every file's sha256 checked, wheels only
+    (--no-build). uv's environment variables still apply: an index they name
+    (UV_DEFAULT_INDEX, say) is used, and the hashes cover what it serves. The first-index
+    strategy is set so UV_INDEX_STRATEGY can't merge indexes. -I keeps the working folder
+    and PYTHON* variables out of the converter."""
     env = root / CONVERTER_ENV
     python = env / "Scripts" / "python.exe" if os.name == "nt" else env / "bin" / "python"
     return [
@@ -450,7 +452,8 @@ def _make_converter_environment(
         return
     print(
         f"Making the converter's environment in {CONVERTER_ENV}: Python {CONVERTER_PYTHON} and "
-        f"the packages {CONVERTER_REQUIREMENTS.name} pins, each checked by its sha256 …",
+        f"the packages {portable_path(str(CONVERTER_REQUIREMENTS), root)} pins, each checked "
+        "by its sha256 …",
         flush=True,
     )
     for command in commands:
