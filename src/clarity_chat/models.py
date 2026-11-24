@@ -383,12 +383,14 @@ def converter_commands(root: Path) -> list[list[str]]:
     (--no-build). uv's environment variables still apply: an index they name
     (UV_DEFAULT_INDEX, say) is used, and the hashes cover what it serves. The first-index
     strategy is set so UV_INDEX_STRATEGY can't merge indexes. -I keeps the working folder
-    and PYTHON* variables out of the converter."""
+    and PYTHON* variables out of the converter. The uv is the one running Clarity (uv sets
+    UV for what it runs), as for setup: install.sh's PATH doesn't hold ~/.local/bin."""
     env = root / CONVERTER_ENV
+    uv = os.environ.get("UV") or "uv"
     python = env / "Scripts" / "python.exe" if os.name == "nt" else env / "bin" / "python"
     return [
         [
-            "uv",
+            uv,
             "venv",
             "--clear",
             "--no-project",
@@ -398,7 +400,7 @@ def converter_commands(root: Path) -> list[list[str]]:
             str(env),
         ],
         [
-            "uv",
+            uv,
             "pip",
             "install",
             "--no-config",

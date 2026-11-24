@@ -57,7 +57,7 @@ def mine(fetched_root, tmp_path, monkeypatch):
 
         def __init__(self, command, **kwargs):
             self.stdout = iter(())
-            if command[:2] == ["uv", "venv"]:
+            if command[1:2] == ["venv"]:  # its first word is $UV or uv
                 Path(command[-1]).mkdir(parents=True)
             if "--outfile" not in command:
                 return
