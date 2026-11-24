@@ -101,10 +101,10 @@ def test_without_local_models_lock_the_shipped_one_is_read(fetched_root):
         f"tiny: sha256 matches ({entry['gguf']['sha256'][:16]}…)",
     )
     before = (fetched_root / "models.lock").read_bytes()
-    os.utime(weights, ns=(1, 1))
+    os.utime(weights, ns=(1_000_000_100, 1_000_000_100))  # Windows keeps 100 ns steps
     assert verify(fetched_root, "tiny")[0]
     assert (fetched_root / "models.lock").read_bytes() == before
-    assert local_tiny(fetched_root)["gguf"]["mtime_ns"] == 1
+    assert local_tiny(fetched_root)["gguf"]["mtime_ns"] == 1_000_000_100
 
 
 def test_an_entry_for_no_model_is_not_read(fetched_root):
