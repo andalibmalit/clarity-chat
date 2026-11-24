@@ -470,6 +470,11 @@ def _make_converter_environment(
 
 def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[str, Any]:
     checkout = git_state(server.llama_cpp_dir)
+    if checkout.get("commit") is None:
+        raise ConfigError(
+            f"{server.llama_cpp_dir} has no commit git can read ({checkout.get('error')}), so "
+            f"it can't be checked against the {server.llama_cpp_commit} server.toml pins."
+        )
     if checkout.get("commit") != server.llama_cpp_commit:
         raise ConfigError(
             f"{server.llama_cpp_dir} is at {checkout.get('commit')}, but server.toml pins "

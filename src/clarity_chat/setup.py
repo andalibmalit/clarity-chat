@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends.llama_cpp import server_binary
-from clarity_chat.logs import git_state
+from clarity_chat.logs import NOT_OWN_CHECKOUT, git_state
 from clarity_chat.models import check_weights_quick, lock_entry
 from clarity_chat.models import fetch as fetch_model
 from clarity_chat.profiles import (
@@ -429,10 +429,11 @@ class Setup:
             return
         elif not (self.partial / ".git").exists():
             why = "isn't a fetch setup started (it has no .git)"
-        elif (head := self.state(self.partial, self.git_env()).get("commit")) not in (
-            None,
-            self.pin,
-        ):
+        elif str((state := self.state(self.partial, self.git_env())).get("error", "")).startswith(
+            NOT_OWN_CHECKOUT
+        ):  # a .git git can't read: git init's is a repository, even before a fetch (F3)
+            why = "isn't a fetch setup started (its .git isn't a git repository of its own)"
+        elif (head := state.get("commit")) not in (None, self.pin):
             why = (
                 f"isn't a fetch setup started (it's a checkout at commit {head[:12]}, not the "
                 f"pinned {self.pin[:12]})"

@@ -296,9 +296,31 @@ def _git(
     )
 
 
-def git_state(folder: Path, env: dict[str, str] | None = None) -> dict[str, Any]:
+NOT_OWN_CHECKOUT = "not a git checkout of its own"
+
+
+def git_state(
+    folder: Path, env: dict[str, str] | None = None, *, enclosing: bool = False
+) -> dict[str, Any]:
     """Commit and dirty flag of a git checkout. `dirty` is None if git couldn't tell. `env`:
-    git's environment (setup's cleared one); None inherits this process's."""
+    git's environment (setup's cleared one); None inherits this process's.
+
+    git walks up past a folder whose .git it can't read to any repository around it, and
+    ~/Clarity is a clone. So only a repository whose top level is `folder` answers, unless
+    `enclosing` (Clarity's package folder, inside its clone); otherwise `commit` is None
+    and `error` starts with NOT_OWN_CHECKOUT (v0.4.2 QA, F3)."""
+    if not enclosing:
+        top = _git(folder, "rev-parse", "--show-toplevel", env=env)
+        if top.returncode != 0:
+            found = top.stderr.strip()
+            return {"commit": None, "dirty": None, "error": f"{NOT_OWN_CHECKOUT}: {found}"}
+        found = top.stdout.strip()
+        if Path(found).resolve() != folder.resolve():
+            return {
+                "commit": None,
+                "dirty": None,
+                "error": f"{NOT_OWN_CHECKOUT}: git found the repository at {found}",
+            }
     head = _git(folder, "rev-parse", "HEAD", env=env)
     if head.returncode != 0:
         return {"commit": None, "dirty": None, "error": head.stderr.strip()}
@@ -315,7 +337,7 @@ def git_state(folder: Path, env: dict[str, str] | None = None) -> dict[str, Any]
 @cache
 def client_git() -> dict[str, Any]:
     """The client's own commit and dirty flag, read once: running code can't change mid-process."""
-    return git_state(Path(__file__).resolve().parent)
+    return git_state(Path(__file__).resolve().parent, enclosing=True)
 
 
 @cache

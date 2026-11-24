@@ -590,6 +590,13 @@ class LlamaServer:
                 "before any flag. Remove or rename them."
             )
         checkout = git_state(self.config.llama_cpp_dir)
+        if checkout.get("commit") is None:
+            raise ConfigError(
+                f"{self.config.llama_cpp_dir} has no commit git can read "
+                f"({checkout.get('error')}), so it can't be checked against the "
+                f"{self.config.llama_cpp_commit} server.toml pins. Check out that commit there "
+                "and rebuild."
+            )
         if checkout.get("commit") != self.config.llama_cpp_commit:
             raise ConfigError(
                 f"{self.config.llama_cpp_dir} is at {checkout.get('commit')}, but server.toml "

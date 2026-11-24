@@ -650,6 +650,27 @@ def test_a_source_whose_git_can_t_be_read_inside_a_repository_isn_t_a_checkout(r
     assert run.calls == []
 
 
+def test_git_state_answers_for_a_folder_s_own_repository_only_unless_enclosing(root, repo_around):
+    """F3: a plain folder inside a repository has no commit of its own, while client_git's
+    enclosing=True still finds the clone around Clarity's package folder. A `git init`
+    with nothing fetched yet is a repository of its own, so setup's .partial rule (R1)
+    still takes it as setup's. Real git; written with the fix."""
+    from clarity_chat.logs import NOT_OWN_CHECKOUT, git_state
+
+    plain = root / "plain"
+    plain.mkdir()
+    state = git_state(plain)
+    assert state["commit"] is None and state["error"].startswith(NOT_OWN_CHECKOUT)
+    assert git_state(plain, enclosing=True)["commit"] == repo_around
+    assert git_state(root) == {"commit": repo_around, "dirty": False}
+    partial = load_server_config(root).llama_cpp_dir.with_name("llama.cpp.partial")
+    partial.mkdir(parents=True)
+    git(partial, "init", "-q")
+    state = git_state(partial)
+    assert state["commit"] is None and not state["error"].startswith(NOT_OWN_CHECKOUT)
+    made(root, state=git_state).check_partial()  # setup's: no refusal
+
+
 def test_git_state_reads_the_folder_with_the_env_it_s_given(root, tmp_path, monkeypatch):
     """The whole-branch review's C2: setup passes git_state its cleared env, and git runs in
     that env, not this process's. Here GIT_DIR points at another repository: git_state
