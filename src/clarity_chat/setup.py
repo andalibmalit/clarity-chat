@@ -203,18 +203,29 @@ class Setup:
         """~/Desktop/Clarity.command (state 15; decision 13): three lines, #!/bin/sh (so it
         runs under sh whatever the login shell: Checkpoint 1's C6), `cd` to this folder and
         `exec` uv's absolute path, so it needs no shell profile. A file of that name
-        setup didn't write is left alone; a Desktop macOS won't let setup write to is said.
-        Either way the lines are printed, and setup still ends without an error."""
+        setup didn't write, or can't read, is left alone; a Desktop macOS won't let setup
+        write to is said. Either way the lines are printed, and setup still ends without an
+        error."""
         lines = (
             f"#!/bin/sh\ncd {shlex.quote(str(self.root))}\n"
             f"exec {shlex.quote(self.uv)} run clarity ui\n"
         )
         shown = lines.rstrip("\n")
         path = self.desktop / "Clarity.command"
-        if path.is_file() and path.read_text(encoding="utf-8", errors="replace") == lines:
+        try:  # Desktop access revoked after the first run makes a launcher unreadable
+            ours = path.is_file() and path.read_text(encoding="utf-8", errors="replace") == lines
+            other = path.exists() or path.is_symlink()
+        except OSError as e:
+            self.say(
+                "Setup couldn't read the Clarity.command on your Desktop "
+                f"({e.strerror or e}), so it's left alone. To start Clarity from a file of your "
+                f"own, put these three lines in it:\n{shown}"
+            )
+            return
+        if ours:
             self.say("Clarity.command on your Desktop: already done.")
             return
-        if path.exists() or path.is_symlink():
+        if other:
             self.say(
                 "Your Desktop already has a Clarity.command that setup didn't write, so it's "
                 f"left alone. To start Clarity from a file of your own, put these three lines in "
