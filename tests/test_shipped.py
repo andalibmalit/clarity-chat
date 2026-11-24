@@ -4,9 +4,11 @@ models.toml, then the placeholder prompts)."""
 
 from __future__ import annotations
 
+import shutil
+
 import pytest
 
-from clarity_chat.models import read_lock_file
+from clarity_chat.models import lock_entry, read_lock_file
 from clarity_chat.profiles import load_defaults, load_profile, load_server_config, read_models
 from tests.conftest import REPO
 
@@ -25,6 +27,22 @@ def test_the_config_files_load():
     assert read_models(REPO / "models.toml")
     load_server_config(REPO)
     read_lock_file(REPO / "models.lock")
+
+
+def shipped_and_locked() -> list[str]:
+    return sorted(
+        set(read_models(REPO / "models.toml")) & set(read_lock_file(REPO / "models.lock")["models"])
+    )
+
+
+@pytest.mark.parametrize("name", shipped_and_locked())
+def test_each_locked_model_matches_its_entry_in_models_toml(tmp_path, name):
+    """The whole-branch review's S8: the shipped models.lock was read only as JSON, so a
+    revision changed in it alone passed. lock_entry checks it against models.toml, on
+    copies of the two shipped files (never local/). Guards, green now."""
+    for file in ("models.toml", "models.lock"):
+        shutil.copy(REPO / file, tmp_path / file)
+    lock_entry(tmp_path, read_models(REPO / "models.toml")[name])
 
 
 @pytest.mark.parametrize("path", PROFILES, ids=lambda p: p.stem)

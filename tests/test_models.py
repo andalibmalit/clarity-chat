@@ -79,6 +79,14 @@ def test_a_gguf_with_the_wrong_sha256_is_refused(gguf_root):
     assert "ready" not in models.read_lock(root)["models"]
 
 
+def test_a_shipped_gguf_refused_before_its_first_fetch_names_local_models_lock(gguf_root):
+    """The whole-branch review's C20: every fetch writes local/models.lock (A10), so a
+    refused one says it recorded nothing there, not in the shipped models.lock."""
+    root, write = gguf_root
+    with pytest.raises(ConfigError, match=r"Not recorded in local/models\.lock\."):
+        models.fetch(root, write(sha256="0" * 64), load_server_config(root))
+
+
 def test_the_lock_must_match_the_gguf_in_models_toml(gguf_root):
     root, write = gguf_root
     models.fetch(root, write(), load_server_config(root))
@@ -194,12 +202,13 @@ def test_the_shipped_models_toml_loads():
     assert bge.weights_sha256 is not None and len(bge.weights_sha256) == 64  # S1
 
 
-@pytest.mark.parametrize("name", [".converter", "..", ".hidden", "a/b", "a\\b"])
+@pytest.mark.parametrize("name", ["", ".converter", "..", ".hidden", "a/b", "a\\b"])
 @pytest.mark.parametrize("yours", [False, True])
 def test_a_model_name_is_one_folder_name(tmp_path, name, yours):
     """A model's files go in models/NAME, beside the converter's environment in
     models/.converter: a name with a leading dot could be that folder, or the one above,
-    and one with a slash or backslash a folder elsewhere."""
+    one with a slash or backslash a folder elsewhere, and an empty one models/ itself
+    (the whole-branch review's C7)."""
     from clarity_chat.profiles import read_models
 
     path = tmp_path / "models.toml"
@@ -375,6 +384,7 @@ def test_a_pickle_with_another_hash_is_refused_before_the_converter(root, tmp_pa
         refused = str(e)
     assert started == [], "the converter loaded a pickle whose hash didn't match"
     assert refused is not None and f"but models.toml says {PICKLE_SHA256}" in refused
+    assert refused.endswith("Not converted or recorded in local/models.lock.")  # C20
     assert not (root / "models" / "embedder").exists()  # nothing written
     assert "embedder" not in models.read_lock(root)["models"]
 

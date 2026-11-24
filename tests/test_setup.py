@@ -590,6 +590,27 @@ def test_a_plain_folder_inside_a_git_clone_isn_t_a_checkout(root):
     assert run.calls == []
 
 
+def test_git_state_reads_the_folder_with_the_env_it_s_given(root, tmp_path, monkeypatch):
+    """The whole-branch review's C2: setup passes git_state its cleared env, and git runs in
+    that env, not this process's. Here GIT_DIR points at another repository: git_state
+    with setup's env still returns the folder's own commit, and without it, the other's.
+    Real git, in tmp_path; guards, green now."""
+    from clarity_chat.logs import git_state
+
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    for folder, name in ((root, "defaults.toml"), (elsewhere, "made-up.txt")):
+        (folder / name).touch()
+        git(folder, "init", "-q")
+        git(folder, "add", name)
+        git(folder, "commit", "-q", "-m", "made up")
+    own, other = (git_state(folder)["commit"] for folder in (root, elsewhere))
+    assert own != other
+    monkeypatch.setenv("GIT_DIR", str(elsewhere / ".git"))
+    assert git_state(root)["commit"] == other  # the inherited env reads the other repository
+    assert git_state(root, made(root).git_env())["commit"] == own
+
+
 def test_nothing_missing_needs_no_free_disk(root):
     """S4: the disk check is for what's still to keep; with nothing missing it isn't made."""
     source(root)

@@ -86,9 +86,13 @@ def test_a_chat_on_its_profile_resumes_exports_and_replays(tmp_path, chat_tokeni
     log = session.conversation.log.path
     session.new_conversation(E4B)
     record = session.resume(log)
-    assert record["render"] is None or record["render"]["identical"], record["render"]
+    # The whole-branch review's C13: resume re-renders the chat (a None would pass unseen),
+    # and replay finds nothing it couldn't compare.
+    assert record["render"] is not None and record["render"]["identical"], record["render"]
     assert export_log(session, log)["path"]
     again = FakeBackend([call["output_text"]], tokenizer=chat_tokenizer)
     fresh = Session(tmp_path, backend=again, tokenizer_loader=lambda r, v: chat_tokenizer)
-    assert fresh.replay(log, call["call_id"])["identical"]
+    replayed = fresh.replay(log, call["call_id"])
+    assert replayed["identical"], replayed
+    assert replayed["differences"] == {} and "not_recorded" not in replayed, replayed
     assert json.loads(log.read_text(encoding="utf-8").splitlines()[0])["profile"]["name"] == E4B
