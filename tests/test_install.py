@@ -48,7 +48,8 @@ class Bench:
         self.bin.mkdir()
         self.log.write_text("", encoding="utf-8")
         self.facts = {"SYSTEM": "Darwin", "MACHINE": "arm64", "MEMORY": str(32 * GIB),
-                      "FREE_KB": str(500 * 10**6), "TOOLS": "1"}  # fmt: skip
+                      "FREE_KB": str(500 * 10**6), "TOOLS": "1",
+                      "TAG": version()}  # fmt: skip  # what `git describe` finds in ~/Clarity
         self.uv_on_path = True
         self.stub_uv = tmp_path / "uv-stub"
         self.installer = INSTALLER.format(stub_uv=self.stub_uv, log=self.log).encode()
@@ -91,10 +92,12 @@ class Bench:
         self.stub(
             "git",
             'echo "git $*" >> "$LOG"\n'
+            "echo \"git-env $(env | cut -d= -f1 | sort | tr '\\n' ' ')\" >> \"$LOG\"\n"
             "for last; do :; done\n"  # the clone's folder is its last argument
             'case "$*" in *clone*) mkdir -p "$last"; : > "$last/defaults.toml";'
             ' : > "$last/server.toml";'
-            ' printf \'name = "clarity-chat"\\n\' > "$last/pyproject.toml";; esac\n',
+            ' printf \'name = "clarity-chat"\\n\' > "$last/pyproject.toml";;'
+            f' *describe*) [ -n "{f["TAG"]}" ] && echo "{f["TAG"]}" && exit 0; exit 128;; esac\n',
         )
         uv = self.stub(
             "uv",
@@ -159,6 +162,13 @@ def text() -> str:
     return SCRIPT.read_text(encoding="utf-8")
 
 
+def version() -> str:
+    """install.sh's VERSION, the release tag it clones."""
+    found = re.search(r"\nVERSION=(\S+)\n", text())
+    assert found
+    return found[1]
+
+
 def test_shellcheck_finds_nothing():
     shellcheck = Path(sys.executable).parent / "shellcheck"
     script = text()
@@ -208,9 +218,13 @@ def test_a_mac_installs_clarity_and_runs_setup_and_the_page_on_the_terminal(benc
     clones = bench.ran("git ")
     assert len(clones) == 1 and "clone --depth 1 --branch v" in clones[0]
     assert clones[0].endswith(str(clarity))
+    (git_env,) = bench.ran("git-env ")  # nothing of the user's git, and never a prompt
+    assert set(git_env.split()[1:]) - SH_SETS == {
+        "HOME", "PATH", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT"
+    }, git_env  # fmt: skip
     uv = bench.ran("uv ")
     assert uv == [
-        "uv sync --locked --group setup",
+        "uv sync --locked --inexact --group setup",  # (ii): a hand install keeps its extras
         "uv run --group setup clarity setup",
         "uv run clarity ui",
     ]
@@ -279,7 +293,7 @@ def test_without_uv_its_installer_is_checked_then_run(bench):
     assert (bench.home / ".local" / "bin" / "uv").is_file()
     (env,) = bench.ran("installer-env ")  # run once, with HOME and PATH only
     assert set(env.split()[1:]) <= {"HOME", "PATH"} | SH_SETS, env
-    assert bench.ran("uv sync --locked --group setup")
+    assert bench.ran("uv sync --locked --inexact --group setup")
 
 
 def test_an_installer_with_another_sha256_is_refused_and_not_run(bench):
@@ -318,13 +332,79 @@ def test_a_clarity_folder_that_isn_t_clarity_is_refused(bench):
     assert sorted(p.name for p in (bench.home / "Clarity").iterdir()) == ["mine.txt"]
 
 
-def test_clarity_already_there_goes_straight_to_its_setup(bench):
+def clarity_there(bench: Bench) -> None:
     clarity = bench.home / "Clarity"
     clarity.mkdir()
     for name in ("defaults.toml", "server.toml"):
         (clarity / name).write_text("", encoding="utf-8")
     (clarity / "pyproject.toml").write_text('name = "clarity-chat"\n', encoding="utf-8")
+
+
+def test_clarity_already_there_goes_straight_to_its_setup(bench):
+    clarity_there(bench)
     done = bench.run()
     assert done.returncode == 0, done.stderr
-    assert "Clarity is already in ~/Clarity; checking its setup." in done.stdout
-    assert not bench.ran("git ") and bench.ran("uv run --group setup clarity setup")
+    assert done.stdout.startswith("Clarity is already in ~/Clarity; checking its setup.\n")
+    assert not bench.ran("git clone") and bench.ran("uv run --group setup clarity setup")
+
+
+# --- the security review's S1, C1, C3, (i), (ii) and (v)
+
+
+@pytest.mark.parametrize("tag", ["v0.0.1", ""], ids=["another-tag", "no-tag"])
+def test_clarity_at_another_version_is_said_and_not_updated(bench, tag):
+    """C3: an older ~/Clarity keeps its code and pins; the install says so in one sentence."""
+    clarity_there(bench)
+    bench.facts["TAG"] = tag
+    done = bench.run()
+    assert done.returncode == 0, done.stderr
+    at = tag or "a commit with no release tag"
+    assert done.stdout.startswith(
+        f"~/Clarity holds Clarity at {at}, not {version()}, and the install doesn't update it.\n"
+        "Clarity is already in ~/Clarity; checking its setup.\n"
+    ), done.stdout
+    (describe,) = bench.ran("git ")
+    assert describe == f"git -C {bench.home / 'Clarity'} describe --tags --exact-match"
+    (git_env,) = bench.ran("git-env ")
+    assert set(git_env.split()[1:]) - SH_SETS == {
+        "HOME", "PATH", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT"
+    }, git_env  # fmt: skip
+    assert bench.ran("uv run --group setup clarity setup")
+
+
+def test_uv_from_an_earlier_run_is_found_without_the_shell_profile(bench):
+    """(i): a second run in the same Terminal window, before the shell profile is read
+    again, uses ~/.local/bin/uv rather than downloading its installer again."""
+    bench.uv_on_path = False
+    bench.write_stubs()
+    (bench.home / ".local" / "bin").mkdir(parents=True)
+    bench.stub_uv.rename(bench.home / ".local" / "bin" / "uv")
+    done = bench.run()
+    assert done.returncode == 0, done.stderr
+    assert not bench.ran("curl ") and not bench.ran("installer-env ")
+    assert bench.ran("uv sync --locked --inexact --group setup")
+
+
+def test_a_free_disk_figure_that_isn_t_a_number_is_refused(bench):
+    """(v): `[` errors on a word, which counts as false, so the check passed."""
+    bench.facts["FREE_KB"] = "made-up"
+    done = bench.run()
+    assert done.returncode != 0
+    assert (
+        "The install couldn't tell how much disk your home folder has free (df said "
+        '"made-up"), so it stopped.' in done.stderr
+    ), done.stderr
+    assert bench.lines() == [] and list(bench.home.iterdir()) == []
+
+
+def test_uv_s_required_version_is_the_build_backend_s_range():
+    """S1: a uv outside uv_build's range would fetch and run the build backend unhashed
+    (uv.lock doesn't lock it); required-version makes such a uv refuse before it runs."""
+    import tomllib
+
+    pyproject = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    (backend,) = pyproject["build-system"]["requires"]
+    assert backend.startswith("uv_build")
+    assert pyproject.get("tool", {}).get("uv", {}).get("required-version") == backend.removeprefix(
+        "uv_build"
+    )
