@@ -1103,3 +1103,155 @@ def test_a_partial_without_git_is_refused_untouched(root):
     )
     assert run.calls == [] and says.asked == []
     assert sorted(p.name for p in partial.iterdir()) == ["mine.txt"]
+
+
+# --- the security fix review's N2, R1 and R4
+
+
+def vendor_through_a_link(root: Path, elsewhere: Path) -> Path:
+    """vendor/ itself a link to `elsewhere`: the last component, llama.cpp, isn't one."""
+    vendor = load_server_config(root).llama_cpp_dir.parent
+    elsewhere.mkdir(parents=True, exist_ok=True)
+    try:
+        vendor.symlink_to(elsewhere, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks need privileges on Windows")
+    return vendor
+
+
+def test_a_checkout_through_a_link_above_it_isn_t_built_into(root, tmp_path):
+    """N2: vendor/ a link to a folder holding a checkout at the pin, with no build/: setup
+    builds only in a folder it reaches without a link, so it refuses and runs no cmake."""
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "llama.cpp" / ".git").mkdir(parents=True)
+    vendor = vendor_through_a_link(root, elsewhere)
+    run, says = FakeRunner(), Says()
+    state = states(root, source={"commit": pin(root), "dirty": False})
+    with pytest.raises(ConfigError) as refused:
+        made(root, run=run, says=says, state=state).go()
+    assert str(refused.value) == refused_build(root, f"vendor is a link to {os.readlink(vendor)}")
+    assert [argv for argv, _ in run.calls if argv[0] == CMAKE] == [] and says.asked == []
+    assert sorted(p.name for p in (elsewhere / "llama.cpp").iterdir()) == [".git"]
+
+
+def test_a_built_checkout_through_a_link_above_it_is_used_as_it_is(root, tmp_path):
+    """N2: one at the pin with llama-server built at the pin is used, without building."""
+    elsewhere = tmp_path / "elsewhere"
+    (elsewhere / "llama.cpp" / ".git").mkdir(parents=True)
+    vendor_through_a_link(root, elsewhere)
+    binary(root)
+    run, says = FakeRunner(), Says(answers=[])
+    state = states(root, source={"commit": pin(root), "dirty": False})
+    made(root, run=run, says=says, state=state).go()
+    assert [argv for argv, _ in run.calls if argv[0] == CMAKE] == []
+    assert "llama-server: already done." in says.lines
+
+
+def test_the_source_isn_t_fetched_through_a_link_above_it(root, tmp_path):
+    """N2: with vendor/ a link, the fetch would write outside the project: refused before
+    the question, nothing run and nothing written there."""
+    elsewhere = tmp_path / "elsewhere"
+    vendor = vendor_through_a_link(root, elsewhere)
+    run, says = FakeRunner(), Says()
+    with pytest.raises(ConfigError) as refused:
+        made(root, run=run, says=says).go()
+    assert str(refused.value) == (
+        f"llama.cpp's source needs fetching into vendor/llama.cpp, but vendor is a link to "
+        f"{os.readlink(vendor)}, so setup leaves it alone: it fetches and builds only in a "
+        "folder it reaches without a link. Replace the link with a folder, then run setup "
+        "again."
+    )
+    assert run.calls == [] and says.asked == [] and list(elsewhere.iterdir()) == []
+
+
+def test_a_partial_at_another_commit_is_refused_untouched(root):
+    """R1: setup's .partial is one where `git rev-parse HEAD` fails (nothing fetched yet)
+    or reports the pin; a checkout at another commit is someone's work, not deleted."""
+    partial = partial_of(root)
+    (partial / ".git").mkdir(parents=True)
+    (partial / "mine.txt").write_text("made up", encoding="utf-8")
+    other = "0123456789ab" + "0" * 28
+    run, says = FakeRunner(), Says()
+    state = states(root, partial={"commit": other, "dirty": False})
+    with pytest.raises(ConfigError) as refused:
+        made(root, run=run, says=says, state=state).go()
+    assert str(refused.value) == (
+        "vendor/llama.cpp.partial isn't a fetch setup started (it's a checkout at commit "
+        f"0123456789ab, not the pinned {pin(root)[:12]}), so setup leaves it alone: it may be "
+        "your own work. Move it out of vendor/, then run setup again."
+    )
+    assert run.calls == [] and says.asked == []
+    assert sorted(p.name for p in partial.iterdir()) == [".git", "mine.txt"]
+
+
+@pytest.mark.parametrize(
+    "head",
+    [{"commit": None, "dirty": None, "error": "made up"}, "pin"],
+    ids=["nothing-fetched", "at-the-pin"],
+)
+def test_a_partial_with_nothing_fetched_or_at_the_pin_is_fetched_again(root, head):
+    """R1: guards, green now: what an interrupted fetch leaves is deleted and fetched over."""
+    (partial_of(root) / ".git").mkdir(parents=True)
+    head = {"commit": pin(root), "dirty": False} if head == "pin" else head
+    run, says = FakeRunner(), Says()
+
+    def state(folder: Path, env: dict[str, str] | None = None) -> dict[str, Any]:
+        fetched = any("checkout" in argv for argv, _ in run.calls)
+        return {"commit": pin(root), "dirty": False} if fetched else head
+
+    made(root, run=run, says=says, state=state).go()
+    assert "Deleting vendor/llama.cpp.partial, left by a setup that didn't finish." in says.lines
+    assert run.of("git") == git_argvs(root)
+
+
+def third_party(root: Path) -> Path:
+    """server.toml's llama_cpp_dir as third_party/llama.cpp."""
+    toml = root / "server.toml"
+    text = toml.read_text(encoding="utf-8")
+    toml.write_text(text.replace('"vendor/llama.cpp"', '"third_party/llama.cpp"'), encoding="utf-8")
+    return root / "third_party" / "llama.cpp"
+
+
+def test_the_source_s_sentences_name_server_toml_s_folder(root, tmp_path):
+    """R4: llama_cpp_dir's folder in every sentence, not vendor/llama.cpp."""
+    folder = third_party(root)
+    (folder / ".git").mkdir(parents=True)
+    state = states(root, source={"commit": "0" * 40, "dirty": False})
+    with pytest.raises(ConfigError) as refused:
+        made(root, state=state).go()
+    assert str(refused.value) == (
+        f"third_party/llama.cpp is at commit {'0' * 12}, not the pinned {pin(root)[:12]}, so "
+        "setup leaves it alone: it may be your own work. Move it out of third_party/, then "
+        "run setup again."
+    )
+    shutil.rmtree(folder)
+    try:
+        folder.symlink_to(tmp_path / "nowhere", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks need privileges on Windows")
+    with pytest.raises(ConfigError) as refused:
+        made(root).go()
+    assert str(refused.value) == (
+        f"third_party/llama.cpp is a link to {os.readlink(folder)}, which doesn't exist, so "
+        "setup leaves it alone: it may be your own work. Move it out of third_party/, then "
+        "run setup again."
+    )
+    (tmp_path / "nowhere").mkdir()
+    with pytest.raises(ConfigError) as refused:
+        made(root).go()
+    assert str(refused.value).startswith(
+        f"third_party/llama.cpp (a link to {folder.resolve()}) isn't a git checkout"
+    )
+
+
+def test_the_fetch_s_sentences_name_server_toml_s_folder(root):
+    """R4: the .partial deleted and the folder fetched into, as server.toml names them."""
+    folder = third_party(root)
+    (folder.parent / "llama.cpp.partial" / ".git").mkdir(parents=True)
+    says = Says()
+    made(root, says=says).go()
+    assert "Deleting third_party/llama.cpp.partial, left by a setup that didn't finish." in (
+        says.lines
+    )
+    assert "llama.cpp's source is in third_party/llama.cpp." in says.lines
+    assert folder.is_dir()

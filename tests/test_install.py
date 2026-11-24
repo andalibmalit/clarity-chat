@@ -50,7 +50,7 @@ class Bench:
         self.log.write_text("", encoding="utf-8")
         self.facts = {"SYSTEM": "Darwin", "MACHINE": "arm64", "MEMORY": str(32 * GIB),
                       "FREE_KB": str(500 * 10**6), "TOOLS": "1",
-                      "TAG": version()}  # fmt: skip  # what `git describe` finds in ~/Clarity
+                      "TAG": version()}  # fmt: skip  # the tags at ~/Clarity's HEAD, a line each
         self.uv_on_path = True
         self.stub_uv = tmp_path / "uv-stub"
         self.installer = INSTALLER.format(stub_uv=self.stub_uv, log=self.log).encode()
@@ -104,7 +104,7 @@ class Bench:
             'case "$*" in *clone*) mkdir -p "$last"; : > "$last/defaults.toml";'
             ' : > "$last/server.toml";'
             ' printf \'name = "clarity-chat"\\n\' > "$last/pyproject.toml";;'
-            f' *describe*) [ -n "{f["TAG"]}" ] && echo "{f["TAG"]}" && exit 0; exit 128;; esac\n',
+            f' *points-at*) [ -n "{f["TAG"]}" ] && echo "{f["TAG"]}"; exit 0;; esac\n',
         )
         uv = self.stub(
             "uv",
@@ -376,13 +376,33 @@ def test_clarity_at_another_version_is_said_and_not_updated(bench, tag):
         f"~/Clarity holds Clarity at {at}, not {version()}, and the install doesn't update it.\n"
         "Clarity is already in ~/Clarity; checking its setup.\n"
     ), done.stdout
-    (describe,) = bench.ran("git ")
-    assert describe == f"git -C {bench.home / 'Clarity'} describe --tags --exact-match"
+    (tags,) = bench.ran("git ")
+    assert tags == f"git -C {bench.home / 'Clarity'} tag --points-at HEAD"
     (git_env,) = bench.ran("git-env ")
     assert set(git_env.split()[1:]) - SH_SETS == {
         "HOME", "PATH", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT"
     }, git_env  # fmt: skip
     assert bench.ran("uv run --group setup clarity setup")
+
+
+@pytest.mark.parametrize(
+    ("tags", "said"),
+    [(["v0.0.1", "VERSION", "v9.9.9"], None), (["v0.0.1", "v0.0.2"], "v0.0.1 and v0.0.2")],
+    ids=["version-among-them", "neither"],
+)
+def test_several_tags_at_clarity_s_commit_are_each_checked_against_version(bench, tags, said):
+    """R3 (the security fix review): with several tags at ~/Clarity's commit, `git describe`
+    names one of them; VERSION is checked against every one, and the sentence names them all."""
+    clarity_there(bench)
+    bench.facts["TAG"] = "\n".join(version() if tag == "VERSION" else tag for tag in tags)
+    done = bench.run()
+    assert done.returncode == 0, done.stderr
+    sentence = (
+        f"~/Clarity holds Clarity at {said}, not {version()}, and the install doesn't update it.\n"
+    )
+    assert done.stdout.startswith(
+        (sentence if said else "") + "Clarity is already in ~/Clarity; checking its setup.\n"
+    ), done.stdout
 
 
 def test_uv_from_an_earlier_run_is_found_without_the_shell_profile(bench):
@@ -421,6 +441,17 @@ def test_uv_s_required_version_is_the_build_backend_s_range():
     assert pyproject.get("tool", {}).get("uv", {}).get("required-version") == backend.removeprefix(
         "uv_build"
     )
+
+
+def test_uv_s_range_has_no_upper_bound():
+    """N1 (the security fix review): an upper bound would refuse every newer uv with uv's
+    bare "Required uv version … does not match"; a newer uv also builds with its own
+    backend, so nothing is fetched unhashed and nobody is stranded."""
+    import tomllib
+
+    pyproject = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    assert pyproject["build-system"]["requires"] == ["uv_build>=0.11"]
+    assert pyproject["tool"]["uv"]["required-version"] == ">=0.11"
 
 
 # --- the whole-branch review's C3 and C22, and the security review's S4
@@ -489,10 +520,10 @@ def test_without_sha256sum_uv_s_installer_isn_t_fetched_or_run(bench):
     done = bench.run(text().replace(":/usr/sbin:/sbin", f":{empty}"))
     assert done.returncode != 0
     assert done.stderr == (
-        "clarity install: uv's installer couldn't check its download here (it needs "
-        "sha256sum), so install uv by hand as uv's docs say, "
-        "https://docs.astral.sh/uv/getting-started/installation/, then paste the command "
-        "again.\n"
+        "clarity install: uv's installer can't check its download on this Mac: it needs "
+        "sha256sum, which macOS has from version 14 on. So the install stopped before "
+        "fetching it. Install uv with Homebrew (brew install uv), which checks its "
+        "download, then paste the command again.\n"
     ), done.stderr
     assert not bench.ran("curl ") and not bench.ran("installer-")
     assert not bench.ran("git ") and not bench.ran("uv ")
