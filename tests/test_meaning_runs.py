@@ -16,7 +16,7 @@ from typing import Any
 
 from clarity_chat.batch import run_batch
 from clarity_chat.cli import ChatLoop
-from clarity_chat.documents import library_add, reading
+from clarity_chat.documents import SearchRefused, library_add, reading
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend, FakeEmbedder
 from tests.test_meaning import (
@@ -121,6 +121,39 @@ def test_a_run_searches_each_opening_once_per_profile_by_its_method(
         if r["type"] == "turn" and "found" in r
     }
     assert methods == {("meaning", "meaning"), ("words", "words")}
+
+
+def test_a_run_without_bge_m3_isn_t_told_to_start_a_new_chat(fetched_root, chat_tokenizer):
+    """Provider-trial #6b (the whole-branch review's C14): state 5's way out honours where
+    the search ran. A run has no chat to start: its words say to run the command again."""
+    profile(fetched_root, "meaning", MEANING)
+    library_add(fetched_root, GLOSSARY.encode(), "notes.md")
+    openings = fetched_root / "openings.txt"
+    openings.write_text(OPENINGS[0] + "\n", encoding="utf-8")
+    fake = FakeEmbedder()
+    fake.is_fetched = False
+    run_dir = fetched_root / "runs" / "run-unfetched"
+    session = Session(
+        fetched_root,
+        backend=FakeBackend([], tokenizer=chat_tokenizer),
+        logs_dir=run_dir,
+        tokenizer_loader=lambda r, v: chat_tokenizer,
+        embedder=fake,  # ty: ignore[invalid-argument-type]
+    )
+    said: list[str] = []
+    try:
+        run_batch(session, "run-unfetched", run_dir, openings, ["meaning"], 1, said.append)
+        refused = None
+    except SearchRefused as e:
+        refused = e
+    assert refused is not None, "the run started without bge-m3"
+    assert refused.problems == [{"state": "no_embedder"}]
+    assert "new chat" not in refused.terminal, refused.terminal
+    assert refused.terminal.endswith(
+        'Or set search_method = "words" under [documents] in your own profile (copy a shipped '
+        "one into local/profiles/ first) and run the command again."
+    ), refused.terminal
+    assert fake.made == 0
 
 
 def test_the_closest_is_shown_rounded_down_so_it_never_reads_as_the_minimum():

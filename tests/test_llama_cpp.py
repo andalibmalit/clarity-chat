@@ -843,12 +843,28 @@ def test_a_stopped_server_isn_t_counted(two_servers):
     assert not isinstance(two_servers(EMBEDDER_1800, embedder=True), Exception)
 
 
+EMBEDDER_ALONE = (
+    "Meaning search's embedder needs 1,800 MiB of GPU memory, more than Metal's "
+    'recommended limit for this GPU, 1,500 MiB. Set search_method = "words" under '
+    "[documents] in your own profile (copy a shipped one into local/profiles/ first) and "
+    "start a new chat."
+)
+
+
 def test_the_embedder_alone_over_the_limit_isn_t_told_to_lower_its_ctx_size(two_servers):
     refused = two_servers(startup_using(1500, 1100, 0, 700), embedder=True)
     assert isinstance(refused, Exception), "the embedder started"
-    assert str(refused) == (
-        "Meaning search's embedder needs 1,800 MiB of GPU memory, more than Metal's "
-        'recommended limit for this GPU, 1,500 MiB. Set search_method = "words" under '
-        "[documents] in your own profile (copy a shipped one into local/profiles/ first) and "
-        "start a new chat."
-    )
+    assert str(refused) == EMBEDDER_ALONE
+
+
+def test_the_embedder_alone_over_the_limit_beside_a_chat_server_says_only_its_way_out(
+    two_servers,
+):
+    """Provider-trial #1 (the whole-branch review's C14): with a chat server running, an
+    embedder over the limit by itself was told to use a smaller chat model or a lower
+    ctx_size, which can't help it. It gets the embedder-alone sentence."""
+    chat = two_servers(startup_using(1500, 500, 100, 200))  # 800 MiB: fits alone
+    assert not isinstance(chat, Exception), chat
+    refused = two_servers(startup_using(1500, 1100, 0, 700), embedder=True)
+    assert isinstance(refused, Exception), "the embedder started"
+    assert str(refused) == EMBEDDER_ALONE
