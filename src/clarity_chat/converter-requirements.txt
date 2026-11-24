@@ -4,7 +4,8 @@
 # a file that doesn't match is refused and only wheels are installed. Linux adds PyPI
 # torch's NVIDIA libraries and triton, and Windows tqdm's colorama. Made by listing that
 # record as NAME==VERSION lines in PINS, then:
-#   uv pip compile PINS --universal --python-version 3.13 --generate-hashes --no-header --no-annotate
+#   uv pip compile PINS --universal --python-version 3.13 --generate-hashes
+#     --no-header --no-annotate
 # For a new llama.cpp pin, PINS is instead the requirement lines of llama.cpp's
 # requirements/requirements-convert_hf_to_gguf.txt and the file its -r line names, without
 # its --extra-index-url line (the conversions ran with PyPI's torch), plus
