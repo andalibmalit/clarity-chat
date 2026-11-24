@@ -522,8 +522,8 @@ def test_without_sha256sum_uv_s_installer_isn_t_fetched_or_run(bench):
     assert done.returncode != 0
     assert done.stderr == (
         "clarity install: uv's installer can't check its download on this Mac: it needs "
-        "sha256sum, which macOS has from version 14 on. So the install stopped before "
-        "fetching it. Install uv with Homebrew (brew install uv), which checks its "
+        "sha256sum, which this Mac doesn't have. So the install stopped before fetching "
+        "it. Install uv with Homebrew (brew install uv), which checks its "
         "download, then paste the command again.\n"
     ), done.stderr
     assert not bench.ran("curl ") and not bench.ran("installer-")

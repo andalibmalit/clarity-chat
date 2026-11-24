@@ -80,7 +80,7 @@ main() {
         # it finds none; macOS keeps it in /sbin, which a PATH may leave out.
         installer_path="$PATH:/usr/sbin:/sbin"
         if ! env PATH="$installer_path" sh -c 'command -v sha256sum' >/dev/null 2>&1; then
-            refuse "uv's installer can't check its download on this Mac: it needs sha256sum, which macOS has from version 14 on. So the install stopped before fetching it. Install uv with Homebrew (brew install uv), which checks its download, then paste the command again."
+            refuse "uv's installer can't check its download on this Mac: it needs sha256sum, which this Mac doesn't have. So the install stopped before fetching it. Install uv with Homebrew (brew install uv), which checks its download, then paste the command again."
         fi
         say "Installing uv $UV_VERSION, which runs Clarity (its installer checked by sha256) …"
         # mktemp makes it readable only by you (0600); it's removed on every way out.
