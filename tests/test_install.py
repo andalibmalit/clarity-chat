@@ -10,6 +10,7 @@ By hand).
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import subprocess
 import sys
@@ -515,7 +516,9 @@ def test_without_sha256sum_uv_s_installer_isn_t_fetched_or_run(bench):
     empty.mkdir()
     for folder in (Path("/usr/bin"), Path("/bin")):
         for tool in folder.iterdir():
-            if tool.name != "sha256sum" and not (system / tool.name).exists():
+            # lexists: a dangling link there (Ubuntu's /usr/bin has some, and /bin is a
+            # link to /usr/bin) isn't made twice (CI run 45490081429)
+            if tool.name != "sha256sum" and not os.path.lexists(system / tool.name):
                 (system / tool.name).symlink_to(tool)
     bench.system_path, bench.sha256sum, bench.uv_on_path = str(system), False, False
     done = bench.run(text().replace(":/usr/sbin:/sbin", f":{empty}"))
