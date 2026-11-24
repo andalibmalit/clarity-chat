@@ -164,12 +164,17 @@ jobs:
       # time, in local/models.lock. The fetch runs as install.sh runs Clarity: `env -i` with
       # HOME and a PATH without uv's folder, as on a fresh Mac, so a command found only on the
       # job's PATH (the whole-branch review's M1: the converter ran a bare `uv`) fails here.
+      # setup-uv's cache and Python folders are passed on when it sets them, so the
+      # converter's 2.5 GB of torch and NVIDIA wheels aren't downloaded again every run.
       - name: Fetch SmolLM2 in the install's environment
         run: |
           uv=$(command -v uv)
           bare=/usr/bin:/bin:/usr/sbin:/sbin
           if env -i PATH="$bare" sh -c 'command -v uv'; then echo "uv is on the bare PATH"; exit 1; fi
-          env -i HOME="$HOME" PATH="$bare" "$uv" run clarity fetch smollm2-135m-instruct
+          env -i HOME="$HOME" PATH="$bare" \
+            ${UV_CACHE_DIR:+"UV_CACHE_DIR=$UV_CACHE_DIR"} \
+            ${UV_PYTHON_INSTALL_DIR:+"UV_PYTHON_INSTALL_DIR=$UV_PYTHON_INSTALL_DIR"} \
+            "$uv" run clarity fetch smollm2-135m-instruct
       - run: rm local/models.lock
       - run: uv run clarity verify smollm2-135m-instruct
       - name: server.toml for the CPU, one line and nothing else

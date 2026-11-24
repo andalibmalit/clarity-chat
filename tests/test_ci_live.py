@@ -182,6 +182,12 @@ def test_the_fetch_runs_under_the_install_s_environment():
     assert "\n      - run: uv run clarity fetch smollm2-135m-instruct\n" not in job
     assert "bare=/usr/bin:/bin:/usr/sbin:/sbin\n" in job
     assert "if env -i PATH=\"$bare\" sh -c 'command -v uv'; then" in job
-    assert (
-        'env -i HOME="$HOME" PATH="$bare" "$uv" run clarity fetch smollm2-135m-instruct\n'
-    ) in job
+    step = job.split("- name: Fetch SmolLM2 in the install's environment\n", 1)[1]
+    step = step.split("\n      - ", 1)[0]
+    fetch = [line.strip() for line in step.split('env -i HOME="$HOME" PATH="$bare" \\\n')[1:]]
+    # setup-uv's cache folders only, each if set (2.5 GB of wheels a run otherwise)
+    assert fetch == [
+        '${UV_CACHE_DIR:+"UV_CACHE_DIR=$UV_CACHE_DIR"} \\\n'
+        '            ${UV_PYTHON_INSTALL_DIR:+"UV_PYTHON_INSTALL_DIR=$UV_PYTHON_INSTALL_DIR"} \\\n'
+        '            "$uv" run clarity fetch smollm2-135m-instruct'
+    ], step
