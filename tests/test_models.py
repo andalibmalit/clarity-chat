@@ -930,3 +930,17 @@ def test_the_converter_s_pins_meet_llama_cpp_s_convert_requirements(converter_py
         "torch",
         "transformers",
     ], seen
+
+
+def test_a_convert_fetch_refuses_a_llama_cpp_folder_whose_git_can_t_be_read(
+    root, repo_around, monkeypatch
+):
+    """F3 (QA): fetch_convert's llama.cpp check walked up the same way. Real git."""
+    server = load_server_config(root)
+    (server.llama_cpp_dir / ".git").mkdir(parents=True)
+    monkeypatch.setattr(models, "_download", lambda *args: pytest.fail("downloaded"))
+    model = next(iter(load_models(root).values()))
+    with pytest.raises(ConfigError) as refused:
+        models.fetch_convert(root, model, server)
+    assert repo_around[:12] not in str(refused.value)
+    assert "not a git checkout of its own" in str(refused.value)

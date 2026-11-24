@@ -619,6 +619,37 @@ def test_a_plain_folder_inside_a_git_clone_isn_t_a_checkout(root):
     assert run.calls == []
 
 
+def test_a_partial_whose_git_can_t_be_read_inside_a_repository_is_refused(root, repo_around):
+    """F3 (QA): git_state in a .partial with an empty .git walked up to the repository
+    around it (~/Clarity is a clone) and said its commit was the .partial's. Real git."""
+    from clarity_chat.logs import git_state
+
+    partial = load_server_config(root).llama_cpp_dir.with_name("llama.cpp.partial")
+    (partial / ".git").mkdir(parents=True)
+    run = FakeRunner()
+    with pytest.raises(ConfigError) as refused:
+        made(root, run=run, state=git_state).go()
+    assert repo_around[:12] not in str(refused.value)
+    assert str(refused.value).startswith(
+        "vendor/llama.cpp.partial isn't a fetch setup started (its .git isn't a git "
+        "repository of its own), so setup leaves it alone"
+    )
+    assert run.calls == [] and (partial / ".git").is_dir()
+
+
+def test_a_source_whose_git_can_t_be_read_inside_a_repository_isn_t_a_checkout(root, repo_around):
+    """F3 (QA): the same walk-up in vendor/llama.cpp named the enclosing commit. Real git."""
+    from clarity_chat.logs import git_state
+
+    source(root)  # an empty .git
+    run = FakeRunner()
+    with pytest.raises(ConfigError) as refused:
+        made(root, run=run, state=git_state).go()
+    assert repo_around[:12] not in str(refused.value)
+    assert str(refused.value).startswith("vendor/llama.cpp isn't a git checkout")
+    assert run.calls == []
+
+
 def test_git_state_reads_the_folder_with_the_env_it_s_given(root, tmp_path, monkeypatch):
     """The whole-branch review's C2: setup passes git_state its cleared env, and git runs in
     that env, not this process's. Here GIT_DIR points at another repository: git_state

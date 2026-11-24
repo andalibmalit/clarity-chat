@@ -868,3 +868,23 @@ def test_the_embedder_alone_over_the_limit_beside_a_chat_server_says_only_its_wa
     refused = two_servers(startup_using(1500, 1100, 0, 700), embedder=True)
     assert isinstance(refused, Exception), "the embedder started"
     assert str(refused) == EMBEDDER_ALONE
+
+
+def test_the_start_refuses_a_llama_cpp_folder_whose_git_can_t_be_read_inside_a_repository(
+    root, repo_around, monkeypatch
+):
+    """F3 (QA): git_state walked up from a llama.cpp folder with an empty .git to the
+    repository around it, so the start's refusal named that repository's commit as
+    llama.cpp's. It refuses, saying the folder isn't a git checkout of its own. Real git."""
+    from clarity_chat.backends import llama_cpp
+    from clarity_chat.profiles import ConfigError, load_server_config
+
+    config = load_server_config(root)
+    (config.llama_cpp_dir / ".git").mkdir(parents=True)
+    monkeypatch.setattr(llama_cpp, "llama_config_files", lambda: [])
+    server = llama_cpp.LlamaServer(config, root / "model.gguf", root / "logs")
+    with pytest.raises(ConfigError) as refused:
+        server.start()
+    assert repo_around[:12] not in str(refused.value)
+    assert "not a git checkout of its own" in str(refused.value)
+    assert server.proc is None

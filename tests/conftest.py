@@ -181,6 +181,25 @@ def fake_fetch(root: Path, name: str = "tiny") -> Path:
 
 
 @pytest.fixture
+def repo_around(root: Path) -> str:
+    """root as a git repository with one commit, as ~/Clarity is a clone: a folder in it
+    with a .git git can't read sits inside a repository. Real git; returns the commit."""
+    import subprocess
+
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+    for args in (
+        ["init", "-q"],
+        ["add", "defaults.toml"],
+        ["-c", "user.name=made-up", "-c", "user.email=m@example.com", "commit", "-q", "-m", "x"],
+    ):
+        subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True, env=env)
+    head = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, env=env
+    )
+    return head.stdout.decode().strip()
+
+
+@pytest.fixture
 def fetched_root(root: Path) -> Path:
     fake_fetch(root)
     return root
