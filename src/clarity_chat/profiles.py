@@ -275,7 +275,7 @@ SETTING_RANGES: dict[str, tuple[str, float | None, float | None, str]] = {
     "steering_scale": ("number", None, None, "a finite number; 0 is off"),
 }
 
-# What each setting does, in one line: the one place for this text (CLAUDE.md). The web
+# What each setting does, in one line: the one place for this text (AGENTS.md). The web
 # interface shows it under each row, and docs/reference.md's Settings table repeats it
 # (tests/test_docs.py checks they match). Checked against sources before it ships:
 # notes/research/teaching-text-check.md (2026-11-10) and v030-teaching-check.md #2, #3, #4,

@@ -201,7 +201,7 @@ CI_SKIPS = (
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     """In CI, an offline test that skips fails instead, unless its reason is in CI_SKIPS: an
-    offline test never skips there (CLAUDE.md). Without this, a torch that fails to import on
+    offline test never skips there (AGENTS.md). Without this, a torch that fails to import on
     one system, or any new skip, would pass CI with tests unrun."""
     outcome = yield
     report = outcome.get_result()

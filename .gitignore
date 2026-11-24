@@ -1,7 +1,7 @@
 # Private: conversations and held-out test material
 logs/
 runs/
-# Local-only notes: the spec, the build plan and research (see CLAUDE.md)
+# Local-only notes: the spec, the build plan and research (see AGENTS.md)
 notes/
 # Your own files: profiles and, later, Clarity's own state (docs/design.md)
 local/
