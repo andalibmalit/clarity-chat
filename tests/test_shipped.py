@@ -63,4 +63,6 @@ def test_the_tests_of_shipped_files_never_read_your_local_models(monkeypatch, tm
     test_the_config_files_load()
     test_models.test_the_shipped_models_toml_loads()
     test_recommended.test_both_llama_profiles_take_meta_s_values_from_the_committed_lock()
-    test_models.test_the_converter_runs_isolated_from_clarity_s_environment(tmp_path, monkeypatch)
+    test_models.test_the_converter_s_environment_is_made_from_the_hashed_requirements(
+        tmp_path, monkeypatch
+    )

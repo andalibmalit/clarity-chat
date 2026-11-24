@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -316,13 +318,13 @@ def test_weights_sha256_is_64_lowercase_hex(root, value):
 
 def fetched_with(root: Path, tmp_path: Path, monkeypatch, pickle: bytes) -> list[list[str]]:
     """fetch_convert on WITH_WEIGHTS, the download holding `pickle`; the converter is
-    stubbed (it writes its outfile and versions file). Returns the converters started."""
-    import subprocess
-
+    stubbed (it writes its outfile and versions file), and so is making its environment.
+    Returns the converters started."""
     snapshot = tmp_path / "snapshot"
     snapshot.mkdir()
     (snapshot / "pytorch_model.bin").write_bytes(pickle)
     (root / "models.toml").write_text(WITH_WEIGHTS, encoding="utf-8")
+    (root / "converter-requirements.txt").write_text(MADE_UP_REQUIREMENTS, "utf-8")
     server = load_server_config(root)
     monkeypatch.setattr(models, "git_state", lambda path: {"commit": server.llama_cpp_commit})
     monkeypatch.setattr(models, "_download", lambda repo, revision, patterns: snapshot)
@@ -330,12 +332,16 @@ def fetched_with(root: Path, tmp_path: Path, monkeypatch, pickle: bytes) -> list
 
     class Converted:
         def __init__(self, command, **kwargs):
+            self.stdout = iter(())
+            if command[:2] == ["uv", "venv"]:
+                Path(command[-1]).mkdir(parents=True)
+            if "--outfile" not in command:
+                return
             started.append(command)
             outfile = Path(command[command.index("--outfile") + 1])
             outfile.write_bytes(b"GGUF converted")
             versions = {"python": "3.13", "packages": {"torch": "0", "transformers": "0"}}
             (outfile.parent / "converter-versions.json").write_text(json.dumps(versions))
-            self.stdout = iter(())
 
         def wait(self):
             return 0
@@ -390,34 +396,128 @@ def test_the_converter_record_keeps_the_version_python_imports(tmp_path, monkeyp
     assert packages["made-up-transformers"] == "4.57.6"
 
 
-def test_the_converter_runs_isolated_from_clarity_s_environment(tmp_path, monkeypatch):
-    """The CI plan's follow-up: from Clarity's folder, `uv run --no-project --python 3.13`
-    took Clarity's .venv as the overlay's base, so its site-packages and src were on the
-    converter's sys.path despite -I (a probe showed both). --isolated gives the overlay a
-    fresh base: only llama.cpp's pinned packages, as models.py's comment promises."""
+# --- The converter's environment, hashed (v0.4.2 decision 15, A9) ---------------------------
+
+REQUIREMENTS = Path(__file__).resolve().parents[1] / "converter-requirements.txt"
+MADE_UP_REQUIREMENTS = "made-up==1.0 --hash=sha256:" + "0" * 64 + "\n"
+
+
+def converting(
+    root: Path, monkeypatch, fail: str | None = None, seen=lambda command: None
+) -> list[tuple[list[str], dict]]:
+    """fetch_convert on the shipped SmolLM2 entry, into `root`, with every command stubbed:
+    `uv venv` makes its folder; the converter writes its outfile and versions file. `fail`
+    names the command that exits 1 (venv, install or convert); `seen` is called with each
+    command as it starts. Writes a made-up
+    converter-requirements.txt unless `root` has one. Returns the commands started, with
+    their keyword arguments."""
     import subprocess
 
     repo = Path(__file__).resolve().parents[1]
     server = load_server_config(repo)
     model = read_models(repo / "models.toml")["smollm2-135m-instruct"]  # shipped only
+    if not (root / "converter-requirements.txt").is_file():
+        (root / "converter-requirements.txt").write_text(MADE_UP_REQUIREMENTS, "utf-8")
+    snapshot = root / "snapshot"
+    snapshot.mkdir(exist_ok=True)
     monkeypatch.setattr(models, "git_state", lambda path: {"commit": server.llama_cpp_commit})
-    monkeypatch.setattr(models, "_download", lambda repo, revision, patterns: tmp_path)
-    started: list[list[str]] = []
+    monkeypatch.setattr(models, "_download", lambda repo, revision, patterns: snapshot)
+    started: list[tuple[list[str], dict]] = []
 
-    class Stop(Exception):
-        pass
+    class Process:
+        def __init__(self, command, **kwargs):
+            seen(command)
+            started.append((command, kwargs))
+            kind = {"venv": "venv", "pip": "install"}.get(command[1], "convert")
+            if kind == "venv":
+                Path(command[-1]).mkdir(parents=True, exist_ok=True)
+            if kind == "convert" and fail != "convert":
+                outfile = Path(command[command.index("--outfile") + 1])
+                outfile.write_bytes(b"GGUF converted")
+                versions = {"python": "3.13", "packages": {"torch": "0", "transformers": "0"}}
+                (outfile.parent / "converter-versions.json").write_text(json.dumps(versions))
+            self.code = 1 if kind == fail else 0
+            self.stdout = iter(())
 
-    def popen(command, **kwargs):
-        started.append(command)
-        raise Stop
+        def wait(self):
+            return self.code
 
-    monkeypatch.setattr(subprocess, "Popen", popen)
-    with pytest.raises(Stop):
-        models.fetch_convert(tmp_path, model, server)
-    command = started[0]
-    run = command[: command.index("python")]  # uv's own options, before the interpreter
-    assert run[:2] == ["uv", "run"] and {"--no-project", "--isolated"} <= set(run), run
-    assert command[command.index("python") + 1] == "-I"
+    monkeypatch.setattr(subprocess, "Popen", Process)
+    models.fetch_convert(root, model, server)
+    return started
+
+
+def env_python(env: Path) -> Path:
+    return env / "Scripts" / "python.exe" if os.name == "nt" else env / "bin" / "python"
+
+
+def test_the_converter_s_environment_is_made_from_the_hashed_requirements(tmp_path, monkeypatch):
+    """`uv run --with-requirements` doesn't check a file's hashes (uv 0.11.19 installed and
+    ran one with a zeroed hash), so Clarity makes the environment itself (the A9 ruling):
+    `uv venv`, then `uv pip install` with hashes required, then that environment's Python
+    with -I. A fresh venv holds only what the file installs (earlier, from Clarity's folder,
+    the converter's sys.path held Clarity's .venv and src); --no-project and --no-config keep
+    Clarity's pyproject.toml and your uv settings out. The lock records the three commands."""
+    started = converting(tmp_path, monkeypatch)
+    assert len(started) == 3, started  # make the environment, install, convert
+    venv, install, convert = [command for command, _ in started]
+    env = tmp_path / "models" / ".converter"
+    assert venv[:2] == ["uv", "venv"] and venv[-1] == str(env), venv
+    assert venv[venv.index("--python") + 1] == "3.13", venv
+    assert {"--clear", "--no-project", "--no-config"} <= set(venv), venv
+    assert install[:3] == ["uv", "pip", "install"] and "--require-hashes" in install, install
+    assert install[install.index("-r") + 1] == str(tmp_path / "converter-requirements.txt")
+    assert install[install.index("--python") + 1] == str(env), install
+    assert "--no-config" in install, install
+    assert convert[:2] == [str(env_python(env)), "-I"], convert
+    lock = json.loads((tmp_path / "local" / "models.lock").read_text("utf-8"))
+    recorded = lock["models"]["smollm2-135m-instruct"]["converter"]["command"]
+    assert recorded == [
+        [portable_path(part, tmp_path, resolve=False) for part in command]
+        for command in (venv, install, convert)
+    ]
+    assert recorded[0][-1] == "models/.converter", recorded
+
+
+def test_the_converter_s_environment_is_said_before_it_is_made(tmp_path, monkeypatch, capsys):
+    """Clarity writes files only visibly: the folder is named before `uv venv` writes it."""
+    printed: dict[str, str] = {}
+
+    def seen(command):
+        printed.setdefault(command[1], capsys.readouterr().out)
+
+    converting(tmp_path, monkeypatch, seen=seen)
+    assert "venv" in printed, printed
+    assert "models/.converter" in printed["venv"], printed
+    assert "converter-requirements.txt" in printed["venv"], printed
+
+
+def test_the_converter_s_environment_is_made_again_only_when_the_requirements_change(
+    tmp_path, monkeypatch
+):
+    """A marker in the environment holds the sha256 of the file it was made from: while the
+    file is unchanged, a fetch only converts; a changed file (a new llama.cpp pin) remakes it."""
+    assert len(converting(tmp_path, monkeypatch)) == 3
+    again = converting(tmp_path, monkeypatch)
+    assert [command[:2] for command, _ in again] == [
+        [str(env_python(tmp_path / "models" / ".converter")), "-I"]
+    ]
+    (tmp_path / "converter-requirements.txt").write_text(
+        MADE_UP_REQUIREMENTS.replace("1.0", "1.1"), "utf-8"
+    )
+    assert len(converting(tmp_path, monkeypatch)) == 3
+
+
+@pytest.mark.parametrize("fail", ["venv", "install"])
+def test_a_failed_environment_leaves_no_marker_so_the_next_fetch_makes_it_again(
+    tmp_path, monkeypatch, fail
+):
+    """A failed `uv venv` or install stops the fetch before the converter, names
+    convert.log, records nothing, and leaves no marker, so the next fetch starts over."""
+    with pytest.raises(ConfigError, match=r"converter's environment.*convert\.log"):
+        converting(tmp_path, monkeypatch, fail=fail)
+    assert not (tmp_path / "local" / "models.lock").exists()
+    assert len(converting(tmp_path, monkeypatch)) == 3
 
 
 def test_the_converter_runs_offline_with_no_terminal_input(tmp_path, monkeypatch):
@@ -425,66 +525,81 @@ def test_the_converter_runs_offline_with_no_terminal_input(tmp_path, monkeypatch
     in the snapshot), so HF_HUB_OFFLINE stops a tokenizer's auto_map from fetching code
     from another repo, and with stdin closed a "run the custom code? [y/N]" prompt, which
     would go unseen to convert.log, is refused. C1, uv's first-index strategy is passed, so
-    UV_INDEX_STRATEGY in your shell can't merge the converter's indexes."""
-    import os
-    import subprocess
-
-    repo = Path(__file__).resolve().parents[1]
-    server = load_server_config(repo)
-    model = read_models(repo / "models.toml")["smollm2-135m-instruct"]  # shipped only
-    monkeypatch.setattr(models, "git_state", lambda path: {"commit": server.llama_cpp_commit})
-    monkeypatch.setattr(models, "_download", lambda repo, revision, patterns: tmp_path)
+    UV_INDEX_STRATEGY in your shell can't merge indexes (the hashes would refuse another
+    file anyway). Making the environment needs the network, so it keeps HF_HUB_OFFLINE."""
     monkeypatch.setenv("HF_HUB_OFFLINE", "0")
-    started: list[tuple[list[str], dict]] = []
-
-    class Stop(Exception):
-        pass
-
-    def popen(command, **kwargs):
-        started.append((command, kwargs))
-        raise Stop
-
-    monkeypatch.setattr(subprocess, "Popen", popen)
-    with pytest.raises(Stop):
-        models.fetch_convert(tmp_path, model, server)
-    command, kwargs = started[0]
+    started = converting(tmp_path, monkeypatch)
+    assert len(started) == 3, started  # make the environment, install, convert
+    (_, _), (install, install_kwargs), (_, kwargs) = started
     env = kwargs.get("env") or {}
     assert env.get("HF_HUB_OFFLINE") == "1", kwargs
     assert {k: v for k, v in env.items() if k != "HF_HUB_OFFLINE"} == {
         k: v for k, v in os.environ.items() if k != "HF_HUB_OFFLINE"
     }
     assert kwargs.get("stdin") == subprocess.DEVNULL, kwargs
-    run = command[: command.index("python")]  # uv's own options, before the interpreter
-    assert "--index-strategy" in run and run[run.index("--index-strategy") + 1] == "first-index"
+    assert install_kwargs.get("stdin") == subprocess.DEVNULL, install_kwargs
+    assert install[install.index("--index-strategy") + 1] == "first-index", install
 
 
-def test_the_converter_s_sentencepiece_is_pinned(tmp_path, monkeypatch):
+def requirement_lines() -> list[str]:
+    """converter-requirements.txt's requirements, each on one line, without comments."""
+    assert REQUIREMENTS.is_file(), f"{REQUIREMENTS.name} is missing"
+    text = REQUIREMENTS.read_text("utf-8").replace("\\\n", " ")
+    return [
+        " ".join(line.split())
+        for line in text.splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+
+
+def test_every_converter_requirement_is_pinned_with_its_hashes():
+    """Each line is NAME==VERSION, at most a platform marker, and its sha256 hashes: no index
+    URL, no unpinned or unhashed package, so `--require-hashes` checks every file."""
+    import re
+
+    lines = requirement_lines()
+    assert lines
+    pinned = re.compile(
+        r"[A-Za-z0-9._-]+==[A-Za-z0-9.+]+( ; sys_platform == '\w+')?( --hash=sha256:[0-9a-f]{64})+"
+    )
+    assert [line for line in lines if not pinned.fullmatch(line)] == []
+
+
+def test_the_converter_requirements_are_the_versions_bge_m3_s_conversion_recorded():
+    """The file pins what the converter ran with (the shipped models.lock's bge-m3 entry,
+    converter.packages), so a conversion gets the same packages as before and no GGUF
+    changes. Linux adds PyPI torch's NVIDIA libraries and triton, Windows colorama; macOS
+    gets exactly the record. SmolLM2's record isn't compared: it was fetched (2026-11-08)
+    before the converter ran isolated (5694df5), so it lists Clarity's own packages (pytest,
+    ruff, transformers 5.22.2), not what the converter imported. CI's live-cpu job checks
+    its GGUF: a fetch in a scratch folder gives the sha256 the lock records."""
+    import re
+
+    def canonical(name: str) -> str:
+        return re.sub(r"[-_.]+", "-", name).lower()
+
+    everywhere: dict[str, str] = {}
+    markers: set[str] = set()
+    for line in requirement_lines():
+        spec, _, marker = line.split(" --hash")[0].partition(" ; ")
+        name, version = spec.split("==")
+        if marker:
+            markers.add(marker)
+        else:
+            everywhere[canonical(name)] = version
+    lock = json.loads((REQUIREMENTS.parent / "models.lock").read_text("utf-8"))
+    record = lock["models"]["bge-m3"]["converter"]["packages"]
+    assert everywhere == {canonical(name): version for name, version in record.items()}
+    assert markers <= {"sys_platform == 'linux'", "sys_platform == 'win32'"}, markers
+
+
+def test_the_converter_s_sentencepiece_is_pinned():
     """llama.cpp's converter requirements at the pin allow sentencepiece <0.3.0 but cap
     protobuf <5.0.0; sentencepiece 0.2.3's model_pb2 needs protobuf's runtime_version
     (5.26 on), so bge-m3's vocabulary failed to load (the first fetch, 2026-11-18). The
-    command pins 0.2.2, which imports with protobuf 4.25.9 on Python 3.13."""
-    import subprocess
-
-    repo = Path(__file__).resolve().parents[1]
-    server = load_server_config(repo)
-    model = read_models(repo / "models.toml")["smollm2-135m-instruct"]  # shipped only
-    monkeypatch.setattr(models, "git_state", lambda path: {"commit": server.llama_cpp_commit})
-    monkeypatch.setattr(models, "_download", lambda repo, revision, patterns: tmp_path)
-    started: list[list[str]] = []
-
-    class Stop(Exception):
-        pass
-
-    def popen(command, **kwargs):
-        started.append(command)
-        raise Stop
-
-    monkeypatch.setattr(subprocess, "Popen", popen)
-    with pytest.raises(Stop):
-        models.fetch_convert(tmp_path, model, server)
-    run = started[0][: started[0].index("python")]  # uv's options, before the interpreter
-    pins = [run[i + 1] for i, part in enumerate(run) if part == "--with"]
-    assert pins == ["sentencepiece==0.2.2"], run
+    file pins 0.2.2, which imports with protobuf 4.25.9 on Python 3.13."""
+    specs = {line.split(" ")[0] for line in requirement_lines()}
+    assert {"sentencepiece==0.2.2", "protobuf==4.25.9"} <= specs, specs
 
 
 @pytest.mark.live
