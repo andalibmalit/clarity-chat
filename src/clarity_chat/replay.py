@@ -139,6 +139,17 @@ FEATURES = re.compile(
 )
 
 
+# llama-server's build_info is "bN-COMMIT": compared without N, for the same reason (Q14,
+# the owner's answer). Any other form is compared as it is.
+BUILD_INFO = re.compile(r"b\d+-(\S+)")
+
+
+def build_info_commit(build_info: Any) -> Any:
+    """build_info without its build number: "b162-b1b770d" gives "b1b770d"."""
+    found = BUILD_INFO.fullmatch(build_info) if isinstance(build_info, str) else None
+    return found[1] if found else build_info
+
+
 def build_of(startup_output: Any) -> dict[str, str | None] | None:
     """The build line (commit, compiler and target) and the CPU features from a start's
     output, or None when it holds neither (a fake server's, say). Either half the patterns
@@ -185,7 +196,7 @@ def facts_from_call(call: dict[str, Any], server: dict[str, Any] | None) -> dict
     built = build_of(server.get("startup_output"))
     return {
         "end_tokens": sorted(t["id"] for t in eog) if eog is not None else None,
-        "build_info": server.get("build_info"),
+        "build_info": build_info_commit(server.get("build_info")),
         **({"build": built} if built is not None else {}),
         "llama_cpp": (
             {k: v for k, v in server["llama_cpp"].items() if k != "dir"}
