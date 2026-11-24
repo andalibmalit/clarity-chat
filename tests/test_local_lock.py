@@ -190,6 +190,20 @@ def test_the_refresh_script_refuses_a_path_outside_the_folder_and_home(fetched_r
     assert (fetched_root / "models.lock").read_bytes() == before
 
 
+def test_the_refresh_script_copies_a_command_run_by_a_program_outside_home(fetched_root):
+    """A command's first word is the program that ran it: uv from Homebrew is
+    /opt/homebrew/bin/uv, which names no one's folder, so it is copied (M1: the converter
+    runs $UV). Its other words are paths, checked as before."""
+    (fetched_root / "models.lock").write_text(
+        json.dumps({"schema_version": 1, "models": {}}), encoding="utf-8"
+    )
+    command = [["/opt/homebrew/bin/uv", "venv"], ["/opt/homebrew/bin/uv", "pip", "install"]]
+    entry = {**local_tiny(fetched_root), "converter": {"command": command}}
+    write_lock_entry(fetched_root, "tiny", entry)
+    assert refresh().main(["--root", str(fetched_root), "tiny"]) == 0
+    assert shipped(fetched_root)["models"]["tiny"]["converter"]["command"] == command
+
+
 def test_the_refresh_script_refuses_an_entry_models_toml_no_longer_pins(fetched_root, capsys):
     """An entry fetched from other settings than models.toml's is what lock_entry refuses
     at a call; it isn't copied either, so the shipped lock never holds a stale pin."""
