@@ -44,7 +44,7 @@ jobs:
       - run: uv sync --locked --group setup
       # A fresh fetch and build each run, in a temporary folder: no built binary is cached,
       # since building it is what the tier tests.
-      - run: uv run --group setup pytest -m setup -v -rs --junitxml=setup.xml
+      - run: uv run --group setup pytest -m setup -v -s -rs --junitxml=setup.xml
       - run: uv run python scripts/junit_guard.py setup.xml --at-least 1
       # The install command's tests, on the platform it's for: install.sh piped into sh
       # with stub commands (they also run in tests.yml's offline jobs).

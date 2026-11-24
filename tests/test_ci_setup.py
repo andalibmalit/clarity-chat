@@ -38,7 +38,7 @@ def test_it_fetches_and_builds_on_apple_silicon_with_the_setup_group():
     assert "runs-on: macos-latest" in workflow  # arm64 since macos-14
     assert "timeout-minutes: 30" in workflow
     assert "uv sync --locked --group setup" in workflow
-    assert "uv run --group setup pytest -m setup -v -rs --junitxml=setup.xml" in workflow
+    assert "uv run --group setup pytest -m setup -v -s -rs --junitxml=setup.xml" in workflow  # E1b
     # A skip or an empty run fails the job, as live-cpu's guard does.
     assert "uv run python scripts/junit_guard.py setup.xml --at-least 1" in workflow
     assert "--extra hf" not in workflow  # no torch: the tier fetches and builds only
