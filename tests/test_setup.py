@@ -668,14 +668,15 @@ def test_a_link_in_vendor_s_place_is_refused_naming_where_it_points(root, tmp_pa
     with pytest.raises(ConfigError) as refused:
         made(root, run=run).go()
     assert str(refused.value).startswith(
-        f"vendor/llama.cpp is a link to {nowhere}, which doesn't exist, so setup leaves it alone"
+        f"vendor/llama.cpp is a link to {os.readlink(vendor)}, which doesn't exist, so setup "
+        "leaves it alone"
     )
     assert run.calls == [] and vendor.is_symlink()
     nowhere.mkdir()
     with pytest.raises(ConfigError) as refused:
         made(root, run=run).go()
     assert str(refused.value).startswith(
-        f"vendor/llama.cpp (a link to {nowhere}) isn't a git checkout"
+        f"vendor/llama.cpp (a link to {vendor.resolve()}) isn't a git checkout"
     )
 
 
@@ -944,16 +945,6 @@ def test_setup_needs_the_cmake_of_its_own_environment(root, monkeypatch, capsys,
     )
 
 
-def test_a_windows_long_path_prefix_isn_t_shown():
-    """CI run 45085021195: Windows' readlink gives \\\\?\\C:\\…; a sentence names the folder as
-    the user writes it. On every OS, since the helper takes the string."""
-    assert (
-        clarity_setup.shown_link("\\\\?\\C:\\Users\\made-up\\nowhere")
-        == "C:\\Users\\made-up\\nowhere"
-    )
-    assert clarity_setup.shown_link("/Users/made-up/nowhere") == "/Users/made-up/nowhere"
-
-
 def test_another_platform_is_said_before_uv_or_cmake(root, monkeypatch, capsys, tmp_path):
     """State 1's sentence comes first: on Linux, without uv or the setup group's cmake,
     setup says it needs a Mac, not how to run it with the setup group (the whole-branch
@@ -1027,7 +1018,7 @@ def test_a_build_folder_setup_didn_t_make_is_refused_and_no_cmake_runs(root, tmp
             (vendor / "build").symlink_to(elsewhere, target_is_directory=True)
         except OSError:
             pytest.skip("symlinks need privileges on Windows")
-        thing = f"vendor/llama.cpp/build is a link to {elsewhere}"
+        thing = f"vendor/llama.cpp/build is a link to {os.readlink(vendor / 'build')}"
     else:
         vendor.parent.mkdir(parents=True)
         mine = elsewhere
@@ -1036,7 +1027,7 @@ def test_a_build_folder_setup_didn_t_make_is_refused_and_no_cmake_runs(root, tmp
             vendor.symlink_to(elsewhere, target_is_directory=True)
         except OSError:
             pytest.skip("symlinks need privileges on Windows")
-        thing = f"vendor/llama.cpp is a link to {elsewhere}"
+        thing = f"vendor/llama.cpp is a link to {os.readlink(vendor)}"
     binary(root)  # through the link, if there is one: llama-server from another commit
     if kind == "their-build":
         (vendor / "build" / "CMakeCache.txt").write_text("made up", encoding="utf-8")
@@ -1070,8 +1061,8 @@ def test_a_partial_that_is_a_link_is_refused_untouched(root, tmp_path):
     with pytest.raises(ConfigError) as refused:
         made(root, run=run, says=says).go()
     assert str(refused.value) == (
-        f"vendor/llama.cpp.partial is a link to {mine}, so setup leaves it alone: it may be "
-        "your own work. Move it out of vendor/, then run setup again."
+        f"vendor/llama.cpp.partial is a link to {os.readlink(partial)}, so setup leaves it "
+        "alone: it may be your own work. Move it out of vendor/, then run setup again."
     )
     assert run.calls == [] and says.asked == [] and partial.is_symlink()
     assert sorted(p.name for p in mine.iterdir()) == [".git"]

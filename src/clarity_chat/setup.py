@@ -46,10 +46,9 @@ LLAMA_URL = "https://github.com/ggml-org/llama.cpp"
 # build 148 MB), rounded up; A2's -m setup run confirms them. A model keeps what it
 # downloads (the Hugging Face cache) and, for the convert route, its GGUF: bge-m3's pickle
 # is 2,271,145,830 bytes (its file on Hugging Face) and its GGUF 1,157,671,136 (models.lock),
-# plus its tokenizer. The
-# converter's environment (torch, transformers and the rest, in uv's cache and in
-# models/.converter) is an estimate
-# until the owner's fresh-account run measures it.
+# plus its tokenizer. The converter's environment (torch, transformers and the rest, in
+# uv's cache and in models/.converter) is an estimate until the owner's fresh-account run
+# measures it.
 SIZES: dict[str, tuple[int, int]] = {
     "source": (50 * 10**6, 250 * 10**6),
     "build": (0, 150 * 10**6),
@@ -68,7 +67,7 @@ BUILD_CHANGERS = re.compile(
     r"|CMAKE_\w*|GGML_\w*|LLAMA_\w*)"
 )
 # Getting started's two build lines (decision 4), N the CPU count; a test checks the doc says
-# the same. Setup can't run them yet (A2's build step waits for Q2 and Q3a), so it says them.
+# the same. Setup runs them (cmake_argvs), and says them when it won't build (S2).
 BUILD_LINES = (
     "cmake -S vendor/llama.cpp -B vendor/llama.cpp/build -DCMAKE_BUILD_TYPE=Release "
     "-DLLAMA_CURL=OFF -DLLAMA_USE_PREBUILT_UI=OFF",
@@ -97,7 +96,8 @@ def this_mac(root: Path) -> Mac:
 
 
 def run_logged(argv: list[str], env: dict[str, str]) -> tuple[int, str]:
-    """A step's command, with its output kept. (The held build step adds a log file.)"""
+    """A step's command, with its output (stdout and stderr together) kept: the build
+    step writes cmake's into clarity-build.log."""
     import subprocess
 
     done = subprocess.run(
@@ -107,10 +107,18 @@ def run_logged(argv: list[str], env: dict[str, str]) -> tuple[int, str]:
     return done.returncode, done.stdout
 
 
-def shown_link(path: str) -> str:
-    """A link's target as the user writes it: without the \\\\?\\ prefix Windows' readlink
-    and resolve() add to a long path (CI run 45085021195)."""
-    return path.removeprefix("\\\\?\\")
+def check_mac(mac: Mac) -> None:
+    """States 1 and 2, before anything runs or is written: `clarity setup` checks them
+    before it looks for uv or cmake, so state 1's sentence comes first (the whole-branch
+    review's C4)."""
+    if (mac.system, mac.machine) != ("Darwin", "arm64"):
+        raise ConfigError(
+            f"Setup needs a Mac with Apple silicon; this computer is {mac.system} on "
+            f'{mac.machine}. To install by hand, follow "Install by hand" in '
+            "docs/getting-started.md."
+        )
+    if mac.memory < MEMORY_FLOOR:
+        raise ConfigError(f"Clarity needs 16 GB of memory; this Mac has {mac.memory // GIB} GB.")
 
 
 def gb(n: int) -> str:
@@ -243,8 +251,13 @@ class Setup:
         return self.pin.startswith(self.reported(binary) or "?")
 
     def reported(self, binary: Path) -> str | None:
-        """The commit `llama-server --version` says it was built from."""
-        _, output = self.run([str(binary), "--version"], self.build_env())
+        """The commit `llama-server --version` says it was built from; None if it can't
+        run (a build cut off mid-link leaves a truncated file: the whole-branch review's C5),
+        so it's built again."""
+        try:
+            _, output = self.run([str(binary), "--version"], self.build_env())
+        except OSError:
+            return None
         found = re.search(r"commit (\w+)\)", output)
         return found[1] if found else None
 
@@ -317,9 +330,9 @@ class Setup:
         CMakeCache.txt would also outlive the cleared environment."""
         build = self.source / "build"
         if self.source.is_symlink():
-            thing = f"{self.named} is a link to {shown_link(os.readlink(self.source))}"
+            thing = f"{self.named} is a link to {os.readlink(self.source)}"
         elif build.is_symlink():
-            thing = f"{self.named}/build is a link to {shown_link(os.readlink(build))}"
+            thing = f"{self.named}/build is a link to {os.readlink(build)}"
         elif build.exists() and not (build / "clarity-build.log").is_file():
             thing = f"{self.named}/build holds a build setup didn't make"
         else:
@@ -337,17 +350,7 @@ class Setup:
 
     def check_mac(self) -> None:
         """States 1 and 2, before anything runs or is written."""
-        mac = self.mac
-        if (mac.system, mac.machine) != ("Darwin", "arm64"):
-            raise ConfigError(
-                f"Setup needs a Mac with Apple silicon; this computer is {mac.system} on "
-                f'{mac.machine}. To install by hand, follow "Install by hand" in '
-                "docs/getting-started.md."
-            )
-        if mac.memory < MEMORY_FLOOR:
-            raise ConfigError(
-                f"Clarity needs 16 GB of memory; this Mac has {mac.memory // GIB} GB."
-            )
+        check_mac(self.mac)
 
     def check_source(self) -> bool:
         """Whether vendor/llama.cpp is there at the pin; one setup didn't make is refused,
@@ -355,13 +358,13 @@ class Setup:
         named = "vendor/llama.cpp"
         if self.source.is_symlink():  # the rename would replace a link: never touch it (S7)
             if not self.source.exists():
-                target = shown_link(os.readlink(self.source))
+                target = os.readlink(self.source)
                 raise ConfigError(
                     f"vendor/llama.cpp is a link to {target}, which doesn't exist, so setup "
                     "leaves it alone: it may be your own work. Move it out of vendor/, then run "
                     "setup again."
                 )
-            named = f"vendor/llama.cpp (a link to {shown_link(str(self.source.resolve()))})"
+            named = f"vendor/llama.cpp (a link to {self.source.resolve()})"
         if not self.source.exists():
             self.check_partial()
             return False
@@ -385,7 +388,7 @@ class Setup:
         `git init` leaves it, and not a link (the security review's C2)."""
         partial = f"{self.named}.partial"
         if self.partial.is_symlink():
-            why = f"is a link to {shown_link(os.readlink(self.partial))}"
+            why = f"is a link to {os.readlink(self.partial)}"
         elif self.partial.exists() and not (self.partial / ".git").exists():
             why = "isn't a fetch setup started (it has no .git)"
         else:
@@ -466,13 +469,15 @@ def answer(prompt: str) -> str:
 
 def venv_cmake() -> Path:
     """The cmake of the environment running setup (`uv run --group setup`), by path."""
-    return Path(sys.executable).parent / ("cmake.exe" if sys.platform == "win32" else "cmake")
+    return Path(sys.executable).parent / "cmake"
 
 
 def cmd_setup(root: Path) -> int:
     """`clarity setup`, in the terminal: the real Mac, commands and question, the real home
     folder and Desktop. uv's path, for the launcher: `uv run` gives it in UV, else the one
     on PATH; absolute, not resolved, so a link that an update repoints still works (S6)."""
+    mac = this_mac(root)
+    check_mac(mac)
     uv = os.environ.get("UV") or shutil.which("uv")
     if not uv:
         raise ConfigError(
@@ -487,7 +492,7 @@ def cmd_setup(root: Path) -> int:
         )
     home = Path.home()
     Setup(
-        root, this_mac(root), run_logged, answer, print,
+        root, mac, run_logged, answer, print,
         home=home, desktop=home / "Desktop", uv=str(Path(uv).absolute()), cmake=str(cmake),
         models=SETUP_MODELS,
     ).go()  # fmt: skip
