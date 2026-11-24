@@ -337,10 +337,10 @@ def fetch_gguf(root: Path, model: ModelEntry) -> dict[str, Any]:
     print(f"Hashing {path.name} …", flush=True)
     digest = sha256_file(path)
     if digest != model.sha256:
-        toml, lock = model_files(root, model.name)
-        raise ConfigError(
+        raise ConfigError(  # a fetch writes local/models.lock alone (A10, C20)
             f"{model.repo}/{model.file} at {model.revision[:12]} has sha256 {digest}, but "
-            f"{toml} says {model.sha256}. Not recorded in {lock}."
+            f"{model_files(root, model.name)[0]} says {model.sha256}. "
+            "Not recorded in local/models.lock."
         )
     print(f"Downloading tokenizer {model.tokenizer_repo}@{model.tokenizer_revision[:12]} …")
     tokenizer = _download(
@@ -487,10 +487,10 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
         print(f"Hashing {model.weights} …", flush=True)
         digest = sha256_file(source / model.weights)
         if digest != model.weights_sha256:
-            toml, lock = model_files(root, model.name)
-            raise ConfigError(
+            raise ConfigError(  # a fetch writes local/models.lock alone (A10, C20)
                 f"{model.repo}/{model.weights} at {model.revision[:12]} has sha256 {digest}, "
-                f"but {toml} says {model.weights_sha256}. Not converted or recorded in {lock}."
+                f"but {model_files(root, model.name)[0]} says {model.weights_sha256}. "
+                "Not converted or recorded in local/models.lock."
             )
     tokenizer = source
     if (model.tokenizer_repo, model.tokenizer_revision) != (model.repo, model.revision):
