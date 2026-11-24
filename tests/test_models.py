@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -447,8 +448,9 @@ def converting(
             seen(command)
             started.append((command, kwargs))
             kind = {"venv": "venv", "pip": "install"}.get(command[1], "convert")
-            if kind == "venv":
-                Path(command[-1]).mkdir(parents=True, exist_ok=True)
+            if kind == "venv":  # --clear: whatever was in the folder goes, the marker too
+                shutil.rmtree(command[-1], ignore_errors=True)
+                Path(command[-1]).mkdir(parents=True)
             if kind == "convert" and fail != "convert":
                 outfile = Path(command[command.index("--outfile") + 1])
                 outfile.write_bytes(b"GGUF converted")
@@ -484,6 +486,9 @@ def test_the_converter_s_environment_is_made_from_the_hashed_requirements(tmp_pa
     assert venv[venv.index("--python") + 1] == "3.13", venv
     assert {"--clear", "--no-project", "--no-config"} <= set(venv), venv
     assert install[:3] == ["uv", "pip", "install"] and "--require-hashes" in install, install
+    # --require-hashes doesn't cover an sdist's build dependencies (its build backend comes
+    # unhashed from the index and runs): only wheels, every one of them hashed.
+    assert "--no-build" in install, install
     assert install[install.index("-r") + 1] == str(made_up_requirements(tmp_path)), install
     assert install[install.index("--python") + 1] == str(env), install
     assert "--no-config" in install, install
@@ -521,6 +526,28 @@ def test_the_converter_s_environment_is_made_again_only_when_the_requirements_ch
         [str(env_python(tmp_path / "models" / ".converter")), "-I"]
     ]
     made_up_requirements(tmp_path).write_text(MADE_UP_REQUIREMENTS.replace("1.0", "1.1"), "utf-8")
+    assert len(converting(tmp_path, monkeypatch)) == 3
+
+
+def test_a_change_to_the_setup_commands_makes_the_environment_again(tmp_path, monkeypatch):
+    """The marker covers the commands that made the environment as well as the file, so a
+    new flag (--no-build, say) or Python version remakes an environment made without it."""
+    assert len(converting(tmp_path, monkeypatch)) == 3
+    monkeypatch.setattr(models, "CONVERTER_PYTHON", "3.12")
+    again = [command for command, _ in converting(tmp_path, monkeypatch)]
+    assert [command[1] for command in again][:2] == ["venv", "pip"], again
+
+
+def test_a_failed_remake_then_the_old_file_makes_it_again_in_full(tmp_path, monkeypatch):
+    """A, then B whose install fails, then A again: `uv venv --clear` emptied the folder
+    for B, so A's environment is gone and A is made again in full, not reused."""
+    assert len(converting(tmp_path, monkeypatch)) == 3
+    requirements = made_up_requirements(tmp_path)
+    a = requirements.read_text("utf-8")
+    requirements.write_text(a.replace("1.0", "1.1"), "utf-8")
+    with pytest.raises(ConfigError):
+        converting(tmp_path, monkeypatch, fail="install")
+    requirements.write_text(a, "utf-8")
     assert len(converting(tmp_path, monkeypatch)) == 3
 
 
