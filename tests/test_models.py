@@ -194,6 +194,19 @@ def test_the_shipped_models_toml_loads():
     assert bge.weights_sha256 is not None and len(bge.weights_sha256) == 64  # S1
 
 
+@pytest.mark.parametrize("name", [".converter", "..", ".hidden"])
+@pytest.mark.parametrize("yours", [False, True])
+def test_a_model_name_can_t_start_with_a_dot(tmp_path, name, yours):
+    """A model's files go in models/NAME, beside the converter's environment in
+    models/.converter: a name with a leading dot could be that folder, or the one above."""
+    from clarity_chat.profiles import read_models
+
+    path = tmp_path / "models.toml"
+    path.write_text(CONVERT_MODEL.replace("[embedder]", f'["{name}"]'), encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"can't start with"):
+        read_models(path, yours=yours)
+
+
 # --- the weights key (v0.4.1 decision 2) ----------------------------------------------------
 
 CONVERT_MODEL = """\
