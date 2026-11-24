@@ -18,7 +18,7 @@ In order, it:
 5. Runs `clarity setup`, which asks once, with the sizes, before it downloads anything: about 7.5 GB to download and 10 GB to keep. It then fetches llama.cpp's source at the pinned commit, builds `llama-server` (a few minutes), fetches Gemma 4 E4B and bge-m3 (the model meaning search uses), and puts `Clarity.command` on your Desktop.
 6. Opens Clarity in your browser.
 
-Most of the time goes to the build and the downloads. uv's installer, git and uv get only your `HOME` and `PATH` from it, so proxy settings don't reach them: behind a proxy, install by hand.
+Most of the time goes to the build and the downloads. uv's installer, git and uv get only your `HOME` and `PATH` from it, so proxy settings don't reach them: behind a proxy, install by hand. The same goes for where the Hugging Face cache is: setup puts the models in `~/.cache/huggingface`, so if your shell profile sets `HF_HOME`, `HF_HUB_CACHE` or `XDG_CACHE_HOME`, remove that setting or install by hand. Otherwise Clarity, started with your profile's settings, looks for the models' tokenizers in the other cache.
 
 The models go in the Hugging Face cache (`~/.cache/huggingface`) and in `~/Clarity/models/`; the converter's Python environment goes in `~/Clarity/models/.converter`. uv keeps its cache in `~/.cache/uv`, and the Python it installs in `~/.local/share/uv/python`. From then on, double-click `Clarity.command` on your Desktop to start Clarity. Paste the command again at any time: each step that's already done says so, and it does only what's missing, including after an interruption.
 
@@ -86,7 +86,7 @@ uv run clarity verify smollm2-135m-instruct
 ok    smollm2-135m-instruct: sha256 matches (0f049d7126689b64…)
 ```
 
-A chat that searches your documents finds the parts closest in meaning to your message, with a second model, bge-m3. Fetch it too (a 2.27 GB download, about 1.16 GB kept):
+A chat that searches your documents finds the parts closest in meaning to your message, with a second model, bge-m3. Fetch it too: a 2.27 GB download, and about 3.4 GB kept (the download stays in the Hugging Face cache).
 
 ```
 uv run clarity fetch bge-m3
@@ -278,7 +278,7 @@ flowchart LR
     end
     subgraph gen["Files Clarity writes"]
         direction TB
-        ML["models.lock<br/>models/ (GGUF)"]
+        ML["local/models.lock<br/>models/ (GGUF)"]
         LG["logs/*.jsonl"]
         RN["runs/RUN_ID/<br/>blind.md, key.json, calls.jsonl"]
     end

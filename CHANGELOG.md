@@ -9,7 +9,7 @@ Two headings are Clarity's own, used when they apply:
 ## [Unreleased]
 
 ### Migration
-- Fetches now write `local/models.lock`; an entry there wins over `models.lock`. Entries an earlier fetch wrote to `models.lock` are still read. To make the checkout clean again, run `git restore models.lock`, then `uv run clarity verify NAME` for each model you fetched: it re-hashes the file and records it in `local/models.lock`. A model it reports as different needs `uv run clarity fetch NAME` again.
+- Fetches now write `local/models.lock`; an entry there wins over `models.lock`. Entries an earlier fetch wrote to `models.lock` are still read. To make the checkout clean again, run `git restore models.lock`, then `uv run clarity verify NAME` for each model you fetched: it re-hashes the file and records it in `local/models.lock`. A model it reports as different, or as not in `models.lock`, needs `uv run clarity fetch NAME` again.
 
 ### Added
 - Gemma 4 E4B (`gemma-4-e4b`, Apache 2.0), quantized to Q4_0 by llama.cpp's ggml-org, with a profile of the same name that turns thinking off and uses the model's recommended settings. It's the chat model `clarity setup` fetches first. On a Mac it uses about 3.3 GB of GPU memory, plus about 2.4 GB of input embeddings in host memory.
