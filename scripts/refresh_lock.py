@@ -7,7 +7,8 @@ the maintainer fetches a shipped model at its new pin, then copies its entry. A 
 local/models.lock, or not in the shipped models.toml (your own entries never go in the
 shipped lock), is refused, and nothing is written. So is an entry models.toml no longer
 pins (lock_entry's check), or one with a path outside Clarity's folder and the home folder,
-which would carry this computer's layout into the shipped lock.
+which would carry this computer's layout into the shipped lock; a command's first word, the
+program that ran it, may be anywhere.
 """
 
 from __future__ import annotations
@@ -22,9 +23,11 @@ from clarity_chat.profiles import LOCAL_LOCK, ConfigError, read_models, read_tom
 
 
 def paths(entry: dict[str, Any]) -> list[str]:
-    """The paths an entry records: portable_path made each relative or ~/ when it could."""
+    """The paths an entry records: portable_path made each relative or ~/ when it could.
+    A command's first word is the program that ran it (uv from Homebrew, say), not a path
+    into anyone's folder, so it isn't one of them."""
     command = entry.get("converter", {}).get("command") or []
-    words = [word for argv in command for word in argv]
+    words = [word for argv in command for word in argv[1:]]
     fields = [entry.get("source_dir"), entry.get("tokenizer_dir"), entry["gguf"].get("path")]
     return [text for text in [*fields, *words] if isinstance(text, str)]
 
