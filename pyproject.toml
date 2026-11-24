@@ -32,6 +32,12 @@ hf = [
 requires = ["uv_build>=0.11,<0.14"]
 build-backend = "uv_build"
 
+[tool.uv]
+# The build-system's uv_build range: uv builds Clarity with its own backend only in that
+# range. Outside it, uv would fetch uv_build from the index unhashed (uv.lock doesn't lock
+# build dependencies), so such a uv refuses instead. A test keeps the two ranges equal.
+required-version = ">=0.11,<0.14"
+
 [tool.uv.build-backend]
 module-name = "clarity_chat"
 

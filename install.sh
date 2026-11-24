@@ -56,6 +56,9 @@ main() {
     fi
     # State 7: room for the whole install, before anything is written.
     free_kb=$(df -Pk "$HOME" | awk 'NR == 2 { print $4 }')
+    case "$free_kb" in  # `[` errors on a word, which counts as false: refuse it first
+        '' | *[!0-9]*) refuse "The install couldn't tell how much disk your home folder has free (df said \"$free_kb\"), so it stopped." ;;
+    esac
     if [ "$free_kb" -lt "$NEED_KB" ]; then
         refuse "The install needs $((NEED_KB / 1000000)) GB free in your home folder (with 5 GB to spare); it has $((free_kb / 1000000)) GB free."
     fi
@@ -64,8 +67,12 @@ main() {
         xcode-select --install >/dev/null 2>&1 || true
         refuse "Apple's command line tools aren't installed. Their installer has opened: click Install, then paste the command again."
     fi
-    # States 4 and 4b: uv, from its own installer at a pinned version, checked first.
+    # States 4 and 4b: uv, from its own installer at a pinned version, checked first. A run
+    # again in the same window finds the uv it installed before the shell profile is read.
     uv=$(command -v uv || true)
+    if [ -z "$uv" ] && [ -x "$HOME/.local/bin/uv" ]; then
+        uv="$HOME/.local/bin/uv"
+    fi
     if [ -z "$uv" ]; then
         say "Installing uv $UV_VERSION, which runs Clarity (its installer checked by sha256) …"
         # mktemp makes it readable only by you (0600); it's removed on every way out.
@@ -81,21 +88,30 @@ main() {
         trap - EXIT HUP INT TERM
         uv="$HOME/.local/bin/uv"
     fi
-    # States 5 and 6: ~/Clarity, at this release's tag; a folder that isn't Clarity is left.
+    # States 5 and 6: ~/Clarity, at this release's tag; a folder that isn't Clarity is left,
+    # and one at another version is said, not updated. git gets none of the user's config,
+    # and never prompts (a moved repository would ask for a password).
     clarity="$HOME/Clarity"
     if [ -e "$clarity" ]; then
         if ! is_clarity "$clarity"; then
             # shellcheck disable=SC2088  # the sentence names the folder as the user knows it
             refuse "~/Clarity exists and isn't Clarity, so the install leaves it alone. Move or rename it, then paste the command again."
         fi
+        tag=$(env -i HOME="$HOME" PATH="$PATH" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+            GIT_TERMINAL_PROMPT=0 git -C "$clarity" describe --tags --exact-match 2>/dev/null || true)
+        if [ "$tag" != "$VERSION" ]; then
+            # shellcheck disable=SC2088  # as above
+            say "~/Clarity holds Clarity at ${tag:-a commit with no release tag}, not $VERSION, and the install doesn't update it."
+        fi
         say "Clarity is already in ~/Clarity; checking its setup."
     else
         say "Putting Clarity $VERSION in ~/Clarity …"
         env -i HOME="$HOME" PATH="$PATH" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
-            git clone --depth 1 --branch "$VERSION" "$REPO_URL" "$clarity"
+            GIT_TERMINAL_PROMPT=0 git clone --depth 1 --branch "$VERSION" "$REPO_URL" "$clarity"
     fi
     cd "$clarity"
-    env -i HOME="$HOME" PATH="$PATH" "$uv" sync --locked --group setup
+    # --inexact: a hand install's extras (--extra hf, the browser group) stay installed.
+    env -i HOME="$HOME" PATH="$PATH" "$uv" sync --locked --inexact --group setup
     env -i HOME="$HOME" PATH="$PATH" "$uv" run --group setup clarity setup </dev/tty
     env -i HOME="$HOME" PATH="$PATH" "$uv" run clarity ui </dev/tty
 }
