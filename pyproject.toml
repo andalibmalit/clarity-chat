@@ -29,15 +29,16 @@ hf = [
 ]
 
 [build-system]
-requires = ["uv_build>=0.11"]
+requires = ["uv_build>=0.11,<1"]
 build-backend = "uv_build"
 
 [tool.uv]
 # The build-system's uv_build range: uv builds Clarity with its own backend only in that
 # range. Outside it, uv would fetch uv_build from the index unhashed (uv.lock doesn't lock
-# build dependencies), so such a uv refuses instead. A test keeps the two ranges equal. No
-# upper bound: a newer uv builds with its own backend too, and a bound would refuse it.
-required-version = ">=0.11"
+# build dependencies), so such a uv refuses instead. A test keeps the two ranges equal. The
+# bound is <1, not the next minor: every uv before 1.0 builds with its own backend, and uv
+# warns about a uv_build range with no upper bound.
+required-version = ">=0.11,<1"
 
 [tool.uv.build-backend]
 module-name = "clarity_chat"

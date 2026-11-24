@@ -443,15 +443,16 @@ def test_uv_s_required_version_is_the_build_backend_s_range():
     )
 
 
-def test_uv_s_range_has_no_upper_bound():
-    """N1 (the security fix review): an upper bound would refuse every newer uv with uv's
-    bare "Required uv version … does not match"; a newer uv also builds with its own
-    backend, so nothing is fetched unhashed and nobody is stranded."""
+def test_uv_s_range_reaches_to_1_0():
+    """N1 (the security fix review): a bound at the next minor would refuse every newer uv
+    with uv's bare "Required uv version … does not match"; a newer uv also builds with its
+    own backend, so nothing is fetched unhashed. <1 strands nobody before uv 1.0, and uv
+    0.11.19 warns about no upper bound, not about this one."""
     import tomllib
 
     pyproject = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
-    assert pyproject["build-system"]["requires"] == ["uv_build>=0.11"]
-    assert pyproject["tool"]["uv"]["required-version"] == ">=0.11"
+    assert pyproject["build-system"]["requires"] == ["uv_build>=0.11,<1"]
+    assert pyproject["tool"]["uv"]["required-version"] == ">=0.11,<1"
 
 
 # --- the whole-branch review's C3 and C22, and the security review's S4

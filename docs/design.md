@@ -258,7 +258,7 @@ There is no general "results may vary" notice. Replay flags the one case that ne
 | uv's installer | `astral.sh`, at the version in `install.sh` | a sha256 in `install.sh`, checked before it runs; an installer that doesn't match is deleted unrun |
 | uv | GitHub, by uv's installer | the sha256 of each platform's archive, written into the installer (which `install.sh` pins by its own sha256), checked with `sha256sum` before the archive is unpacked. The installer skips the check if it finds no `sha256sum`, so `install.sh` adds `/usr/sbin:/sbin` (where macOS keeps it) to the end of the installer's `PATH`, and refuses before downloading the installer if there's still none |
 | Python 3.13 | GitHub (python-build-standalone), by uv | uv's own checks, at uv's version |
-| Clarity's packages and `cmake` | PyPI | the hashes in `uv.lock` (`uv sync --locked`); `pyproject.toml` requires a uv (0.11 or later) that builds Clarity with its own build backend, not one fetched without a hash |
+| Clarity's packages and `cmake` | PyPI | the hashes in `uv.lock` (`uv sync --locked`); `pyproject.toml` requires a uv (0.11 or later, before 1.0) that builds Clarity with its own build backend, not one fetched without a hash |
 | llama.cpp's source | GitHub, `ggml-org/llama.cpp` | the full commit hash in `server.toml`, which git checks every object against; the built `llama-server --version` must report it |
 | The converter's environment | PyPI | every package's hashes in `converter-requirements.txt`, wheels only |
 | Gemma 4 E4B | Hugging Face, `ggml-org` | the revision and sha256 in `models.toml`, checked before the file is recorded or used |
