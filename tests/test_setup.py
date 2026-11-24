@@ -525,6 +525,35 @@ def test_a_desktop_macos_won_t_let_setup_write_is_said_and_setup_still_ends(root
     assert not (desktop / "Clarity.command").exists()
 
 
+def test_a_launcher_setup_can_t_read_is_said_and_setup_still_ends(root, monkeypatch):
+    """QA-driver check's could: a Clarity.command whose read is refused (Desktop access
+    revoked after the first run) is said, with the lines printed, and left alone."""
+    root, state = done_root(root)
+    launcher = desktop_of(root) / "Clarity.command"
+    launcher.write_text("echo mine\n", encoding="utf-8")
+    real_read_text = Path.read_text
+
+    def refused(self, *args, **kwargs):
+        if self.name == "Clarity.command":
+            raise PermissionError(1, "Operation not permitted", str(self))
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", refused)
+    says = Says()
+    try:
+        made(root, says=says, state=state).go()
+    except OSError as e:
+        pytest.fail(f"setup raised {e!r}, so it would end with an error, not 0")
+    said = "\n".join(says.lines)
+    assert (
+        "Setup couldn't read the Clarity.command on your Desktop (Operation not permitted), "
+        "so it's left alone. To start Clarity from a file of your own, put these three "
+        "lines in it:" in said
+    )
+    assert launcher_lines(root).rstrip("\n") in said
+    assert launcher.read_bytes() == b"echo mine\n"
+
+
 # --- Checkpoint 1's fix batch
 
 
