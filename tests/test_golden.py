@@ -281,3 +281,22 @@ def test_the_v0_4_1_golden_log_holds_a_meaning_search_found_parts_and_a_miss():
     replay = next(r for r in rows if r["type"] == "replay")
     calls = [r for r in rows if r["type"] == "call"]
     assert replay["identical"] and replay["call_id"] == calls[0]["call_id"]
+
+
+def test_the_v0_4_2_golden_log_holds_a_start_s_build_and_a_replay_that_compared_it():
+    """v0.4.2's replay compares how llama-server was built (A1): the start logged its build
+    line and system_info's features, /props' build_info is a shallow clone's "b1-COMMIT",
+    and the replay, identical, found no difference and listed nothing as not recorded."""
+    from clarity_chat.replay import build_info_commit, facts_from_call
+
+    rows = list(read_records(GOLDEN / "v0.4.2.jsonl"))
+    (start,) = [r for r in rows if r["type"] == "server_start"]
+    (call,) = [r for r in rows if r["type"] == "call"]
+    facts = facts_from_call(call, start)
+    assert facts["build"]["line"].endswith("with AppleClang 21.0.0.21000334 for Darwin arm64")
+    assert "MATMUL_INT8 = 1" in facts["build"]["features"]
+    assert start["build_info"].startswith("b1-")
+    assert facts["build_info"] == build_info_commit(start["build_info"]) == start["build_info"][3:]
+    replay = next(r for r in rows if r["type"] == "replay")
+    assert replay["identical"] and replay["call_id"] == call["call_id"]
+    assert replay["differences"] == {} and "not_recorded" not in replay
