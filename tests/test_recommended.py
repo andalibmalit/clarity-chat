@@ -87,8 +87,8 @@ def test_a_resumed_call_records_the_logged_recommended_values(fetched_root, tiny
     session.say("hi")
     log = session.conversation.log.path
     session.close()
-    # A later fetch changes the model's recommended values in models.lock.
-    lock_path = fetched_root / "models.lock"
+    # A later fetch changes the model's recommended values in local/models.lock.
+    lock_path = fetched_root / "local" / "models.lock"
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
     lock["models"]["tiny"]["recommended"]["values"]["temperature"] = 0.2
     lock_path.write_text(json.dumps(lock), encoding="utf-8")
@@ -128,7 +128,8 @@ def test_a_hand_edited_recommended_entry_is_refused_naming_models_lock(
 ):
     """Fix review, batch 6, item 3: `recommended = "temperature=0.6"` in models.lock made
     /settings answer "a record lacks or mangles 'str' object is not a mapping", blaming the
-    chat's log for models.lock. Its shape is checked where models.lock is read."""
+    chat's log for models.lock. Its shape is checked where the lock is read, and the
+    sentence names the lock the entry came from (local/models.lock since v0.4.2 A10)."""
     import pytest
 
     from clarity_chat.models import read_lock, write_lock_entry
@@ -142,6 +143,6 @@ def test_a_hand_edited_recommended_entry_is_refused_naming_models_lock(
     with pytest.raises(ConfigError) as refused:
         session.new_conversation("text")
     assert str(refused.value) == (
-        "models.lock's recommended settings for 'tiny' aren't a table of values. "
+        "local/models.lock's recommended settings for 'tiny' aren't a table of values. "
         + fetch_hint("tiny")
     )

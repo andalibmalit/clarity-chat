@@ -104,7 +104,7 @@ def models_toml(root, *names: str) -> None:
 
 def set_lock(root, **sha: str) -> None:
     """Each named lock entry as tiny's, with this sha256; tiny's own entry removed unless named."""
-    path = root / "models.lock"
+    path = root / "local" / "models.lock"  # where the fetch wrote (v0.4.2 A10)
     lock = json.loads(path.read_text(encoding="utf-8"))
     tiny = lock["models"]["tiny"]
     lock["models"] = {
@@ -241,7 +241,7 @@ def test_state_6_on_transformers_through_clarity_replay(
     (source / "config.json").write_text("{}", encoding="utf-8")
     models_toml(root, "aaa", "bbb")
     set_lock(root, aaa=OTHER_SHA, bbb="2" * 64)
-    path = root / "models.lock"
+    path = root / "local" / "models.lock"  # where the fetch wrote (v0.4.2 A10)
     lock = json.loads(path.read_text(encoding="utf-8"))
     for entry in lock["models"].values():
         entry["source_dir"] = "source"

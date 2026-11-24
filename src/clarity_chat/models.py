@@ -1,8 +1,9 @@
-"""Where the weights come from: `fetch`, `verify` and the generated models.lock.
+"""Where the weights come from: `fetch`, `verify` and the generated lock.
 
-models.toml (hand-written) says what to get; models.lock (generated, JSON) records what
-was resolved: commits, file paths, sizes, sha256, the llama.cpp commit and the
-converter's package versions. The sha256 is computed once, at fetch; a server start only
+models.toml (hand-written) says what to get; the lock (generated, JSON) records what was
+resolved: commits, file paths, sizes, sha256, the llama.cpp commit and the converter's
+package versions. Each entry is read from local/models.lock, which every fetch writes, else
+from the shipped models.lock. The sha256 is computed once, at fetch; a server start only
 compares size and modified time, and `verify` re-hashes on demand.
 """
 
@@ -17,6 +18,7 @@ from typing import Any
 from clarity_chat.files import read_text, sha256_file, write_text_atomic
 from clarity_chat.logs import git_state, now_utc
 from clarity_chat.profiles import (
+    LOCAL_LOCK,
     LOCAL_MODELS,
     ConfigError,
     ModelEntry,
@@ -50,9 +52,9 @@ CONVERTER_PYTHON = "3.13"
 
 
 def portable_path(text: str, root: Path, resolve: bool = True) -> str:
-    """A path as written to models.lock, which is committed: relative to the repo when inside
-    it, `~/...` when under the home folder, so the lock carries no user name. Other text is
-    returned unchanged."""
+    """A path as written to a lock entry, which may be committed to models.lock
+    (scripts/refresh_lock.py): relative to the repo when inside it, `~/...` when under the
+    home folder, so the lock carries no user name. Other text is returned unchanged."""
     path = Path(text)
     if not path.is_absolute():
         return text
@@ -106,23 +108,32 @@ def read_lock_file(path: Path) -> dict[str, Any]:
 
 
 def read_lock(root: Path) -> dict[str, Any]:
-    """Each model's lock entry, from the lock beside the models.toml that holds it: your own
-    entries' from local/models.lock (v0.4.0 B4), the rest from models.lock."""
+    """Each model's lock entry: the one in local/models.lock, which every fetch writes
+    (v0.4.2 A10), else the shipped models.lock's, which only the maintainer changes
+    (scripts/refresh_lock.py). Your own entries (local/models.toml, v0.4.0 B4) are read
+    from local/models.lock alone; an entry there for a model in neither models.toml (one
+    since removed) isn't read."""
     lock = read_lock_file(root / LOCK_FILE)
-    if (root / LOCAL_MODELS).is_file():
-        yours = set(read_toml(root / LOCAL_MODELS))
-        theirs = {n: e for n, e in lock["models"].items() if n not in yours}
-        local = read_lock_file(root / "local" / LOCK_FILE)["models"]
-        lock["models"] = theirs | {n: e for n, e in local.items() if n in yours}
+    yours = set(read_toml(root / LOCAL_MODELS)) if (root / LOCAL_MODELS).is_file() else set()
+    shipped = set(read_toml(root / "models.toml")) if (root / "models.toml").is_file() else set()
+    theirs = {n: e for n, e in lock["models"].items() if n not in yours}
+    local = read_lock_file(root / LOCAL_LOCK)["models"]
+    lock["models"] = theirs | {n: e for n, e in local.items() if n in yours | shipped}
     return lock
 
 
-def write_lock_entry(root: Path, name: str, entry: dict[str, Any]) -> None:
-    path = root / model_files(root, name)[1]
-    lock = read_lock_file(path)
-    lock["models"][name] = entry
+def write_lock_file(path: Path, lock: dict[str, Any]) -> None:
     lock["models"] = dict(sorted(lock["models"].items()))
     write_text_atomic(path, json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
+
+
+def write_lock_entry(root: Path, name: str, entry: dict[str, Any]) -> None:
+    """Record `entry` in local/models.lock, for a shipped model as for yours (v0.4.2 A10),
+    so no fetch changes a tracked file."""
+    path = root / LOCAL_LOCK
+    lock = read_lock_file(path)
+    lock["models"][name] = entry
+    write_lock_file(path, lock)
 
 
 def lock_entry(root: Path, model: ModelEntry) -> dict[str, Any]:

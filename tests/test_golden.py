@@ -43,7 +43,7 @@ def steerable(fetched_root) -> Path:
     entry = read_lock(fetched_root)["models"]["tiny"]
     write_lock_entry(fetched_root, "tiny", {**entry, "source_dir": "models/tiny-hf"})
     # v0.4.0's log is on your own entry, `mine` (B4): tiny's pins, in local/models.toml.
-    (fetched_root / "local").mkdir()
+    (fetched_root / "local").mkdir(exist_ok=True)  # the fetch made it (A10)
     (fetched_root / "local" / "models.toml").write_text(
         MODELS.replace("[tiny]", "[mine]"), encoding="utf-8"
     )

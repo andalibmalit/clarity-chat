@@ -34,10 +34,11 @@ def sha(path: Path) -> str:
 
 @pytest.fixture
 def mine(fetched_root, tmp_path, monkeypatch):
-    """A root with tiny fetched (models.lock), and two entries of yours: my-tiny (convert)
+    """A root with tiny in the shipped models.lock (as a checkout's committed entry; a fetch
+    writes local/models.lock since v0.4.2 A10), and two entries of yours: my-tiny (convert)
     and my-ready (gguf), with downloads and the converter stubbed."""
     root = fetched_root
-    (root / "local").mkdir(exist_ok=True)
+    (root / LOCAL_LOCK).replace(root / "models.lock")
     (root / LOCAL_TOML).write_text(MINE + "\n" + MINE_GGUF, encoding="utf-8")
     cache = tmp_path / "hf-cache"
     (cache / "tok").mkdir(parents=True)
@@ -274,15 +275,6 @@ def test_a_name_moved_to_your_file_reads_your_lock_only(mine):
     assert "tiny" in json.loads((mine / "models.lock").read_text(encoding="utf-8"))["models"]
     with pytest.raises(ConfigError, match="is not fetched"):
         lock_entry(mine, loaded(mine, "tiny"))
-
-
-def test_a_stray_entry_in_your_lock_does_not_override_a_shipped_one(mine):
-    """#22: local/models.lock holds tiny (left from an entry since removed), but tiny isn't
-    in local/models.toml: models.lock's entry is the one read."""
-    shipped = json.loads((mine / "models.lock").read_text(encoding="utf-8"))["models"]["tiny"]
-    stray = {**shipped, "gguf": {**shipped["gguf"], "sha256": "9" * 64}}
-    (mine / LOCAL_LOCK).write_text(json.dumps({"models": {"tiny": stray}}), encoding="utf-8")
-    assert read_lock(mine)["models"]["tiny"] == shipped
 
 
 def test_resuming_a_chat_on_your_entry_finds_no_change(mine, chat_tokenizer):

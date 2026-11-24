@@ -77,11 +77,12 @@ A release is done when every item is checked.
 2. CI passes on Linux, macOS and Windows.
 3. The maintainer runs the live tests on their own machine: `uv run pytest -m live -v`, plus `-m olmo`, `-m llama` and `-m hf` if a backend, a chat template or one of the exactness dependencies changed. The results go in the release notes. CI runs the offline tests on all three systems and the SmolLM2 live tier on a Linux CPU build, without its GPU check (the `gpu` marker); the GPU path, the other models and the Transformers backend are tested only by these runs.
 4. A golden log for this release is added to `tests/fixtures/golden/`: a small log written by this release's code with the fake backend and made-up text. `tests/test_golden.py` checks that current code still reads and replays every one.
-5. `CHANGELOG.md`: Unreleased becomes the new version, with **Migration** and **Output may change** where they apply.
-6. The version is bumped in `pyproject.toml`, `install.sh`'s `VERSION` and `CITATION.cff` (`version` and `date-released`) together, the install command in `README.md` and Getting started names the new tag (`tests/test_install.py` checks both), and `ROADMAP.md` is updated.
-7. The maintainer uses the release as a user would, following its by-hand list. During the sprint to 0.8.0 (v0.2.3 onward) this is done once, for all the sprint's releases, as extended use after 0.8.0, except the first runs on real Linux and Windows machines (v0.6.0, v0.7.0); until then the live tests and the QA pass carry the weight.
-8. A pull request merges the release branch into `main`, and the maintainer tags it `vX.Y.Z`.
-9. After the tag, the maintainer pastes the README's install command on a fresh macOS account, so the script as shipped runs once from start to end.
-10. Only for a version worth citing: a GitHub Release, which mints a Zenodo DOI; that DOI goes in `CITATION.cff`.
+5. A shipped model fetched at a new pin, or newly added, has its entry copied to `models.lock` with `uv run python scripts/refresh_lock.py NAME …`, committed on its own.
+6. `CHANGELOG.md`: Unreleased becomes the new version, with **Migration** and **Output may change** where they apply.
+7. The version is bumped in `pyproject.toml`, `install.sh`'s `VERSION` and `CITATION.cff` (`version` and `date-released`) together, the install command in `README.md` and Getting started names the new tag (`tests/test_install.py` checks both), and `ROADMAP.md` is updated.
+8. The maintainer uses the release as a user would, following its by-hand list. During the sprint to 0.8.0 (v0.2.3 onward) this is done once, for all the sprint's releases, as extended use after 0.8.0, except the first runs on real Linux and Windows machines (v0.6.0, v0.7.0); until then the live tests and the QA pass carry the weight.
+9. A pull request merges the release branch into `main`, and the maintainer tags it `vX.Y.Z`.
+10. After the tag, the maintainer pastes the README's install command on a fresh macOS account, so the script as shipped runs once from start to end.
+11. Only for a version worth citing: a GitHub Release, which mints a Zenodo DOI; that DOI goes in `CITATION.cff`.
 
 The exactness dependencies are the llama.cpp commit, `tokenizers`, `transformers` and `jinja2`: a change to any of them can change output. Each bump gets its own commit, a changelog line under **Output may change**, and the live tests.

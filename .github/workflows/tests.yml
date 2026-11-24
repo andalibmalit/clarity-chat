@@ -158,11 +158,12 @@ jobs:
         with:
           path: ~/.cache/huggingface/hub
           key: hf-hub-${{ hashFiles('models.toml') }}
-      # Fetch on every run, so a fetch regression shows at once. Fetch rewrites the model's
-      # lock entry with its own hash, so restore the committed one (made on the Mac) and
-      # verify the Linux-made file against it; verify also records the file's new time.
+      # Fetch on every run, so a fetch regression shows at once. Fetch records the model in
+      # local/models.lock with its own hash, so remove that and verify the Linux-made file
+      # against the committed entry (made on the Mac); verify also records the file's new
+      # time, in local/models.lock.
       - run: uv run clarity fetch smollm2-135m-instruct
-      - run: git restore models.lock
+      - run: rm local/models.lock
       - run: uv run clarity verify smollm2-135m-instruct
       - name: server.toml for the CPU, one line and nothing else
         run: |

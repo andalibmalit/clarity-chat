@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from clarity_chat.files import sha256_file
 from clarity_chat.models import lock_entry, read_lock, verify, write_lock_entry
 from clarity_chat.profiles import ConfigError, load_models
 from tests.conftest import REPO
@@ -23,7 +24,9 @@ LOCAL_LOCK = Path("local") / "models.lock"
 
 
 def shipped(root: Path) -> dict:
-    return json.loads((root / "models.lock").read_text(encoding="utf-8"))
+    """The shipped lock; none in a root nothing was ever shipped to (`fetched_root`)."""
+    path = root / "models.lock"
+    return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {"models": {}}
 
 
 def local(root: Path) -> dict:
@@ -83,13 +86,25 @@ def test_your_entry_wins_over_the_shipped_one_of_the_same_name(fetched_root):
 
 
 def test_without_local_models_lock_the_shipped_one_is_read(fetched_root):
+    """CI's path: the fetch's local/models.lock removed, verify checks the committed entry,
+    and a changed modified time is recorded in local/models.lock, not models.lock."""
+    weights = fetched_root / local_tiny(fetched_root)["gguf"]["path"]
     entry = local_tiny(fetched_root)
+    entry["gguf"]["sha256"] = sha256_file(weights)  # fake_fetch's is made up; verify hashes
     (fetched_root / LOCAL_LOCK).unlink()
     (fetched_root / "models.lock").write_text(
         json.dumps({"schema_version": 1, "models": {"tiny": entry}}), encoding="utf-8"
     )
     assert read_lock(fetched_root)["models"]["tiny"] == entry
+    assert verify(fetched_root, "tiny") == (
+        True,
+        f"tiny: sha256 matches ({entry['gguf']['sha256'][:16]}…)",
+    )
+    before = (fetched_root / "models.lock").read_bytes()
+    os.utime(weights, ns=(1, 1))
     assert verify(fetched_root, "tiny")[0]
+    assert (fetched_root / "models.lock").read_bytes() == before
+    assert local_tiny(fetched_root)["gguf"]["mtime_ns"] == 1
 
 
 def test_an_entry_for_no_model_is_not_read(fetched_root):
@@ -119,20 +134,23 @@ def refresh():
 
 def test_the_refresh_script_copies_named_entries_to_the_shipped_lock(fetched_root, capsys):
     root = fetched_root
-    keep = {"name": "other", "gguf": {"sha256": "2" * 64}}
+    keep = {"name": "zzz", "gguf": {"sha256": "2" * 64}}
     (root / "models.lock").write_text(
-        json.dumps({"schema_version": 1, "models": {"other": keep}}), encoding="utf-8"
+        json.dumps({"schema_version": 1, "models": {"zzz": keep}}), encoding="utf-8"
     )
     assert refresh().main(["--root", str(root), "tiny"]) == 0
     lock = shipped(root)
-    assert lock["models"] == {"other": keep, "tiny": local_tiny(root)}
-    assert list(lock["models"]) == ["other", "tiny"]  # sorted, as write_lock_entry sorts
+    assert lock["models"] == {"zzz": keep, "tiny": local_tiny(root)}
+    assert list(lock["models"]) == ["tiny", "zzz"]  # sorted, as write_lock_entry sorts
     assert "models.lock: tiny copied from local/models.lock" in capsys.readouterr().out
 
 
 def test_the_refresh_script_refuses_a_name_it_can_t_copy(fetched_root, capsys):
     """Not in local/models.lock (not fetched here), or not a shipped model (yours go in
     local/models.toml and never in the shipped lock): refused, and nothing written."""
+    (fetched_root / "models.lock").write_text(
+        json.dumps({"schema_version": 1, "models": {}}), encoding="utf-8"
+    )
     before = (fetched_root / "models.lock").read_bytes()
     module = refresh()
     assert module.main(["--root", str(fetched_root), "nope"]) == 1

@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Migration
+- Fetches now write `local/models.lock`; an entry there wins over `models.lock`. Entries an earlier fetch wrote to `models.lock` are still read. To make the checkout clean again, run `git restore models.lock`, then `uv run clarity verify NAME` for each model you fetched: it re-hashes the file and records it in `local/models.lock`. A model it reports as different needs `uv run clarity fetch NAME` again.
+
 ### Added
 - Gemma 4 E4B (`gemma-4-e4b`, Apache 2.0), quantized to Q4_0 by llama.cpp's ggml-org, with a profile of the same name that turns thinking off and uses the model's recommended settings. It's the chat model `clarity setup` fetches first. On a Mac it uses about 3.3 GB of GPU memory, plus about 2.4 GB of input embeddings in host memory.
 - Replay compares how llama-server was built: the commit, compiler and target from the build line it logs at start, and its list of backends and CPU features, read from the logged start's output, so two builds of one commit made differently are told apart. Earlier logs whose start holds these lines are compared too; a line one side lacks is listed as not recorded.
@@ -15,6 +18,7 @@ Two headings are Clarity's own, used when they apply:
 - The install command: on a Mac with Apple silicon and 16 GB of memory or more, `curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/andalibmalit/clarity-chat/VERSION/install.sh | sh` checks the Mac, installs uv if it's missing (its installer checked by sha256 first), puts Clarity in `~/Clarity` at the release's tag, and runs `clarity setup` and then the web interface. It writes nothing until its checks pass, and run again it does only what's missing. Getting started now leads with it; the steps it replaces are under Install by hand.
 
 ### Changed
+- Every fetch records its model in `local/models.lock`, which git ignores, so fetching no longer changes a tracked file and a call logs `client.dirty: true` only for a real edit. The shipped `models.lock` changes only when the maintainer copies entries into it with `scripts/refresh_lock.py`.
 - A new dev dependency, `shellcheck-py` 0.11.0.1 (ShellCheck 0.11.0), so the tests check the install script with ShellCheck; `uv.lock` pins it with its hashes.
 - A new `setup` dependency group holds `cmake` 4.4.5 from PyPI, which `clarity setup` uses to build `llama-server` (`uv sync --group setup`); `uv.lock` pins it with its hashes.
 - A refusal that ends "fetch it" (a model that isn't fetched, say) names Clarity's folder: "In a new Terminal window, run: cd ~/Clarity && uv run clarity fetch NAME. Then try again."

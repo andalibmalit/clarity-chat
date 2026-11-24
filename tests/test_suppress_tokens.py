@@ -275,7 +275,7 @@ def banned_root(fetched_root, chat_tokenizer):
             encoding="utf-8",
             newline="\n",
         )
-    lock_path = fetched_root / "models.lock"
+    lock_path = fetched_root / "local" / "models.lock"  # where a fetch writes (v0.4.2 A10)
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
     for entry in lock["models"].values():
         entry["recommended"]["not_applied"]["suppress_tokens"] = [z_id(chat_tokenizer)]

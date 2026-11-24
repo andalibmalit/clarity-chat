@@ -74,7 +74,7 @@ Clarity's live tests have run on Apple Silicon (Metal), and CI runs the SmolLM2 
 uv run clarity fetch smollm2-135m-instruct
 ```
 
-This downloads the model from Hugging Face at the commit pinned in `models.toml`, converts it to a bf16 GGUF in `models/smollm2-135m-instruct/`, and records its sha256 and everything else it resolved in `models.lock`.
+This downloads the model from Hugging Face at the commit pinned in `models.toml`, converts it to a bf16 GGUF in `models/smollm2-135m-instruct/`, and records its sha256 and everything else it resolved in `local/models.lock`.
 
 To check the file later, re-hash it:
 

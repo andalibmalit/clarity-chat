@@ -6,6 +6,7 @@ instead of silently changing what the model gets. The tool never writes these fi
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import shlex
@@ -844,6 +845,7 @@ def load_profile(
 # --- models.toml ------------------------------------------------------------------------
 
 LOCAL_MODELS = Path("local") / "models.toml"  # your own entries; the same keys
+LOCAL_LOCK = Path("local") / "models.lock"  # every fetch's lock entries (v0.4.2 A10)
 
 
 def check_commit(value: object, where: str) -> str:
@@ -893,10 +895,14 @@ def load_models(root: Path) -> dict[str, ModelEntry]:
 
 def model_files(root: Path, name: str) -> tuple[str, str]:
     """The models.toml and lock file that hold a model's entry, for the sentences that name
-    them: local/models.toml and local/models.lock for your own entries."""
+    them: local/models.toml for your own entries; local/models.lock for yours and for any
+    entry a fetch here wrote (v0.4.2 A10), models.lock for a shipped one not fetched here."""
     local = root / LOCAL_MODELS
     if local.is_file() and name in read_toml(local):
         return "local/models.toml", "local/models.lock"
+    lock = root / LOCAL_LOCK
+    if lock.is_file() and name in json.loads(lock.read_text(encoding="utf-8"))["models"]:
+        return "models.toml", "local/models.lock"
     return "models.toml", "models.lock"
 
 

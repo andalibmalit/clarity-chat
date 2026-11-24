@@ -236,7 +236,7 @@ def test_every_fetch_hint_is_one_sentence_that_runs_as_written():
 
 def test_a_lock_entry_from_other_settings_says_how_to_fetch_again(make, fetched_root):
     session, _ = make()
-    lock = fetched_root / "models.lock"
+    lock = fetched_root / "local" / "models.lock"  # where the fetch wrote (v0.4.2 A10)
     lock.write_text(
         lock.read_text(encoding="utf-8").replace("0123456789abcdef", "fedcba9876543210", 1),
         encoding="utf-8",

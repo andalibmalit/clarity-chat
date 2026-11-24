@@ -142,7 +142,8 @@ def root(tmp_path: Path) -> Path:
 
 
 def fake_fetch(root: Path, name: str = "tiny") -> Path:
-    """Pretend `name` was fetched: a dummy weights file and its models.lock entry."""
+    """Pretend `name` was fetched: a dummy weights file and its lock entry (in
+    local/models.lock, as every fetch writes since v0.4.2 A10)."""
     from clarity_chat.models import write_lock_entry
     from clarity_chat.profiles import load_models
 
