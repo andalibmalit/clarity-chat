@@ -20,8 +20,9 @@ UV_VERSION=0.11.19
 # The sha256 of https://astral.sh/uv/0.11.19/install.sh (the owner's run, 2026-11-22).
 UV_INSTALLER_SHA256=ef8cf0575d37cf3c72e05f153dd72a845a87a7bb9be86184d5fe931b8c426250
 # What a whole install keeps (llama.cpp and its build, the converter's environment, Gemma
-# 4 E4B and bge-m3, Clarity, uv and Python), about 10 GB, plus 5 GB to spare, in kB.
-NEED_KB=15000000
+# 4 E4B and bge-m3, Clarity, uv and Python), about 10 GB, plus 5 GB to spare: 15 GB (10^9
+# bytes, as setup counts) in df -Pk's 1024-byte blocks.
+NEED_KB=14648438
 GETTING_STARTED=https://github.com/andalibmalit/clarity-chat/blob/main/docs/getting-started.md
 
 say() {
@@ -61,7 +62,7 @@ main() {
         '' | *[!0-9]*) refuse "The install couldn't tell how much disk your home folder has free (df said \"$free_kb\"), so it stopped." ;;
     esac
     if [ "$free_kb" -lt "$NEED_KB" ]; then
-        refuse "The install needs $((NEED_KB / 1000000)) GB free in your home folder (with 5 GB to spare); it has $((free_kb / 1000000)) GB free."
+        refuse "The install needs $((NEED_KB * 1024 / 1000000000)) GB free in your home folder (with 5 GB to spare); it has $((free_kb * 1024 / 1000000000)) GB free."
     fi
     # State 3: Apple's command line tools bring git and the compiler llama.cpp's build needs.
     if ! xcode-select -p >/dev/null 2>&1; then
@@ -75,6 +76,12 @@ main() {
         uv="$HOME/.local/bin/uv"
     fi
     if [ -z "$uv" ]; then
+        # uv's installer checks its archive's sha256 with sha256sum, and skips the check if
+        # it finds none; macOS keeps it in /sbin, which a PATH may leave out.
+        installer_path="$PATH:/usr/sbin:/sbin"
+        if ! env PATH="$installer_path" sh -c 'command -v sha256sum' >/dev/null 2>&1; then
+            refuse "uv's installer couldn't check its download here (it needs sha256sum), so install uv by hand as uv's docs say, https://docs.astral.sh/uv/getting-started/installation/, then paste the command again."
+        fi
         say "Installing uv $UV_VERSION, which runs Clarity (its installer checked by sha256) …"
         # mktemp makes it readable only by you (0600); it's removed on every way out.
         installer=$(mktemp "${TMPDIR:-/tmp}/clarity-uv-installer.XXXXXX")
@@ -84,7 +91,7 @@ main() {
         if [ "$(shasum -a 256 "$installer" | cut -d ' ' -f 1)" != "$UV_INSTALLER_SHA256" ]; then
             refuse "uv's installer doesn't match its checked sha256, so the install stopped and ran nothing."
         fi
-        env -i HOME="$HOME" PATH="$PATH" sh "$installer"
+        env -i HOME="$HOME" PATH="$installer_path" sh "$installer"
         rm -f "$installer"
         trap - EXIT HUP INT TERM
         uv="$HOME/.local/bin/uv"

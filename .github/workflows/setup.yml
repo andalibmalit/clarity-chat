@@ -9,6 +9,8 @@ on:
   push:
     paths:
       - src/clarity_chat/setup.py
+      - src/clarity_chat/logs.py
+      - src/clarity_chat/backends/llama_cpp.py
       - install.sh
       - server.toml
       - pyproject.toml
@@ -19,6 +21,8 @@ on:
   pull_request:
     paths:
       - src/clarity_chat/setup.py
+      - src/clarity_chat/logs.py
+      - src/clarity_chat/backends/llama_cpp.py
       - install.sh
       - server.toml
       - pyproject.toml
