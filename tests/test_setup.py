@@ -819,6 +819,7 @@ def test_a_missing_llama_server_is_built_with_getting_started_s_lines(root):
 
 def test_a_llama_server_from_another_commit_is_built_again(root):
     root, state = done_root(root)
+    setup_built(root)  # setup's own build folder (the security review's S2)
     run = FakeRunner(llama_commit="0000000")
     built = run.effects["build"]
 
@@ -900,3 +901,126 @@ def test_a_windows_long_path_prefix_isn_t_shown():
         == "C:\\Users\\made-up\\nowhere"
     )
     assert clarity_setup.shown_link("/Users/made-up/nowhere") == "/Users/made-up/nowhere"
+
+
+# --- the security review's S2, S3 and C2: setup builds into, and deletes, only what it made
+
+
+def setup_built(root: Path) -> None:
+    """Mark the build folder as setup's: it holds clarity-build.log, written before cmake."""
+    build = load_server_config(root).llama_cpp_dir / "build"
+    build.mkdir(parents=True, exist_ok=True)
+    (build / "clarity-build.log").write_text("cmake version 4.4.5\n", encoding="utf-8")
+
+
+def test_the_cmake_argvs_name_server_toml_s_folder(root):
+    """S3: llama_cpp_dir's folder, not vendor/llama.cpp, whatever server.toml names."""
+    toml = root / "server.toml"
+    text = toml.read_text(encoding="utf-8")
+    toml.write_text(text.replace('"vendor/llama.cpp"', '"third_party/llama.cpp"'), encoding="utf-8")
+    folder = root / "third_party" / "llama.cpp"
+    n = str(os.cpu_count() or 1)
+    assert made(root).cmake_argvs() == [
+        [CMAKE, "-S", str(folder), "-B", str(folder / "build"), "-DCMAKE_BUILD_TYPE=Release",
+         "-DLLAMA_CURL=OFF", "-DLLAMA_USE_PREBUILT_UI=OFF"],
+        [CMAKE, "--build", str(folder / "build"), "--config", "Release", "-j", n, "--target",
+         "llama-server"],
+    ]  # fmt: skip
+
+
+def refused_build(root: Path, thing: str) -> str:
+    n = os.cpu_count() or 1
+    return (
+        f"llama-server needs building at {pin(root)[:12]}, but {thing}, so setup leaves it "
+        "alone: it may be your own work. Setup builds only into a build folder it made, never "
+        f"through a link. To build llama-server yourself, run Getting started's two lines in "
+        f"~/{root.name}, then run setup again:\n"
+        "cmake -S vendor/llama.cpp -B vendor/llama.cpp/build -DCMAKE_BUILD_TYPE=Release "
+        "-DLLAMA_CURL=OFF -DLLAMA_USE_PREBUILT_UI=OFF\n"
+        f"cmake --build vendor/llama.cpp/build --config Release -j {n} --target llama-server"
+    )
+
+
+@pytest.mark.parametrize("kind", ["their-build", "build-link", "source-link"])
+def test_a_build_folder_setup_didn_t_make_is_refused_and_no_cmake_runs(root, tmp_path, kind):
+    """S2: a checkout at the pin whose llama-server is stale is built again only in a build
+    folder setup made (it holds clarity-build.log), and never through a link. Anything else
+    is refused before the question, with Getting started's two lines, and left as it was."""
+    vendor = load_server_config(root).llama_cpp_dir
+    elsewhere = tmp_path / "elsewhere"
+    if kind == "their-build":
+        source(root)
+        thing = "vendor/llama.cpp/build holds a build setup didn't make"
+        mine = vendor / "build"
+    elif kind == "build-link":
+        source(root)
+        mine = elsewhere
+        elsewhere.mkdir()
+        try:
+            (vendor / "build").symlink_to(elsewhere, target_is_directory=True)
+        except OSError:
+            pytest.skip("symlinks need privileges on Windows")
+        thing = f"vendor/llama.cpp/build is a link to {elsewhere}"
+    else:
+        vendor.parent.mkdir(parents=True)
+        mine = elsewhere
+        (elsewhere / ".git").mkdir(parents=True)
+        try:
+            vendor.symlink_to(elsewhere, target_is_directory=True)
+        except OSError:
+            pytest.skip("symlinks need privileges on Windows")
+        thing = f"vendor/llama.cpp is a link to {elsewhere}"
+    binary(root)  # through the link, if there is one: llama-server from another commit
+    if kind == "their-build":
+        (vendor / "build" / "CMakeCache.txt").write_text("made up", encoding="utf-8")
+    else:
+        setup_built(root)  # even a build folder setup made isn't built through a link
+    before = sorted(str(p.relative_to(mine)) for p in mine.rglob("*"))
+    run, says = FakeRunner(llama_commit="0000000"), Says()
+    state = states(root, source={"commit": pin(root), "dirty": False})
+    with pytest.raises(ConfigError) as refused:
+        made(root, run=run, says=says, state=state).go()
+    assert str(refused.value) == refused_build(root, thing)
+    assert [argv for argv, _ in run.calls if argv[0] == CMAKE] == [] and says.asked == []
+    assert sorted(str(p.relative_to(mine)) for p in mine.rglob("*")) == before
+
+
+def partial_of(root: Path) -> Path:
+    return load_server_config(root).llama_cpp_dir.parent / "llama.cpp.partial"
+
+
+def test_a_partial_that_is_a_link_is_refused_untouched(root, tmp_path):
+    """C2: a .partial setup would delete is one it made: a folder, not a link."""
+    partial, mine = partial_of(root), tmp_path / "mine"
+    mine.mkdir()
+    (mine / ".git").mkdir()
+    partial.parent.mkdir(parents=True)
+    try:
+        partial.symlink_to(mine, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks need privileges on Windows")
+    run, says = FakeRunner(), Says()
+    with pytest.raises(ConfigError) as refused:
+        made(root, run=run, says=says).go()
+    assert str(refused.value) == (
+        f"vendor/llama.cpp.partial is a link to {mine}, so setup leaves it alone: it may be "
+        "your own work. Move it out of vendor/, then run setup again."
+    )
+    assert run.calls == [] and says.asked == [] and partial.is_symlink()
+    assert sorted(p.name for p in mine.iterdir()) == [".git"]
+
+
+def test_a_partial_without_git_is_refused_untouched(root):
+    """C2: one with no .git isn't a fetch setup started (git init makes .git first)."""
+    partial = partial_of(root)
+    partial.mkdir(parents=True)
+    (partial / "mine.txt").write_text("made up", encoding="utf-8")
+    run, says = FakeRunner(), Says()
+    with pytest.raises(ConfigError) as refused:
+        made(root, run=run, says=says).go()
+    assert str(refused.value) == (
+        "vendor/llama.cpp.partial isn't a fetch setup started (it has no .git), so setup "
+        "leaves it alone: it may be your own work. Move it out of vendor/, then run setup again."
+    )
+    assert run.calls == [] and says.asked == []
+    assert sorted(p.name for p in partial.iterdir()) == ["mine.txt"]
