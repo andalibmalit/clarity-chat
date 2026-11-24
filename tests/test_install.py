@@ -25,11 +25,12 @@ TERMINAL = "made-up terminal"  # what the file standing for /dev/tty holds
 
 SCRIPT = REPO / "install.sh"
 GIB = 1024**3
-# The made-up uv installer the curl stub serves: it logs its environment's names and puts a
-# uv stub in ~/.local/bin. The paths are written in, since the install runs the installer
-# with HOME and PATH only.
+# The made-up uv installer the curl stub serves: it logs its environment's names and PATH,
+# and puts a uv stub in ~/.local/bin. The paths are written in, since the install runs the
+# installer with HOME and PATH only.
 INSTALLER = """#!/bin/sh
 echo "installer-env $(env | cut -d= -f1 | sort | tr '\\n' ' ')" >> "{log}"
+echo "installer-path $PATH" >> "{log}"
 mkdir -p "$HOME/.local/bin"
 cp "{stub_uv}" "$HOME/.local/bin/uv"
 """
@@ -56,6 +57,10 @@ class Bench:
         self.served: bytes | None = None  # what the curl stub serves, if not the installer
         self.curl_fails = False
         self.tmp = tmp_path / "tmp"  # mktemp's folder, as Terminal's TMPDIR gives it
+        # A sha256sum stub, so uv's installer can check its download whatever this computer
+        # has; S4's test of a Mac without one takes it away, with the system's.
+        self.sha256sum = True
+        self.system_path = "/usr/bin:/bin"
 
     def stub(self, name: str, body: str) -> Path:
         path = self.bin / name
@@ -93,6 +98,8 @@ class Bench:
             "git",
             'echo "git $*" >> "$LOG"\n'
             "echo \"git-env $(env | cut -d= -f1 | sort | tr '\\n' ' ')\" >> \"$LOG\"\n"
+            'echo "git-config $GIT_CONFIG_NOSYSTEM $GIT_CONFIG_GLOBAL $GIT_TERMINAL_PROMPT"'
+            ' >> "$LOG"\n'
             "for last; do :; done\n"  # the clone's folder is its last argument
             'case "$*" in *clone*) mkdir -p "$last"; : > "$last/defaults.toml";'
             ' : > "$last/server.toml";'
@@ -107,6 +114,8 @@ class Bench:
         )
         if not self.uv_on_path:
             uv.rename(self.stub_uv)
+        if self.sha256sum:
+            self.stub("sha256sum", "exit 0\n")
 
     def script(self, text: str | None = None, tty: bool = True) -> str:
         """install.sh, with its uv installer's sha256 swapped for the made-up installer's,
@@ -128,7 +137,8 @@ class Bench:
         POSIX sh to pipe it into instead (dash, Ubuntu's sh)."""
         self.write_stubs()
         self.tmp.mkdir(exist_ok=True)
-        env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin", "TMPDIR": str(self.tmp)}
+        path = f"{self.bin}:{self.system_path}"
+        env = {"HOME": str(self.home), "PATH": path, "TMPDIR": str(self.tmp)}
         # Its working folder is the test's own, so a relative path lands there, not in the
         # checkout (nothing_outside checks).
         return subprocess.run(
@@ -222,6 +232,9 @@ def test_a_mac_installs_clarity_and_runs_setup_and_the_page_on_the_terminal(benc
     assert set(git_env.split()[1:]) - SH_SETS == {
         "HOME", "PATH", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT"
     }, git_env  # fmt: skip
+    # The whole-branch review's S2: no system or global git config (a url.insteadOf there
+    # could send the clone elsewhere), and no prompt.
+    assert bench.ran("git-config ") == ["git-config 1 /dev/null 0"]
     uv = bench.ran("uv ")
     assert uv == [
         "uv sync --locked --inexact --group setup",  # (ii): a hand install keeps its extras
@@ -408,3 +421,79 @@ def test_uv_s_required_version_is_the_build_backend_s_range():
     assert pyproject.get("tool", {}).get("uv", {}).get("required-version") == backend.removeprefix(
         "uv_build"
     )
+
+
+# --- the whole-branch review's C3 and C22, and the security review's S4
+
+NEED_KB = 14_648_438  # 15 GB (10^9 bytes, as setup counts) in df -Pk's 1024-byte blocks
+
+
+@pytest.mark.parametrize(
+    "free_kb, has", [(NEED_KB - 1, 14), (9_765_625, 10)], ids=["one-short", "10-gb"]
+)
+def test_the_disk_floor_is_15_gb_in_df_s_kib(bench, free_kb, has):
+    """C22: df -Pk counts 1024-byte blocks; the sentence's GB are 10^9 bytes, as setup's.
+    9,765,625 blocks are exactly 10 GB. C3: one block short of 15 GB is refused."""
+    bench.facts["FREE_KB"] = str(free_kb)
+    done = bench.run()
+    assert done.returncode != 0
+    assert (
+        "The install needs 15 GB free in your home folder (with 5 GB to spare); it has "
+        f"{has} GB free." in done.stderr
+    ), done.stderr
+    assert bench.lines() == [] and list(bench.home.iterdir()) == []
+
+
+def test_exactly_15_gb_free_passes(bench):
+    """C3: the floor's edge."""
+    bench.facts["FREE_KB"] = str(NEED_KB)
+    done = bench.run()
+    assert done.returncode == 0, done.stderr
+    assert bench.ran("uv run --group setup clarity setup")
+
+
+def test_exactly_16_gib_of_memory_passes_and_a_byte_less_is_refused(bench):
+    """C3: the memory floor's edge, 16 GiB as `sysctl -n hw.memsize` counts it."""
+    bench.facts["MEMORY"] = str(16 * GIB - 1)
+    done = bench.run()
+    assert done.returncode != 0
+    assert "Clarity needs 16 GB of memory; this Mac has 15 GB." in done.stderr
+    bench.facts["MEMORY"] = str(16 * GIB)
+    done = bench.run()
+    assert done.returncode == 0, done.stderr
+
+
+def test_uv_s_installer_runs_with_the_system_folders_on_its_path(bench):
+    """S4: uv's installer checks its archive's sha256 with sha256sum, and skips the check
+    if it finds none; macOS keeps it in /sbin, which a user's PATH may leave out."""
+    bench.uv_on_path = False
+    done = bench.run()
+    assert done.returncode == 0, done.stderr
+    (path,) = bench.ran("installer-path ")
+    assert path.endswith(":/usr/sbin:/sbin"), path
+
+
+def test_without_sha256sum_uv_s_installer_isn_t_fetched_or_run(bench):
+    """S4: with no sha256sum on the installer's PATH, it would unpack its download
+    unchecked; the install refuses first, having fetched and run nothing. The system's
+    folders are copied without sha256sum (on Linux it's in /usr/bin), and the script's
+    appended /usr/sbin:/sbin is swapped for an empty folder (macOS keeps it in /sbin)."""
+    system, empty = bench.root / "system", bench.root / "empty"
+    system.mkdir()
+    empty.mkdir()
+    for folder in (Path("/usr/bin"), Path("/bin")):
+        for tool in folder.iterdir():
+            if tool.name != "sha256sum" and not (system / tool.name).exists():
+                (system / tool.name).symlink_to(tool)
+    bench.system_path, bench.sha256sum, bench.uv_on_path = str(system), False, False
+    done = bench.run(text().replace(":/usr/sbin:/sbin", f":{empty}"))
+    assert done.returncode != 0
+    assert done.stderr == (
+        "clarity install: uv's installer couldn't check its download here (it needs "
+        "sha256sum), so install uv by hand as uv's docs say, "
+        "https://docs.astral.sh/uv/getting-started/installation/, then paste the command "
+        "again.\n"
+    ), done.stderr
+    assert not bench.ran("curl ") and not bench.ran("installer-")
+    assert not bench.ran("git ") and not bench.ran("uv ")
+    assert not (bench.home / ".local").exists() and list(bench.tmp.iterdir()) == []

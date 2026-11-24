@@ -9,6 +9,10 @@ from tests.conftest import REPO
 WORKFLOW = REPO / ".github" / "workflows" / "setup.yml"
 WATCHED = (
     "src/clarity_chat/setup.py",
+    # What the setup tier runs of other modules: git_state (the checkout's state) and
+    # server_binary (the build's llama-server), the whole-branch review's C12.
+    "src/clarity_chat/logs.py",
+    "src/clarity_chat/backends/llama_cpp.py",
     "install.sh",
     "server.toml",
     "pyproject.toml",
