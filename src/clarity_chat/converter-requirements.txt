@@ -1,9 +1,17 @@
 # The converter's environment: the packages bge-m3's conversion ran with (models.lock,
 # converter.packages), each with the sha256 of every file PyPI has for it. `clarity fetch`
 # installs them into models/.converter with `uv pip install --require-hashes --no-build`, so
-# a file that doesn't match is refused and only wheels are installed. Linux adds PyPI torch's NVIDIA libraries and triton, and
-# Windows tqdm's colorama. Made by listing that record as NAME==VERSION lines in PINS, then:
+# a file that doesn't match is refused and only wheels are installed. Linux adds PyPI
+# torch's NVIDIA libraries and triton, and Windows tqdm's colorama. Made by listing that
+# record as NAME==VERSION lines in PINS, then:
 #   uv pip compile PINS --universal --python-version 3.13 --generate-hashes --no-header --no-annotate
+# For a new llama.cpp pin, PINS is instead the requirement lines of llama.cpp's
+# requirements/requirements-convert_hf_to_gguf.txt and the file its -r line names, without
+# its --extra-index-url line (the conversions ran with PyPI's torch), plus
+# sentencepiece==0.2.2 (0.2.3 needs protobuf 5, which those files rule out), then:
+#   uv pip compile PINS --no-config --default-index https://pypi.org/simple --universal
+#     --python-version 3.13 --generate-hashes --no-header --no-annotate
+# A live test checks that these pins meet llama.cpp's requirements at its pinned commit.
 certifi==2026.10.23 \
     --hash=sha256:a9895e6e2758b371e0545e321a3a8fd1fcfd9829ada8824a936dfb16aaaf36cd \
     --hash=sha256:e9b54de76e530bb6cf0ccd036787103acb58fd42ba930ea8bf948ddbaa2f61d1

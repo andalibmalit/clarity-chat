@@ -702,40 +702,131 @@ def test_the_converter_s_sentencepiece_is_pinned():
     assert {"sentencepiece==0.2.2", "protobuf==4.25.9"} <= specs, specs
 
 
-@pytest.mark.live
-def test_the_converter_sees_nothing_of_claritys_environment_and_imports_its_pinned_transformers(
-    tmp_path,
-):
-    """The probe behind the isolation fix, through the commands fetch_convert runs, from
-    Clarity's folder (where uv would find Clarity's .venv), with the environment made in a
-    scratch folder: no .venv or src on sys.path, none of Clarity's dev tools installed, and
-    the transformers llama.cpp pins imported. Live: it needs the llama.cpp checkout and
-    the pinned packages (uv's cache, or the network)."""
+@pytest.fixture(scope="module")
+def converter_python(tmp_path_factory) -> list[str]:
+    """The converter's environment, made by fetch_convert's own setup commands from Clarity's
+    folder (where uv would find Clarity's .venv) in a scratch folder; the command that runs
+    its python. One per module: it installs torch. Live only: it needs the pinned packages
+    (uv's cache, or the network)."""
     import subprocess
 
     repo = Path(__file__).resolve().parents[1]
-    server = load_server_config(repo)
-    venv, install, python = models.converter_commands(tmp_path)
+    venv, install, python = models.converter_commands(tmp_path_factory.mktemp("converter"))
     for command in (venv, install):
         subprocess.run(command, cwd=repo, check=True, stdin=subprocess.DEVNULL)
-    probe = (
-        "import json, sys, transformers\n"
-        "from importlib.metadata import distributions\n"
-        "names = sorted({d.metadata['Name'].lower() for d in distributions()})\n"
-        "print(json.dumps({'path': sys.path, 'names': names,"
-        " 'transformers': transformers.__version__}))\n"
-    )
+    return python
+
+
+def in_converter(python: list[str], script: str, *args: str):
+    """Run `script` in the converter's environment, from Clarity's folder; its last line of
+    output, read as JSON."""
+    import subprocess
+
+    repo = Path(__file__).resolve().parents[1]
     done = subprocess.run(
-        [*python, "-c", probe],
+        [*python, "-c", script, *args],
         cwd=repo,
         capture_output=True,
         text=True,
         encoding="utf-8",
         check=True,
     )
-    seen = json.loads(done.stdout.strip().splitlines()[-1])
+    return json.loads(done.stdout.strip().splitlines()[-1])
+
+
+@pytest.mark.live
+def test_the_converter_sees_nothing_of_claritys_environment_and_imports_its_pinned_packages(
+    converter_python,
+):
+    """The probe behind the isolation fix: no .venv or src on sys.path, none of Clarity's dev
+    tools installed, the transformers llama.cpp pins imported, and sentencepiece's protobuf
+    module, which failed to load with sentencepiece 0.2.3 and protobuf 4 (bge-m3's
+    vocabulary). Live: it needs the llama.cpp checkout and the converter's environment."""
+    repo = Path(__file__).resolve().parents[1]
+    server = load_server_config(repo)
+    probe = (
+        "import json, sys, transformers, sentencepiece\n"
+        "from sentencepiece import sentencepiece_model_pb2\n"
+        "from importlib.metadata import distributions\n"
+        "names = sorted({d.metadata['Name'].lower() for d in distributions()})\n"
+        "print(json.dumps({'path': sys.path, 'names': names,"
+        " 'transformers': transformers.__version__}))\n"
+    )
+    seen = in_converter(converter_python, probe)
     venv_dir, src = str(repo / ".venv"), str(repo / "src")
     assert [p for p in seen["path"] if p.startswith((venv_dir, src))] == []
     assert {"pytest", "ruff", "ty", "clarity-chat"} & set(seen["names"]) == set()
     pinned = server.llama_cpp_dir / "requirements" / "requirements-convert_legacy_llama.txt"
     assert f"transformers=={seen['transformers']}" in pinned.read_text("utf-8"), seen
+
+
+def requirements_of(path: Path) -> list[str]:
+    """The requirement lines of a pip requirements file, following its `-r` lines (relative
+    to the file's folder) and leaving out comments and option lines such as
+    --extra-index-url: what it asks for, not where from."""
+    lines = []
+    for line in path.read_text("utf-8").splitlines():
+        line = line.split(" #")[0].strip()
+        if line.startswith("-r "):
+            lines += requirements_of(path.parent / line.removeprefix("-r ").strip())
+        elif line and not line.startswith(("#", "-")):
+            lines.append(line)
+    return lines
+
+
+def test_requirements_of_follows_r_lines_and_leaves_out_options(tmp_path):
+    (tmp_path / "reqs").mkdir()
+    (tmp_path / "reqs" / "base.txt").write_text(
+        'numpy~=2.2.6; python_version < "3.14"\n\n# a comment\ngguf>=0.1.0  # trailing\n'
+    )
+    (tmp_path / "reqs" / "top.txt").write_text(
+        "-r ./base.txt\n--extra-index-url https://example.org/whl\n## torch\ntorch==2.11.0\n"
+    )
+    assert requirements_of(tmp_path / "reqs" / "top.txt") == [
+        'numpy~=2.2.6; python_version < "3.14"',
+        "gguf>=0.1.0",
+        "torch==2.11.0",
+    ]
+
+
+@pytest.mark.live
+def test_the_converter_s_pins_meet_llama_cpp_s_convert_requirements(converter_python):
+    """converter-requirements.txt pins what a conversion ran with; llama.cpp's own file at the
+    pinned commit says what its converter needs. Each of its requirements that applies to
+    the converter's Python must be met by the installed pin, so a new llama.cpp pin that
+    moves a range fails here, not in a conversion. Checked in the environment with its own
+    `packaging` (a transformers dependency): Clarity adds none."""
+    repo = Path(__file__).resolve().parents[1]
+    server = load_server_config(repo)
+    wanted = requirements_of(
+        server.llama_cpp_dir / "requirements" / "requirements-convert_hf_to_gguf.txt"
+    )
+    check = (
+        "import json, sys\n"
+        "from importlib.metadata import PackageNotFoundError, version\n"
+        "from packaging.requirements import Requirement\n"
+        "checked, unmet = [], []\n"
+        "for line in json.loads(sys.argv[1]):\n"
+        "    wanted = Requirement(line)\n"
+        "    if wanted.marker is not None and not wanted.marker.evaluate():\n"
+        "        continue\n"
+        "    try:\n"
+        "        have = version(wanted.name)\n"
+        "    except PackageNotFoundError:\n"
+        "        have = None\n"
+        "    checked.append(wanted.name)\n"
+        "    if have is None or not wanted.specifier.contains(have, prereleases=True):\n"
+        "        unmet.append([line, have])\n"
+        "print(json.dumps({'checked': checked, 'unmet': unmet}))\n"
+    )
+    seen = in_converter(converter_python, check, json.dumps(wanted))
+    assert seen["unmet"] == [], seen
+    # numpy once (the other line is for Python 3.14), then the rest of what the files name
+    assert sorted(seen["checked"]) == [
+        "gguf",
+        "numpy",
+        "protobuf",
+        "sentencepiece",
+        "torch",
+        "transformers",
+    ], seen
