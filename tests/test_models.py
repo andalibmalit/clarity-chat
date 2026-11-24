@@ -513,7 +513,8 @@ def test_the_converter_s_environment_is_said_before_it_is_made(tmp_path, monkeyp
     converting(tmp_path, monkeypatch, seen=seen)
     assert "venv" in printed, printed
     assert "models/.converter" in printed["venv"], printed
-    assert "converter-requirements.txt" in printed["venv"], printed
+    # the file's path in Clarity's folder, as the Converting line gives the shim's: findable
+    assert " code/converter-requirements.txt " in printed["venv"], printed
 
 
 def test_the_converter_s_environment_is_made_again_only_when_the_requirements_change(
