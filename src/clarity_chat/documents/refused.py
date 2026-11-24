@@ -54,10 +54,11 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
         return f"{said} Add it with {add}, or {KEY}." if terminal else f"{said} {KEY.capitalize()}."
     if state == "no_embedder":  # state 5: fetch it, or search by words in a new chat (S4)
         fetch = fetch_hint(EMBEDDER) if terminal else "Getting started shows how to fetch it."
+        then = "start a new chat" if chat else "run the command again"  # a run has no chat (#6b)
         return (
             f"Meaning search needs {EMBEDDER}, which isn't fetched. {fetch} Or set "
             'search_method = "words" under [documents] in your own profile (copy a shipped one '
-            "into local/profiles/ first) and start a new chat."
+            f"into local/profiles/ first) and {then}."
         )
     if state == "embedder":  # state 6: the reason, then how to send without searching
         if not at_send:

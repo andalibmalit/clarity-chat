@@ -388,7 +388,9 @@ def memory_problem(
                 )
             )
         limit = f"more than Metal's recommended limit for this GPU, {m['limit_mib']:,} MiB."
-        if other is None:  # the embedder alone: its 8,192 is fixed
+        if other is None or (embedder and m["total_mib"] > m["limit_mib"]):
+            # the embedder alone, with or without a chat server beside it: its 8,192 is
+            # fixed, and nothing the chat server could give up would make room (#1)
             way_out = WORDS_WAY_OUT[0].upper() + WORDS_WAY_OUT[1:]
             return (
                 f"Meaning search's embedder needs {m['total_mib']:,.0f} MiB of GPU memory, "

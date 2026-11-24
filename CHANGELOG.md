@@ -28,6 +28,10 @@ Two headings are Clarity's own, used when they apply:
 - Replay compares `build_info` without llama.cpp's build number, which counts the checkout's commits: `clarity setup`'s shallow clone says `b1` where a full clone says `b162` for the same commit, so the two no longer differ. A different commit still does. Export's `conditions` hold `build_info` the same way.
 - A refusal that ends "fetch it" (a model that isn't fetched, say) names Clarity's folder: "In a new Terminal window, run: cd ~/Clarity && uv run clarity fetch NAME. Then try again."
 
+### Fixed
+- When the embedder alone needs more GPU memory than Metal's recommended limit, its refusal no longer tells you to use a smaller chat model or a lower `ctx_size` if a chat server is running; only searching by words helps.
+- A run whose profile searches by meaning, with bge-m3 not fetched, tells you to search by words and run the command again, not to start a new chat.
+
 ## [0.4.1] - 2026-11-22
 
 Live tests on an M2 Max (macOS), 2026-11-22, at the release's code (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer), at or after the last commit to change their paths: `-m live` 29 passed, `-m embed` 10 passed (bge-m3 on Metal), `-m browser` 163 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m hf` 21 passed, `-m olmo` 12 passed and `-m llama` 3 passed.
