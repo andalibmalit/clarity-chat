@@ -194,16 +194,18 @@ def test_the_shipped_models_toml_loads():
     assert bge.weights_sha256 is not None and len(bge.weights_sha256) == 64  # S1
 
 
-@pytest.mark.parametrize("name", [".converter", "..", ".hidden"])
+@pytest.mark.parametrize("name", [".converter", "..", ".hidden", "a/b", "a\\b"])
 @pytest.mark.parametrize("yours", [False, True])
-def test_a_model_name_can_t_start_with_a_dot(tmp_path, name, yours):
+def test_a_model_name_is_one_folder_name(tmp_path, name, yours):
     """A model's files go in models/NAME, beside the converter's environment in
-    models/.converter: a name with a leading dot could be that folder, or the one above."""
+    models/.converter: a name with a leading dot could be that folder, or the one above,
+    and one with a slash or backslash a folder elsewhere."""
     from clarity_chat.profiles import read_models
 
     path = tmp_path / "models.toml"
-    path.write_text(CONVERT_MODEL.replace("[embedder]", f'["{name}"]'), encoding="utf-8")
-    with pytest.raises(ConfigError, match=r"can't start with"):
+    # a literal key, so a backslash is itself
+    path.write_text(CONVERT_MODEL.replace("[embedder]", f"['{name}']"), encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"one folder name"):
         read_models(path, yours=yours)
 
 
