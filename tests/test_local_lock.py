@@ -162,6 +162,48 @@ def test_the_refresh_script_refuses_a_name_it_can_t_copy(fetched_root, capsys):
     assert (fetched_root / "models.lock").read_bytes() == before
 
 
+ELSEWHERE = "/Volumes/made-up/hub/snapshots/0123"
+
+
+def with_path(entry: dict, field: str) -> dict:
+    """`entry` with ELSEWHERE, an absolute path outside the folder and home, at `field`."""
+    if field == "gguf.path":
+        return {**entry, "gguf": {**entry["gguf"], "path": ELSEWHERE}}
+    if field == "converter.command":
+        return {**entry, "converter": {**entry["converter"], "command": [["python", ELSEWHERE]]}}
+    return {**entry, field: ELSEWHERE}
+
+
+@pytest.mark.parametrize("field", ["source_dir", "tokenizer_dir", "gguf.path", "converter.command"])
+def test_the_refresh_script_refuses_a_path_outside_the_folder_and_home(fetched_root, capsys, field):
+    """The shipped lock carries no one's computer: a fetch with the Hugging Face cache
+    outside the home folder records an absolute path, which isn't copied (the security
+    review's C6). A path relative to Clarity's folder, or under ~/, is."""
+    (fetched_root / "models.lock").write_text(
+        json.dumps({"schema_version": 1, "models": {}}), encoding="utf-8"
+    )
+    before = (fetched_root / "models.lock").read_bytes()
+    write_lock_entry(fetched_root, "tiny", with_path(local_tiny(fetched_root), field))
+    assert refresh().main(["--root", str(fetched_root), "tiny"]) == 1
+    err = capsys.readouterr().err
+    assert f"tiny's entry in local/models.lock has the path {ELSEWHERE}," in err, err
+    assert (fetched_root / "models.lock").read_bytes() == before
+
+
+def test_the_refresh_script_refuses_an_entry_models_toml_no_longer_pins(fetched_root, capsys):
+    """An entry fetched from other settings than models.toml's is what lock_entry refuses
+    at a call; it isn't copied either, so the shipped lock never holds a stale pin."""
+    (fetched_root / "models.lock").write_text(
+        json.dumps({"schema_version": 1, "models": {}}), encoding="utf-8"
+    )
+    before = (fetched_root / "models.lock").read_bytes()
+    write_lock_entry(fetched_root, "tiny", {**local_tiny(fetched_root), "revision": "f" * 40})
+    assert refresh().main(["--root", str(fetched_root), "tiny"]) == 1
+    err = capsys.readouterr().err
+    assert "local/models.lock has 'tiny' with revision" in err, err
+    assert (fetched_root / "models.lock").read_bytes() == before
+
+
 def test_ci_verifies_the_linux_fetch_against_the_committed_lock():
     """CI's fetch writes local/models.lock with the Linux-made file's own hash. Verify must
     check the committed entry, so the step before it removes local/models.lock (where

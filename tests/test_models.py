@@ -532,6 +532,50 @@ def test_the_converter_s_environment_is_said_before_it_is_made(tmp_path, monkeyp
     assert " code/converter-requirements.txt " in printed["venv"], printed
 
 
+CONVERTED = hashlib.sha256(b"GGUF converted").hexdigest()  # what `converting` writes
+
+
+def shipped_conversion(root: Path, sha256: str, same_commit: bool = True) -> None:
+    """A shipped models.lock in `root` with SmolLM2's real entry, converted at server.toml's
+    llama.cpp commit (or another), with the GGUF sha256 `sha256`."""
+    repo = Path(__file__).resolve().parents[1]
+    entry = json.loads((repo / "models.lock").read_text("utf-8"))["models"]["smollm2-135m-instruct"]
+    commit = load_server_config(repo).llama_cpp_commit if same_commit else "f" * 40
+    entry = {**entry, "gguf": {**entry["gguf"], "sha256": sha256}, "llama_cpp": {"commit": commit}}
+    lock = {"schema_version": 1, "models": {"smollm2-135m-instruct": entry}}
+    (root / "models.lock").write_text(json.dumps(lock), "utf-8")
+
+
+DIFFERS = "Note: smollm2-135m-instruct's GGUF (sha256 {new}) differs from the shipped one"
+
+
+def test_a_conversion_unlike_the_shipped_one_is_said(tmp_path, monkeypatch, capsys):
+    """The security review's S6: a fetch records its GGUF in local/models.lock, which wins
+    over the shipped entry, so a conversion that came out different (another Python, say)
+    would be used without a word. Same revision, same llama.cpp commit, another sha256: one
+    sentence says so. It's a flag, not a refusal: the entry is still recorded."""
+    shipped_conversion(tmp_path, "1" * 64)
+    converting(tmp_path, monkeypatch)
+    out = capsys.readouterr().out
+    said = DIFFERS.format(new=CONVERTED[:12]) + " in models.lock (111111111111)"
+    assert said in out, out
+    lock = json.loads((tmp_path / "local" / "models.lock").read_text("utf-8"))
+    assert lock["models"]["smollm2-135m-instruct"]["gguf"]["sha256"] == CONVERTED
+
+
+@pytest.mark.parametrize("case", ["same sha256", "another llama.cpp commit", "nothing shipped"])
+def test_a_conversion_like_the_shipped_one_or_not_comparable_says_nothing(
+    tmp_path, monkeypatch, capsys, case
+):
+    """The same bytes say nothing; nor does another llama.cpp commit, whose conversion may
+    rightly differ, or a model the shipped lock doesn't hold."""
+    if case != "nothing shipped":
+        sha256 = CONVERTED if case == "same sha256" else "1" * 64
+        shipped_conversion(tmp_path, sha256, same_commit=case == "same sha256")
+    converting(tmp_path, monkeypatch)
+    assert "differs from the shipped one" not in capsys.readouterr().out
+
+
 def test_the_converter_s_environment_is_made_again_only_when_the_requirements_change(
     tmp_path, monkeypatch
 ):
