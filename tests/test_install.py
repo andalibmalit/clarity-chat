@@ -401,14 +401,19 @@ def test_clarity_at_another_version_is_said_and_not_updated(bench, tag):
 
 @pytest.mark.parametrize(
     ("tags", "said"),
-    [(["v0.0.1", "VERSION", "v9.9.9"], None), (["v0.0.1", "v0.0.2"], "v0.0.1 and v0.0.2")],
-    ids=["version-among-them", "neither"],
+    [
+        (["v0.0.1", "VERSION", "v9.9.9"], None),
+        (["v0.0.1", "v0.0.2"], "v0.0.1 and v0.0.2"),
+        (["VERSION0"], "VERSION0"),  # v0.4.20 isn't v0.4.2: a whole line matches (grep -x)
+    ],
+    ids=["version-among-them", "neither", "version-with-more"],
 )
 def test_several_tags_at_clarity_s_commit_are_each_checked_against_version(bench, tags, said):
     """R3 (the security fix review): with several tags at ~/Clarity's commit, `git describe`
     names one of them; VERSION is checked against every one, and the sentence names them all."""
     clarity_there(bench)
-    bench.facts["TAG"] = "\n".join(version() if tag == "VERSION" else tag for tag in tags)
+    bench.facts["TAG"] = "\n".join(tag.replace("VERSION", version()) for tag in tags)
+    said = said and said.replace("VERSION", version())
     done = bench.run()
     assert done.returncode == 0, done.stderr
     sentence = (

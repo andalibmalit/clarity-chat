@@ -214,6 +214,8 @@ CI_SKIPS = (
     "a backslash can't be in a Windows file name",
     "symlinks need privileges on Windows",
     "no POSIX sh on Windows",  # install.sh is for macOS (v0.4.2 A6)
+    # Linux's: there the other letter case is another folder, so the case can't arise
+    "this filesystem tells letter case apart",
 )
 
 

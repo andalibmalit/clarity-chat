@@ -693,19 +693,26 @@ def test_git_state_answers_for_its_folder_reached_in_another_letter_case(tmp_pat
     assert git_state(other_case)["commit"] == own
 
 
-def test_client_git_finds_the_clone_around_clarity_s_package():
+def test_client_git_finds_the_clone_around_clarity_s_package(tmp_path, monkeypatch):
     """The sprint audit's S4: Clarity's package folder sits inside its clone, so client_git
     reads the clone around it (enclosing=True); without that every record's client.commit
-    would be None. Real git, in this checkout."""
-    import subprocess
+    would be None. Real git, in tmp_path (a source download of Clarity has no clone); the
+    second fix review's F2."""
+    from clarity_chat import logs
 
-    from clarity_chat.logs import client_git
-    from tests.conftest import REPO
-
-    head = subprocess.run(
-        ["git", "-C", str(REPO), "rev-parse", "HEAD"], capture_output=True, text=True, check=True
-    )
-    assert client_git.__wrapped__()["commit"] == head.stdout.strip()
+    (tmp_path / "made-up.txt").touch()
+    git(tmp_path, "init", "-q")
+    git(tmp_path, "add", "made-up.txt")
+    git(tmp_path, "commit", "-q", "-m", "made up")
+    head = logs.git_state(tmp_path)["commit"]
+    package = tmp_path / "src" / "clarity_chat"
+    package.mkdir(parents=True)
+    assert head is not None
+    assert logs.git_state(package, enclosing=True)["commit"] == head
+    calls = []
+    monkeypatch.setattr(logs, "git_state", lambda *a, **k: calls.append((a, k)) or {})
+    logs.client_git.__wrapped__()
+    assert calls == [((Path(logs.__file__).resolve().parent,), {"enclosing": True})]
 
 
 def test_git_state_reads_the_folder_with_the_env_it_s_given(root, tmp_path, monkeypatch):
