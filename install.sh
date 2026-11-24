@@ -80,7 +80,7 @@ main() {
         # it finds none; macOS keeps it in /sbin, which a PATH may leave out.
         installer_path="$PATH:/usr/sbin:/sbin"
         if ! env PATH="$installer_path" sh -c 'command -v sha256sum' >/dev/null 2>&1; then
-            refuse "uv's installer couldn't check its download here (it needs sha256sum), so install uv by hand as uv's docs say, https://docs.astral.sh/uv/getting-started/installation/, then paste the command again."
+            refuse "uv's installer can't check its download on this Mac: it needs sha256sum, which macOS has from version 14 on. So the install stopped before fetching it. Install uv with Homebrew (brew install uv), which checks its download, then paste the command again."
         fi
         say "Installing uv $UV_VERSION, which runs Clarity (its installer checked by sha256) …"
         # mktemp makes it readable only by you (0600); it's removed on every way out.
@@ -105,11 +105,15 @@ main() {
             # shellcheck disable=SC2088  # the sentence names the folder as the user knows it
             refuse "~/Clarity exists and isn't Clarity, so the install leaves it alone. Move or rename it, then paste the command again."
         fi
-        tag=$(env -i HOME="$HOME" PATH="$PATH" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
-            GIT_TERMINAL_PROMPT=0 git -C "$clarity" describe --tags --exact-match 2>/dev/null || true)
-        if [ "$tag" != "$VERSION" ]; then
+        # Every tag at its commit, a line each: describe would name only one of several.
+        tags=$(env -i HOME="$HOME" PATH="$PATH" GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null \
+            GIT_TERMINAL_PROMPT=0 git -C "$clarity" tag --points-at HEAD 2>/dev/null || true)
+        if ! printf '%s\n' "$tags" | grep -qxF "$VERSION"; then
+            # Tags have no spaces, so echo joins the lines with one.
+            # shellcheck disable=SC2086
+            at=$(echo $tags | sed 's/ / and /g')
             # shellcheck disable=SC2088  # as above
-            say "~/Clarity holds Clarity at ${tag:-a commit with no release tag}, not $VERSION, and the install doesn't update it."
+            say "~/Clarity holds Clarity at ${at:-a commit with no release tag}, not $VERSION, and the install doesn't update it."
         fi
         say "Clarity is already in ~/Clarity; checking its setup."
     else

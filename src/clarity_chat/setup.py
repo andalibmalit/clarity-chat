@@ -325,12 +325,13 @@ class Setup:
     def check_build_folder(self) -> None:
         """A llama-server to build goes only into a build folder setup made, which holds
         clarity-build.log (written before cmake, so an interrupted build resumes), and never
-        through a link (the security review's S2). Anything else is refused untouched, before
-        the question, with Getting started's two lines: it may be the user's own build, whose
-        CMakeCache.txt would also outlive the cleared environment."""
+        through a link, in the folder's path or as build/ (the security review's S2, and the
+        fix review's N2). Anything else is refused untouched, before the question, with
+        Getting started's two lines: it may be the user's own build, whose CMakeCache.txt
+        would also outlive the cleared environment."""
         build = self.source / "build"
-        if self.source.is_symlink():
-            thing = f"{self.named} is a link to {os.readlink(self.source)}"
+        if link := self.link_on_the_way():
+            thing = link
         elif build.is_symlink():
             thing = f"{self.named}/build is a link to {os.readlink(build)}"
         elif build.exists() and not (build / "clarity-build.log").is_file():
@@ -352,20 +353,39 @@ class Setup:
         """States 1 and 2, before anything runs or is written."""
         check_mac(self.mac)
 
+    def link_on_the_way(self) -> str | None:
+        """The link on the way to the source folder, as a sentence says it, if there is
+        one: setup fetches and builds only in a folder it reaches without a link (the fix
+        review's N2; the root is already resolved)."""
+        resolved = self.source.resolve()
+        if resolved == self.source:
+            return None
+        for folder in (self.source, *self.source.parents):
+            if folder.is_symlink():
+                said = Path(os.path.relpath(folder, self.root)).as_posix()
+                return f"{said} is a link to {os.readlink(folder)}"
+        return f"{self.named} is in fact {resolved}"  # not met: resolve() follows only links
+
     def check_source(self) -> bool:
-        """Whether vendor/llama.cpp is there at the pin; one setup didn't make is refused,
-        untouched (state 9: it may be the user's own work, decision 5)."""
-        named = "vendor/llama.cpp"
+        """Whether server.toml's folder is there at the pin; one setup didn't make is
+        refused, untouched (state 9: it may be the user's own work, decision 5)."""
+        named, parent = self.named, Path(self.named).parent.as_posix()
         if self.source.is_symlink():  # the rename would replace a link: never touch it (S7)
             if not self.source.exists():
                 target = os.readlink(self.source)
                 raise ConfigError(
-                    f"vendor/llama.cpp is a link to {target}, which doesn't exist, so setup "
-                    "leaves it alone: it may be your own work. Move it out of vendor/, then run "
-                    "setup again."
+                    f"{named} is a link to {target}, which doesn't exist, so setup leaves it "
+                    f"alone: it may be your own work. Move it out of {parent}/, then run setup "
+                    "again."
                 )
-            named = f"vendor/llama.cpp (a link to {self.source.resolve()})"
+            named = f"{self.named} (a link to {self.source.resolve()})"
         if not self.source.exists():
+            if link := self.link_on_the_way():  # the fetch would write outside (N2)
+                raise ConfigError(
+                    f"llama.cpp's source needs fetching into {named}, but {link}, so setup "
+                    "leaves it alone: it fetches and builds only in a folder it reaches "
+                    "without a link. Replace the link with a folder, then run setup again."
+                )
             self.check_partial()
             return False
         # Only its own .git: git_state in a plain folder finds the clone around it (S1).
@@ -380,22 +400,33 @@ class Setup:
             return True
         raise ConfigError(
             f"{named} {why}, so setup leaves it alone: it may be your own work. Move it out of "
-            "vendor/, then run setup again."
+            f"{parent}/, then run setup again."
         )
 
     def check_partial(self) -> None:
-        """The .partial fetch_source deletes is one it started: a folder with a .git, as
-        `git init` leaves it, and not a link (the security review's C2)."""
+        """The .partial fetch_source deletes is one it started: a folder, not a link, with
+        a .git, as `git init` leaves it, and either nothing fetched yet (`git rev-parse
+        HEAD` fails) or the pin checked out (the security review's C2, the fix review's R1)."""
         partial = f"{self.named}.partial"
         if self.partial.is_symlink():
             why = f"is a link to {os.readlink(self.partial)}"
-        elif self.partial.exists() and not (self.partial / ".git").exists():
+        elif not self.partial.exists():
+            return
+        elif not (self.partial / ".git").exists():
             why = "isn't a fetch setup started (it has no .git)"
+        elif (head := self.state(self.partial, self.git_env()).get("commit")) not in (
+            None,
+            self.pin,
+        ):
+            why = (
+                f"isn't a fetch setup started (it's a checkout at commit {head[:12]}, not the "
+                f"pinned {self.pin[:12]})"
+            )
         else:
             return
         raise ConfigError(
             f"{partial} {why}, so setup leaves it alone: it may be your own work. Move it out "
-            "of vendor/, then run setup again."
+            f"of {Path(self.named).parent.as_posix()}/, then run setup again."
         )
 
     def agreed(self, download: int, keep: int) -> bool:
@@ -424,7 +455,7 @@ class Setup:
         it's at the pin and clean (state 8; decision 5). A .partial left by a setup that
         didn't finish is deleted first."""
         if self.partial.exists():
-            self.say("Deleting vendor/llama.cpp.partial, left by a setup that didn't finish.")
+            self.say(f"Deleting {self.named}.partial, left by a setup that didn't finish.")
             shutil.rmtree(self.partial)
         self.say(f"Fetching llama.cpp's source at {self.pin[:12]} …")
         self.partial.mkdir(parents=True)
@@ -448,7 +479,7 @@ class Setup:
                 "again: it starts the fetch over."
             )
         self.partial.rename(self.source)
-        self.say("llama.cpp's source is in vendor/llama.cpp.")
+        self.say(f"llama.cpp's source is in {self.named}.")
 
 
 def build_words() -> list[list[str]]:
