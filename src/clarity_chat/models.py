@@ -9,6 +9,7 @@ compares size and modified time, and `verify` re-hashes on demand.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -53,7 +54,7 @@ CONVERTER_PYTHON = "3.13"
 # writes, so any root converts (A9's fix: -m live's scratch root had no copy).
 CONVERTER_REQUIREMENTS = Path(__file__).with_name("converter-requirements.txt")
 CONVERTER_ENV = "models/.converter"
-CONVERTER_MARKER = "clarity-requirements.sha256"  # the sha256 of the file it was made from
+CONVERTER_MARKER = "clarity-requirements.sha256"  # the sha256 of what it was made by
 
 
 def portable_path(text: str, root: Path, resolve: bool = True) -> str:
@@ -400,6 +401,7 @@ def converter_commands(root: Path) -> list[list[str]]:
             "install",
             "--no-config",
             "--require-hashes",
+            "--no-build",  # an sdist's build backend would come unhashed from the index
             "--index-strategy",
             "first-index",
             "--python",
@@ -431,11 +433,13 @@ def _logged(command: list[str], log: TextIO, env: dict[str, str] | None = None) 
 def _make_converter_environment(
     root: Path, commands: list[list[str]], log: TextIO, log_path: Path
 ) -> None:
-    """Make the converter's environment unless it was made from this
-    converter-requirements.txt: a marker in it holds the file's sha256, written only after
-    the install succeeds, so a failed or interrupted one is made again next time."""
+    """Make the converter's environment unless it was made by these commands from this
+    converter-requirements.txt: a marker in it holds the sha256 of both, written only after
+    the install succeeds, so a failed or interrupted one, or one made with other flags, is
+    made again next time."""
     marker = root / CONVERTER_ENV / CONVERTER_MARKER
-    digest = sha256_file(CONVERTER_REQUIREMENTS)
+    made_by = {"commands": commands, "requirements": sha256_file(CONVERTER_REQUIREMENTS)}
+    digest = hashlib.sha256(json.dumps(made_by).encode("utf-8")).hexdigest()
     if marker.is_file() and read_text(marker).strip() == digest:
         return
     print(

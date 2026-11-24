@@ -1,7 +1,7 @@
 # The converter's environment: the packages bge-m3's conversion ran with (models.lock,
 # converter.packages), each with the sha256 of every file PyPI has for it. `clarity fetch`
-# installs them into models/.converter with `uv pip install --require-hashes`, so a file
-# that doesn't match is refused. Linux adds PyPI torch's NVIDIA libraries and triton, and
+# installs them into models/.converter with `uv pip install --require-hashes --no-build`, so
+# a file that doesn't match is refused and only wheels are installed. Linux adds PyPI torch's NVIDIA libraries and triton, and
 # Windows tqdm's colorama. Made by listing that record as NAME==VERSION lines in PINS, then:
 #   uv pip compile PINS --universal --python-version 3.13 --generate-hashes --no-header --no-annotate
 certifi==2026.10.23 \
