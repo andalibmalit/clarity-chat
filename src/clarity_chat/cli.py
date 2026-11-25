@@ -6,6 +6,7 @@ import argparse
 import atexit
 import io
 import json
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -964,6 +965,74 @@ def format_export(result: dict[str, Any]) -> str:
     )
 
 
+def format_inspect(result: dict[str, Any]) -> str:
+    """Where a run's Inspect logs went, and what they hold."""
+    files = [Path(f["path"]) for f in result["files"]]
+    replaced = {True: "; replaced the earlier export", False: ""}
+    each = ", ".join(
+        f"{path.name} ({f['calls']} calls{replaced[f['replaced']]})"
+        for path, f in zip(files, result["files"], strict=True)
+    )
+    from clarity_chat.export import holds
+
+    return "\n".join(
+        [
+            f"Wrote {len(files)} Inspect logs to {files[0].parent}{os.sep}: {each}.",
+            "Inspect didn't make these calls: running them again in Inspect won't send the "
+            "same prompts. Each sample's metadata holds what the model got.",
+            *([said] if (said := holds(result)) else []),
+        ]
+    )
+
+
+def export_target(root: Path, given: str) -> tuple[str, Path]:
+    """What `clarity export` was given: ("run", its folder) or ("chat", its log). An
+    existing path is used as it is; an ID is looked for in both logs/ and runs/, since a
+    run's ID and a conversation's look the same. Neither: ("chat", given), which
+    export_log refuses."""
+    path = Path(given)
+    if path.is_dir():
+        return "run", path
+    if path.is_file():
+        return ("run", path.parent) if path.name == "calls.jsonl" else ("chat", path)
+    log, run = root / "logs" / f"{given}.jsonl", root / "runs" / given
+    if log.is_file() and run.is_dir():
+        raise ConfigError(
+            f"{given} names a conversation (logs/{given}.jsonl) and a run (runs/{given}/). "
+            "Pass the path of the one you mean."
+        )
+    return ("run", run) if run.is_dir() else ("chat", log if log.is_file() else path)
+
+
+def cmd_export(root: Path, given: str, form: str, out: Path | None) -> int:
+    if form == "inspect" and out is not None:
+        raise ConfigError(
+            "--format inspect takes no --out: a run's logs go in runs/RUN_ID/inspect/, and a "
+            "chat's in logs/exports/."
+        )
+    kind, path = export_target(root, given)
+    if kind == "run" and form == "jsonl":
+        raise ConfigError(
+            f"{given} is a batch run, and the plain export takes one conversation. Export a "
+            "run for Inspect with --format inspect."
+        )
+    if kind == "chat" and form == "inspect" and path.is_file():  # C1 replaces this
+        raise ConfigError(
+            f"{given} is a conversation. Export for Inspect takes only a run until v0.4.3's "
+            "Part 2 adds chats."
+        )
+    session = Session(root)
+    if kind == "run":
+        from clarity_chat.export_inspect import export_run  # imports inspect_ai: only here
+
+        print(format_inspect(export_run(session, path)))
+    else:
+        from clarity_chat.export import export_log
+
+        print(format_export(export_log(session, path, out)))
+    return 0
+
+
 def say_if_torn(log_path: Path) -> Callable[[dict[str, Any]], None]:
     """An on_record callback: says so when an append ends a cut-off line of `log_path`."""
 
@@ -1301,10 +1370,21 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
             annotate.add_argument("text", help="one argument: quote it if it has spaces")
     commands.add_parser("chats", help="list your conversations in logs/, newest first")
     export = commands.add_parser(
-        "export", help="write a conversation for a notebook (logs/exports/ID.jsonl)"
+        "export",
+        help="write a conversation for a notebook (logs/exports/ID.jsonl), or a run for "
+        "Inspect (runs/RUN_ID/inspect/)",
     )
-    export.add_argument("conversation", help="its ID (from `clarity chats`) or log file")
-    export.add_argument("--out", type=Path, help="where to write it instead")
+    export.add_argument(
+        "conversation",
+        help="a conversation's ID (from `clarity chats`) or log file, or a run's ID or folder",
+    )
+    export.add_argument("--out", type=Path, help="where to write it instead (jsonl only)")
+    export.add_argument(
+        "--format",
+        choices=("jsonl", "inspect"),
+        default="jsonl",
+        help="jsonl (the default) for a notebook; inspect for Inspect's log viewer",
+    )
     fetch = commands.add_parser(
         "fetch", help="download (and convert) a model from models.toml or local/models.toml"
     )
@@ -1387,12 +1467,7 @@ def run_command(args: argparse.Namespace) -> int:
             print(format_chats(list_chats(root / "logs")))
             return 0
         if args.command == "export":  # reads a log and tokenizers; starts no model
-            from clarity_chat.export import export_log
-
-            session = Session(root)
-            log = session.log_for(args.conversation)
-            print(format_export(export_log(session, log, args.out)))
-            return 0
+            return cmd_export(root, args.conversation, args.format, args.out)
         if args.command == "fetch":
             return cmd_fetch(root, args.name)
         if args.command == "verify":

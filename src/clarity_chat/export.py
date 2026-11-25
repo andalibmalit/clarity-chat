@@ -54,7 +54,8 @@ def export_log(session: Session, log_path: Path, out: Path | None = None) -> dic
     and the counts."""
     if not log_path.is_file():
         raise ConfigError(
-            f"No conversation or log file {log_path}. `clarity chats` or /chats lists them."
+            f"No conversation, log file or run {log_path}. `clarity chats` lists "
+            "conversations; each run is a folder in runs/."
         )
     try:
         return _export(session, log_path, out)

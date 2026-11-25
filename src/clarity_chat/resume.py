@@ -36,7 +36,11 @@ def rebuild(records: list[dict[str, Any]], where: str) -> Rebuilt:
     the turn before it."""
     if not records or records[0].get("type") != "conversation":
         first = records[0].get("type") if records else "nothing"
-        hint = " A batch run's calls.jsonl can't be resumed or exported." if first == "run" else ""
+        hint = (
+            " A batch run's calls.jsonl can't be resumed, or exported as a chat."
+            if first == "run"
+            else ""
+        )
         raise ConfigError(f"{where} starts with {first}, not a conversation record.{hint}")
     out = Rebuilt(records[0])
     roles: dict[str, dict[str, Any]] = {}

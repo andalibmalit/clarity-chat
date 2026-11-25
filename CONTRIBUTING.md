@@ -89,3 +89,5 @@ A release is done when every item is checked.
 12. Only for a version worth citing: a GitHub Release, which mints a Zenodo DOI; that DOI goes in `CITATION.cff`.
 
 The exactness dependencies are the llama.cpp commit, `tokenizers`, `transformers` and `jinja2`: a change to any of them can change output. Each bump gets its own commit, a changelog line under **Output may change**, and the live tests. `tests/test_dependencies.py` holds the locked versions of these three and `pypdf` in a table, so a change to `uv.lock` that moves one fails until that table is edited, in the bump's own commit.
+
+`inspect-ai` is pinned exactly, and an export for Inspect refuses any other version. A bump gets its own commit and a changelog line, updates `INSPECT_AI` in `src/clarity_chat/export_inspect.py`, and reruns the tests of what Inspect does with Clarity's logs: `tests/test_inspect_gate.py` offline, and `tests/test_browser_inspect.py` and `tests/test_browser_inspect_export.py` in the browser tier (`uv sync --group browser --extra inspect`).

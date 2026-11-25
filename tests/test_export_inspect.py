@@ -166,6 +166,7 @@ def test_the_log_says_clarity_made_the_calls_and_carries_the_header(run):
                 groups.setdefault(key, []).extend(group["call_ids"])
         first = {k: v for k, v in headers[0].items() if k != "conversation_id"}
         assert log.eval.metadata == {
+            "inspect_note": INSPECT_NOTE,  # top level, so the viewer's Info tab shows it
             "clarity": {
                 **first,
                 "run": run_record,
@@ -174,8 +175,7 @@ def test_the_log_says_clarity_made_the_calls_and_carries_the_header(run):
                     {"conditions": json.loads(k), "call_ids": v} for k, v in groups.items()
                 ],
                 "inspect_format_version": 1,
-                "inspect_note": INSPECT_NOTE,
-            }
+            },
         }
         assert sorted(i for v in groups.values() for i in v) == sorted(ids)
         assert log.status == "success"
@@ -374,3 +374,125 @@ def test_the_pin_constant_is_the_extras_pin():
     pyproject = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
     extra = pyproject["project"]["optional-dependencies"]["inspect"]
     assert extra == [f"inspect-ai=={export_inspect.INSPECT_AI}"]
+
+
+# --- I4: `clarity export … --format inspect` for a run
+
+NOTE_LINE = (
+    "Inspect didn't make these calls: running them again in Inspect won't send the same "
+    "prompts. Each sample's metadata holds what the model got."
+)
+
+
+def export(root: Path, *args: str) -> int:
+    return cli.main(["--root", str(root), "export", *args])
+
+
+def test_clarity_export_takes_a_runs_id_its_folder_or_its_calls_jsonl(run, capsys):
+    _, run_dir = run
+    root, folder = run_dir.parent.parent, run_dir / "inspect"
+    given = ["run-test", str(run_dir), str(run_dir / "calls.jsonl")]
+    for n, target in enumerate(given):
+        assert export(root, target, "--format", "inspect") == 0, capsys.readouterr().err
+        replaced = "; replaced the earlier export" if n else ""
+        assert capsys.readouterr().out.splitlines() == [
+            f"Wrote 2 Inspect logs to {folder}{os.sep}: 1-chat.eval (4 calls{replaced}), "
+            f"2-text.eval (4 calls{replaced}).",
+            NOTE_LINE,
+        ]
+    assert sorted(p.name for p in folder.iterdir()) == ["1-chat.eval", "2-text.eval"]
+
+
+def test_the_terminal_says_whose_text_the_logs_hold(run, capsys, monkeypatch):
+    """A run's openings can't attach documents, but its profiles can search them."""
+    _, run_dir = run
+    real = export_inspect.export_run
+
+    def found(session, run_dir):
+        return {**real(session, run_dir), "found": True}
+
+    monkeypatch.setattr(export_inspect, "export_run", found)
+    assert export(run_dir.parent.parent, "run-test", "--format", "inspect") == 0
+    assert capsys.readouterr().out.splitlines()[2:] == [
+        "It holds the text of the parts search added from your documents."
+    ]
+
+
+def refused(root: Path, capsys, *args: str) -> str:
+    assert export(root, *args) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    return captured.err.removeprefix("clarity: ").rstrip("\n")
+
+
+def test_an_id_naming_both_a_conversation_and_a_run_is_refused(run, capsys):
+    _, run_dir = run
+    root = run_dir.parent.parent
+    (root / "logs").mkdir(exist_ok=True)
+    (root / "logs" / "run-test.jsonl").write_text("{}\n", encoding="utf-8")
+    for fmt in ("inspect", "jsonl"):
+        assert refused(root, capsys, "run-test", "--format", fmt) == (
+            "run-test names a conversation (logs/run-test.jsonl) and a run (runs/run-test/). "
+            "Pass the path of the one you mean."
+        )
+    assert not (run_dir / "inspect").exists()
+    assert not (root / "logs" / "exports").exists()
+
+
+def test_an_id_naming_neither_says_where_runs_are(fetched_root, capsys):
+    for fmt in ("inspect", "jsonl"):
+        assert refused(fetched_root, capsys, "no-such-id", "--format", fmt) == (
+            "No conversation, log file or run no-such-id. `clarity chats` lists "
+            "conversations; each run is a folder in runs/."
+        )
+
+
+def test_format_inspect_takes_no_out(run, capsys, tmp_path):
+    _, run_dir = run
+    root = run_dir.parent.parent
+    out = str(tmp_path / "x.eval")
+    assert refused(root, capsys, "run-test", "--format", "inspect", "--out", out) == (
+        "--format inspect takes no --out: a run's logs go in runs/RUN_ID/inspect/, and a "
+        "chat's in logs/exports/."
+    )
+    assert not (run_dir / "inspect").exists()
+
+
+def test_the_plain_export_of_a_run_names_format_inspect(run, capsys):
+    _, run_dir = run
+    root = run_dir.parent.parent
+    for given in ("run-test", str(run_dir), str(run_dir / "calls.jsonl")):
+        assert refused(root, capsys, given) == (
+            f"{given} is a batch run, and the plain export takes one conversation. Export a "
+            "run for Inspect with --format inspect."
+        )
+    assert not (root / "logs" / "exports").exists()
+
+
+def test_a_conversation_for_inspect_waits_for_part_2(fetched_root, chat_tokenizer, capsys):
+    """Removed in C1, when a chat exports for Inspect."""
+    session = Session(
+        fetched_root,
+        backend=FakeBackend(None, n_ctx=512, tokenizer=chat_tokenizer),
+        tokenizer_loader=lambda r, v: chat_tokenizer,
+    )
+    session.new_conversation("text")
+    session.say("Made-up message.")
+    assert session.conversation is not None
+    cid = session.conversation.conversation_id
+    for given in (cid, str(session.conversation.log.path)):
+        assert refused(fetched_root, capsys, given, "--format", "inspect") == (
+            f"{given} is a conversation. Export for Inspect takes only a run until v0.4.3's "
+            "Part 2 adds chats."
+        )
+    assert not (fetched_root / "logs" / "exports").exists()
+
+
+def test_resuming_a_runs_calls_jsonl_says_it_isnt_a_chat(run):
+    session, run_dir = run
+    with pytest.raises(ConfigError) as e:
+        session.resume(run_dir / "calls.jsonl")
+    assert str(e.value) == (
+        f"{run_dir / 'calls.jsonl'} starts with run, not a conversation record. A batch run's "
+        "calls.jsonl can't be resumed, or exported as a chat."
+    )

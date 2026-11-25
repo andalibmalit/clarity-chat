@@ -159,7 +159,11 @@ def eval_log(run: dict[str, Any], n: int, name: str, group: list[ConversationExp
             model=model,
             model_generate_config=GenerateConfig(),  # empty: see INSPECT_NOTE
             config=EvalConfig(epochs=len(run["seeds"])),
-            metadata={"clarity": run_header(run, [c.header for c in group], rows)},
+            # The note at the top: the viewer folds the many-keyed header, but shows a string.
+            metadata={
+                "inspect_note": INSPECT_NOTE,
+                "clarity": run_header(run, [c.header for c in group], rows),
+            },
         ),
         samples=samples,
         results=EvalResults(total_samples=len(rows), completed_samples=len(rows), scores=[]),
@@ -266,7 +270,6 @@ def run_header(
         "note": RECOMPUTE_NOTE
         + (STEERED_NOTE if any(r["steering"] != "none" for r in rows) else ""),
         "inspect_format_version": INSPECT_FORMAT_VERSION,
-        "inspect_note": INSPECT_NOTE,
     }
 
 

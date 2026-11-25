@@ -261,6 +261,47 @@ def test_a_batch_run_with_both_modes(tmp_path):
     assert blind.read_text(encoding="utf-8").count("Rating:") == 8
 
 
+def test_a_run_exported_for_inspect_holds_each_calls_prompt_ids(tmp_path):
+    """v0.4.3 I4: real templates' spans, through inspect_ai's own writer and reader."""
+    from inspect_ai.log import read_eval_log
+
+    from clarity_chat.batch import run_batch
+    from clarity_chat.export_inspect import export_run
+
+    openings = tmp_path / "openings.txt"
+    openings.write_text("Name a colour.\n", encoding="utf-8")
+    run_dir = tmp_path / "run"
+    session = Session(REPO, logs_dir=run_dir)
+    try:
+        run_batch(
+            session, "run-live", run_dir, openings, ["smol-chat", "smol-text"], 2, lambda s: None
+        )
+        result = export_run(session, run_dir)
+    finally:
+        session.close()
+    calls = {r["call_id"]: r for r in read_records(run_dir / "calls.jsonl") if r["type"] == "call"}
+    names = [Path(f["path"]).name for f in result["files"]]
+    assert names == ["1-smol-chat.eval", "2-smol-text.eval"]
+    seen: list[str] = []
+    for f in result["files"]:
+        log = read_eval_log(f["path"])
+        assert log.samples is not None and len(log.samples) == 2
+        for sample in log.samples:
+            call = calls[str(sample.uuid)]
+            assert sample.metadata is not None
+            assert sample.metadata["prompt_ids"] == call["prompt_ids"]
+            text, prompt = call["prompt_text"], sample.messages[:-1]  # the last is the reply
+            if f["path"].endswith("chat.eval"):  # each message is its part of prompt_text
+                for message in prompt:
+                    start, end = (message.metadata or {})["clarity"]["chars"]
+                    assert message.content == text[start:end]
+            else:
+                assert [m.content for m in prompt] == [text]
+            assert sample.messages[-1].content == call["output_text"]
+            seen.append(str(sample.uuid))
+    assert sorted(seen) == sorted(calls)
+
+
 def test_replay_on_the_running_server_is_identical_and_nothing_differs(session):
     session.say("Name a fruit.")
     record = session.replay_current()

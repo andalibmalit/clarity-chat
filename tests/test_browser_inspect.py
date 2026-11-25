@@ -17,7 +17,8 @@ import subprocess
 import sys
 import time
 import urllib.request
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -57,16 +58,14 @@ class Viewer:
     stopped: list[str] = field(default_factory=list)
 
 
-@pytest.fixture(scope="module")
-def viewer(tmp_path_factory) -> Iterator[Viewer]:
-    """`inspect view` on the gate's logs, on a free port, until the module's tests end."""
-    root = tmp_path_factory.mktemp("viewer")
-    logs = gate.write_gate_logs(root / "logs")
+@contextmanager
+def serve(log_dir: Path, root: Path, logs: dict[str, Path]) -> Generator[Viewer]:
+    """`inspect view` on LOG_DIR, on a free port, with HOME a scratch folder in ROOT."""
     home = root / "home"
     home.mkdir()
     env = {k: v for k, v in os.environ.items() if not k.startswith(("INSPECT_", "XDG_"))}
     port = free_port()
-    command = [sys.executable, "-m", "inspect_ai", "view", "--log-dir", str(root / "logs")]
+    command = [sys.executable, "-m", "inspect_ai", "view", "--log-dir", str(log_dir)]
     with (root / "view.out").open("w", encoding="utf-8") as out:
         server = subprocess.Popen(
             [*command, "--host", "127.0.0.1", "--port", str(port)],
@@ -90,8 +89,15 @@ def viewer(tmp_path_factory) -> Iterator[Viewer]:
         server.wait(10)
 
 
-@pytest.fixture
-def page(viewer, context):
+@pytest.fixture(scope="module")
+def viewer(tmp_path_factory) -> Iterator[Viewer]:
+    """`inspect view` on the gate's logs, until the module's tests end."""
+    root = tmp_path_factory.mktemp("viewer")
+    with serve(root / "logs", root, gate.write_gate_logs(root / "logs")) as viewer:
+        yield viewer
+
+
+def watched(viewer: Viewer, context):
     """A page whose every request is recorded; one not to the viewer is stopped (V10)."""
     viewer.requests.clear()
     viewer.stopped.clear()
@@ -109,6 +115,11 @@ def page(viewer, context):
     page = context.new_page()
     page.set_viewport_size({"width": 1600, "height": 1000})
     return page
+
+
+@pytest.fixture
+def page(viewer, context):
+    return watched(viewer, context)
 
 
 def show(page, viewer: Viewer, route: str, waits_for: str) -> str:
