@@ -68,9 +68,10 @@ def export_run(session: Session, run_dir: Path) -> dict[str, Any]:
     log = run_dir / "calls.jsonl"
     try:
         run, conversations = run_conversations(session, run_dir)
-        groups = by_profile(run, conversations, log)
+        groups = by_profile(run, conversations, run_dir)
         logs = [eval_log(run, n, name, group) for n, (name, group) in enumerate(groups, 1)]
-    except (KeyError, TypeError, AttributeError, ValueError) as e:  # not Clarity's, or a bug
+    except (LookupError, StopIteration, TypeError, AttributeError, ValueError) as e:
+        # a log or key.json not Clarity's, or a bug
         raise ConfigError(unreadable(e, f"the records of {log}")) from e
     folder = run_dir / "inspect"
     folder.mkdir(exist_ok=True)
@@ -110,28 +111,42 @@ def inspect_writer() -> Writer:
 
 
 def by_profile(
-    run: dict[str, Any], conversations: list[ConversationExport], log: Path
+    run: dict[str, Any], conversations: list[ConversationExport], run_dir: Path
 ) -> list[Group]:
-    """The conversations by their calls' profile, in the run record's profile order. The
-    name is the call's logged `profile.name`; it names a file, so it must be one Clarity
-    writes (state 11). Two profile files with one name stay apart, by their logged path."""
-    groups: dict[tuple[str, str], list[ConversationExport]] = {}
+    """The conversations by profile, in the run record's order. key.json names each
+    conversation's profile as --profiles gave it, so two profile files with one name stay
+    apart, and the log's order (by model) doesn't matter. The file's name is the calls'
+    logged `profile.name`, so it must be one Clarity writes (state 11)."""
+    key = json.loads((run_dir / "key.json").read_text(encoding="utf-8"))
+    given = {
+        label["conversation_id"]: label["profile"]
+        for opening in key["openings"]
+        for label in opening["labels"].values()
+    }
+    groups: dict[str, list[ConversationExport]] = {profile: [] for profile in run["profiles"]}
     for conversation in conversations:
-        call = next(r for r in conversation.records if r["type"] == "call")
-        name = call["profile"]["name"]
+        conversation_id = conversation.records[0]["conversation_id"]
+        if not any(r["type"] == "call" for r in conversation.records):
+            raise ValueError(f"conversation {conversation_id} has no call")
+        if given.get(conversation_id) not in groups:
+            raise ValueError(f"key.json gives conversation {conversation_id} no listed profile")
+        groups[given.pop(conversation_id)].append(conversation)
+    if given:
+        raise ValueError(f"key.json names conversations it doesn't hold: {sorted(given)}")
+    named = []
+    for profile, group in groups.items():
+        calls = [r for c in group for r in c.records if r["type"] == "call"]
+        names = {call["profile"]["name"] for call in calls}
+        if len(names) != 1 or len(calls) != sum(len(c.rows) for c in group):
+            raise ValueError(f"its calls for profile {profile} don't match key.json's")
+        [name] = names
         if not isinstance(name, str) or not LOG_NAME.fullmatch(name):
             raise ConfigError(
-                f"{name}, a profile name in {log}, isn't one Clarity writes, so it can't name "
-                "the export's file."
+                f"{name}, a profile name in {run_dir / 'calls.jsonl'}, isn't one Clarity "
+                "writes, so it can't name the export's file."
             )
-        groups.setdefault((name, call["profile"]["path"]), []).append(conversation)
-    ordered: list[tuple[str, str]] = []
-    for given in run["profiles"]:  # a name, or a profile file's path
-        stem = Path(given.removesuffix(".toml")).name
-        ordered += [next(k for k in groups if k[0] == stem and k not in ordered)]
-    if len(ordered) != len(groups):
-        raise ValueError("its calls' profiles aren't its run record's")
-    return [(key[0], groups[key]) for key in ordered]
+        named.append((name, group))
+    return named
 
 
 def eval_log(run: dict[str, Any], n: int, name: str, group: list[ConversationExport]) -> EvalLog:

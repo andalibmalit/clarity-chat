@@ -977,7 +977,7 @@ def format_inspect(result: dict[str, Any]) -> str:
 
     return "\n".join(
         [
-            f"Wrote {len(files)} Inspect logs to {files[0].parent}{os.sep}: {each}.",
+            f"Wrote {len(files)} Inspect logs to {files[0].parent.resolve()}{os.sep}: {each}.",
             "Inspect didn't make these calls: running them again in Inspect won't send the "
             "same prompts. Each sample's metadata holds what the model got.",
             *([said] if (said := holds(result)) else []),
@@ -988,20 +988,24 @@ def format_inspect(result: dict[str, Any]) -> str:
 def export_target(root: Path, given: str) -> tuple[str, Path]:
     """What `clarity export` was given: ("run", its folder) or ("chat", its log). An
     existing path is used as it is; an ID is looked for in both logs/ and runs/, since a
-    run's ID and a conversation's look the same. Neither: ("chat", given), which
-    export_log refuses."""
+    run's ID and a conversation's look the same. A folder is a run only if it holds
+    calls.jsonl. Neither: ("chat", given), which export_log refuses."""
+
+    def is_run(folder: Path) -> bool:
+        return (folder / "calls.jsonl").is_file()
+
     path = Path(given)
     if path.is_dir():
-        return "run", path
+        return ("run", path) if is_run(path) else ("chat", path)
     if path.is_file():
         return ("run", path.parent) if path.name == "calls.jsonl" else ("chat", path)
     log, run = root / "logs" / f"{given}.jsonl", root / "runs" / given
-    if log.is_file() and run.is_dir():
+    if log.is_file() and is_run(run):
         raise ConfigError(
             f"{given} names a conversation (logs/{given}.jsonl) and a run (runs/{given}/). "
             "Pass the path of the one you mean."
         )
-    return ("run", run) if run.is_dir() else ("chat", log if log.is_file() else path)
+    return ("run", run) if is_run(run) else ("chat", log if log.is_file() else path)
 
 
 def cmd_export(root: Path, given: str, form: str, out: Path | None) -> int:

@@ -29,29 +29,22 @@ WHOLE_TEXT = "text mode: the template has no message roles"
 Records = list[dict[str, Any]]
 
 
+def batch(root: Path, tokenizer, profiles: list[str]) -> tuple[Session, Path]:
+    """A finished run of `profiles`, two openings, two seeds."""
+    (root / "openings.txt").write_text(OPENINGS, encoding="utf-8")
+    run_dir = root / "runs" / "run-test"
+    backend = FakeBackend(None, n_ctx=512, tokenizer=tokenizer)
+    session = Session(
+        root, backend=backend, logs_dir=run_dir, tokenizer_loader=lambda r, v: tokenizer
+    )
+    run_batch(session, "run-test", run_dir, root / "openings.txt", profiles, 2, lambda line: None)
+    return session, run_dir
+
+
 @pytest.fixture
 def run(fetched_root, chat_tokenizer):
-    """A finished run of the chat and text profiles, two openings, two seeds. `edit` changes
-    its records before the export, as an older or odder log would have them."""
-    (fetched_root / "openings.txt").write_text(OPENINGS, encoding="utf-8")
-    run_dir = fetched_root / "runs" / "run-test"
-    backend = FakeBackend(None, n_ctx=512, tokenizer=chat_tokenizer)
-    session = Session(
-        fetched_root,
-        backend=backend,
-        logs_dir=run_dir,
-        tokenizer_loader=lambda r, v: chat_tokenizer,
-    )
-    run_batch(
-        session,
-        "run-test",
-        run_dir,
-        fetched_root / "openings.txt",
-        ["chat", "text"],
-        2,
-        lambda line: None,
-    )
-    return session, run_dir
+    """A finished run of the chat and text profiles, two openings, two seeds."""
+    return batch(fetched_root, chat_tokenizer, ["chat", "text"])
 
 
 def records_of(run_dir: Path) -> Records:
@@ -102,6 +95,25 @@ def test_a_run_gives_one_log_per_profile_in_the_runs_order(run):
         assert {(folder / n).stat().st_mode & 0o777 for n in ("1-chat.eval", "2-text.eval")} == {
             0o600
         }
+
+
+def test_two_profiles_with_one_name_keep_their_own_calls(fetched_root, chat_tokenizer):
+    """The probe of Checkpoint 1's M1: profiles/chat.toml and alt/chat.toml share a name,
+    and the run calls them by model group (text, chat, alt), not in --profiles' order."""
+    alt = fetched_root / "alt" / "chat.toml"
+    alt.parent.mkdir()
+    chat = (fetched_root / "profiles" / "chat.toml").read_text(encoding="utf-8")
+    alt.write_text("ctx_size = 400\n" + chat, encoding="utf-8")
+    session, run_dir = batch(fetched_root, chat_tokenizer, ["text", str(alt), "chat"])
+    paths = {r["call_id"]: r["profile"]["path"] for r in calls_of(run_dir)}
+    in_log_order = list(dict.fromkeys(paths.values()))
+    assert in_log_order[2] == alt.as_posix()  # the log's order isn't --profiles'
+    result = export_run(session, run_dir)
+    names = [Path(f["path"]).name for f in result["files"]]
+    assert names == ["1-text.eval", "2-chat.eval", "3-chat.eval"]
+    logs = [read(f["path"]) for f in result["files"]]
+    held = [{paths[s.metadata["call_id"]] for s in log.samples} for log in logs]
+    assert held == [{in_log_order[0]}, {alt.as_posix()}, {in_log_order[1]}]
 
 
 def test_each_sample_is_its_calls_row_and_its_messages_are_slices_of_the_prompt(run):
@@ -345,6 +357,38 @@ def test_a_profile_name_that_cant_name_a_file_is_refused_before_any_file(run):
     assert not (run_dir / "inspect").exists()
 
 
+def listed_but_never_called(run_dir: Path) -> None:
+    records = records_of(run_dir)
+    records[0]["profiles"].append("ghost")
+    rewrite(run_dir, records)
+
+
+def a_conversation_without_its_call(run_dir: Path) -> None:
+    records = records_of(run_dir)
+    first = next(r for r in records if r["type"] == "call")
+    rewrite(run_dir, [r for r in records if r is not first])
+
+
+def a_key_naming_another_profile(run_dir: Path) -> None:
+    key = json.loads((run_dir / "key.json").read_text(encoding="utf-8"))
+    next(iter(key["openings"][0]["labels"].values()))["profile"] = "stranger"
+    (run_dir / "key.json").write_text(json.dumps(key), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "edit", [listed_but_never_called, a_conversation_without_its_call, a_key_naming_another_profile]
+)
+def test_a_run_whose_records_dont_agree_is_refused_as_unreadable(run, edit):
+    """Checkpoint 1's S1: each of these was a traceback (StopIteration), or an export of the
+    wrong calls, not a refusal."""
+    session, run_dir = run
+    edit(run_dir)
+    with pytest.raises(ConfigError) as e:
+        export_run(session, run_dir)
+    assert str(e.value).startswith(f"Can't read the records of {run_dir / 'calls.jsonl'} (")
+    assert not (run_dir / "inspect").exists()
+
+
 def test_without_the_extra_or_with_another_version_the_export_is_refused(run, monkeypatch):
     session, run_dir = run
     for name in ("inspect_ai", "inspect_ai.log"):
@@ -445,6 +489,32 @@ def test_an_id_naming_neither_says_where_runs_are(fetched_root, capsys):
             "No conversation, log file or run no-such-id. `clarity chats` lists "
             "conversations; each run is a folder in runs/."
         )
+
+
+def test_a_folder_without_calls_jsonl_is_no_run(run, capsys):
+    """Checkpoint 1's S1: a folder was a run whatever it held, so the plain export called any
+    folder a batch run, and the Inspect export failed with FileNotFoundError."""
+    _, run_dir = run
+    root = run_dir.parent.parent
+    empty = root / "runs" / "half"
+    empty.mkdir()
+    for given in (str(empty), "half"):
+        for fmt in ("inspect", "jsonl"):
+            assert refused(root, capsys, given, "--format", fmt) == (
+                f"No conversation, log file or run {given}. `clarity chats` lists "
+                "conversations; each run is a folder in runs/."
+            )
+    assert not (empty / "inspect").exists()
+
+
+def test_the_terminal_names_the_folder_in_full(run, capsys, monkeypatch):
+    """A relative path given is printed resolved, so the line says where the logs are."""
+    _, run_dir = run
+    root = run_dir.parent.parent
+    monkeypatch.chdir(root)
+    assert export(root, "runs/run-test", "--format", "inspect") == 0
+    first = capsys.readouterr().out.splitlines()[0]
+    assert first.startswith(f"Wrote 2 Inspect logs to {(run_dir / 'inspect').resolve()}{os.sep}: ")
 
 
 def test_format_inspect_takes_no_out(run, capsys, tmp_path):
