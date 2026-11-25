@@ -167,9 +167,9 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 
 **A stop reason is Inspect's only where it means the same.** End of sequence and a stop word are `stop`. llama-server's limit also ends a call whose context filled, so a call stopped at the limit is `max_tokens` or `model_length` by the flag Clarity logged with it. Anything else is `unknown`; the stop type itself is in the metadata.
 
-**Marks become a score with no metric.** Every reply gets a `mark` score. Its value is the reply's labels as one string, or "unmarked", so the grid can filter by it; its answer is the reply, and its explanation the reply's notes. A mark is a label, not a measurement, so the log names no scorer and no metric. `inspect score` can add a real score beside it.
+**Marks become a score with no metric.** Every reply gets a `mark` score. Its value is the reply's labels as one string, or "unmarked", so the log's sample list can filter by it; its answer is the reply, and its explanation the reply's notes. A mark is a label, not a measurement, so the log names no scorer and no metric. `inspect score` can add a real score beside it.
 
-**Two exports of one run read back the same.** The IDs come from the run's and calls' logged IDs, and the times are the calls' own. Cost: an export replaces the file, scores added to it since included, so score again after exporting again.
+**Two exports of one run read back the same.** The IDs come from the run's and calls' logged IDs, and the times are logged ones: the calls' own, and a run's start its run record's. Cost: an export replaces the file, scores added to it since included, so score again after exporting again.
 
 **The file is private from birth.** Inspect's writer makes its temporary file readable by others, so Clarity has it write inside a private temporary folder, makes the file readable only by you, and moves it into place.
 
@@ -311,7 +311,7 @@ When a choice above changes, the old one, the new one and the reason go here, ne
 
 | Date | Was | Now | Why |
 |---|---|---|---|
-| 2026-11-22 | Export for Inspect was deferred in v0.4.2's plan. | v0.4.3 exports a finished run as Inspect logs, one per profile. | The owner asked for it: browsing and comparing replies in Inspect's viewer, and a widely used log format, for little code. |
+| 2026-11-22 | Export for Inspect was deferred in v0.4.2's plan. | v0.4.3 exports a finished run as Inspect logs, one per profile, and a conversation as one log. | The owner asked for it: browsing and comparing replies in Inspect's viewer, and a widely used log format, for little code. |
 | 2026-11-22 | Clarity was installed by hand: a clone, `uv sync`, and llama.cpp built from Getting started's lines. The roadmap left open whether a one-command install came before v0.5.0 or with 0.8.0's install work. | v0.4.2 adds it before v0.5.0, for Macs with Apple silicon and 16 GB of memory or more: `install.sh` and `clarity setup`. Installing by hand stays, for other systems and your own builds. | The owner's scope for setup: someone who doesn't use a terminal goes from nothing to a first chat with one pasted command, and loses nothing Clarity records. |
 | 2026-11-22 | A chat searched its documents by words, and one model was ever in memory. | A chat searches by meaning by default, with bge-m3 on a second llama-server beside the chat model; `search_method = "words"` keeps word search. | Word search misses a paraphrase that shares no word with the message; meaning search usually finds it. The embedder is small (a 1.16 GB file), its flags are fixed in code, and the memory check counts both servers. |
 | 2026-11-14 | The default seed was `"random"`, and a batch run's seeds started at 333. | The default seed is 42, and a run's seeds start at 42. | With a random default, sending the same message twice gave two replies, which looked like a difference worth studying. A fixed seed makes a chat repeat until you change something; `"random"` is still a value you can choose. |
