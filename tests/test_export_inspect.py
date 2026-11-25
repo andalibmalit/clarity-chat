@@ -206,6 +206,16 @@ def test_the_log_says_clarity_made_the_calls_and_carries_the_header(run):
     assert INSPECT_NOTE == NOTE  # the note as the gate showed it; the docs point to it
 
 
+def test_a_runs_logs_ask_the_viewer_to_show_their_text_as_written(run):
+    """Not as Markdown: Inspect's viewer shows an untrusted log's text as its source, as
+    Clarity's page shows replies (I4, the fact-check's section 5)."""
+    session, run_dir = run
+    export_run(session, run_dir)
+    for n, profile in enumerate(("chat", "text"), 1):
+        viewer = read(run_dir / "inspect" / f"{n}-{profile}.eval").eval.viewer
+        assert viewer is not None and viewer.trust_content is False, (profile, viewer)
+
+
 def test_two_exports_of_one_run_read_back_equal_and_the_second_replaces(run, tmp_path):
     session, run_dir = run
     folder = run_dir / "inspect"

@@ -143,6 +143,14 @@ def test_the_log_is_the_chats_with_its_header_title_and_times(make):
     assert utc(stored.stats.completed_at) == utc(calls[rows[-1]["call_id"]]["time"])
 
 
+def test_a_chats_log_asks_the_viewer_to_show_its_text_as_written(make):
+    """Not as Markdown, as for a run's logs (I4, the fact-check's section 5)."""
+    session = make()
+    log = two_messages_regens_and_an_edit(session)
+    viewer = read(Path(export_chat(session, log)["path"])).eval.viewer
+    assert viewer is not None and viewer.trust_content is False, viewer
+
+
 def test_two_exports_read_back_equal_and_the_second_replaces(make, tmp_path):
     session = make()
     log = two_messages_regens_and_an_edit(session)
