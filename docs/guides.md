@@ -152,6 +152,79 @@ Before any model loads, Clarity checks every profile and renders every opening. 
 
 Each call is its own conversation. Profiles are read once, at the start, so editing one during a run changes nothing. `blind.md` strips the whitespace around each reply; `calls.jsonl` keeps replies exactly as generated.
 
+## Browse a run in Inspect's viewer
+
+[Inspect](https://inspect.aisi.org.uk/)'s viewer lists a run's replies, puts every profile's reply to one opening side by side, and can add a score later. Clarity writes the logs; Inspect only reads them.
+
+1. Install the extra: `uv sync --extra inspect`. Add `--extra hf` if you use the Transformers backend, since `uv sync` removes extras you don't name.
+2. Run the profiles and mark replies, as in [Run and rate a blind test](#run-and-rate-a-blind-test) and [Label replies after the fact](#label-replies-after-the-fact).
+3. Export the run:
+
+   ```
+   uv run clarity export RUN_ID --format inspect
+   ```
+
+   It writes one log per profile, `runs/RUN_ID/inspect/1-A.eval`, `2-B.eval` and so on, readable only by you. A run that stopped early isn't exported. Exporting again replaces the files, so mark first and export last. What goes where is in [Export for Inspect](reference.md#export-for-inspect).
+
+4. Open the viewer:
+
+   ```
+   uv run inspect view --log-dir runs/RUN_ID/inspect
+   ```
+
+   It prints a local address to open in your browser.
+
+**Compare profiles.** Choose **Samples**, at the top right beside Tasks and Folders, for one grid of every log's replies. Each opening is a sample, numbered as in `key.json`, and each seed an epoch of it. Sort by **Id** so each opening's replies from every profile sit together, with **Model** and **MARK** beside them. **Input** is the opening as the model got it, so a profile that searches documents shows the parts search added there too. MARK is the reply's labels, or "unmarked". The grid has no column for the reply itself, so open a row to read it; a log's own Samples list shows it as **Answer**, one profile at a time. A filter on MARK works only while it has fewer than 10 distinct values. To read the replies side by side in a terminal instead, run this with `uv run python`:
+
+```python
+from pathlib import Path
+
+from inspect_ai.log import read_eval_log
+
+replies = {}
+for path in sorted(Path("runs/RUN_ID/inspect").glob("*.eval")):
+    log = read_eval_log(str(path))
+    for sample in log.samples or []:
+        mark = sample.scores["mark"].value if sample.scores else ""
+        replies.setdefault((sample.id, sample.epoch), []).append(
+            (log.eval.model, mark, sample.metadata["output_text"])
+        )
+for (opening, epoch), rows in sorted(replies.items()):
+    print(f"Opening {opening}, epoch {epoch}")
+    for model, mark, text in rows:
+        print(f"  {model} [{mark}]: {text!r}")
+```
+
+**See the exact text.** The viewer formats text as Markdown: it drops leading spaces and turns a line starting with `* ` into a bullet. The **Raw** button on a sample's Messages tab shows each message exactly. The messages leave out text the chat template adds, including any message of its own, like the system message OLMo 3's template adds when a profile has none, or the dates Llama 3.1's puts in its system header; `prompt_text` has it. The record is the sample's metadata: `prompt_text`, `prompt_ids` and `output_text`, with every setting and the facts replay compares. Each message's own metadata, its span of the prompt as logged, shows folded on the user's message but not on the system message; `read_eval_log` reads it on both.
+
+**Know who made the calls.** Each log's model is `clarity/PROFILE`, and its tags, `clarity` and `not-run-by-inspect`, show in the log's header and on its Task tab, not in the grid. Its Info tab shows `inspect_note`, which says Clarity made the calls; below it, Clarity's export header is folded under `clarity`: click ▸ to open it. Running a log again in Inspect won't reproduce its calls: `clarity/PROFILE` names no Inspect provider, and Inspect would neither build Clarity's token IDs nor send its sampler settings. To make a call again, use [`clarity replay`](#replay-a-call).
+
+**Score later.** `inspect score` adds a score beside `mark` and keeps it. A scorer is a Python file; its inner function needs the type annotations shown, or `inspect score` refuses it:
+
+```python
+from inspect_ai.scorer import Score, Target, accuracy, scorer
+from inspect_ai.solver import TaskState
+
+
+@scorer(metrics=[accuracy()])
+def mentions_blue():
+    async def score(state: TaskState, target: Target) -> Score:
+        return Score(value=1 if "blue" in state.output.completion.lower() else 0)
+
+    return score
+```
+
+Save it as `blue.py`, then score a copy and make the copy readable only by you:
+
+```
+uv run inspect score runs/RUN_ID/inspect/1-A.eval --scorer blue.py@mentions_blue --model none --action append --output-file runs/RUN_ID/inspect/1-A-scored.eval
+chmod 600 runs/RUN_ID/inspect/1-A-scored.eval
+```
+
+`--model none` is for a scorer that calls no model; a model-graded scorer needs a real model, passed with `--model` or in the scorer's own `model=`. `--action append` keeps `mark`. Inspect writes the scored copy, which holds the whole conversation, readable by others, hence the `chmod 600`. A new export of the run replaces `1-A.eval` but leaves the scored copy as it was, so score again after exporting again. `inspect score` also leaves an empty `logs/` folder, and `blue.py`'s `__pycache__/`, in the folder you ran it from.
+
+**What Inspect keeps.** On macOS, `inspect view` and `inspect score` write trace files under `~/Library/Application Support/inspect_ai/`: `traces/` and `view/ports/`. With `inspect-ai` 0.3.291 they name the log files but hold no reply text.
+
 ## Attach a document
 
 In a chat-mode profile, `/attach notes.md` puts the file's text at the start of your next message, after a framing line that says it's reference material. It stays in the chat like a long paste: later replies see it, and the log keeps its text. Clarity reads PDFs, HTML, and UTF-8 text such as Markdown or code ([what it reads](reference.md#what-clarity-reads-from-a-file)). A line before each prompt lists what's waiting; `/detach` removes one, and `clarity chat --attach FILE` attaches a file once the model is ready.
