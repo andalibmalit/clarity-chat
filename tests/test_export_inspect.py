@@ -459,7 +459,10 @@ def test_an_inspect_entry_that_is_a_file_is_refused(run):
     (run_dir / "inspect").write_text("not a folder", encoding="utf-8")
     with pytest.raises(ConfigError) as e:
         export_run(session, run_dir)
-    assert str(e.value) == f"Can't write the export to {run_dir / 'inspect'}: File exists."
+    # The OS's own words (CI 45601593181): macOS "File exists", Windows "Cannot create a file
+    # when that file already exists"
+    assert isinstance(cause := e.value.__cause__, FileExistsError)
+    assert str(e.value) == f"Can't write the export to {run_dir / 'inspect'}: {cause.strerror}."
     assert (run_dir / "inspect").read_text(encoding="utf-8") == "not a folder"
 
 

@@ -12,6 +12,7 @@ Each check saves a screenshot, and the page's text beside it, to a local-only fo
 from __future__ import annotations
 
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -301,7 +302,8 @@ def test_v7_an_empty_generate_config_and_no_times(viewer, page):
     text = show(page, viewer, "/logs/run/1-smol-chat.eval/task", "TASK INFO")
     record(page, "V7-task-tab")
     assert "1969-12-31" in text or "1970-01-01" in text
-    assert text.rstrip().endswith("CONFIG\nepochs\n2")
+    # WebKit sometimes puts a blank line between a name and its value (CI 45601593181)
+    assert re.sub(r"\n+", "\n", text.rstrip()).endswith("CONFIG\nepochs\n2")
     only_local(viewer)
 
 

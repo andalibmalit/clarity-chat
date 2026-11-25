@@ -252,7 +252,10 @@ def test_an_exports_entry_that_is_a_file_is_refused(make):
     exports.write_text("not a folder", encoding="utf-8")
     with pytest.raises(ConfigError) as e:
         export_chat(session, session.conversation.log.path)
-    assert str(e.value) == f"Can't write the export to {exports}: File exists."
+    # The OS's own words (CI 45601593181): macOS "File exists", Windows "Cannot create a file
+    # when that file already exists"
+    assert isinstance(cause := e.value.__cause__, FileExistsError)
+    assert str(e.value) == f"Can't write the export to {exports}: {cause.strerror}."
 
 
 @pytest.mark.parametrize("golden", GOLDEN, ids=lambda p: p.stem)
