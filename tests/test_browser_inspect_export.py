@@ -24,6 +24,7 @@ from tests.test_browser_inspect import (  # noqa: E402
     browser_type_launch_args,  # noqa: F401  the fixture: Chrome on the Mac
     finding,
     only_local,
+    page_text,
     record,
     sample_route,
     serve,
@@ -55,7 +56,7 @@ def test_the_viewer_shows_a_runs_export(run, context):
         show(page, viewer, "/logs/1-chat.eval/info", "clarity-run")
         page.wait_for_timeout(2000)
         record(page, "I4-log-info")
-        text = page.inner_text("body")
+        text = page_text(page)
         finding("I4 note shown unopened on Info:", "Clarity made these calls" in text)
         assert "Clarity made these calls, not Inspect." in text  # the I4 ruling: no click
         for tab, waits_for in (("task", "TASK INFO"), ("models", "clarity/chat")):

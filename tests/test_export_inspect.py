@@ -453,16 +453,23 @@ def test_a_failed_move_names_the_logs_already_moved(run, monkeypatch):
     assert sorted(p.name for p in folder.iterdir()) == ["1-chat.eval", "2-text.eval"]
 
 
+def mkdir_on_a_file(path: Path) -> str:
+    """The OS's own words for making a folder where a file is, as the export does: macOS
+    says "File exists", Windows "Cannot create a file when that file already exists" (CI
+    run 45601593181)."""
+    with pytest.raises(FileExistsError) as e:
+        path.mkdir(parents=True, exist_ok=True)
+    return e.value.strerror or str(e.value)  # as the export says it
+
+
 def test_an_inspect_entry_that_is_a_file_is_refused(run):
     """mkdir's error was a traceback (the fix review's C-b)."""
     session, run_dir = run
     (run_dir / "inspect").write_text("not a folder", encoding="utf-8")
     with pytest.raises(ConfigError) as e:
         export_run(session, run_dir)
-    # The OS's own words (CI 45601593181): macOS "File exists", Windows "Cannot create a file
-    # when that file already exists"
-    assert isinstance(cause := e.value.__cause__, FileExistsError)
-    assert str(e.value) == f"Can't write the export to {run_dir / 'inspect'}: {cause.strerror}."
+    said = mkdir_on_a_file(run_dir / "inspect")
+    assert str(e.value) == f"Can't write the export to {run_dir / 'inspect'}: {said}."
     assert (run_dir / "inspect").read_text(encoding="utf-8") == "not a folder"
 
 

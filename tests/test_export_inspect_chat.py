@@ -20,6 +20,7 @@ from clarity_chat.profiles import ConfigError
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend
 from tests.test_export import Tagged
+from tests.test_export_inspect import mkdir_on_a_file
 
 pytest.importorskip("inspect_ai")
 
@@ -252,10 +253,8 @@ def test_an_exports_entry_that_is_a_file_is_refused(make):
     exports.write_text("not a folder", encoding="utf-8")
     with pytest.raises(ConfigError) as e:
         export_chat(session, session.conversation.log.path)
-    # The OS's own words (CI 45601593181): macOS "File exists", Windows "Cannot create a file
-    # when that file already exists"
-    assert isinstance(cause := e.value.__cause__, FileExistsError)
-    assert str(e.value) == f"Can't write the export to {exports}: {cause.strerror}."
+    said = mkdir_on_a_file(exports)
+    assert str(e.value) == f"Can't write the export to {exports}: {said}."
 
 
 @pytest.mark.parametrize("golden", GOLDEN, ids=lambda p: p.stem)

@@ -128,7 +128,14 @@ def show(page, viewer: Viewer, route: str, waits_for: str) -> str:
     page.goto(f"{viewer.origin}/#{route}")
     page.get_by_text(waits_for, exact=False).first.wait_for(timeout=SETTLE)
     page.wait_for_load_state("networkidle")
-    return page.inner_text("body")
+    return page_text(page)
+
+
+def page_text(page) -> str:
+    """The page's text, each run of newlines made one: WebKit sometimes puts a blank line
+    between two elements where Chromium doesn't (CI run 45601593181), and the asserts that
+    read across elements shouldn't depend on it."""
+    return re.sub(r"\n+", "\n", page.inner_text("body"))
 
 
 def record(page, name: str) -> None:
@@ -174,7 +181,7 @@ def test_v4_the_mark_score_shows_in_the_grid_the_logs_list_and_the_sample(viewer
     page.keyboard.type('mark == "landed"')
     page.get_by_text("Blue, green and grey.").wait_for(state="detached", timeout=SETTLE)
     record(page, "V4-log-list-filtered")
-    text = page.inner_text("body")
+    text = page_text(page)
     assert "Indented by three spaces." in text and "It whistles" not in text
     route = sample_route("run/1-smol-chat.eval", 1, 1, "scoring")
     text = show(page, viewer, route, "landed")
@@ -228,7 +235,7 @@ def test_v6_the_samples_grid_lists_both_profiles_replies(viewer, page):
     page.get_by_text("Id", exact=True).first.click()  # the header; CSS shows it as ID
     page.wait_for_timeout(1500)
     record(page, "V6-grid-sorted-by-id")
-    text = page.inner_text("body")
+    text = page_text(page)
     assert "\nID\n" in text, "the Id column is still shown"
     rows = [line for line in text.split("\n") if line in gate.OPENINGS.values()]
     assert len(rows) == 8 and len({tuple(rows[:4]), tuple(rows[4:])}) == 2, rows
@@ -237,7 +244,7 @@ def test_v6_the_samples_grid_lists_both_profiles_replies(viewer, page):
     page.get_by_text("Columns", exact=True).first.click()
     page.wait_for_timeout(1000)
     record(page, "V6-grid-columns-picker")
-    picker = page.inner_text("body").split("8 rows", 1)[0]
+    picker = page_text(page).split("8 rows", 1)[0]
     finding("V6 columns picker:", picker.split("Columns", 1)[-1].replace("\n", " "))
     assert "Answer" not in picker and "Tags" not in picker and "\nmark\n" in picker
     only_local(viewer)
@@ -255,7 +262,7 @@ def test_v1_the_tags_and_the_note(viewer, page):
     show(page, viewer, "/logs/run/1-smol-chat.eval/info", "clarity-run")
     page.wait_for_timeout(2000)
     record(page, "V1-log-info")
-    text = page.inner_text("body")
+    text = page_text(page)
     finding("V1 note on the Info tab:", "Clarity made these calls" in text)
     assert "Clarity made these calls" in text
     only_local(viewer)
@@ -283,7 +290,7 @@ def test_v3_a_messages_metadata(viewer, page):
     page.get_by_text("Object(3)").first.click()
     page.wait_for_timeout(1000)
     record(page, "V3-messages-chat-mode-opened")
-    text = page.inner_text("body")
+    text = page_text(page)
     finding("V3 opened span shows chars:", "chars" in text, "role" in text)
     route = sample_route("run/2-smol-text.eval", 1, 1, "messages")
     text = show(page, viewer, route, "Object(1)")
@@ -302,8 +309,7 @@ def test_v7_an_empty_generate_config_and_no_times(viewer, page):
     text = show(page, viewer, "/logs/run/1-smol-chat.eval/task", "TASK INFO")
     record(page, "V7-task-tab")
     assert "1969-12-31" in text or "1970-01-01" in text
-    # WebKit sometimes puts a blank line between a name and its value (CI 45601593181)
-    assert re.sub(r"\n+", "\n", text.rstrip()).endswith("CONFIG\nepochs\n2")
+    assert text.rstrip().endswith("CONFIG\nepochs\n2")
     only_local(viewer)
 
 
@@ -348,7 +354,8 @@ def test_v11_markdown_in_a_reply(viewer, page):
     record(page, "V11-markdown-reply")
     assert "   Indented" not in text
     assert "Indented by three spaces. * a starred line <think>a thought</think> after it" in text
-    assert "\n\na starred line\n<think>a thought</think> after it" in text
+    # The blank line is the reply's own paragraph break, so this reads the page as it is
+    assert "\n\na starred line\n<think>a thought</think> after it" in page.inner_text("body")
     assert text.count("* a starred line") == 1  # the header's, not the message's
     page.get_by_text("Raw", exact=True).first.click()
     page.wait_for_timeout(1500)
