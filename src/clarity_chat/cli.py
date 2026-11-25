@@ -790,8 +790,7 @@ class ChatLoop:
         elif name == "replay":
             self.write(format_replay(result["replay"]) + "\n")
         elif name == "export":
-            note = f"\n{NOT_INSPECTS}" if result["format"] == "inspect" else ""
-            self.write(f"{format_export(result)}{note}\n")
+            self.write(f"{format_export(result)}\n")
         elif name == "cancel":  # in the terminal, Ctrl-C cancels; between calls, nothing runs
             self.write("Cancelled.\n" if result["cancelled"] else "Nothing to cancel.\n")
         return True
@@ -950,7 +949,8 @@ def cmd_run(
 
 
 def format_export(result: dict[str, Any]) -> str:
-    """Where an export went, and what it holds."""
+    """Where a conversation's export went, and what it holds. The recompute check reads only
+    a plain export, so an Inspect log's line ends with whose calls they are instead."""
     replaced = " (replaced the earlier export)" if result["replaced"] else ""
     left_out = result["failed_calls_left_out"]
     failed = f"; {left_out} failed call(s) left out" if left_out else ""
@@ -959,10 +959,12 @@ def format_export(result: dict[str, Any]) -> str:
     from clarity_chat.export import holds  # as export_log is: when it's used
 
     attached = f" {said}" if (said := holds(result)) else ""
+    line = f"Wrote {result['path']}{replaced}: {result['calls']} call(s){failed}."
+    if result["format"] == "inspect":
+        return f"{line}{attached}\n{NOT_INSPECTS}"
     return (
-        f"Wrote {result['path']}{replaced}: {result['calls']} call(s){failed}. Before "
-        "recomputing it in a notebook, run clarity_chat.recompute.check (docs/guides.md)."
-        + attached
+        f"{line} Before recomputing it in a notebook, run clarity_chat.recompute.check "
+        f"(docs/guides.md).{attached}"
     )
 
 
@@ -1039,7 +1041,7 @@ def cmd_export(root: Path, given: str, form: str, out: Path | None) -> int:
     elif form == "inspect":
         from clarity_chat.export_inspect import export_chat
 
-        print(f"{format_export(export_chat(session, path))}\n{NOT_INSPECTS}")
+        print(format_export(export_chat(session, path)))
     else:
         from clarity_chat.export import export_log
 

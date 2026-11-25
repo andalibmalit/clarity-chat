@@ -274,6 +274,12 @@ def test_every_golden_log_exports_and_reads_back(
     assert len({(s.id, s.epoch) for s in exported.samples}) == len(rows)
 
 
+NOTE_LINE = (
+    "Inspect didn't make these calls: running them again in Inspect won't send the same "
+    "prompts. Each sample's metadata holds what the model got."
+)
+
+
 def export(root: Path, *args: str) -> int:
     return cli.main(["--root", str(root), "export", *args])
 
@@ -286,11 +292,10 @@ def test_clarity_export_takes_a_conversations_id_or_its_log(make, capsys):
     path = session.logs_dir / "exports" / f"{log.stem}.eval"
     for given, replaced in ((log.stem, ""), (str(log), " (replaced the earlier export)")):
         assert export(session.root, given, "--format", "inspect") == 0
+        # No recompute check: it reads a plain export, not an .eval (the whole-branch M1).
         assert capsys.readouterr().out.splitlines() == [
-            f"Wrote {path}{replaced}: 1 call(s). Before recomputing it in a notebook, run "
-            "clarity_chat.recompute.check (docs/guides.md).",
-            "Inspect didn't make these calls: running them again in Inspect won't send the "
-            "same prompts. Each sample's metadata holds what the model got.",
+            f"Wrote {path}{replaced}: 1 call(s).",
+            NOTE_LINE,
         ]
 
 
@@ -313,11 +318,8 @@ def test_slash_export_inspect_writes_the_chats_log_and_says_its_format(make):
     assert result["format"] == "inspect"
     assert result["path"] == str(session.logs_dir / "exports" / f"{log.stem}.eval")
     assert len(read(result["path"]).samples) == 1
-    # The rest is what `clarity export ID --format inspect` returns.
-    assert {k: v for k, v in result.items() if k != "format"} == {
-        **export_chat(session, log),
-        "replaced": False,
-    }
+    # What `clarity export ID --format inspect` returns, `format` included (S3).
+    assert result == {**export_chat(session, log), "replaced": False}
     plain = Commands(session).run("export", "", lambda e: None)
     assert plain["format"] == "jsonl" and plain["path"].endswith(f"{log.stem}.jsonl")
 
@@ -346,11 +348,12 @@ def test_the_terminal_chat_says_where_the_log_went_and_whose_calls_they_are(make
     output.clear()
     loop.handle("/export inspect")
     path = session.logs_dir / "exports" / f"{session.conversation.log.path.stem}.eval"
+    assert "".join(output).splitlines() == [f"Wrote {path}: 1 call(s).", NOTE_LINE]
+    output.clear()
+    loop.handle("/export")  # the plain export's line: the recompute check, and no note
     assert "".join(output).splitlines() == [
-        f"Wrote {path}: 1 call(s). Before recomputing it in a notebook, run "
-        "clarity_chat.recompute.check (docs/guides.md).",
-        "Inspect didn't make these calls: running them again in Inspect won't send the "
-        "same prompts. Each sample's metadata holds what the model got.",
+        f"Wrote {path.with_suffix('.jsonl')}: 1 call(s). Before recomputing it in a notebook, "
+        "run clarity_chat.recompute.check (docs/guides.md)."
     ]
     output.clear()
     loop.handle("/export notes.jsonl")

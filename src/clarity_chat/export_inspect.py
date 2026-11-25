@@ -24,9 +24,9 @@ from clarity_chat.export import (
     STEERED_NOTE,
     ConversationExport,
     conversation_rows,
+    export_result,
     require_log,
     run_conversations,
-    steered_by_vector,
 )
 from clarity_chat.logs import LOG_NAME, chat_summary, read_records, unreadable
 from clarity_chat.profiles import ConfigError
@@ -35,8 +35,6 @@ from clarity_chat.session import Session
 if TYPE_CHECKING:  # imported only when an export runs
     from inspect_ai.log import EvalLog, EvalSample
     from inspect_ai.model import StopReason
-
-Writer = Callable[..., object]  # inspect_ai's write_eval_log
 
 INSPECT_AI = "0.3.291"  # the inspect extra's pin in pyproject.toml; a test checks they match
 INSPECT_FORMAT_VERSION = 1  # the shape of what Clarity puts in Inspect's fields
@@ -64,8 +62,6 @@ WHOLE_TEXT = "text mode: the template has no message roles"
 # every "limit" from the first commit; one with neither flag is "unknown".
 STOP_REASONS: dict[str, StopReason] = {"eos": "stop", "word": "stop"}
 LIMIT_REASONS: dict[str, StopReason] = {"length": "max_tokens", "context_full": "model_length"}
-
-Group = tuple[str, list[ConversationExport]]  # a profile's name and its conversations
 
 
 def export_run(session: Session, run_dir: Path) -> dict[str, Any]:
@@ -123,19 +119,10 @@ def export_chat(session: Session, log_path: Path) -> dict[str, Any]:
     path = folder / f"{log_path.stem}.eval"
     replaced = path.exists()
     write_privately(write, [(log, path)], folder)
-    return {
-        "path": str(path),
-        "replaced": replaced,
-        "calls": len(rows),
-        "failed_calls_left_out": header["failed_calls_left_out"],
-        "calls_without_a_turn_left_out": header["calls_without_a_turn_left_out"],
-        "steered": steered_by_vector(rows),
-        "attachments": any(row["attachments"] for row in rows),
-        "found": any(row["found"] for row in rows),
-    }
+    return export_result(path, replaced, header, rows, "inspect")
 
 
-def inspect_writer() -> Writer:
+def inspect_writer() -> Callable[..., object]:  # write_eval_log
     """inspect_ai's writer, at the pinned version (states 4 and 5)."""
     try:
         from inspect_ai.log import write_eval_log
@@ -155,7 +142,7 @@ def inspect_writer() -> Writer:
 
 def by_profile(
     run: dict[str, Any], conversations: list[ConversationExport], run_dir: Path
-) -> list[Group]:
+) -> list[tuple[str, list[ConversationExport]]]:
     """The conversations by profile, in the run record's order. key.json names each
     conversation's profile as --profiles gave it, so two profile files with one name stay
     apart, and the log's order (by model) doesn't matter. The file's name is the calls'
@@ -423,7 +410,9 @@ def stable_id(run_id: str, n: int, kind: str) -> str:
     return hashlib.sha256(f"{run_id} {n} {kind}".encode()).hexdigest()[:22]
 
 
-def write_privately(write: Writer, logs: list[tuple[EvalLog, Path]], folder: Path) -> None:
+def write_privately(
+    write: Callable[..., object], logs: list[tuple[EvalLog, Path]], folder: Path
+) -> None:
     """Inspect's writer makes its own temporary file beside its target, readable by others
     (0666 less the umask), so every log is written inside one 0700 folder and made 0600
     first, and only then moved into place: a failed write replaces no file. No order of

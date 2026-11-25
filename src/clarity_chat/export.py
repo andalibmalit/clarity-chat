@@ -86,8 +86,17 @@ def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any
         write_text_atomic(path, "\n".join(lines) + "\n", private=True)
     except OSError as e:  # a folder, no permission, a file a notebook holds open on Windows
         raise ConfigError(f"Can't write the export to {path}: {e.strerror or e}.") from e
+    return export_result(path, replaced, header, rows, "jsonl")
+
+
+def export_result(
+    path: Path, replaced: bool, header: dict[str, Any], rows: list[dict[str, Any]], form: str
+) -> dict[str, Any]:
+    """A conversation's export, in either format (`jsonl` or `inspect`): where it went and
+    what it holds."""
     return {
         "path": str(path),
+        "format": form,
         "replaced": replaced,
         "calls": len(rows),
         "failed_calls_left_out": header["failed_calls_left_out"],

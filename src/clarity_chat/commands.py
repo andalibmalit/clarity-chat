@@ -1008,8 +1008,8 @@ def _export(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     if args == "inspect":  # in-process: G0's S3 found the import and the write change nothing
         from clarity_chat.export_inspect import export_chat
 
-        return {**export_chat(c.session, conversation.log.path), "format": "inspect"}
-    return {**export_log(c.session, conversation.log.path), "format": "jsonl"}
+        return export_chat(c.session, conversation.log.path)
+    return export_log(c.session, conversation.log.path)
 
 
 def _settings(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
