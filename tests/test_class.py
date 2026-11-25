@@ -485,7 +485,7 @@ TERMINAL_ONLY = {
         "the page exports the open chat, a log Clarity wrote"
     ),
     "/set: unknown setting . Known: .": "the page sends names from /settings",
-    "No conversation, log file or run . `clarity chats` lists conversations; name a run by "
+    "No conversation or log file . `clarity chats` lists conversations; name a run by "
     "its folder, runs/RUN_ID.": ("the page exports the open chat, and opens chats it listed"),
     "This conversation has no turn . /branches lists them.": (
         "the page switches to turns it drew from /branches; a stale one needs another tab, "

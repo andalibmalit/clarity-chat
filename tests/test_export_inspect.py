@@ -686,7 +686,7 @@ def test_an_id_names_a_conversation_never_a_run(run, capsys):
     for given in ("run-test", "no-such-id"):
         for fmt in ("inspect", "jsonl"):
             assert refused(root, capsys, given, "--format", fmt) == (
-                f"No conversation, log file or run {given}. `clarity chats` lists conversations; "
+                f"No conversation or log file {given}. `clarity chats` lists conversations; "
                 "name a run by its folder, runs/RUN_ID."
             )
     assert not (run_dir / "inspect").exists()
@@ -701,7 +701,7 @@ def test_a_folder_without_calls_jsonl_is_no_run(run, capsys):
     empty.mkdir()
     for fmt in ("inspect", "jsonl"):
         assert refused(root, capsys, str(empty), "--format", fmt) == (
-            f"No conversation, log file or run {empty}. `clarity chats` lists conversations; "
+            f"No conversation or log file {empty}. `clarity chats` lists conversations; "
             "name a run by its folder, runs/RUN_ID."
         )
     assert not (empty / "inspect").exists()
@@ -715,6 +715,29 @@ def test_the_terminal_names_the_folder_in_full(run, capsys, monkeypatch):
     assert export(root, "runs/run-test", "--format", "inspect") == 0
     first = capsys.readouterr().out.splitlines()[0]
     assert first.startswith(f"Wrote 2 Inspect logs to {(run_dir / 'inspect').resolve()}{os.sep}: ")
+
+
+def test_a_folder_named_like_a_conversation_doesnt_hide_its_log(
+    fetched_root, chat_tokenizer, tmp_path, monkeypatch
+):
+    """The whole-branch fix review's W2: an ID falls back to logs/ID.jsonl unless it names a
+    file, as before cut-order entry 1, so a folder of that name where you stand is no
+    reason to refuse."""
+    session = Session(
+        fetched_root,
+        backend=FakeBackend(None, n_ctx=512, tokenizer=chat_tokenizer),
+        tokenizer_loader=lambda r, v: chat_tokenizer,
+    )
+    session.new_conversation("chat")
+    session.say("Hi")
+    assert session.conversation is not None
+    conversation_id = session.conversation.conversation_id
+    here = tmp_path / "elsewhere"
+    (here / conversation_id).mkdir(parents=True)
+    monkeypatch.chdir(here)
+    for fmt, suffix in (("jsonl", ".jsonl"), ("inspect", ".eval")):
+        assert export(fetched_root, conversation_id, "--format", fmt) == 0, fmt
+        assert (fetched_root / "logs" / "exports" / f"{conversation_id}{suffix}").is_file()
 
 
 def test_format_inspect_takes_no_out(run, capsys, tmp_path):
