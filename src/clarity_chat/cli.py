@@ -1001,14 +1001,15 @@ def format_inspect(result: dict[str, Any]) -> str:
 def export_target(root: Path, given: str) -> tuple[str, Path]:
     """What `clarity export` was given: ("run", its folder) or ("chat", its log). A run is
     named by its folder, which holds calls.jsonl, or by that file, so an ID is always a
-    conversation's: an existing path is used as it is, else logs/ID.jsonl."""
+    conversation's: a file is used as it is, else logs/ID.jsonl if there is one (so a
+    folder named like a conversation doesn't hide its log)."""
     path = Path(given)
     if path.is_dir() and (path / "calls.jsonl").is_file():
         return ("run", path)
     if path.is_file() and path.name == "calls.jsonl":
         return ("run", path.parent)
     log = root / "logs" / f"{given}.jsonl"
-    return ("chat", log if not path.exists() and log.is_file() else path)
+    return ("chat", log if not path.is_file() and log.is_file() else path)
 
 
 def cmd_export(root: Path, given: str, form: str, out: Path | None) -> int:
