@@ -414,3 +414,84 @@ def test_the_page_serves_the_newest_export_whichever_format(fetched_root, chat_t
         assert served.content == jsonl.read_bytes()
         assert f'filename="{stem}.jsonl"' in served.headers["content-disposition"]
         assert served.headers["content-type"].startswith("application/x-ndjson")
+
+
+# The whole-branch review's S1: the documents and steering lines (state 18), and C2: the IDs.
+
+
+@pytest.mark.parametrize(
+    ("attach", "search", "said"),
+    [
+        (False, False, ""),
+        (True, False, " It holds the text of the documents attached in this chat."),
+        (False, True, " It holds the text of the parts search added from your documents."),
+        (True, True, " It holds the text of the documents attached in this chat and of the "
+         "parts search added from your documents."),
+    ],
+)  # fmt: skip
+def test_a_chats_inspect_log_says_whose_text_it_holds(
+    fetched_root, chat_tokenizer, tmp_path, attach, search, said
+):
+    """The privacy line for a file someone may share, as the plain export's says it."""
+    from clarity_chat.documents import library_add, reading
+    from tests.test_documents_board import chat, quiet
+    from tests.test_search_b3 import GLOSSARY
+
+    reading._last = None
+    library_add(fetched_root, GLOSSARY, "glossary.md")
+    session, c, _ = chat(fetched_root, chat_tokenizer, 'search = ["glossary"]' if search else "")
+    if attach:
+        notes = tmp_path / "notes.md"
+        notes.write_text("Made-up notes.\n", encoding="utf-8")
+        c.run("attach", str(notes), quiet)
+    c.run("say", "Tell me about the wren", quiet)
+    result = c.run("export", "inspect", quiet)
+    assert (result["attachments"], result["found"]) == (attach, search)
+    assert cli.format_export(result).splitlines() == [
+        f"Wrote {result['path']}: 1 call(s).{said}",
+        NOTE_LINE,
+    ]
+
+
+def test_a_chats_inspect_log_names_the_vector_that_steered_its_calls(root, tiny_tokenizer):
+    """The export sheet (v0.4.4) names the vector from `steered`, as for the plain export."""
+    from clarity_chat.export import export_log
+    from tests.test_steering import steer_root, steered
+
+    steer_root(root)
+    backend = FakeBackend([" Hi."] * 4, tokenizer=tiny_tokenizer)
+    backend.name = "transformers"
+    session = Session(root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    session.new_conversation(steered(root))
+    first = session.say("Hi").record
+    session.set_setting("steering_scale", "0")
+    session.say("Again")
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    result = export_chat(session, log)
+    logged = first["request"]["steering"]
+    assert result["steered"] == [
+        {"file": logged["file"], "sha256": logged["sha256"], "call_ids": [first["call_id"]]}
+    ]
+    assert result["steered"] == export_log(session, log)["steered"]
+
+
+def test_a_chats_ids_hash_its_conversation_id_not_its_file_name(make):
+    """So a copied log, which keeps its conversation ID, reads back with the original's IDs.
+    Place 1: a chat is one log, as a run's first profile is."""
+    import hashlib
+
+    session = make()
+    session.new_conversation("chat")
+    session.say("Hi")
+    assert session.conversation is not None
+    original = session.conversation.log.path
+    copy = Path(shutil.copy(original, original.with_name("copy.jsonl")))
+    conversation_id = session.conversation.conversation_id
+
+    def hashed(kind: str) -> str:
+        return hashlib.sha256(f"{conversation_id} 1 {kind}".encode()).hexdigest()[:22]
+
+    for log in (original, copy):
+        spec = read(export_chat(session, log)["path"]).eval
+        assert (spec.eval_id, spec.task_id) == (hashed("eval"), hashed("task"))
