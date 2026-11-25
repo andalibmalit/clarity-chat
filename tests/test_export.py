@@ -46,6 +46,15 @@ def read_export(path: Path) -> tuple[dict, list[dict]]:
     return rows[0], rows[1:]
 
 
+def both_formats(session: Session, log: Path):
+    """T1: a log the plain export refuses, the Inspect export (v0.4.3) refuses the same way."""
+    yield lambda: export_log(session, log)
+    pytest.importorskip("inspect_ai")
+    from clarity_chat.export_inspect import export_chat
+
+    yield lambda: export_chat(session, log)
+
+
 def logged_calls(log: Path) -> dict[str, dict]:
     return {r["call_id"]: r for r in read_records(log) if r["type"] == "call"}
 
@@ -331,9 +340,10 @@ def test_a_log_whose_conversation_id_is_a_path_is_refused(make, tmp_path):
     rows[0]["conversation_id"] = "../../escaped"
     edited = tmp_path / "edited.jsonl"
     edited.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    with pytest.raises(ConfigError, match="conversation ID"):
-        export_log(session, edited)
-    assert not list(tmp_path.parent.glob("**/escaped.jsonl"))
+    for export in both_formats(session, edited):
+        with pytest.raises(ConfigError, match="conversation ID"):
+            export()
+    assert not list(tmp_path.parent.glob("**/escaped.*"))
 
 
 @pytest.mark.parametrize(
@@ -392,12 +402,13 @@ def test_a_log_with_a_call_missing_a_field_is_refused(make, tmp_path):
             del row["model"]
     edited = tmp_path / "edited.jsonl"
     edited.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    with pytest.raises(ConfigError) as refused:
-        export_log(session, edited)
-    assert str(refused.value) == (  # fix review, batch 6, item 3
-        f"Can't read the records of {edited} (KeyError: 'model'). A log another program "
-        "wrote or edited can cause this; if not, it's a bug in Clarity."
-    )
+    for export in both_formats(session, edited):
+        with pytest.raises(ConfigError) as refused:
+            export()
+        assert str(refused.value) == (  # fix review, batch 6, item 3
+            f"Can't read the records of {edited} (KeyError: 'model'). A log another program "
+            "wrote or edited can cause this; if not, it's a bug in Clarity."
+        )
 
 
 def test_a_turn_whose_parent_comes_later_is_refused_not_looped_on(make, tmp_path):
@@ -414,8 +425,9 @@ def test_a_turn_whose_parent_comes_later_is_refused_not_looped_on(make, tmp_path
     turns[0]["parent_id"] = turns[-1]["turn_id"]
     edited = tmp_path / "edited.jsonl"
     edited.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
-    with pytest.raises(ConfigError, match="parent"):
-        export_log(session, edited)
+    for export in both_formats(session, edited):
+        with pytest.raises(ConfigError, match="parent"):
+            export()
 
 
 def test_derived_spans_match_the_logged_ones_in_chat_mode(make, fetched_root, tmp_path):

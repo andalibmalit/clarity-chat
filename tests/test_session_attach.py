@@ -415,9 +415,18 @@ def test_a_turn_missing_an_attachment_field_is_refused_by_resume_and_export(chat
         session, lambda r: (r["attachments"][0] if field in SHAPE else r).pop(field)
     )
     session.new_conversation("chat")
-    for read in (lambda: session.resume(path), lambda: export_log(session, path)):
+
+    def readers():
+        yield session.resume
+        yield lambda p: export_log(session, p)
+        pytest.importorskip("inspect_ai")  # T1: the Inspect export (v0.4.3) refuses it too
+        from clarity_chat.export_inspect import export_chat
+
+        yield lambda p: export_chat(session, p)
+
+    for read in readers():
         with pytest.raises(ConfigError) as e:
-            read()
+            read(path)
         assert str(e.value).startswith("Can't read the records of")
         assert f"KeyError: '{field}'" in str(e.value)
 
