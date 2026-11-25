@@ -33,9 +33,9 @@ NOTE = (
     "message's text is that message's part of `prompt_text`. Text the chat template adds is "
     "only in `prompt_text`: its role markers, and any text of its own, like the system "
     "message OLMo 3's template adds when the profile has none, or the dates Llama 3.1's puts "
-    "in its system header. The viewer formats text as Markdown, so leading spaces and "
-    "characters like `*` can change on screen; the Raw button on a sample's Messages tab "
-    "shows the exact characters, and the metadata (`prompt_text`, `output_text`) holds them. "
+    "in its system header. This log asks Inspect's viewer to show its text as written, not "
+    "as Markdown, and hidden characters as markers like \u27e8U+200B\u27e9; the metadata "
+    "(`prompt_text`, `output_text`) holds the exact characters. "
     "The `mark` score's value is the reply's labels (\"unmarked\" when it has none); it is "
     "a label, not a measurement."
 )

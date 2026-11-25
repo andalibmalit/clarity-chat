@@ -172,7 +172,7 @@ Each call is its own conversation. Profiles are read once, at the start, so edit
    uv run inspect view --log-dir runs/RUN_ID/inspect
    ```
 
-   It prints a local address to open in your browser.
+   It doesn't open a browser: open the address it prints. A second `inspect view` on the same port stops the first, so view a run and a chat one at a time, or give one of them `--port`.
 
 **Compare profiles.** Choose **Samples**, at the top right beside Tasks and Folders, for one grid of every log's replies. Each opening is a sample, numbered as in `key.json`, and each seed an epoch of it. Sort by **Id** so each opening's replies from every profile sit together, with **Model** at the row's left and **MARK** as the last column. **Input** is the opening as the model got it, so a profile that searches documents shows the parts search added there too. MARK is the reply's labels, or "unmarked". The grid has no column for the reply itself, so open a row to read it; a log's own Samples list shows it as **Answer**, one profile at a time, and can filter on MARK; with 10 or more distinct values it stops offering MARK's values and stops sorting on it. To read the replies side by side in a terminal instead, run this with `uv run python`:
 
@@ -195,7 +195,7 @@ for (opening, epoch), rows in sorted(replies.items()):
         print(f"  {name} [{mark}]: {text!r}")
 ```
 
-**See the exact text.** The viewer formats text as Markdown: it drops leading spaces and turns a line starting with `* ` into a bullet. The **Raw** button on a sample's Messages tab shows each message exactly. The messages leave out text the chat template adds, including any message of its own, like the system message OLMo 3's template adds when a profile has none, or the dates Llama 3.1's puts in its system header; `prompt_text` has it. The record is the sample's metadata: `prompt_text`, `prompt_ids` and `output_text`, with every setting and the facts replay compares. Each message's own metadata, its span of the prompt as logged, shows folded on the user's message but not on the system message; `read_eval_log` reads it on both.
+**See the exact text.** The logs ask the viewer to show their text as written, not as Markdown, as Clarity's page does: on a sample's Messages tab, leading spaces, a line starting with `* ` and tags like `<think>` show as they are, and a hidden character, like a zero-width space, shows as a marker such as ⟨U+200B⟩. The **Answer** above the tabs shows the reply on one line. The messages leave out text the chat template adds, including any message of its own, like the system message OLMo 3's template adds when a profile has none, or the dates Llama 3.1's puts in its system header; `prompt_text` has it. The record is the sample's metadata: `prompt_text`, `prompt_ids` and `output_text`, with every setting and the facts replay compares. Each message's own metadata, its span of the prompt as logged, shows folded on the user's message but not on the system message; `read_eval_log` reads it on both.
 
 **Know who made the calls.** Each log's model is `clarity/PROFILE`, and its tags, `clarity` and `not-run-by-inspect`, show in the log's header and on its Task tab, not in the grid. Its Info tab shows `inspect_note`, which says Clarity made the calls; below it, Clarity's export header is folded under `clarity`: click ▸ to open it. To make a call again, use [`clarity replay`](#replay-a-call).
 

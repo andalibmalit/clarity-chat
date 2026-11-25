@@ -97,3 +97,47 @@ def test_the_viewer_shows_a_chats_export(make, context):
         assert "The kettle sang twice." in text and "error" not in text.lower()
         only_local(viewer)
         assert path.endswith(name)
+
+
+def test_the_viewer_shows_an_exports_text_as_written(make, chat_tokenizer, context):
+    """The log asks for its text untrusted, so the Messages tab shows V11's reply as written,
+    not as Markdown: its leading spaces, its `* ` line and its `<think>` tag, and a hidden
+    character as a marker. The note still shows on Info unopened."""
+    from tests.fakes import FakeBackend
+    from tests.inspect_gate_logs import MARKDOWN_REPLY
+
+    reply = MARKDOWN_REPLY + "\nA hidden\u200bspace."
+    session = make(FakeBackend([reply], n_ctx=512, tokenizer=chat_tokenizer))
+    session.new_conversation("chat")
+    session.set_setting("max_tokens", "400")  # the fixture's 16 would cut the reply short
+    session.say("Show me some Markdown.")
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    export_chat(session, log)
+    turn = next(r for r in read_records(log) if r["type"] == "turn" and r["role"] == "user")
+    name = f"{log.stem}.eval"
+    with serve(session.logs_dir / "exports", session.root, {}) as viewer:
+        page = watched(viewer, context)
+        route = sample_route(name, f"{turn['turn_id']}-1", 1, "messages")
+        show(page, viewer, route, "a starred line")
+        page.wait_for_timeout(1500)
+        record(page, "I4-untrusted-messages")
+        body = page.inner_text("body")
+        finding(
+            "I4 untrusted: three leading spaces kept:",
+            "   Indented by three spaces." in body,
+            "'* a starred line' count:",
+            body.count("* a starred line"),
+            "<think> count:",
+            body.count("<think>a thought</think>"),
+            "U+200B marker:",
+            "A hidden\u27e8U+200B\u27e9space." in body,
+        )
+        # The message, line by line; the header's Answer has it too, on one line.
+        assert f"\n{MARKDOWN_REPLY}\n" in body
+        assert "A hidden\u27e8U+200B\u27e9space." in body
+        show(page, viewer, f"/logs/{name}/info", "Clarity made these calls")
+        page.wait_for_timeout(2000)
+        record(page, "I4-untrusted-info")
+        assert "Clarity made these calls, not Inspect." in page_text(page)
+        only_local(viewer)

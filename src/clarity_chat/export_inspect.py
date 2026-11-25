@@ -51,9 +51,9 @@ INSPECT_NOTE = (
     "message's text is that message's part of `prompt_text`. Text the chat template adds is "
     "only in `prompt_text`: its role markers, and any text of its own, like the system "
     "message OLMo 3's template adds when the profile has none, or the dates Llama 3.1's puts "
-    "in its system header. The viewer formats text as Markdown, so leading spaces and "
-    "characters like `*` can change on screen; the Raw button on a sample's Messages tab "
-    "shows the exact characters, and the metadata (`prompt_text`, `output_text`) holds them. "
+    "in its system header. This log asks Inspect's viewer to show its text as written, not "
+    "as Markdown, and hidden characters as markers like \u27e8U+200B\u27e9; the metadata "
+    "(`prompt_text`, `output_text`) holds the exact characters. "
     "The `mark` score's value is the reply's labels (\"unmarked\" when it has none); it is "
     "a label, not a measurement."
 )
@@ -274,6 +274,7 @@ def eval_log(
     conversation's, and the log's place), so two exports of one log read back equal."""
     from inspect_ai.log import EvalConfig, EvalDataset, EvalLog, EvalResults, EvalSpec, EvalStats
     from inspect_ai.model import GenerateConfig
+    from inspect_ai.viewer import ViewerConfig
 
     name, sample_ids = dataset
     return EvalLog(
@@ -291,6 +292,8 @@ def eval_log(
             config=EvalConfig(epochs=epochs),
             # The note at the top: the viewer folds the many-keyed header, but shows a string.
             metadata={"inspect_note": INSPECT_NOTE, "clarity": header},
+            # Text as written, not as Markdown, as Clarity's page shows it: see INSPECT_NOTE.
+            viewer=ViewerConfig(trust_content=False),
         ),
         samples=samples,
         results=EvalResults(total_samples=len(samples), completed_samples=len(samples), scores=[]),
