@@ -63,45 +63,7 @@ def export_log(session: Session, log_path: Path, out: Path | None = None) -> dic
 
 
 def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any]:
-    records = list(read_records(log_path))
-    state = rebuild(records, str(log_path))  # refuses a batch run's calls.jsonl
-    for turn in state.turns:  # an attachment missing a field: KeyError, refused
-        checked_attachments(turn)
-    turns = {t["turn_id"]: t for t in state.turns}
-    current = marks_and_notes(records)
-    calls = [r for r in records if r.get("type") == "call"]
-    done = [c for c in calls if c.get("turn_id")]  # a reply turn: it produced output
-    # The call is written before its turn: a crash between them leaves a call with no turn,
-    # which resume carries on without. Leave it out too, and say so.
-    torn = [c for c in done if c["turn_id"] not in turns]
-    done = [c for c in done if c["turn_id"] in turns]
-    rows = []
-    groups: dict[str, list[str]] = {}  # the conditions, as JSON, to the calls they cover
-    for call in done:
-        server = state.servers.get((call.get("backend") or {}).get("server_id") or "")
-        key = json.dumps(conditions(call, server), sort_keys=True)
-        groups.setdefault(key, []).append(call["call_id"])
-        rows.append(export_call(session, call, server, turns, current.get(call["turn_id"], {})))
-    conversation_id = state.start["conversation_id"]
-    # A log is untrusted, and its ID names the default file: it must stay in logs/exports/.
-    if not isinstance(conversation_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", conversation_id):
-        raise ConfigError(
-            f"{log_path}: its conversation ID {conversation_id!r} isn't one Clarity writes."
-        )
-    header = {
-        "type": "export",
-        "format_version": FORMAT_VERSION,
-        "clarity": {"version": version("clarity-chat"), **client_git()},
-        "conversation_id": conversation_id,
-        "calls": len(rows),
-        "failed_calls_left_out": len(calls) - len(done) - len(torn),
-        "calls_without_a_turn_left_out": len(torn),
-        "conditions": [
-            {"conditions": json.loads(key), "call_ids": ids} for key, ids in groups.items()
-        ],
-        "note": RECOMPUTE_NOTE
-        + (STEERED_NOTE if any(row["steering"] != "none" for row in rows) else ""),
-    }
+    header, rows = conversation_rows(session, list(read_records(log_path)), str(log_path))
     if out is None:
         # Named by the log's file, the ID `clarity chats` lists (a copied log keeps the
         # conversation ID, so its export mustn't overwrite the original's). It names a file
@@ -129,6 +91,52 @@ def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any
         "attachments": any(row["attachments"] for row in rows),  # it holds documents' text
         "found": any(row["found"] for row in rows),  # and the text of parts search added
     }
+
+
+def conversation_rows(
+    session: Session, records: list[dict[str, Any]], where: str
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """One conversation's export: its header and a row per call with a reply. `where` names
+    the records' file in refusals. Both formats, plain and Inspect, are built from these."""
+    state = rebuild(records, where)  # refuses a batch run's calls.jsonl
+    for turn in state.turns:  # an attachment missing a field: KeyError, refused
+        checked_attachments(turn)
+    turns = {t["turn_id"]: t for t in state.turns}
+    current = marks_and_notes(records)
+    calls = [r for r in records if r.get("type") == "call"]
+    done = [c for c in calls if c.get("turn_id")]  # a reply turn: it produced output
+    # The call is written before its turn: a crash between them leaves a call with no turn,
+    # which resume carries on without. Leave it out too, and say so.
+    torn = [c for c in done if c["turn_id"] not in turns]
+    done = [c for c in done if c["turn_id"] in turns]
+    rows = []
+    groups: dict[str, list[str]] = {}  # the conditions, as JSON, to the calls they cover
+    for call in done:
+        server = state.servers.get((call.get("backend") or {}).get("server_id") or "")
+        key = json.dumps(conditions(call, server), sort_keys=True)
+        groups.setdefault(key, []).append(call["call_id"])
+        rows.append(export_call(session, call, server, turns, current.get(call["turn_id"], {})))
+    conversation_id = state.start["conversation_id"]
+    # A log is untrusted, and its ID names the default file: it must stay in logs/exports/.
+    if not isinstance(conversation_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", conversation_id):
+        raise ConfigError(
+            f"{where}: its conversation ID {conversation_id!r} isn't one Clarity writes."
+        )
+    header = {
+        "type": "export",
+        "format_version": FORMAT_VERSION,
+        "clarity": {"version": version("clarity-chat"), **client_git()},
+        "conversation_id": conversation_id,
+        "calls": len(rows),
+        "failed_calls_left_out": len(calls) - len(done) - len(torn),
+        "calls_without_a_turn_left_out": len(torn),
+        "conditions": [
+            {"conditions": json.loads(key), "call_ids": ids} for key, ids in groups.items()
+        ],
+        "note": RECOMPUTE_NOTE
+        + (STEERED_NOTE if any(row["steering"] != "none" for row in rows) else ""),
+    }
+    return header, rows
 
 
 def holds(result: dict[str, Any]) -> str | None:
