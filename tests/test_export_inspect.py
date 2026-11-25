@@ -258,6 +258,81 @@ def test_marks_and_notes_become_the_mark_score(run):
     assert set(scores.values()) == {("unmarked", None)}
 
 
+def test_a_label_like_the_value_unmarked_or_with_a_comma_stays_exact(run):
+    """Approval ruling 2: the value can be ambiguous; the metadata never is."""
+    session, run_dir = run
+    log_path = str(run_dir / "calls.jsonl")
+    one, two, *_ = calls_of(run_dir, "chat")
+    assert cli.main(["mark", log_path, one["call_id"], "unmarked"]) == 0
+    assert cli.main(["mark", log_path, two["call_id"], "short, plain"]) == 0
+    export_run(session, run_dir)
+    scores = {
+        s.metadata["call_id"]: s.scores["mark"]
+        for s in read(run_dir / "inspect" / "1-chat.eval").samples
+    }
+    values = {call_id: score.value for call_id, score in scores.items()}
+    assert values.pop(one["call_id"]) == "unmarked"
+    assert values.pop(two["call_id"]) == "short, plain"
+    assert set(values.values()) == {"unmarked"}  # unmarked replies read the same
+    for call_id, label in ((one["call_id"], "unmarked"), (two["call_id"], "short, plain")):
+        assert [m["label"] for m in scores[call_id].metadata["marks"]] == [label]
+    assert all(
+        score.metadata["marks"] == []
+        for call_id, score in scores.items()
+        if call_id not in (one["call_id"], two["call_id"])
+    )
+
+
+def test_every_conversations_facts_read_the_server_it_used(run):
+    """A run logs each server start once, under its first conversation; every conversation's
+    rows read it (Checkpoint 1's S2: the fake's start held no field the facts read)."""
+    session, run_dir = run
+    records = records_of(run_dir)
+    for record in records:
+        if record["type"] == "server_start":
+            record["flags"] = ["--made-up-flag", record["server_id"]]
+    rewrite(run_dir, records)
+    flags = {r["server_id"]: r["flags"] for r in records if r["type"] == "server_start"}
+    expected = {r["call_id"]: flags[r["backend"]["server_id"]] for r in calls_of(run_dir)}
+    export_run(session, run_dir)
+    seen = {}
+    for name in ("1-chat.eval", "2-text.eval"):
+        for sample in read(run_dir / "inspect" / name).samples:
+            seen[sample.metadata["call_id"]] = sample.metadata["facts"]["flags"]
+    assert seen == expected and len(seen) == 8
+
+
+GLOSSARY = b"## Kettle\nA kettle sings when its water boils.\n"
+
+
+def test_a_searched_openings_input_holds_the_parts_search_added(fetched_root, chat_tokenizer):
+    """The input is the opening's message as the model got it: with a search, the found
+    block is part of it, so it isn't the turn's text (Checkpoint 1's S2)."""
+    from clarity_chat.documents import library_add, reading
+
+    reading._last = None
+    library_add(fetched_root, GLOSSARY, "glossary.md")
+    chat = fetched_root / "profiles" / "chat.toml"
+    searching = chat.read_text(encoding="utf-8").replace(
+        "[documents]\n", '[documents]\nsearch = ["glossary"]\n'
+    )
+    chat.write_text(searching, encoding="utf-8")
+    session, run_dir = batch(fetched_root, chat_tokenizer, ["chat", "text"])
+    result = export_run(session, run_dir)
+    assert result["found"]
+    rows = rows_of(session, run_dir)
+    turns = {r["turn_id"]: r for r in records_of(run_dir) if r["type"] == "turn"}
+    kettle = [s for s in read(run_dir / "inspect" / "1-chat.eval").samples if s.id == 1]
+    assert kettle
+    for sample in kettle:
+        row = rows[sample.metadata["call_id"]]
+        [span] = [s for s in row["message_spans"] if s.get("turn_id") == row["parent_id"]]
+        start, end = span["chars"]
+        assert sample.input == row["prompt_text"][start:end]
+        assert "A kettle sings when its water boils." in sample.input
+        assert sample.input != turns[row["parent_id"]]["text"] == "The kettle sang twice."
+
+
 def test_unavailable_spans_give_one_whole_prompt_message_and_the_turns_text(run):
     session, run_dir = run
     records = records_of(run_dir)
@@ -330,33 +405,76 @@ def test_the_file_is_private_from_birth_and_a_failed_write_leaves_nothing(run, m
         if os.name != "nt":
             assert mode == 0o700
 
-    def failing(log, location, *args, **kwargs):
+    assert len({parent for parent, _, _ in seen}) == 1  # one folder for the run's logs (C3)
+    before = {p.name: p.read_bytes() for p in folder.iterdir()}
+    writes: list[str] = []
+
+    def second_fails(log, location, *args, **kwargs):
+        writes.append(location)
+        if len(writes) == 1:
+            return real(log, location, *args, **kwargs)
         Path(location).write_bytes(b"half a file")
         raise OSError(28, "No space left on device")
 
-    shutil_free = sorted(p.name for p in folder.iterdir())
-    monkeypatch.setattr(inspect_ai.log, "write_eval_log", failing)
+    monkeypatch.setattr(inspect_ai.log, "write_eval_log", second_fails)
     with pytest.raises(ConfigError) as e:
         export_run(session, run_dir)
     assert str(e.value) == (
-        f"Can't write the export to {folder / '1-chat.eval'}: No space left on device."
+        f"Can't write the export to {folder / '2-text.eval'}: No space left on device."
     )
-    assert sorted(p.name for p in folder.iterdir()) == shutil_free  # no temporary folder
+    # Neither file was replaced, so the folder holds no mix of two exports, and no
+    # temporary folder (Checkpoint 1's C3).
+    assert {p.name: p.read_bytes() for p in folder.iterdir()} == before
 
 
-def test_a_profile_name_that_cant_name_a_file_is_refused_before_any_file(run):
+@pytest.mark.parametrize("name", ["../text", "a/b", "text/../../x"])
+def test_a_profile_name_that_cant_name_a_file_is_refused_before_any_file(run, name):
+    """The whole name must be one Clarity writes: `a/b` starts like one (Checkpoint 1's S2)."""
     session, run_dir = run
     records = records_of(run_dir)
     for record in records:
         if record["type"] == "call" and record["profile"]["name"] == "text":
-            record["profile"]["name"] = "../text"
+            record["profile"]["name"] = name
     rewrite(run_dir, records)
     with pytest.raises(ConfigError) as e:
         export_run(session, run_dir)
     assert str(e.value) == (
-        f"../text, a profile name in {run_dir / 'calls.jsonl'}, isn't one Clarity writes, so "
-        "it can't name the export's file."
+        f"{name!r}, a profile name in {run_dir / 'calls.jsonl'}, isn't one Clarity writes, "
+        "so it can't name the export's file."
     )
+    assert not (run_dir / "inspect").exists()
+
+
+def test_a_symlinked_inspect_folder_is_refused(run, tmp_path):
+    """A run folder from someone else could carry the link (Checkpoint 1's C1)."""
+    session, run_dir = run
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    try:
+        (run_dir / "inspect").symlink_to(elsewhere, target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks need privileges on Windows")
+    with pytest.raises(ConfigError) as e:
+        export_run(session, run_dir)
+    assert str(e.value) == (
+        f"{run_dir / 'inspect'} is a link, and the export writes only into the run's own "
+        "folder. Remove the link, then export again."
+    )
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_two_calls_with_one_opening_and_seed_are_refused(run):
+    """Inspect keeps one sample per (id, epoch), so one would be lost (Checkpoint 1's C2)."""
+    session, run_dir = run
+    records = records_of(run_dir)
+    for record in records:
+        if record["type"] == "call":
+            record["settings"]["seed"]["value"] = 42
+    rewrite(run_dir, records)
+    with pytest.raises(ConfigError) as e:
+        export_run(session, run_dir)
+    assert str(e.value).startswith(f"Can't read the records of {run_dir / 'calls.jsonl'} (")
+    assert "opening 1 and seed 42" in str(e.value)
     assert not (run_dir / "inspect").exists()
 
 
@@ -433,6 +551,21 @@ NOTE_LINE = (
 
 def export(root: Path, *args: str) -> int:
     return cli.main(["--root", str(root), "export", *args])
+
+
+def test_one_log_of_one_call_is_said_in_the_singular(run, tmp_path):
+    """Checkpoint 1's C4: no "1 Inspect logs" or "(1 calls"; and C6: no unread fields."""
+    session, run_dir = run
+    assert set(export_run(session, run_dir)) == {"files", "attachments", "found"}
+    path = tmp_path / "inspect" / "1-chat.eval"
+    one = {
+        "files": [{"path": str(path), "replaced": False, "calls": 1}],
+        "attachments": False,
+        "found": False,
+    }
+    assert cli.format_inspect(one).splitlines()[0] == (
+        f"Wrote 1 Inspect log to {path.parent}{os.sep}: 1-chat.eval (1 call)."
+    )
 
 
 def test_clarity_export_takes_a_runs_id_its_folder_or_its_calls_jsonl(run, capsys):

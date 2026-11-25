@@ -352,7 +352,7 @@ def run_conversations(
     run = records[0]
     if not (run_dir / "key.json").is_file():
         raise ConfigError(
-            f"Run {run['run_id']} stopped before it finished (it has no key.json), so it "
+            f"Run {run['run_id']!r} stopped before it finished (it has no key.json), so it "
             "isn't exported."
         )
     servers = [r for r in records if r["type"] == "server_start"]

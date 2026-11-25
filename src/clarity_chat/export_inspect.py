@@ -23,7 +23,6 @@ from clarity_chat.export import (
     STEERED_NOTE,
     ConversationExport,
     run_conversations,
-    steered_by_vector,
 )
 from clarity_chat.logs import LOG_NAME, unreadable
 from clarity_chat.profiles import ConfigError
@@ -79,19 +78,21 @@ def export_run(session: Session, run_dir: Path) -> dict[str, Any]:
         # a log or key.json not Clarity's, or a bug
         raise ConfigError(unreadable(e, f"the records of {log}")) from e
     folder = run_dir / "inspect"
-    folder.mkdir(exist_ok=True)
-    files = []
-    for (n, (name, _)), eval_log_ in zip(enumerate(groups, 1), logs, strict=True):
-        path = folder / f"{n}-{name}.eval"
-        replaced = path.exists()
-        write_privately(write, eval_log_, path)
-        files.append(
-            {"path": str(path), "replaced": replaced, "calls": len(eval_log_.samples or [])}
+    if folder.is_symlink():  # a run folder from someone else could carry one
+        raise ConfigError(
+            f"{folder} is a link, and the export writes only into the run's own folder. "
+            "Remove the link, then export again."
         )
+    folder.mkdir(exist_ok=True)
+    paths = [folder / f"{n}-{name}.eval" for n, (name, _) in enumerate(groups, 1)]
+    files = [
+        {"path": str(path), "replaced": path.exists(), "calls": len(log_.samples or [])}
+        for path, log_ in zip(paths, logs, strict=True)
+    ]
+    write_privately(write, list(zip(logs, paths, strict=True)), folder)
     rows = [row for c in conversations for row in c.rows]
     return {
         "files": files,
-        "steered": steered_by_vector(rows),
         "attachments": any(row["attachments"] for row in rows),
         "found": any(row["found"] for row in rows),
     }
@@ -147,7 +148,7 @@ def by_profile(
         [name] = names
         if not isinstance(name, str) or not LOG_NAME.fullmatch(name):
             raise ConfigError(
-                f"{name}, a profile name in {run_dir / 'calls.jsonl'}, isn't one Clarity "
+                f"{name!r}, a profile name in {run_dir / 'calls.jsonl'}, isn't one Clarity "
                 "writes, so it can't name the export's file."
             )
         named.append((name, group))
@@ -165,6 +166,12 @@ def eval_log(run: dict[str, Any], n: int, name: str, group: list[ConversationExp
     rows = [row for c in group for row in c.rows]
     chat = tomllib.loads(calls[rows[0]["call_id"]]["profile"]["toml"])["mode"] == "chat"
     samples = [sample(row, turns, chat, model, run["seeds"]) for row in rows]
+    taken: set[tuple[Any, int]] = set()
+    for s in samples:  # Inspect keeps one sample per (id, epoch): another would be lost
+        if (s.id, s.epoch) in taken:
+            seed = run["seeds"][s.epoch - 1]
+            raise ValueError(f"two of {name}'s calls have opening {s.id} and seed {seed}")
+        taken.add((s.id, s.epoch))
     openings = list(range(1, run["n_openings"] + 1))
     return EvalLog(
         status="success",
@@ -300,17 +307,20 @@ def stable_id(run_id: str, n: int, kind: str) -> str:
     return hashlib.sha256(f"{run_id} {n} {kind}".encode()).hexdigest()[:22]
 
 
-def write_privately(write: Writer, log: EvalLog, path: Path) -> None:
+def write_privately(write: Writer, logs: list[tuple[EvalLog, Path]], folder: Path) -> None:
     """Inspect's writer makes its own temporary file beside its target, readable by others
-    (0666 less the umask), so it writes inside a 0700 folder; the file is made 0600 and moved
-    into place, and the folder is removed, also when the write fails."""
-    folder = Path(tempfile.mkdtemp(dir=path.parent))
+    (0666 less the umask), so every log is written inside one 0700 folder and made 0600
+    first, and only then moved into place: a failed write replaces no file. The folder is
+    removed, also when a write fails."""
+    temporary = Path(tempfile.mkdtemp(dir=folder))
+    path = folder
     try:
-        inside = folder / path.name
-        write(log, str(inside))
-        os.chmod(inside, 0o600)
-        os.replace(inside, path)
+        for log, path in logs:
+            write(log, str(temporary / path.name))
+            os.chmod(temporary / path.name, 0o600)
+        for _, path in logs:
+            os.replace(temporary / path.name, path)
     except OSError as e:
         raise ConfigError(f"Can't write the export to {path}: {e.strerror or e}.") from e
     finally:
-        shutil.rmtree(folder, ignore_errors=True)
+        shutil.rmtree(temporary, ignore_errors=True)

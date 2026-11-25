@@ -140,7 +140,7 @@ def test_a_run_without_key_json_is_refused(batch, tiny_tokenizer):  # noqa: F811
     with pytest.raises(ConfigError) as e:
         run_conversations(session_for(run_dir, backend, tiny_tokenizer), run_dir)
     assert str(e.value) == (
-        "Run run-test stopped before it finished (it has no key.json), so it isn't exported."
+        "Run 'run-test' stopped before it finished (it has no key.json), so it isn't exported."
     )
 
 

@@ -967,17 +967,22 @@ def format_export(result: dict[str, Any]) -> str:
 
 def format_inspect(result: dict[str, Any]) -> str:
     """Where a run's Inspect logs went, and what they hold."""
+
+    def counted(n: int, thing: str) -> str:
+        return f"{n} {thing}{'s' * (n != 1)}"
+
     files = [Path(f["path"]) for f in result["files"]]
     replaced = {True: "; replaced the earlier export", False: ""}
     each = ", ".join(
-        f"{path.name} ({f['calls']} calls{replaced[f['replaced']]})"
+        f"{path.name} ({counted(f['calls'], 'call')}{replaced[f['replaced']]})"
         for path, f in zip(files, result["files"], strict=True)
     )
+    folder = files[0].parent.resolve()
     from clarity_chat.export import holds
 
     return "\n".join(
         [
-            f"Wrote {len(files)} Inspect logs to {files[0].parent.resolve()}{os.sep}: {each}.",
+            f"Wrote {counted(len(files), 'Inspect log')} to {folder}{os.sep}: {each}.",
             "Inspect didn't make these calls: running them again in Inspect won't send the "
             "same prompts. Each sample's metadata holds what the model got.",
             *([said] if (said := holds(result)) else []),
