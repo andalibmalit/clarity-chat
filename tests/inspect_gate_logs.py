@@ -22,8 +22,11 @@ from typing import Any
 
 NOTE = (
     "Clarity made these calls, not Inspect. Clarity built each prompt's token IDs itself "
-    "(chat template, BOS, special tokens) and sent them with sampler settings that Inspect "
-    "has no fields for, so this log's generate config is empty. Running this log again in "
+    "(chat template, BOS, special tokens) and sent them with its own sampler settings. This "
+    "log's generate config is empty: the calls' settings can differ (each of a run's epochs "
+    "has its own seed), so no one config is true of them all, and Inspect's config can't "
+    "express some of Clarity's settings (min_p, the repeat penalty and its window, the "
+    "sampler order). Running this log again in "
     "Inspect won't reproduce these calls: its model, clarity/PROFILE, names no Inspect "
     "provider. Each sample's metadata holds what the model got (`prompt_ids`, "
     "`prompt_text`), every setting with its origin, and the facts replay compares. Each "
