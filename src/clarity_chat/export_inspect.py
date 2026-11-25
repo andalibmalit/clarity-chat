@@ -1,4 +1,5 @@
-"""Export for Inspect (v0.4.3): a finished batch run as one Inspect log per profile.
+"""Export for Inspect (v0.4.3): a finished batch run as one Inspect log per profile, and a
+chat as one Inspect log.
 
 Written through inspect_ai's own writer, at the one version the inspect extra pins, and
 imported only here, so starting Clarity never imports it. Inspect's own fields hold only
@@ -22,9 +23,12 @@ from clarity_chat.export import (
     RECOMPUTE_NOTE,
     STEERED_NOTE,
     ConversationExport,
+    conversation_rows,
+    require_log,
     run_conversations,
+    steered_by_vector,
 )
-from clarity_chat.logs import LOG_NAME, unreadable
+from clarity_chat.logs import LOG_NAME, chat_summary, read_records, unreadable
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import Session
 
@@ -73,7 +77,7 @@ def export_run(session: Session, run_dir: Path) -> dict[str, Any]:
     try:
         run, conversations = run_conversations(session, run_dir)
         groups = by_profile(run, conversations, run_dir)
-        logs = [eval_log(run, n, name, group) for n, (name, group) in enumerate(groups, 1)]
+        logs = [run_log(run, n, name, group) for n, (name, group) in enumerate(groups, 1)]
     except (LookupError, StopIteration, TypeError, AttributeError, ValueError) as e:
         # a log or key.json not Clarity's, or a bug
         raise ConfigError(unreadable(e, f"the records of {log}")) from e
@@ -93,6 +97,41 @@ def export_run(session: Session, run_dir: Path) -> dict[str, Any]:
     rows = [row for c in conversations for row in c.rows]
     return {
         "files": files,
+        "attachments": any(row["attachments"] for row in rows),
+        "found": any(row["found"] for row in rows),
+    }
+
+
+def export_chat(session: Session, log_path: Path) -> dict[str, Any]:
+    """Write a conversation as logs/exports/ID.eval, ID the log file's name, replacing any
+    there. Each reply is its own sample, `id` TURN-N (its message's turn and its place among
+    that message's replies) and `epoch` 1: the viewer reads uneven epochs as missing replies
+    (G0, V5). Returns what the plain export returns."""
+    write = inspect_writer()
+    require_log(log_path)
+    # Named by the log's file, as the plain export is: it must be a name Clarity writes.
+    if not LOG_NAME.fullmatch(log_path.stem):
+        raise ConfigError(
+            f"{log_path.name} isn't a log name Clarity writes, so it can't name the export."
+        )
+    try:
+        records = list(read_records(log_path))
+        header, rows = conversation_rows(session, records, str(log_path))
+        log = chat_log(records, header, rows, chat_summary(log_path)["title"])
+    except (LookupError, TypeError, AttributeError, ValueError) as e:  # not Clarity's, or a bug
+        raise ConfigError(unreadable(e, f"the records of {log_path}")) from e
+    folder = session.logs_dir / "exports"
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f"{log_path.stem}.eval"
+    replaced = path.exists()
+    write_privately(write, [(log, path)], folder)
+    return {
+        "path": str(path),
+        "replaced": replaced,
+        "calls": len(rows),
+        "failed_calls_left_out": header["failed_calls_left_out"],
+        "calls_without_a_turn_left_out": header["calls_without_a_turn_left_out"],
+        "steered": steered_by_vector(rows),
         "attachments": any(row["attachments"] for row in rows),
         "found": any(row["found"] for row in rows),
     }
@@ -155,52 +194,125 @@ def by_profile(
     return named
 
 
-def eval_log(run: dict[str, Any], n: int, name: str, group: list[ConversationExport]) -> EvalLog:
-    from inspect_ai.log import EvalConfig, EvalDataset, EvalLog, EvalResults, EvalSpec, EvalStats
-    from inspect_ai.model import GenerateConfig
-
+def run_log(run: dict[str, Any], n: int, name: str, group: list[ConversationExport]) -> EvalLog:
+    """A profile's calls in a run: each opening a sample, each seed an epoch."""
     model = f"clarity/{name}"
     records = [r for c in group for r in c.records]
     calls = {r["call_id"]: r for r in records if r["type"] == "call"}
     turns = {r["turn_id"]: r for r in records if r["type"] == "turn"}
     rows = [row for c in group for row in c.rows]
-    chat = tomllib.loads(calls[rows[0]["call_id"]]["profile"]["toml"])["mode"] == "chat"
-    samples = [sample(row, turns, chat, model, run["seeds"]) for row in rows]
+    seeds = run["seeds"]
+    samples = [
+        sample(
+            row,
+            turns,
+            calls[row["call_id"]],
+            model,
+            row["run"]["opening"],
+            seeds.index(row["settings"]["seed"]["value"]) + 1,
+        )
+        for row in rows
+    ]
     taken: set[tuple[Any, int]] = set()
     for s in samples:  # Inspect keeps one sample per (id, epoch): another would be lost
         if (s.id, s.epoch) in taken:
-            seed = run["seeds"][s.epoch - 1]
-            raise ValueError(f"two of {name}'s calls have opening {s.id} and seed {seed}")
+            raise ValueError(
+                f"two of {name}'s calls have opening {s.id} and seed {seeds[s.epoch - 1]}"
+            )
         taken.add((s.id, s.epoch))
-    openings = list(range(1, run["n_openings"] + 1))
+    return eval_log(
+        ids=(run["run_id"], n),
+        task="clarity-run",  # one task for every profile's log, so the grid lines up
+        created=run["time"],
+        dataset=("clarity-run", list(range(1, run["n_openings"] + 1))),
+        model=model,
+        epochs=len(seeds),
+        header=run_header(run, [c.header for c in group], rows),
+        samples=samples,
+        times=(run["time"], calls[rows[-1]["call_id"]]["time"]),
+    )
+
+
+def chat_log(
+    records: list[dict[str, Any]],
+    header: dict[str, Any],
+    rows: list[dict[str, Any]],
+    title: str | None,
+) -> EvalLog:
+    """A conversation's calls: each reply its own sample, TURN-N, epoch 1."""
+    conversation = records[0]  # rebuild refuses a log that starts with anything else
+    model = f"clarity/{conversation['profile']['name']}"
+    calls = {r["call_id"]: r for r in records if r["type"] == "call"}
+    turns = {r["turn_id"]: r for r in records if r["type"] == "turn"}
+    replies: dict[str, int] = {}  # each message's replies so far
+    samples = []
+    for row in rows:
+        place = replies[row["parent_id"]] = replies.get(row["parent_id"], 0) + 1
+        sample_id = f"{row['parent_id']}-{place}"
+        samples.append(sample(row, turns, calls[row["call_id"]], model, sample_id, 1))
+    # The calls' own times; a chat with no reply has only its start.
+    times = [calls[row["call_id"]]["time"] for row in rows] or [conversation["time"]]
+    return eval_log(
+        ids=(header["conversation_id"], 1),
+        task="clarity-chat",
+        created=conversation["time"],
+        dataset=(title or header["conversation_id"], [s.id for s in samples]),
+        model=model,
+        epochs=1,
+        header={**header, "inspect_format_version": INSPECT_FORMAT_VERSION},
+        samples=samples,
+        times=(times[0], times[-1]),
+    )
+
+
+def eval_log(
+    *,
+    ids: tuple[str, int],
+    task: str,
+    created: str,
+    dataset: tuple[str, list[Any]],
+    model: str,
+    epochs: int,
+    header: dict[str, Any],
+    samples: list[EvalSample],
+    times: tuple[str, str],
+) -> EvalLog:
+    """An Inspect log whose identity comes from logged IDs (`ids`: the run's or
+    conversation's, and the log's place), so two exports of one log read back equal."""
+    from inspect_ai.log import EvalConfig, EvalDataset, EvalLog, EvalResults, EvalSpec, EvalStats
+    from inspect_ai.model import GenerateConfig
+
+    name, sample_ids = dataset
     return EvalLog(
         status="success",
         eval=EvalSpec(
-            eval_id=stable_id(run["run_id"], n, "eval"),
-            run_id=run["run_id"],
-            created=run["time"],
-            task="clarity-run",  # one task for every profile's log, so the grid lines up
-            task_id=stable_id(run["run_id"], n, "task"),
+            eval_id=stable_id(*ids, "eval"),
+            run_id=ids[0],
+            created=created,
+            task=task,
+            task_id=stable_id(*ids, "task"),
             tags=TAGS,
-            dataset=EvalDataset(name="clarity-run", samples=len(openings), sample_ids=openings),
+            dataset=EvalDataset(name=name, samples=len(sample_ids), sample_ids=sample_ids),
             model=model,
             model_generate_config=GenerateConfig(),  # empty: see INSPECT_NOTE
-            config=EvalConfig(epochs=len(run["seeds"])),
+            config=EvalConfig(epochs=epochs),
             # The note at the top: the viewer folds the many-keyed header, but shows a string.
-            metadata={
-                "inspect_note": INSPECT_NOTE,
-                "clarity": run_header(run, [c.header for c in group], rows),
-            },
+            metadata={"inspect_note": INSPECT_NOTE, "clarity": header},
         ),
         samples=samples,
-        results=EvalResults(total_samples=len(rows), completed_samples=len(rows), scores=[]),
+        results=EvalResults(total_samples=len(samples), completed_samples=len(samples), scores=[]),
         # The calls' own times: an empty EvalStats shows as 1969 and a NaN duration (G0, V7).
-        stats=EvalStats(started_at=run["time"], completed_at=calls[rows[-1]["call_id"]]["time"]),
+        stats=EvalStats(started_at=times[0], completed_at=times[1]),
     )
 
 
 def sample(
-    row: dict[str, Any], turns: dict[str, dict[str, Any]], chat: bool, model: str, seeds: list
+    row: dict[str, Any],
+    turns: dict[str, dict[str, Any]],
+    call: dict[str, Any],
+    model: str,
+    sample_id: int | str,
+    epoch: int,
 ) -> EvalSample:
     """A call as a sample: its prompt's messages as slices of `prompt_text`, its reply, its
     `mark` score, and its plain-export row, flat, as the metadata."""
@@ -220,6 +332,7 @@ def sample(
         "assistant": ChatMessageAssistant,
     }
     call_id, text, spans = row["call_id"], row["prompt_text"], row["message_spans"]
+    chat = tomllib.loads(call["profile"]["toml"])["mode"] == "chat"
     messages: list[Any] = []
     if chat and isinstance(spans, list):
         for span in (s for s in spans if s["kind"] == "message"):
@@ -242,8 +355,8 @@ def sample(
             )
         )
     # The input is the reply's own message, the opening as the model got it, in both modes
-    # (the turn's text when the spans are unavailable): one opening's samples show the same
-    # input unless search added parts to it.
+    # (the turn's text when the spans are unavailable): a run's samples of one opening show
+    # the same input unless search added parts to it.
     asked = (
         [s["chars"] for s in spans if s.get("turn_id") == row["parent_id"]]
         if isinstance(spans, list)
@@ -257,8 +370,8 @@ def sample(
         reason = next((LIMIT_REASONS[f] for f in row["flags"] if f in LIMIT_REASONS), "unknown")
     labels = sorted(m["label"] for m in row["marks"])
     return EvalSample(
-        id=row["run"]["opening"],
-        epoch=seeds.index(row["settings"]["seed"]["value"]) + 1,
+        id=sample_id,
+        epoch=epoch,
         input=text[asked[0][0] : asked[0][1]] if asked else turns[row["parent_id"]]["text"],
         target="",
         messages=[*messages, reply],

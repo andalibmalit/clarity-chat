@@ -675,25 +675,6 @@ def test_the_plain_export_of_a_run_names_format_inspect(run, capsys):
     assert not (root / "logs" / "exports").exists()
 
 
-def test_a_conversation_for_inspect_waits_for_part_2(fetched_root, chat_tokenizer, capsys):
-    """Removed in C1, when a chat exports for Inspect."""
-    session = Session(
-        fetched_root,
-        backend=FakeBackend(None, n_ctx=512, tokenizer=chat_tokenizer),
-        tokenizer_loader=lambda r, v: chat_tokenizer,
-    )
-    session.new_conversation("text")
-    session.say("Made-up message.")
-    assert session.conversation is not None
-    cid = session.conversation.conversation_id
-    for given in (cid, str(session.conversation.log.path)):
-        assert refused(fetched_root, capsys, given, "--format", "inspect") == (
-            f"{given} is a conversation. Export for Inspect takes only a run until v0.4.3's "
-            "Part 2 adds chats."
-        )
-    assert not (fetched_root / "logs" / "exports").exists()
-
-
 def test_resuming_a_runs_calls_jsonl_says_it_isnt_a_chat(run):
     session, run_dir = run
     with pytest.raises(ConfigError) as e:

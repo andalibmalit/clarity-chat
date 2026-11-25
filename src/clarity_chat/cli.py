@@ -965,6 +965,12 @@ def format_export(result: dict[str, Any]) -> str:
     )
 
 
+NOT_INSPECTS = (
+    "Inspect didn't make these calls: running them again in Inspect won't send the same "
+    "prompts. Each sample's metadata holds what the model got."
+)
+
+
 def format_inspect(result: dict[str, Any]) -> str:
     """Where a run's Inspect logs went, and what they hold."""
 
@@ -983,8 +989,7 @@ def format_inspect(result: dict[str, Any]) -> str:
     return "\n".join(
         [
             f"Wrote {counted(len(files), 'Inspect log')} to {folder}{os.sep}: {each}.",
-            "Inspect didn't make these calls: running them again in Inspect won't send the "
-            "same prompts. Each sample's metadata holds what the model got.",
+            NOT_INSPECTS,
             *([said] if (said := holds(result)) else []),
         ]
     )
@@ -1025,16 +1030,15 @@ def cmd_export(root: Path, given: str, form: str, out: Path | None) -> int:
             f"{given} is a batch run, and the plain export takes one conversation. Export a "
             "run for Inspect with --format inspect."
         )
-    if kind == "chat" and form == "inspect" and path.is_file():  # C1 replaces this
-        raise ConfigError(
-            f"{given} is a conversation. Export for Inspect takes only a run until v0.4.3's "
-            "Part 2 adds chats."
-        )
     session = Session(root)
     if kind == "run":
         from clarity_chat.export_inspect import export_run  # imports inspect_ai: only here
 
         print(format_inspect(export_run(session, path)))
+    elif form == "inspect":
+        from clarity_chat.export_inspect import export_chat
+
+        print(f"{format_export(export_chat(session, path))}\n{NOT_INSPECTS}")
     else:
         from clarity_chat.export import export_log
 

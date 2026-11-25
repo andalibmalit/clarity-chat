@@ -52,15 +52,19 @@ def export_log(session: Session, log_path: Path, out: Path | None = None) -> dic
     """Write `log_path`'s conversation to `out` (default `logs/exports/ID.jsonl`, ID the log
     file's name), replacing any file there. Returns the path, whether a file was replaced,
     and the counts."""
+    require_log(log_path)
+    try:
+        return _export(session, log_path, out)
+    except (KeyError, TypeError, AttributeError) as e:  # a log Clarity didn't write, or a bug
+        raise ConfigError(unreadable(e, f"the records of {log_path}")) from e
+
+
+def require_log(log_path: Path) -> None:
     if not log_path.is_file():
         raise ConfigError(
             f"No conversation, log file or run {log_path}. `clarity chats` lists "
             "conversations; each run is a folder in runs/."
         )
-    try:
-        return _export(session, log_path, out)
-    except (KeyError, TypeError, AttributeError) as e:  # a log Clarity didn't write, or a bug
-        raise ConfigError(unreadable(e, f"the records of {log_path}")) from e
 
 
 def _export(session: Session, log_path: Path, out: Path | None) -> dict[str, Any]:

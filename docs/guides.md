@@ -223,6 +223,8 @@ chmod 600 runs/RUN_ID/inspect/1-A-scored.eval
 
 `--model none` is for a scorer that calls no model; a model-graded scorer needs a real model, passed with `--model` or in the scorer's own `model=`. `--action append` keeps `mark`. Inspect writes the scored copy, which holds the whole conversation, readable by others, hence the `chmod 600`. A new export of the run replaces `1-A.eval` but leaves the scored copy as it was, so score again after exporting again. `inspect score` also leaves an empty `logs/` folder, and `blue.py`'s `__pycache__/`, in the folder you ran it from.
 
+**A chat.** `uv run clarity export ID --format inspect` writes one conversation as `logs/exports/ID.eval`, ID as `clarity chats` lists it; open it with `uv run inspect view --log-dir logs/exports`. Each reply is its own sample, named by the message it answers and its place among that message's replies, so sort by **Id** to keep a message's regenerated replies together.
+
 **What Inspect keeps.** On macOS, `inspect view` and `inspect score` write trace files under `~/Library/Application Support/inspect_ai/`: `traces/` and `view/ports/`. With `inspect-ai` 0.3.291 they name the log files but hold no reply text.
 
 ## Attach a document
