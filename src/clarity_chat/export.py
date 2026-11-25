@@ -333,7 +333,7 @@ class ConversationExport(NamedTuple):
 
     header: dict[str, Any]
     rows: list[dict[str, Any]]  # each with the call's `run`
-    calls: dict[str, dict[str, Any]]  # its call records as logged, by call ID
+    records: list[dict[str, Any]]  # its own records as logged, in log order
 
 
 def run_conversations(
@@ -364,7 +364,5 @@ def run_conversations(
         header, rows = conversation_rows(session, kept[:1] + servers + kept[1:], str(log))
         calls = {r["call_id"]: r for r in kept if r["type"] == "call"}
         rows = [{**row, "run": calls[row["call_id"]]["run"]} for row in rows]
-        conversations.append(
-            ConversationExport(header, rows, {r["call_id"]: calls[r["call_id"]] for r in rows})
-        )
+        conversations.append(ConversationExport(header, rows, kept))
     return run, conversations

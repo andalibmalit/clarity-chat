@@ -498,6 +498,13 @@ TERMINAL_ONLY = {
     " isn't set in this chat. Usage: /set NAME VALUE": "the page resets only a changed row",
     "Setup needs the cmake in its own environment. Run it as: uv run --group setup clarity "
     "setup": "only `clarity setup` raises it, and setup has no page (v0.4.2)",
+    "Export for Inspect needs the inspect extra: run uv sync --extra inspect (add --extra hf "
+    "if you use the Transformers backend), then try again.": (
+        "a setup step outside Clarity, as the torch sentence is; the page has no Inspect "
+        "control (v0.4.3 D4) and reaches it only through a scripted POST /command"
+    ),
+    "Export for Inspect is pinned to inspect_ai , and  is installed. Run uv sync --extra "
+    "inspect to install the pinned version.": ("a setup step outside Clarity, as above (v0.4.3)"),
 }
 
 

@@ -61,7 +61,8 @@ def check_against_plain(session: Session, run_dir: Path, folder: Path) -> list[A
         assert [{k: v for k, v in r.items() if k != "run"} for r in conversation.rows] == rows
         for row in conversation.rows:
             assert row["run"] == calls[row["call_id"]]["run"]
-        assert conversation.calls == {r["call_id"]: calls[r["call_id"]] for r in rows}
+        own = [r for r in records if r.get("conversation_id") == header["conversation_id"]]
+        assert conversation.records == [r for r in own if r["type"] != "server_start"]
     return conversations
 
 

@@ -1,0 +1,376 @@
+"""Export for Inspect (v0.4.3 I3): a finished run as one Inspect log per profile, read back
+with inspect_ai's own reader. Every text is made up."""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+from clarity_chat import cli, export_inspect
+from clarity_chat.batch import run_batch
+from clarity_chat.export import run_conversations
+from clarity_chat.export_inspect import INSPECT_NOTE, export_run
+from clarity_chat.logs import read_records
+from clarity_chat.profiles import ConfigError
+from clarity_chat.session import Session
+from tests.fakes import FakeBackend
+from tests.inspect_gate_logs import NOTE
+
+pytest.importorskip("inspect_ai")
+
+OPENINGS = "The kettle sang twice.\n---\n  Ask me about otters.  \n"
+WHOLE_TEXT = "text mode: the template has no message roles"
+Records = list[dict[str, Any]]
+
+
+@pytest.fixture
+def run(fetched_root, chat_tokenizer):
+    """A finished run of the chat and text profiles, two openings, two seeds. `edit` changes
+    its records before the export, as an older or odder log would have them."""
+    (fetched_root / "openings.txt").write_text(OPENINGS, encoding="utf-8")
+    run_dir = fetched_root / "runs" / "run-test"
+    backend = FakeBackend(None, n_ctx=512, tokenizer=chat_tokenizer)
+    session = Session(
+        fetched_root,
+        backend=backend,
+        logs_dir=run_dir,
+        tokenizer_loader=lambda r, v: chat_tokenizer,
+    )
+    run_batch(
+        session,
+        "run-test",
+        run_dir,
+        fetched_root / "openings.txt",
+        ["chat", "text"],
+        2,
+        lambda line: None,
+    )
+    return session, run_dir
+
+
+def records_of(run_dir: Path) -> Records:
+    return list(read_records(run_dir / "calls.jsonl"))
+
+
+def calls_of(run_dir: Path, profile: str | None = None) -> Records:
+    return [
+        r
+        for r in records_of(run_dir)
+        if r["type"] == "call" and profile in (None, r["profile"]["name"])
+    ]
+
+
+def rewrite(run_dir: Path, records: Records) -> None:
+    text = "".join(json.dumps(r) + "\n" for r in records)
+    (run_dir / "calls.jsonl").write_text(text, encoding="utf-8")
+
+
+def read(path: Path | str):
+    from inspect_ai.log import read_eval_log
+
+    assert Path(path).is_file(), f"the export wrote no {path}"
+    return read_eval_log(str(path))
+
+
+def rows_of(session: Session, run_dir: Path) -> dict[str, dict[str, Any]]:
+    """The plain export's row for every call, with its `run`: what each sample's metadata is."""
+    _, conversations = run_conversations(session, run_dir)
+    return {row["call_id"]: row for c in conversations for row in c.rows}
+
+
+def utc(text: str) -> datetime:
+    return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+
+def test_a_run_gives_one_log_per_profile_in_the_runs_order(run):
+    session, run_dir = run
+    result = export_run(session, run_dir)
+    folder = run_dir / "inspect"
+    assert [f["path"] for f in result["files"]] == [
+        str(folder / "1-chat.eval"),
+        str(folder / "2-text.eval"),
+    ]
+    assert [(f["replaced"], f["calls"]) for f in result["files"]] == [(False, 4), (False, 4)]
+    assert sorted(p.name for p in folder.iterdir()) == ["1-chat.eval", "2-text.eval"]
+    if os.name != "nt":
+        assert {(folder / n).stat().st_mode & 0o777 for n in ("1-chat.eval", "2-text.eval")} == {
+            0o600
+        }
+
+
+def test_each_sample_is_its_calls_row_and_its_messages_are_slices_of_the_prompt(run):
+    session, run_dir = run
+    export_run(session, run_dir)
+    rows = rows_of(session, run_dir)
+    chat, text = (
+        read(run_dir / "inspect" / "1-chat.eval"),
+        read(run_dir / "inspect" / "2-text.eval"),
+    )
+    assert len(chat.samples) == len(text.samples) == 4
+    for log in (chat, text):
+        for sample in log.samples:
+            row = rows[sample.metadata["call_id"]]
+            assert sample.metadata == row  # flat: the plain export's row plus `run` (S2)
+            assert (sample.id, sample.epoch) == (
+                row["run"]["opening"],
+                row["settings"]["seed"]["value"] - 41,
+            )
+            reply = sample.messages[-1]
+            assert (reply.role, reply.text) == ("assistant", row["output_text"])
+            assert sample.output.completion == row["output_text"]
+            assert sample.output.model == log.eval.model
+            assert sample.events == [] and sample.target == ""
+        assert {(s.id, s.epoch) for s in log.samples} == {(1, 1), (1, 2), (2, 1), (2, 2)}
+        assert log.eval.config.epochs == 2
+    for sample in chat.samples:
+        row = rows[sample.metadata["call_id"]]
+        spans = [s for s in row["message_spans"] if s["kind"] == "message"]
+        assert [m.role for m in sample.messages[:-1]] == [s["role"] for s in spans]
+        for message, span in zip(sample.messages[:-1], spans, strict=True):
+            start, end = span["chars"]
+            assert message.text == row["prompt_text"][start:end]
+            assert message.metadata == {"clarity": span}
+    for sample in text.samples:
+        row = rows[sample.metadata["call_id"]]
+        [message, _] = sample.messages
+        assert (message.role, message.text) == ("user", row["prompt_text"])
+        assert message.metadata == {"clarity": {"whole_prompt": WHOLE_TEXT}}
+    # Input is the opening's span in both modes, so one opening's rows match (S6).
+    inputs = {(s.id, s.input) for s in chat.samples}
+    assert inputs == {(s.id, s.input) for s in text.samples}
+    assert inputs == {(1, "The kettle sang twice."), (2, "Ask me about otters.")}
+
+
+def test_the_log_says_clarity_made_the_calls_and_carries_the_header(run):
+    from inspect_ai.model import GenerateConfig
+
+    session, run_dir = run
+    export_run(session, run_dir)
+    run_record, conversations = run_conversations(session, run_dir)
+    records = records_of(run_dir)
+    for n, profile in enumerate(("chat", "text"), 1):
+        log = read(run_dir / "inspect" / f"{n}-{profile}.eval")
+        calls = calls_of(run_dir, profile)
+        ids = [c["call_id"] for c in calls]
+        headers = [c.header for c in conversations if c.rows[0]["call_id"] in ids]
+        groups: dict[str, list[str]] = {}
+        for header in headers:
+            for group in header["conditions"]:
+                key = json.dumps(group["conditions"], sort_keys=True)
+                groups.setdefault(key, []).extend(group["call_ids"])
+        first = {k: v for k, v in headers[0].items() if k != "conversation_id"}
+        assert log.eval.metadata == {
+            "clarity": {
+                **first,
+                "run": run_record,
+                "calls": 4,
+                "conditions": [
+                    {"conditions": json.loads(k), "call_ids": v} for k, v in groups.items()
+                ],
+                "inspect_format_version": 1,
+                "inspect_note": INSPECT_NOTE,
+            }
+        }
+        assert sorted(i for v in groups.values() for i in v) == sorted(ids)
+        assert log.status == "success"
+        assert log.eval.model == f"clarity/{profile}"
+        assert log.eval.model_generate_config == GenerateConfig()
+        assert log.eval.tags == ["clarity", "not-run-by-inspect"]
+        assert (log.eval.task, log.eval.run_id) == ("clarity-run", "run-test")
+        assert utc(log.eval.created) == utc(records[0]["time"])
+        assert (log.eval.revision, log.eval.solver, log.eval.task_file) == (None, None, None)
+        assert log.eval.scorers is None
+        assert (log.results.total_samples, log.results.completed_samples) == (4, 4)
+        assert log.results.scores == []
+        # V7: the times are the calls', so the viewer shows no 1969 and no NaN.
+        assert utc(log.stats.started_at) == utc(records[0]["time"])
+        assert utc(log.stats.completed_at) == utc(calls[-1]["time"])
+    assert INSPECT_NOTE == NOTE  # the spec's sentence, as the gate showed it
+
+
+def test_two_exports_of_one_run_read_back_equal_and_the_second_replaces(run, tmp_path):
+    session, run_dir = run
+    folder = run_dir / "inspect"
+    export_run(session, run_dir)
+    first = {n: read(folder / n) for n in ("1-chat.eval", "2-text.eval")}
+    again = export_run(session, run_dir)
+    assert [f["replaced"] for f in again["files"]] == [True, True]
+    assert sorted(p.name for p in folder.iterdir()) == ["1-chat.eval", "2-text.eval"]
+    for name, log in first.items():
+        assert read(folder / name).model_dump() == log.model_dump()  # ids and uuids too
+    ids = [s.uuid for log in first.values() for s in log.samples]
+    ids += [m.id for log in first.values() for s in log.samples for m in s.messages]
+    ids += [log.eval.eval_id for log in first.values()]
+    assert len(set(ids)) == len(ids)
+
+
+def test_marks_and_notes_become_the_mark_score(run):
+    session, run_dir = run
+    log_path = str(run_dir / "calls.jsonl")
+    marked, noted, *_ = calls_of(run_dir, "chat")
+    for label in ("too long", "landed"):
+        assert cli.main(["mark", log_path, marked["call_id"], label]) == 0
+    assert cli.main(["note", log_path, marked["call_id"], "made-up note two"]) == 0
+    # A note replaces the reply's current one; notes from before note IDs all show.
+    records = records_of(run_dir)
+    note = next(r for r in records if r["type"] == "note")
+    older = {k: v for k, v in note.items() if k != "note_id"}
+    records.insert(records.index(note), {**older, "text": "made-up note one"})
+    rewrite(run_dir, records)
+    assert cli.main(["note", log_path, noted["call_id"], "made-up note three"]) == 0
+    export_run(session, run_dir)
+    rows = rows_of(session, run_dir)
+    scores = {}
+    for name in ("1-chat.eval", "2-text.eval"):
+        for sample in read(run_dir / "inspect" / name).samples:
+            row = rows[sample.metadata["call_id"]]
+            [score] = sample.scores.values()
+            assert list(sample.scores) == ["mark"]
+            assert score.answer == row["output_text"]
+            assert score.metadata == {"marks": row["marks"], "notes": row["notes"]}
+            scores[row["call_id"]] = (score.value, score.explanation)
+    assert scores.pop(marked["call_id"]) == (
+        "landed, too long",
+        "made-up note one\n\nmade-up note two",
+    )
+    assert scores.pop(noted["call_id"]) == ("unmarked", "made-up note three")
+    assert set(scores.values()) == {("unmarked", None)}
+
+
+def test_unavailable_spans_give_one_whole_prompt_message_and_the_turns_text(run):
+    session, run_dir = run
+    records = records_of(run_dir)
+    call = next(r for r in records if r["type"] == "call" and r["profile"]["name"] == "chat")
+    call["message_spans"] = {"unavailable": "made-up reason"}
+    rewrite(run_dir, records)
+    export_run(session, run_dir)
+    log = read(run_dir / "inspect" / "1-chat.eval")
+    sample = next(s for s in log.samples if s.metadata["call_id"] == call["call_id"])
+    [message, _] = sample.messages
+    assert (message.role, message.text) == ("user", call["prompt_text"])
+    assert message.metadata == {
+        "clarity": {"whole_prompt": "the message spans are unavailable: made-up reason"}
+    }
+    assert sample.input == "The kettle sang twice."  # the turn's logged text
+
+
+def test_stop_types_become_stop_reasons_and_a_limit_is_keyed_on_its_flag(run):
+    session, run_dir = run
+    records = records_of(run_dir)
+    calls = [r for r in records if r["type"] == "call"]  # four chat, then four text
+    changes = [
+        ("word", []),
+        ("none", []),
+        ("limit", ["length"]),  # max_tokens reached
+        ("limit", ["context_full"]),  # llama-server's `truncated`: the context filled
+        ("limit", []),  # neither flag: not one Clarity logs
+        ("cancelled", []),
+    ]
+    for call, (stop_type, flags) in zip(calls, changes, strict=False):
+        call["stop_type"], call["flags"] = stop_type, flags
+    rewrite(run_dir, records)
+    export_run(session, run_dir)
+    reasons = {
+        s.metadata["call_id"]: s.output.choices[0].stop_reason
+        for name in ("1-chat.eval", "2-text.eval")
+        for s in read(run_dir / "inspect" / name).samples
+    }
+    assert [reasons[c["call_id"]] for c in calls] == [
+        "stop",
+        "unknown",
+        "max_tokens",
+        "model_length",
+        "unknown",
+        "unknown",
+        "stop",  # eos, as the run left them
+        "stop",
+    ]
+
+
+def test_the_file_is_private_from_birth_and_a_failed_write_leaves_nothing(run, monkeypatch):
+    import inspect_ai.log
+
+    session, run_dir = run
+    folder = run_dir / "inspect"
+    real = inspect_ai.log.write_eval_log
+    seen: list[tuple[Path, int, list[str]]] = []
+
+    def watched(log, location, *args, **kwargs):
+        target = Path(location)
+        real(log, location, *args, **kwargs)
+        seen.append((target.parent, target.parent.stat().st_mode & 0o777, os.listdir(folder)))
+
+    monkeypatch.setattr(inspect_ai.log, "write_eval_log", watched)
+    export_run(session, run_dir)
+    assert len(seen) == 2
+    for parent, mode, present in seen:
+        assert parent.parent == folder and parent.name not in ("1-chat.eval", "2-text.eval")
+        assert parent.name in present and not parent.exists()  # made, used, removed
+        if os.name != "nt":
+            assert mode == 0o700
+
+    def failing(log, location, *args, **kwargs):
+        Path(location).write_bytes(b"half a file")
+        raise OSError(28, "No space left on device")
+
+    shutil_free = sorted(p.name for p in folder.iterdir())
+    monkeypatch.setattr(inspect_ai.log, "write_eval_log", failing)
+    with pytest.raises(ConfigError) as e:
+        export_run(session, run_dir)
+    assert str(e.value) == (
+        f"Can't write the export to {folder / '1-chat.eval'}: No space left on device."
+    )
+    assert sorted(p.name for p in folder.iterdir()) == shutil_free  # no temporary folder
+
+
+def test_a_profile_name_that_cant_name_a_file_is_refused_before_any_file(run):
+    session, run_dir = run
+    records = records_of(run_dir)
+    for record in records:
+        if record["type"] == "call" and record["profile"]["name"] == "text":
+            record["profile"]["name"] = "../text"
+    rewrite(run_dir, records)
+    with pytest.raises(ConfigError) as e:
+        export_run(session, run_dir)
+    assert str(e.value) == (
+        f"../text, a profile name in {run_dir / 'calls.jsonl'}, isn't one Clarity writes, so "
+        "it can't name the export's file."
+    )
+    assert not (run_dir / "inspect").exists()
+
+
+def test_without_the_extra_or_with_another_version_the_export_is_refused(run, monkeypatch):
+    session, run_dir = run
+    for name in ("inspect_ai", "inspect_ai.log"):
+        monkeypatch.setitem(sys.modules, name, None)  # the import fails
+    with pytest.raises(ConfigError) as e:
+        export_run(session, run_dir)
+    assert str(e.value) == (
+        "Export for Inspect needs the inspect extra: run uv sync --extra inspect (add --extra "
+        "hf if you use the Transformers backend), then try again."
+    )
+    monkeypatch.undo()
+    monkeypatch.setattr(export_inspect, "INSPECT_AI", "0.0.1")
+    with pytest.raises(ConfigError) as e:
+        export_run(session, run_dir)
+    assert str(e.value) == (
+        "Export for Inspect is pinned to inspect_ai 0.0.1, and 0.3.291 is installed. Run uv "
+        "sync --extra inspect to install the pinned version."
+    )
+    assert not (run_dir / "inspect").exists()
+
+
+def test_the_pin_constant_is_the_extras_pin():
+    import tomllib
+
+    from tests.conftest import REPO
+
+    pyproject = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    extra = pyproject["project"]["optional-dependencies"]["inspect"]
+    assert extra == [f"inspect-ai=={export_inspect.INSPECT_AI}"]
