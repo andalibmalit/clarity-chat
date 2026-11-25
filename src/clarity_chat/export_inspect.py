@@ -44,9 +44,14 @@ INSPECT_NOTE = (
     "Inspect won't reproduce these calls: its model, clarity/PROFILE, names no Inspect "
     "provider. Each sample's metadata holds what the model got (`prompt_ids`, "
     "`prompt_text`), every setting with its origin, and the facts replay compares. Each "
-    "message's text is that message's part of `prompt_text`, without the template's own "
-    "text. The `mark` score's value is the reply's labels (\"unmarked\" when it has none); "
-    "it is a label, not a measurement."
+    "message's text is that message's part of `prompt_text`. Text the chat template adds is "
+    "only in `prompt_text`: its role markers, and any text of its own, like the system "
+    "message OLMo 3's template adds when the profile has none, or the dates Llama 3.1's puts "
+    "in its system header. The viewer formats text as Markdown, so leading spaces and "
+    "characters like `*` can change on screen; the Raw button on a sample's Messages tab "
+    "shows the exact characters, and the metadata (`prompt_text`, `output_text`) holds them. "
+    "The `mark` score's value is the reply's labels (\"unmarked\" when it has none); it is "
+    "a label, not a measurement."
 )
 TAGS = ["clarity", "not-run-by-inspect"]
 WHOLE_TEXT = "text mode: the template has no message roles"
@@ -229,8 +234,9 @@ def sample(
                 id=f"{call_id}-0", content=text, metadata={"clarity": {"whole_prompt": why}}
             )
         )
-    # The input is the reply's own message, the opening, in both modes (the turn's text when
-    # the spans are unavailable), so every profile's sample for one opening shows the same.
+    # The input is the reply's own message, the opening as the model got it, in both modes
+    # (the turn's text when the spans are unavailable): one opening's samples show the same
+    # input unless search added parts to it.
     asked = (
         [s["chars"] for s in spans if s.get("turn_id") == row["parent_id"]]
         if isinstance(spans, list)

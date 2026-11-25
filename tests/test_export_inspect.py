@@ -19,6 +19,7 @@ from clarity_chat.export_inspect import INSPECT_NOTE, export_run
 from clarity_chat.logs import read_records
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import Session
+from tests.conftest import REPO
 from tests.fakes import FakeBackend
 from tests.inspect_gate_logs import NOTE
 
@@ -204,6 +205,8 @@ def test_the_log_says_clarity_made_the_calls_and_carries_the_header(run):
         assert utc(log.stats.started_at) == utc(records[0]["time"])
         assert utc(log.stats.completed_at) == utc(calls[-1]["time"])
     assert INSPECT_NOTE == NOTE  # the spec's sentence, as the gate showed it
+    reference = (REPO / "docs" / "reference.md").read_text(encoding="utf-8")
+    assert f'`inspect_note` reads: "{INSPECT_NOTE}"' in reference  # the docs quote it whole
 
 
 def test_two_exports_of_one_run_read_back_equal_and_the_second_replaces(run, tmp_path):
