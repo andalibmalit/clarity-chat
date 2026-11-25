@@ -268,7 +268,7 @@ def test_every_view_draws_a_meaning_chat(meaning):
 
 # --- A words chat draws v0.3.2's line and section exactly (golden v0.3.2's searched chat)
 
-# Drawn by the page at 5b1383a (v0.4.1 before C1), which draws them as v0.3.2 did.
+# Drawn by the page at ac6a83b (v0.4.1 before C1), which draws them as v0.3.2 did.
 V032_LINES = [
     'From documents · 1 part · 186 tokens Rank Part 1 glossary · "Wren" in its title: wren; '
     "in its text: wren Words searched: wren. Ignored (common words and single letters or "

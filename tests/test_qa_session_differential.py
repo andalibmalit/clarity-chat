@@ -3,7 +3,7 @@ should 1): Clarity's real `/documents` and `/attach` run each step the guard all
 file read replaced by a recorder, and every path Clarity would open must be inside the
 scratch root. Run with `os.path.exists` true and false, since `/documents add` picks its
 reading by what exists. A test of strings the author thought of once let a
-flagged path through (84d0cda's driver, when /documents add took `--replace`)."""
+flagged path through (15d16ef's driver, when /documents add took `--replace`)."""
 
 from __future__ import annotations
 

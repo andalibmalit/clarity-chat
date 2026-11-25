@@ -446,7 +446,7 @@ def test_the_styles_load_nothing_from_the_network():
         assert "@import" not in text and "http://" not in text and "https://" not in text, path
 
 
-# --- the tripwire review's findings (v0.3.0, 5759fcf..65bb7a3)
+# --- the tripwire review's findings (v0.3.0, 3b60322..e8fdcce)
 
 
 def test_a_command_decided_at_once_never_takes_the_queues_lock(fetched_root, tiny_tokenizer):

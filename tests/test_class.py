@@ -250,7 +250,7 @@ def test_t1_every_read_and_view_answers_when_a_found_field_is_missing(page_chat,
             stopped.append((view, response.status_code, response.text[:200]))
     assert stopped == []
     # T1's rule: /state answers with a result, or a refusal with a sentence; never an
-    # empty answer, and never the session stopping (the runner's report on e8f47b3).
+    # empty answer, and never the session stopping (the runner's report on 1367abb).
     answer = command(client, "state").json()
     assert not answer.get("stopped"), answer
     assert answer.get("result") or str(answer.get("error") or "").strip(), answer

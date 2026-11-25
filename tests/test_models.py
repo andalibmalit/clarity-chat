@@ -701,7 +701,7 @@ def test_a_failed_environment_leaves_no_marker_so_the_next_fetch_makes_it_again(
 def test_the_requirements_come_from_clarity_s_code_not_the_root(tmp_path):
     """The file goes with the code that uses it, beside convert_shim.py: a root holds only
     what fetch writes (models/, local/models.lock), so a scratch root converts as is. At
-    bd14b9c it was read from the root, and -m live's convert test, whose root is a scratch
+    20ef13a it was read from the root, and -m live's convert test, whose root is a scratch
     folder, failed with FileNotFoundError."""
     install = models.converter_commands(tmp_path)[1]
     assert install[install.index("-r") + 1] == str(REQUIREMENTS), install
@@ -770,7 +770,7 @@ def test_the_converter_requirements_are_the_versions_bge_m3_s_conversion_recorde
     converter.packages), so a conversion gets the same packages as before and no GGUF
     changes. Linux adds PyPI torch's NVIDIA libraries and triton, Windows colorama; macOS
     gets exactly the record. SmolLM2's record isn't compared: it was fetched (2026-11-08)
-    before the converter ran isolated (5694df5), so it lists Clarity's own packages (pytest,
+    before the converter ran isolated (4aba42c), so it lists Clarity's own packages (pytest,
     ruff, transformers 5.22.2), not what the converter imported. CI's live-cpu job checks
     its GGUF: a fetch in a scratch folder gives the sha256 the lock records."""
     import re

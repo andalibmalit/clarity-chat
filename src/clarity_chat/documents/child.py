@@ -264,7 +264,7 @@ def main() -> None:
     request = json.loads(sys.stdin.buffer.readline())
     limited = watch(request["memory_cap"], request["seconds"])
     # On Linux the address-space limit turns going past twice the cap into a MemoryError,
-    # wherever it happens: it's the memory refusal, as the watchdog's exit is (CI at a28f1c4).
+    # wherever it happens: it's the memory refusal, as the watchdog's exit is (CI at c6bd51a).
     # Without the limit (macOS, Windows), one impossible allocation isn't the process using
     # its cap: it's the reader failing (the final fix review's could 10).
     try:

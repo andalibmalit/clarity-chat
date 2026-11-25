@@ -188,7 +188,7 @@ def test_regen_sames_refusal_names_no_command(make):
     assert "already has a reply" in str(caught.value) and names_no_command(str(caught.value))
 
 
-# --- The design walkthrough at bd59488, finding 3
+# --- The design walkthrough at f705bfe, finding 3
 
 
 def test_a_model_that_isnt_fetched_says_how_to_fetch_it_as_written(fetched_root, tiny_tokenizer):

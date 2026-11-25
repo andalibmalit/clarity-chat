@@ -745,7 +745,7 @@ def settled(page) -> None:
     """The last command has ended, and a redraw made after that has landed: any redraw still
     in flight from before is older, so it's dropped when it lands (refresh's newest-wins).
     A reply's toolbar can show while its command is still finishing, and an older redraw
-    can still be reading views (CI on f70c794)."""
+    can still be reading views (CI on 242de15)."""
     until(page, lambda: page.evaluate("clarity.command('state')")["result"]["running"] is None,
           what="the command ended")  # fmt: skip
     page.evaluate("clarity.refresh()")  # awaited: its views are drawn before this returns
@@ -1620,7 +1620,7 @@ def test_a_title_has_a_length_limit_and_a_long_one_is_cut_with_an_ellipsis(clari
     assert style(page, "#title-text", "textOverflow") == "ellipsis"
 
 
-# --- The design walkthrough at bd59488
+# --- The design walkthrough at f705bfe
 
 
 def test_a_dropped_connection_keeps_trying_and_reloads_when_clarity_answers(clarity, page):
@@ -1719,7 +1719,7 @@ def test_a_replay_or_export_whose_request_drops_says_so(clarity, page):
     """Finding 4: a rejected command() left Replay at "Replaying…" with Stop, and the
     export sheet never opened. Only the replay's or the export's own request drops, so the
     redraw after it succeeds and can't supply the sentence: the notice is the command's own
-    (the page mutations at 6bf90aa: without replay()'s notice, refresh()'s failure filled
+    (the page mutations at 31ff5a2: without replay()'s notice, refresh()'s failure filled
     it, and the test passed)."""
 
     def drop(command: str):
@@ -1910,7 +1910,7 @@ def test_a_profile_picked_by_keyboard_puts_focus_in_the_message_box(clarity, pag
     assert focused(page) == "message"
 
 
-# --- The fix review of 9f1610d..bac91fb (batch 6)
+# --- The fix review of d2541f5..3854eef (batch 6)
 
 
 def waits_shown(page) -> bool:

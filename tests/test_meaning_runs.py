@@ -4,7 +4,7 @@
 says the closest similarity and the minimum. A run searches each opening once per profile
 by that profile's method, prepares a document's vectors before any chat model loads, and
 says so once. Export rows and /history's summary are A3's (test_meaning); `clarity document
-try`'s refusal is the fix review's (3ce2dc8). FakeEmbedder stands in for bge-m3. Made-up
+try`'s refusal is the fix review's (81f59e0). FakeEmbedder stands in for bge-m3. Made-up
 text only.
 """
 

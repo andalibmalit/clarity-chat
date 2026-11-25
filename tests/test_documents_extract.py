@@ -237,11 +237,11 @@ def test_the_memory_watchdog_ends_the_child(monkeypatch):
     it: past its cap (here 200 MB) the child ends with the memory code, and the parent says
     so. Bounded, so a broken watchdog can't exhaust memory.
 
-    It runs main, not watch alone (CI at 37ac393, ubuntu): on Linux, RLIMIT_AS at twice the
+    It runs main, not watch alone (CI at 99c3cee, ubuntu): on Linux, RLIMIT_AS at twice the
     cap counts the address space, which runs ahead of the resident memory the watchdog polls,
     so an allocation can raise MemoryError before a poll sees the cap. A stub without main's
     handler exited 1 then; the real child turns that MemoryError into the same memory exit
-    (b19d176), so whichever comes first, the user sees the memory sentence. Holding the
+    (da9b9d6), so whichever comes first, the user sees the memory sentence. Holding the
     memory after the last allocation keeps the poll from racing the reader's end (macOS)."""
     stub(
         monkeypatch,
@@ -644,7 +644,7 @@ def test_html_s_record_names_the_python_that_read_it():
     }
 
 
-# --- CI at a28f1c4: a MemoryError under Linux's address-space limit exited 1
+# --- CI at c6bd51a: a MemoryError under Linux's address-space limit exited 1
 
 
 @pytest.mark.parametrize(

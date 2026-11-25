@@ -239,7 +239,7 @@ def test_transformers_lists_every_setting_it_cant_apply():
     assert "Transformers applies its processors in a fixed order" in fragment
 
 
-# --- The design walkthrough at bd59488
+# --- The design walkthrough at f705bfe
 
 
 def test_the_seed_row_says_which_replies_it_seeds(chat):
