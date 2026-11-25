@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import re
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
+
+import pytest
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -23,3 +27,59 @@ def test_dependabot_gives_pypdf_its_own_pull_request():
     config = (REPO / ".github" / "dependabot.yml").read_text(encoding="utf-8")
     excluded = re.search(r"exclude-patterns:\n((?:\s+- .+\n)+)", config)
     assert excluded and '- "pypdf"' in excluded.group(1), config
+
+
+def test_inspect_ai_is_pinned_exactly():
+    """Export for Inspect writes through inspect_ai's own writer, and Inspect promises its
+    API, not its log format, so the extra pins one version with `==` (v0.4.3, decision 1): a
+    bump is its own commit and reruns the gate's tests."""
+    extras = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))["project"][
+        "optional-dependencies"
+    ]
+    assert len(extras.get("inspect", [])) == 1, extras
+    assert re.fullmatch(r"inspect-ai==\d+(\.\d+)+", extras["inspect"][0]), extras["inspect"]
+
+
+def test_dependabot_gives_inspect_ai_its_own_pull_request():
+    """A bump of inspect-ai can change the log Clarity writes, so it comes alone."""
+    config = (REPO / ".github" / "dependabot.yml").read_text(encoding="utf-8")
+    excluded = re.search(r"exclude-patterns:\n((?:\s+- .+\n)+)", config)
+    assert excluded and '- "inspect-ai"' in excluded.group(1), config
+
+
+# The locked versions of the packages that can change what Clarity sends or extracts. Edit
+# this table only in that dependency's own commit (CONTRIBUTING.md), so that adding an extra
+# or re-resolving the lock can't move one of them silently: pyproject.toml pins tokenizers,
+# transformers and jinja2 only with `>=` (v0.4.3 I0, the plan advisor's S5).
+EXACTNESS = {
+    "jinja2": "3.1.6",
+    "pypdf": "7.1.0",
+    "tokenizers": "0.23.3",
+    "transformers": "5.22.2",
+}
+
+
+def test_the_exactness_packages_are_locked_at_their_table_versions():
+    lock = tomllib.loads((REPO / "uv.lock").read_text(encoding="utf-8"))
+    locked = {}
+    for package in lock["package"]:
+        if package["name"] in EXACTNESS:
+            locked.setdefault(package["name"], []).append(package["version"])
+    assert locked == {name: [version] for name, version in EXACTNESS.items()}
+
+
+def test_starting_clarity_does_not_import_inspect_ai():
+    """inspect_ai is imported only inside the Inspect writer, so a missing extra costs nothing
+    until an export for Inspect is asked for, and its import can't change a chat (v0.4.3, the
+    plan's constraints; the advisor's C2). Run in a fresh interpreter, with the extra
+    installed, so the check isn't true only because inspect_ai is missing."""
+    pytest.importorskip("inspect_ai")
+    code = (
+        "import sys, clarity_chat.cli, clarity_chat.web\n"
+        "print(sorted(m for m in sys.modules if m.split('.')[0] == 'inspect_ai'))"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8"
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "[]"

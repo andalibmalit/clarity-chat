@@ -25,9 +25,10 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true  # PyTorch on Linux is about 2.5 GB with NVIDIA's libraries
-      # With the hf extra (PyTorch) at the locked versions users install, so the offline
-      # probability tests run on every system instead of skipping.
-      - run: uv sync --locked --extra hf
+      # With the hf extra (PyTorch) and the inspect extra at the locked versions users install,
+      # so the offline probability and Inspect export tests run on every system instead of
+      # skipping.
+      - run: uv sync --locked --extra hf --extra inspect
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run ty check
@@ -59,7 +60,7 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
-      - run: uv sync --locked --group browser
+      - run: uv sync --locked --group browser --extra inspect
       - run: uv run playwright install --with-deps chromium
       - run: uv run pytest -m browser -v
 
@@ -88,7 +89,7 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
-      - run: uv sync --locked --group browser
+      - run: uv sync --locked --group browser --extra inspect
       # The system libraries an engine needs: on Linux only; macOS has them.
       - run: uv run playwright install ${{ runner.os == 'Linux' && '--with-deps' || '' }} ${{ matrix.engine }}
       - run: uv run pytest -m browser --browser ${{ matrix.engine }} -v --junitxml=browser.xml
@@ -110,8 +111,9 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           enable-cache: true
-      # No hf extra: no live test imports torch. The converter gets its own environment.
-      - run: uv sync --locked
+      # No hf extra: no live test imports torch. The converter gets its own environment. The
+      # inspect extra: a SmolLM2 run is exported for Inspect and read back.
+      - run: uv sync --locked --extra inspect
       # The build flags are set here, in this step only, and passed on as outputs: a job-level
       # variable would reach llama-server, and Clarity warns about any LLAMA_* or GGML_* it
       # inherits. GGML_NATIVE=OFF: one binary for every runner (SSE 4.2 to AVX2, no AVX-512),

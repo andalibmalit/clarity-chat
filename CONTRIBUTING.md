@@ -2,7 +2,7 @@
 
 ## Set up
 
-Follow [Getting started](docs/getting-started.md) to install Clarity and build llama.cpp. For the Transformers backend, also run `uv sync --extra hf`.
+Follow [Getting started](docs/getting-started.md) to install Clarity and build llama.cpp. For the Transformers backend, also run `uv sync --extra hf`. To run every offline test, install both extras, as CI does: `uv sync --extra hf --extra inspect` (a plain `uv sync` removes an extra installed earlier, and the tests that need it then skip).
 
 ## Test
 
@@ -88,4 +88,4 @@ A release is done when every item is checked.
 11. After the tag, the maintainer pastes the README's install command on a fresh macOS account, so the script as shipped runs once from start to end.
 12. Only for a version worth citing: a GitHub Release, which mints a Zenodo DOI; that DOI goes in `CITATION.cff`.
 
-The exactness dependencies are the llama.cpp commit, `tokenizers`, `transformers` and `jinja2`: a change to any of them can change output. Each bump gets its own commit, a changelog line under **Output may change**, and the live tests.
+The exactness dependencies are the llama.cpp commit, `tokenizers`, `transformers` and `jinja2`: a change to any of them can change output. Each bump gets its own commit, a changelog line under **Output may change**, and the live tests. `tests/test_dependencies.py` holds the locked versions of these three and `pypdf` in a table, so a change to `uv.lock` that moves one fails until that table is edited, in the bump's own commit.

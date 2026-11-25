@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Changed
+- A new optional extra, `inspect`, installs `inspect-ai` 0.3.291, pinned exactly, and the 57 packages it needs, for exporting to Inspect. Locking it moves `fsspec` from 2026.9.0 to 2026.6.0 in every install, with the extra or without: `s3fs`, which `inspect-ai` needs, pins its matching `fsspec`. Clarity doesn't import `fsspec`; `huggingface-hub` and `torch` do. No other locked version moved, and a test now fails if `tokenizers`, `transformers`, `jinja2` or `pypdf` moves outside its own commit.
+
 ## [0.4.2] - 2026-11-24
 
 Live tests on an M2 Max (macOS), 2026-11-24, every tier at commit `d90b365`, the release's last change to its code, tests or install script (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 31 passed, `-m setup` 1 passed (setup fetching llama.cpp at the pin and building `llama-server` in a new folder), `-m embed` 10 passed (bge-m3 on Metal), `-m browser` 163 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m hf` 21 passed, `-m olmo` 12 passed and `-m llama` 3 passed.
