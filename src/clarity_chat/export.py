@@ -9,7 +9,7 @@ import json
 import re
 from importlib.metadata import version
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 from clarity_chat.documents import added_ranges, checked_attachments, message_content
 from clarity_chat.files import write_text_atomic
@@ -326,3 +326,45 @@ def derive_spans(
         )
     except Exception as e:  # a tokenizer not in the cache, a record Clarity didn't write
         return {"unavailable": f"{type(e).__name__}: {e}"}
+
+
+class ConversationExport(NamedTuple):
+    """One conversation of a batch run, as the plain export builds it."""
+
+    header: dict[str, Any]
+    rows: list[dict[str, Any]]  # each with the call's `run`
+    calls: dict[str, dict[str, Any]]  # its call records as logged, by call ID
+
+
+def run_conversations(
+    session: Session, run_dir: Path
+) -> tuple[dict[str, Any], list[ConversationExport]]:
+    """A finished batch run's `run` record and its conversations, in the log's order. Each
+    is rebuilt as a chat log of its own would be: its records, with the run's server starts
+    (logged once, under the first conversation to use each server) after its first."""
+    log = run_dir / "calls.jsonl"
+    records = list(read_records(log))
+    if not records or records[0]["type"] != "run":
+        found = f"starts with a {records[0]['type']} record" if records else "has no records"
+        error = ValueError(f"it {found}, not a run record")
+        raise ConfigError(unreadable(error, f"the records of {log}"))
+    run = records[0]
+    if not (run_dir / "key.json").is_file():
+        raise ConfigError(
+            f"Run {run['run_id']} stopped before it finished (it has no key.json), so it "
+            "isn't exported."
+        )
+    servers = [r for r in records if r["type"] == "server_start"]
+    own: dict[str, list[dict[str, Any]]] = {}
+    for record in records[1:]:  # a torn_line, read by no reader, belongs to no conversation
+        if record["type"] not in ("server_start", "torn_line"):
+            own.setdefault(record["conversation_id"], []).append(record)
+    conversations = []
+    for kept in own.values():
+        header, rows = conversation_rows(session, kept[:1] + servers + kept[1:], str(log))
+        calls = {r["call_id"]: r for r in kept if r["type"] == "call"}
+        rows = [{**row, "run": calls[row["call_id"]]["run"]} for row in rows]
+        conversations.append(
+            ConversationExport(header, rows, {r["call_id"]: calls[r["call_id"]] for r in rows})
+        )
+    return run, conversations
