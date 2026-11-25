@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import shutil
@@ -291,3 +292,122 @@ def test_clarity_export_takes_a_conversations_id_or_its_log(make, capsys):
             "Inspect didn't make these calls: running them again in Inspect won't send the "
             "same prompts. Each sample's metadata holds what the model got.",
         ]
+
+
+# C2: /export inspect, through the command table: the terminal chat, --json and the page.
+
+REFUSED_ARGS = (
+    "/export takes no path. /export inspect writes the conversation for Inspect, to "
+    "logs/exports/ID.eval."
+)
+
+
+def test_slash_export_inspect_writes_the_chats_log_and_says_its_format(make):
+    from clarity_chat.commands import Commands
+
+    session = make()
+    session.new_conversation("chat")
+    session.say("The kettle sang twice.")
+    log = session.conversation.log.path
+    result = Commands(session).run("export", "inspect", lambda e: None)
+    assert result["format"] == "inspect"
+    assert result["path"] == str(session.logs_dir / "exports" / f"{log.stem}.eval")
+    assert len(read(result["path"]).samples) == 1
+    # The rest is what `clarity export ID --format inspect` returns.
+    assert {k: v for k, v in result.items() if k != "format"} == {
+        **export_chat(session, log),
+        "replaced": False,
+    }
+    plain = Commands(session).run("export", "", lambda e: None)
+    assert plain["format"] == "jsonl" and plain["path"].endswith(f"{log.stem}.jsonl")
+
+
+@pytest.mark.parametrize("args", ["notes.jsonl", "inspect now", "INSPECT", "jsonl"])
+def test_slash_export_takes_inspect_and_nothing_else(make, tmp_path, args):
+    from clarity_chat.commands import Commands
+
+    session = make()
+    session.new_conversation("chat")
+    session.say("Hi")
+    with pytest.raises(ConfigError) as e:
+        Commands(session).run("export", args, lambda e: None)
+    assert str(e.value) == REFUSED_ARGS
+    assert not (session.logs_dir / "exports").exists()
+
+
+def test_the_terminal_chat_says_where_the_log_went_and_whose_calls_they_are(make):
+    from clarity_chat.cli import ChatLoop
+
+    session = make()
+    session.new_conversation("chat")
+    output: list[str] = []
+    loop = ChatLoop(session, "chat", read=lambda d: "", write=output.append)
+    loop.handle("Hi")
+    output.clear()
+    loop.handle("/export inspect")
+    path = session.logs_dir / "exports" / f"{session.conversation.log.path.stem}.eval"
+    assert "".join(output).splitlines() == [
+        f"Wrote {path}: 1 call(s). Before recomputing it in a notebook, run "
+        "clarity_chat.recompute.check (docs/guides.md).",
+        "Inspect didn't make these calls: running them again in Inspect won't send the "
+        "same prompts. Each sample's metadata holds what the model got.",
+    ]
+    output.clear()
+    loop.handle("/export notes.jsonl")
+    assert "".join(output).strip() == f"! {REFUSED_ARGS}"
+
+
+def test_json_chat_exports_for_inspect(make):
+    from clarity_chat.json_chat import JsonChat
+
+    session = make()
+    stdout = io.StringIO()
+    stdin = io.BytesIO(
+        "".join(
+            json.dumps(c) + "\n"
+            for c in (
+                {"command": "say", "args": "Hi"},
+                {"command": "export", "args": "inspect", "id": "e"},
+                {"command": "export", "args": "elsewhere", "id": "x"},
+            )
+        ).encode()
+    )
+    JsonChat(session, stdin, stdout).run([{"command": "profile", "args": "chat"}])
+    events = [json.loads(line) for line in stdout.getvalue().splitlines()]
+    exported = next(e for e in events if e.get("id") == "e")
+    assert exported["event"] == "result" and exported["result"]["format"] == "inspect"
+    assert read(exported["result"]["path"]).samples
+    refused = next(e for e in events if e.get("id") == "x")
+    assert (refused["event"], refused["message"]) == ("error", REFUSED_ARGS)
+
+
+def test_the_page_serves_the_newest_export_whichever_format(fetched_root, chat_tokenizer):
+    """Through POST /command, in `clarity ui`'s worker thread: inspect_ai's writer runs its
+    own event loop there too. GET /export serves the file under its own name."""
+    from starlette.testclient import TestClient
+
+    from clarity_chat import web
+    from tests.test_web import AUTH, ORIGIN, PORT, SAME, SECRET, command
+
+    backend = FakeBackend([" Hello!"], tokenizer=chat_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
+    app = web.make_app(session, SECRET.encode(), port=PORT)
+    with TestClient(app, base_url=ORIGIN) as client:
+        command(client, "profile", "chat")
+        command(client, "say", "Hi")
+        answer = command(client, "export", "inspect").json()
+        assert answer.get("result", {}).get("format") == "inspect", answer
+        assert session.conversation is not None
+        stem = session.conversation.log.path.stem
+        served = client.get("/export", headers={**AUTH, **SAME})
+        assert served.status_code == 200
+        eval_path = session.logs_dir / "exports" / f"{stem}.eval"
+        assert served.content == eval_path.read_bytes()
+        assert f'filename="{stem}.eval"' in served.headers["content-disposition"]
+        assert served.headers["content-type"] == "application/zip"
+        command(client, "export")
+        served = client.get("/export", headers={**AUTH, **SAME})
+        jsonl = session.logs_dir / "exports" / f"{stem}.jsonl"
+        assert served.content == jsonl.read_bytes()
+        assert f'filename="{stem}.jsonl"' in served.headers["content-disposition"]
+        assert served.headers["content-type"].startswith("application/x-ndjson")

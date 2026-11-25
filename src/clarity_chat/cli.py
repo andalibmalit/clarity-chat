@@ -790,7 +790,8 @@ class ChatLoop:
         elif name == "replay":
             self.write(format_replay(result["replay"]) + "\n")
         elif name == "export":
-            self.write(format_export(result) + "\n")
+            note = f"\n{NOT_INSPECTS}" if result["format"] == "inspect" else ""
+            self.write(f"{format_export(result)}{note}\n")
         elif name == "cancel":  # in the terminal, Ctrl-C cancels; between calls, nothing runs
             self.write("Cancelled.\n" if result["cancelled"] else "Nothing to cancel.\n")
         return True

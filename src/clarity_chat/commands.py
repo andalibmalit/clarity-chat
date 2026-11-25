@@ -998,11 +998,18 @@ def _pieces(decode_prefix: Callable[[int], str], n: int) -> list[tuple[str, bool
 def _export(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     from clarity_chat.export import export_log
 
-    if args:  # commands will also come from the browser (v0.3.0): no path from a command
-        raise ConfigError("/export takes no path: it writes to logs/exports/ID.jsonl.")
+    if args not in ("", "inspect"):  # commands also come from the browser: no path
+        raise ConfigError(
+            "/export takes no path. /export inspect writes the conversation for Inspect, to "
+            "logs/exports/ID.eval."
+        )
     conversation = c.session.conversation
     assert conversation is not None
-    return export_log(c.session, conversation.log.path)
+    if args == "inspect":  # in-process: G0's S3 found the import and the write change nothing
+        from clarity_chat.export_inspect import export_chat
+
+        return {**export_chat(c.session, conversation.log.path), "format": "inspect"}
+    return {**export_log(c.session, conversation.log.path), "format": "jsonl"}
 
 
 def _settings(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -1378,8 +1385,9 @@ COMMANDS: dict[str, Command] = {
         cancellable=True,
     ),
     "export": Command(
-        "/export",
-        "write this conversation for a notebook, to logs/exports/ID.jsonl",
+        "/export [inspect]",
+        "write this conversation for a notebook, to logs/exports/ID.jsonl, or with inspect "
+        "for Inspect's viewer, to logs/exports/ID.eval",
         _export,
     ),
     "title": Command("/title TEXT", "name this conversation in the chat list", _title),

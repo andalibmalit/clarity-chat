@@ -507,7 +507,9 @@ def make_app(
         path = Path(result["path"]) if result else None
         if path is None or not path.is_file():
             return PlainTextResponse(NOT_EXPORTED, 409)
-        return FileResponse(path, media_type="application/x-ndjson", filename=path.name)
+        # The newest /export, whichever format: an Inspect log is a zip file.
+        kind = "application/zip" if path.suffix == ".eval" else "application/x-ndjson"
+        return FileResponse(path, media_type=kind, filename=path.name)
 
     app = Starlette(
         routes=[

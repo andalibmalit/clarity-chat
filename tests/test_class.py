@@ -472,7 +472,8 @@ TERMINAL_ONLY = {
     "/resume takes a conversation ID from /chats, not a path.": "the page sends a log ID",
     "Usage: /prompt [CALL_ID]": "the page sends one call ID",
     "Usage: /probs [CALL_ID]": "the page sends one call ID",
-    "/export takes no path: it writes to logs/exports/ID.jsonl.": "the page sends none",
+    "/export takes no path. /export inspect writes the conversation for Inspect, to "
+    "logs/exports/ID.eval.": "the page sends none",
     "Usage: /replay [CALL_ID]": "the page sends one call ID",
     "/profile takes a profile name from profiles/ or local/profiles/, not a path.": (
         "the page sends a name from /profiles"
