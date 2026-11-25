@@ -161,7 +161,7 @@ Each call is its own conversation. Profiles are read once, at the start, so edit
 3. Export the run:
 
    ```
-   uv run clarity export RUN_ID --format inspect
+   uv run clarity export runs/RUN_ID --format inspect
    ```
 
    It writes one log per profile, `runs/RUN_ID/inspect/1-A.eval`, `2-B.eval` and so on, readable only by you on Linux and macOS. A run that stopped early isn't exported. Exporting again replaces the files, so mark first and export last. What goes where is in [Export for Inspect](reference.md#export-for-inspect).

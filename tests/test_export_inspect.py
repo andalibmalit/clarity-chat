@@ -631,10 +631,10 @@ def test_one_log_of_one_call_is_said_in_the_singular(run, tmp_path):
     )
 
 
-def test_clarity_export_takes_a_runs_id_its_folder_or_its_calls_jsonl(run, capsys):
+def test_clarity_export_takes_a_runs_folder_or_its_calls_jsonl(run, capsys):
     _, run_dir = run
     root, folder = run_dir.parent.parent, run_dir / "inspect"
-    given = ["run-test", str(run_dir), str(run_dir / "calls.jsonl")]
+    given = [str(run_dir), str(run_dir / "calls.jsonl")]
     for n, target in enumerate(given):
         assert export(root, target, "--format", "inspect") == 0, capsys.readouterr().err
         replaced = "; replaced the earlier export" if n else ""
@@ -655,7 +655,7 @@ def test_the_terminal_says_whose_text_the_logs_hold(run, capsys, monkeypatch):
         return {**real(session, run_dir), "found": True}
 
     monkeypatch.setattr(export_inspect, "export_run", found)
-    assert export(run_dir.parent.parent, "run-test", "--format", "inspect") == 0
+    assert export(run_dir.parent.parent, str(run_dir), "--format", "inspect") == 0
     assert capsys.readouterr().out.splitlines()[2:] == [
         "It holds the text of the parts search added from your documents."
     ]
@@ -668,26 +668,18 @@ def refused(root: Path, capsys, *args: str) -> str:
     return captured.err.removeprefix("clarity: ").rstrip("\n")
 
 
-def test_an_id_naming_both_a_conversation_and_a_run_is_refused(run, capsys):
+def test_an_id_names_a_conversation_never_a_run(run, capsys):
+    """The cut order's entry 1 (the whole-branch review's M2): a run is named by its path,
+    so an ID is only ever a conversation's, and no ID can name both."""
     _, run_dir = run
     root = run_dir.parent.parent
-    (root / "logs").mkdir(exist_ok=True)
-    (root / "logs" / "run-test.jsonl").write_text("{}\n", encoding="utf-8")
-    for fmt in ("inspect", "jsonl"):
-        assert refused(root, capsys, "run-test", "--format", fmt) == (
-            "run-test names a conversation (logs/run-test.jsonl) and a run (runs/run-test/). "
-            "Pass the path of the one you mean."
-        )
+    for given in ("run-test", "no-such-id"):
+        for fmt in ("inspect", "jsonl"):
+            assert refused(root, capsys, given, "--format", fmt) == (
+                f"No conversation, log file or run {given}. `clarity chats` lists conversations; "
+                "name a run by its folder, runs/RUN_ID."
+            )
     assert not (run_dir / "inspect").exists()
-    assert not (root / "logs" / "exports").exists()
-
-
-def test_an_id_naming_neither_says_where_runs_are(fetched_root, capsys):
-    for fmt in ("inspect", "jsonl"):
-        assert refused(fetched_root, capsys, "no-such-id", "--format", fmt) == (
-            "No conversation, log file or run no-such-id. `clarity chats` lists "
-            "conversations; each run is a folder in runs/."
-        )
 
 
 def test_a_folder_without_calls_jsonl_is_no_run(run, capsys):
@@ -697,12 +689,11 @@ def test_a_folder_without_calls_jsonl_is_no_run(run, capsys):
     root = run_dir.parent.parent
     empty = root / "runs" / "half"
     empty.mkdir()
-    for given in (str(empty), "half"):
-        for fmt in ("inspect", "jsonl"):
-            assert refused(root, capsys, given, "--format", fmt) == (
-                f"No conversation, log file or run {given}. `clarity chats` lists "
-                "conversations; each run is a folder in runs/."
-            )
+    for fmt in ("inspect", "jsonl"):
+        assert refused(root, capsys, str(empty), "--format", fmt) == (
+            f"No conversation, log file or run {empty}. `clarity chats` lists conversations; "
+            "name a run by its folder, runs/RUN_ID."
+        )
     assert not (empty / "inspect").exists()
 
 
@@ -720,7 +711,7 @@ def test_format_inspect_takes_no_out(run, capsys, tmp_path):
     _, run_dir = run
     root = run_dir.parent.parent
     out = str(tmp_path / "x.eval")
-    assert refused(root, capsys, "run-test", "--format", "inspect", "--out", out) == (
+    assert refused(root, capsys, str(run_dir), "--format", "inspect", "--out", out) == (
         "--format inspect takes no --out: a run's logs go in runs/RUN_ID/inspect/, and a "
         "chat's in logs/exports/."
     )
@@ -730,7 +721,7 @@ def test_format_inspect_takes_no_out(run, capsys, tmp_path):
 def test_the_plain_export_of_a_run_names_format_inspect(run, capsys):
     _, run_dir = run
     root = run_dir.parent.parent
-    for given in ("run-test", str(run_dir), str(run_dir / "calls.jsonl")):
+    for given in (str(run_dir), str(run_dir / "calls.jsonl")):
         assert refused(root, capsys, given) == (
             f"{given} is a batch run, and the plain export takes one conversation. Export a "
             "run for Inspect with --format inspect."

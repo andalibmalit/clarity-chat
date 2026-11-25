@@ -63,7 +63,7 @@ def require_log(log_path: Path) -> None:
     if not log_path.is_file():
         raise ConfigError(
             f"No conversation, log file or run {log_path}. `clarity chats` lists "
-            "conversations; each run is a folder in runs/."
+            "conversations; name a run by its folder, runs/RUN_ID."
         )
 
 

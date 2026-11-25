@@ -999,26 +999,16 @@ def format_inspect(result: dict[str, Any]) -> str:
 
 
 def export_target(root: Path, given: str) -> tuple[str, Path]:
-    """What `clarity export` was given: ("run", its folder) or ("chat", its log). An
-    existing path is used as it is; an ID is looked for in both logs/ and runs/, since a
-    run's ID and a conversation's look the same. A folder is a run only if it holds
-    calls.jsonl. Neither: ("chat", given), which export_log refuses."""
-
-    def is_run(folder: Path) -> bool:
-        return (folder / "calls.jsonl").is_file()
-
+    """What `clarity export` was given: ("run", its folder) or ("chat", its log). A run is
+    named by its folder, which holds calls.jsonl, or by that file, so an ID is always a
+    conversation's: an existing path is used as it is, else logs/ID.jsonl."""
     path = Path(given)
-    if path.is_dir():
-        return ("run", path) if is_run(path) else ("chat", path)
-    if path.is_file():
-        return ("run", path.parent) if path.name == "calls.jsonl" else ("chat", path)
-    log, run = root / "logs" / f"{given}.jsonl", root / "runs" / given
-    if log.is_file() and is_run(run):
-        raise ConfigError(
-            f"{given} names a conversation (logs/{given}.jsonl) and a run (runs/{given}/). "
-            "Pass the path of the one you mean."
-        )
-    return ("run", run) if is_run(run) else ("chat", log if log.is_file() else path)
+    if path.is_dir() and (path / "calls.jsonl").is_file():
+        return ("run", path)
+    if path.is_file() and path.name == "calls.jsonl":
+        return ("run", path.parent)
+    log = root / "logs" / f"{given}.jsonl"
+    return ("chat", log if not path.exists() and log.is_file() else path)
 
 
 def cmd_export(root: Path, given: str, form: str, out: Path | None) -> int:
@@ -1392,7 +1382,7 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     )
     export.add_argument(
         "conversation",
-        help="a conversation's ID (from `clarity chats`) or log file, or a run's ID or folder",
+        help="a conversation's ID (from `clarity chats`) or log file, or a run's folder",
     )
     export.add_argument("--out", type=Path, help="where to write it instead (jsonl only)")
     export.add_argument(
