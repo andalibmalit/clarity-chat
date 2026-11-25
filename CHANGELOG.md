@@ -10,7 +10,7 @@ Two headings are Clarity's own, used when they apply:
 
 ## [0.4.2] - 2026-11-24
 
-Live tests on an M2 Max (macOS), 2026-11-24, every tier at commit `e1341d2`, the release's last change to its code, tests or install script (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 31 passed, `-m setup` 1 passed (setup fetching llama.cpp at the pin and building `llama-server` in a new folder), `-m embed` 10 passed (bge-m3 on Metal), `-m browser` 163 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m hf` 21 passed, `-m olmo` 12 passed and `-m llama` 3 passed.
+Live tests on an M2 Max (macOS), 2026-11-24, every tier at commit `d90b365`, the release's last change to its code, tests or install script (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 31 passed, `-m setup` 1 passed (setup fetching llama.cpp at the pin and building `llama-server` in a new folder), `-m embed` 10 passed (bge-m3 on Metal), `-m browser` 163 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m hf` 21 passed, `-m olmo` 12 passed and `-m llama` 3 passed.
 
 ### Migration
 - Fetches now write `local/models.lock`; an entry there wins over `models.lock`. Entries an earlier fetch wrote to `models.lock` are still read. To make the checkout clean again, run `git restore models.lock`, then `uv run clarity verify NAME` for each model you fetched: it re-hashes the file and records it in `local/models.lock`. A model it reports as different, or as not in `models.lock`, needs `uv run clarity fetch NAME` again.
