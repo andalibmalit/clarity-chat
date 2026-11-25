@@ -242,6 +242,18 @@ def test_a_log_name_clarity_wouldnt_write_is_refused(make, tmp_path):
     assert not (session.logs_dir / "exports").exists()
 
 
+def test_an_exports_entry_that_is_a_file_is_refused(make):
+    """mkdir's error was a traceback (the fix review's C-b)."""
+    session = make()
+    session.new_conversation("chat")
+    session.say("Hi")
+    exports = session.logs_dir / "exports"
+    exports.write_text("not a folder", encoding="utf-8")
+    with pytest.raises(ConfigError) as e:
+        export_chat(session, session.conversation.log.path)
+    assert str(e.value) == f"Can't write the export to {exports}: File exists."
+
+
 @pytest.mark.parametrize("golden", GOLDEN, ids=lambda p: p.stem)
 def test_every_golden_log_exports_and_reads_back(
     fetched_root, tiny_tokenizer, chat_tokenizer, golden, tmp_path

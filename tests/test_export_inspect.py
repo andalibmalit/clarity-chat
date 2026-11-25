@@ -427,6 +427,42 @@ def test_the_file_is_private_from_birth_and_a_failed_write_leaves_nothing(run, m
     assert {p.name: p.read_bytes() for p in folder.iterdir()} == before
 
 
+def test_a_failed_move_names_the_logs_already_moved(run, monkeypatch):
+    """No order of renames makes two files one step, so the refusal says which logs hold the
+    new export (the fix review's S-a). Inspect's writer renames too, so only moves into
+    inspect/ fail."""
+    session, run_dir = run
+    folder = run_dir / "inspect"
+    export_run(session, run_dir)
+    before = (folder / "2-text.eval").read_bytes()
+    real = os.replace
+
+    def second_fails(source, target, *args, **kwargs):
+        if Path(target) == folder / "2-text.eval":
+            raise PermissionError(13, "Permission denied")
+        return real(source, target, *args, **kwargs)
+
+    monkeypatch.setattr(export_inspect.os, "replace", second_fails)
+    with pytest.raises(ConfigError) as e:
+        export_run(session, run_dir)
+    assert str(e.value) == (
+        f"Can't write the export to {folder / '2-text.eval'}: Permission denied. "
+        "1-chat.eval was already written, so export again to bring the logs back in step."
+    )
+    assert (folder / "2-text.eval").read_bytes() == before
+    assert sorted(p.name for p in folder.iterdir()) == ["1-chat.eval", "2-text.eval"]
+
+
+def test_an_inspect_entry_that_is_a_file_is_refused(run):
+    """mkdir's error was a traceback (the fix review's C-b)."""
+    session, run_dir = run
+    (run_dir / "inspect").write_text("not a folder", encoding="utf-8")
+    with pytest.raises(ConfigError) as e:
+        export_run(session, run_dir)
+    assert str(e.value) == f"Can't write the export to {run_dir / 'inspect'}: File exists."
+    assert (run_dir / "inspect").read_text(encoding="utf-8") == "not a folder"
+
+
 @pytest.mark.parametrize("name", ["../text", "a/b", "text/../../x"])
 def test_a_profile_name_that_cant_name_a_file_is_refused_before_any_file(run, name):
     """The whole name must be one Clarity writes: `a/b` starts like one (Checkpoint 1's S2)."""
@@ -473,7 +509,9 @@ def test_two_calls_with_one_opening_and_seed_are_refused(run):
     rewrite(run_dir, records)
     with pytest.raises(ConfigError) as e:
         export_run(session, run_dir)
-    assert str(e.value).startswith(f"Can't read the records of {run_dir / 'calls.jsonl'} (")
+    assert str(e.value).startswith(
+        f"Can't read the records of {run_dir / 'calls.jsonl'} and its key.json ("
+    )
     assert "opening 1 and seed 42" in str(e.value)
     assert not (run_dir / "inspect").exists()
 
@@ -496,8 +534,31 @@ def a_key_naming_another_profile(run_dir: Path) -> None:
     (run_dir / "key.json").write_text(json.dumps(key), encoding="utf-8")
 
 
+def a_key_with_its_profiles_swapped(run_dir: Path) -> None:
+    """Every label's chat for text and back: names alone don't catch it (the fix review's C-a)."""
+    key = json.loads((run_dir / "key.json").read_text(encoding="utf-8"))
+    for opening in key["openings"]:
+        for label in opening["labels"].values():
+            label["profile"] = {"chat": "text", "text": "chat"}[label["profile"]]
+    (run_dir / "key.json").write_text(json.dumps(key), encoding="utf-8")
+
+
+def a_log_missing_a_conversation_key_json_names(run_dir: Path) -> None:
+    """The fix review's surviving mutation: without the check, one sample fewer, silently."""
+    records = records_of(run_dir)
+    gone = next(r["conversation_id"] for r in records if r["type"] == "conversation")
+    rewrite(run_dir, [r for r in records if r.get("conversation_id") != gone])
+
+
 @pytest.mark.parametrize(
-    "edit", [listed_but_never_called, a_conversation_without_its_call, a_key_naming_another_profile]
+    "edit",
+    [
+        listed_but_never_called,
+        a_conversation_without_its_call,
+        a_key_naming_another_profile,
+        a_key_with_its_profiles_swapped,
+        a_log_missing_a_conversation_key_json_names,
+    ],
 )
 def test_a_run_whose_records_dont_agree_is_refused_as_unreadable(run, edit):
     """Checkpoint 1's S1: each of these was a traceback (StopIteration), or an export of the
@@ -506,7 +567,9 @@ def test_a_run_whose_records_dont_agree_is_refused_as_unreadable(run, edit):
     edit(run_dir)
     with pytest.raises(ConfigError) as e:
         export_run(session, run_dir)
-    assert str(e.value).startswith(f"Can't read the records of {run_dir / 'calls.jsonl'} (")
+    assert str(e.value).startswith(
+        f"Can't read the records of {run_dir / 'calls.jsonl'} and its key.json ("
+    )
     assert not (run_dir / "inspect").exists()
 
 

@@ -16,7 +16,7 @@ import tempfile
 import tomllib
 from collections.abc import Callable
 from importlib.metadata import version
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import TYPE_CHECKING, Any
 
 from clarity_chat.export import (
@@ -71,7 +71,7 @@ Group = tuple[str, list[ConversationExport]]  # a profile's name and its convers
 def export_run(session: Session, run_dir: Path) -> dict[str, Any]:
     """Write a finished run as RUN_DIR/inspect/N-PROFILE.eval, one log per profile in the
     run's order, replacing any there. Returns each file's path, whether it replaced one and
-    its calls, and the plain export's steering and documents facts."""
+    its calls, and whether any call had documents attached or found."""
     write = inspect_writer()
     log = run_dir / "calls.jsonl"
     try:
@@ -80,14 +80,13 @@ def export_run(session: Session, run_dir: Path) -> dict[str, Any]:
         logs = [run_log(run, n, name, group) for n, (name, group) in enumerate(groups, 1)]
     except (LookupError, StopIteration, TypeError, AttributeError, ValueError) as e:
         # a log or key.json not Clarity's, or a bug
-        raise ConfigError(unreadable(e, f"the records of {log}")) from e
+        raise ConfigError(unreadable(e, f"the records of {log} and its key.json")) from e
     folder = run_dir / "inspect"
     if folder.is_symlink():  # a run folder from someone else could carry one
         raise ConfigError(
             f"{folder} is a link, and the export writes only into the run's own folder. "
             "Remove the link, then export again."
         )
-    folder.mkdir(exist_ok=True)
     paths = [folder / f"{n}-{name}.eval" for n, (name, _) in enumerate(groups, 1)]
     files = [
         {"path": str(path), "replaced": path.exists(), "calls": len(log_.samples or [])}
@@ -121,7 +120,6 @@ def export_chat(session: Session, log_path: Path) -> dict[str, Any]:
     except (LookupError, TypeError, AttributeError, ValueError) as e:  # not Clarity's, or a bug
         raise ConfigError(unreadable(e, f"the records of {log_path}")) from e
     folder = session.logs_dir / "exports"
-    folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"{log_path.stem}.eval"
     replaced = path.exists()
     write_privately(write, [(log, path)], folder)
@@ -190,6 +188,11 @@ def by_profile(
                 f"{name!r}, a profile name in {run_dir / 'calls.jsonl'}, isn't one Clarity "
                 "writes, so it can't name the export's file."
             )
+        # A profile's name is its file's stem, and `profile` names the file as --profiles
+        # gave it: a path to a .toml, or a name that profiles/ adds .toml to. So a key.json
+        # whose profiles are swapped wholesale, which the names alone don't catch, is.
+        if name not in {PureWindowsPath(p).stem for p in (profile, f"{profile}.toml")}:
+            raise ValueError(f"key.json gives profile {profile} the calls of profile {name}")
         named.append((name, group))
     return named
 
@@ -423,17 +426,27 @@ def stable_id(run_id: str, n: int, kind: str) -> str:
 def write_privately(write: Writer, logs: list[tuple[EvalLog, Path]], folder: Path) -> None:
     """Inspect's writer makes its own temporary file beside its target, readable by others
     (0666 less the umask), so every log is written inside one 0700 folder and made 0600
-    first, and only then moved into place: a failed write replaces no file. The folder is
-    removed, also when a write fails."""
-    temporary = Path(tempfile.mkdtemp(dir=folder))
-    path = folder
+    first, and only then moved into place: a failed write replaces no file. No order of
+    moves makes several files one step, so a failed move names the logs already moved. The
+    folder is removed, also when a write fails."""
+    path, temporary, moved = folder, None, []
     try:
+        folder.mkdir(parents=True, exist_ok=True)
+        temporary = Path(tempfile.mkdtemp(dir=folder))
         for log, path in logs:
             write(log, str(temporary / path.name))
             os.chmod(temporary / path.name, 0o600)
         for _, path in logs:
             os.replace(temporary / path.name, path)
+            moved.append(path.name)
     except OSError as e:
-        raise ConfigError(f"Can't write the export to {path}: {e.strerror or e}.") from e
+        done = (
+            f" {' and '.join(moved)} {'was' if len(moved) == 1 else 'were'} already written, "
+            "so export again to bring the logs back in step."
+            if moved
+            else ""
+        )
+        raise ConfigError(f"Can't write the export to {path}: {e.strerror or e}.{done}") from e
     finally:
-        shutil.rmtree(temporary, ignore_errors=True)
+        if temporary is not None:
+            shutil.rmtree(temporary, ignore_errors=True)

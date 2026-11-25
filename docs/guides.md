@@ -164,7 +164,7 @@ Each call is its own conversation. Profiles are read once, at the start, so edit
    uv run clarity export RUN_ID --format inspect
    ```
 
-   It writes one log per profile, `runs/RUN_ID/inspect/1-A.eval`, `2-B.eval` and so on, readable only by you. A run that stopped early isn't exported. Exporting again replaces the files, so mark first and export last. What goes where is in [Export for Inspect](reference.md#export-for-inspect).
+   It writes one log per profile, `runs/RUN_ID/inspect/1-A.eval`, `2-B.eval` and so on, readable only by you on Linux and macOS. A run that stopped early isn't exported. Exporting again replaces the files, so mark first and export last. What goes where is in [Export for Inspect](reference.md#export-for-inspect).
 
 4. Open the viewer:
 
@@ -174,7 +174,7 @@ Each call is its own conversation. Profiles are read once, at the start, so edit
 
    It prints a local address to open in your browser.
 
-**Compare profiles.** Choose **Samples**, at the top right beside Tasks and Folders, for one grid of every log's replies. Each opening is a sample, numbered as in `key.json`, and each seed an epoch of it. Sort by **Id** so each opening's replies from every profile sit together, with **Model** and **MARK** beside them. **Input** is the opening as the model got it, so a profile that searches documents shows the parts search added there too. MARK is the reply's labels, or "unmarked". The grid has no column for the reply itself, so open a row to read it; a log's own Samples list shows it as **Answer**, one profile at a time. A filter on MARK works only while it has fewer than 10 distinct values. To read the replies side by side in a terminal instead, run this with `uv run python`:
+**Compare profiles.** Choose **Samples**, at the top right beside Tasks and Folders, for one grid of every log's replies. Each opening is a sample, numbered as in `key.json`, and each seed an epoch of it. Sort by **Id** so each opening's replies from every profile sit together, with **Model** beside them and **MARK** as the last column. **Input** is the opening as the model got it, so a profile that searches documents shows the parts search added there too. MARK is the reply's labels, or "unmarked". The grid has no column for the reply itself, so open a row to read it; a log's own Samples list shows it as **Answer**, one profile at a time, and can filter on MARK while it has fewer than 10 distinct values. To read the replies side by side in a terminal instead, run this with `uv run python`:
 
 ```python
 from pathlib import Path
@@ -187,12 +187,12 @@ for path in sorted(Path("runs/RUN_ID/inspect").glob("*.eval")):
     for sample in log.samples or []:
         mark = sample.scores["mark"].value if sample.scores else ""
         replies.setdefault((sample.id, sample.epoch), []).append(
-            (log.eval.model, mark, sample.metadata["output_text"])
+            (path.name, mark, sample.metadata["output_text"])
         )
 for (opening, epoch), rows in sorted(replies.items()):
     print(f"Opening {opening}, epoch {epoch}")
-    for model, mark, text in rows:
-        print(f"  {model} [{mark}]: {text!r}")
+    for name, mark, text in rows:
+        print(f"  {name} [{mark}]: {text!r}")
 ```
 
 **See the exact text.** The viewer formats text as Markdown: it drops leading spaces and turns a line starting with `* ` into a bullet. The **Raw** button on a sample's Messages tab shows each message exactly. The messages leave out text the chat template adds, including any message of its own, like the system message OLMo 3's template adds when a profile has none, or the dates Llama 3.1's puts in its system header; `prompt_text` has it. The record is the sample's metadata: `prompt_text`, `prompt_ids` and `output_text`, with every setting and the facts replay compares. Each message's own metadata, its span of the prompt as logged, shows folded on the user's message but not on the system message; `read_eval_log` reads it on both.
@@ -214,14 +214,14 @@ def mentions_blue():
     return score
 ```
 
-Save it as `blue.py`, then score a copy and make the copy readable only by you:
+Save it as `blue.py`, then score a copy outside `inspect/`, so the viewer and the loop above don't show A's replies twice, and make the copy readable only by you:
 
 ```
-uv run inspect score runs/RUN_ID/inspect/1-A.eval --scorer blue.py@mentions_blue --model none --action append --output-file runs/RUN_ID/inspect/1-A-scored.eval
-chmod 600 runs/RUN_ID/inspect/1-A-scored.eval
+uv run inspect score runs/RUN_ID/inspect/1-A.eval --scorer blue.py@mentions_blue --model none --action append --output-file runs/RUN_ID/1-A-scored.eval
+chmod 600 runs/RUN_ID/1-A-scored.eval
 ```
 
-`--model none` is for a scorer that calls no model; a model-graded scorer needs a real model, passed with `--model` or in the scorer's own `model=`. `--action append` keeps `mark`. Inspect writes the scored copy, which holds the whole conversation, readable by others, hence the `chmod 600`. A new export of the run replaces `1-A.eval` but leaves the scored copy as it was, so score again after exporting again. `inspect score` also leaves an empty `logs/` folder, and `blue.py`'s `__pycache__/`, in the folder you ran it from.
+`--model none` is for a scorer that calls no model; a model-graded scorer needs a real model, passed with `--model` or in the scorer's own `model=`. `--action append` keeps `mark`. Inspect writes the scored copy, which holds the whole conversation, readable by others, hence the `chmod 600`. A new export of the run replaces `1-A.eval` but leaves the scored copy as it was, so score again after exporting again. `inspect score` also makes a `logs/` folder where you run it, if there isn't one, and leaves `blue.py`'s `__pycache__/` there. In Clarity's folder, `logs/` is your chats folder; Inspect writes nothing in it.
 
 **A chat.** `uv run clarity export ID --format inspect` writes one conversation as `logs/exports/ID.eval`, ID as `clarity chats` lists it; open it with `uv run inspect view --log-dir logs/exports`. Each reply is its own sample, named by the message it answers and its place among that message's replies, so sort by **Id** to keep a message's regenerated replies together.
 
