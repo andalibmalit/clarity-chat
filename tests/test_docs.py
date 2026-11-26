@@ -167,3 +167,19 @@ def test_relative_links_lead_to_a_file_and_heading(doc):
         elif anchor and path.suffix == ".md" and anchor not in anchors(path):
             broken.append(target)
     assert not broken, f"{doc.name} has broken links: {broken}"
+
+
+def test_the_readmes_screenshots_have_alt_text_and_stay_small():
+    """v0.4.4 S1: each screenshot the README shows has alt text and is under about 300 KB.
+    The link test checks that each one exists."""
+    text = outside_code((REPO / "README.md").read_text(encoding="utf-8"))
+    images = [
+        (alt, target)
+        for alt, target in re.findall(r"!\[([^\]]*)\]\(([^)\s]+)\)", text)
+        if not re.match(r"[a-z]+:", target)  # the DOI badge, a web image
+    ]
+    assert images, "the README shows no screenshot"
+    for alt, target in images:
+        assert alt.strip(), f"{target} has no alt text"
+        size = (REPO / target).stat().st_size
+        assert size < 300_000, f"{target} is {size:,} bytes"
