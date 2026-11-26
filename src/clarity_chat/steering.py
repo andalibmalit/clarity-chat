@@ -284,6 +284,10 @@ def check(vector: Vector, config: dict[str, Any], layers: object = None) -> list
     return sorted(layers)
 
 
+def encode(directions: dict[int, Any], model_hint: str) -> bytes:
+    return b""
+
+
 @contextmanager
 def applied(model: Any, vector: Vector, scale: float, layers: object = None) -> Generator[dict]:
     """Add `scale` x the vector to the chosen blocks' outputs of a loaded Transformers model,

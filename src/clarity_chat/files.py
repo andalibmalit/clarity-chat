@@ -36,6 +36,10 @@ def write_text_atomic(path: Path, text: str, *, private: bool = False) -> None:
         raise
 
 
+def write_bytes_atomic(path: Path, data: bytes, *, private: bool = False) -> None:
+    pass
+
+
 def sha256_file(path: Path, chunk_size: int = 16 * 1024 * 1024) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as f:
