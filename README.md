@@ -49,7 +49,7 @@ The same call on the same machine and llama.cpp build gives the same output. Liv
 On a Mac with Apple silicon and 16 GB of memory or more, paste this into Terminal:
 
 ```
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/andalibmalit/clarity-chat/v0.4.2/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/andalibmalit/clarity-chat/v0.4.3/install.sh | sh
 ```
 
 It checks the Mac, installs uv if it's missing, puts Clarity in `~/Clarity`, builds llama.cpp, fetches a first chat model (Gemma 4 E4B) and the model meaning search uses, and puts a `Clarity.command` launcher on your Desktop. It asks once, with the sizes, before it downloads anything. See [Getting started](docs/getting-started.md#install-with-one-command) for what it does and writes, and how to read the script first.

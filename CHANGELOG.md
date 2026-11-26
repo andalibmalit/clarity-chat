@@ -8,6 +8,10 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-11-26
+
+Live tests on an M2 Max (macOS), 2026-11-26, every tier at commit `5e312c9`, the release's last change before the QA driver's (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 32 passed, `-m browser` 178 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m embed` 10 passed (bge-m3 on Metal), `-m hf` 21 passed, `-m setup` 1 passed (setup fetching llama.cpp at the pin and building `llama-server` in a new folder), `-m olmo` 12 passed and `-m llama` 3 passed. `-m live` 32 passed again at `8e01d26`, which changed only the QA driver in `scripts/`.
+
 ### Added
 - `clarity export runs/RUN_ID --format inspect` writes a finished batch run as Inspect logs, one per profile, in `runs/RUN_ID/inspect/`, for browsing and comparing replies in `inspect view`. Each opening is a sample and each seed an epoch; each sample's metadata is the plain export's row for its call, and each reply's marks and notes are its `mark` score. Each log asks the viewer to show its text as written, not as Markdown. It needs the `inspect` extra. `key.json` says which profile made each call, so two profile files with one name each get their own log. A run is named by its folder (one holding `calls.jsonl`) or its `calls.jsonl`; a run whose `key.json` and log disagree is refused. `clarity export ID --format inspect`, or `/export inspect` in a chat, writes a conversation as one Inspect log, `logs/exports/ID.eval`, each reply its own sample; `/export`'s result adds `format`, and the page's `GET /export` serves the newest export in either format. A new guide, "Browse a run in Inspect's viewer", shows how to compare profiles there, see the exact text and add a score later.
 
@@ -340,7 +344,8 @@ The first release.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - A llama-server that Clarity starts and checks itself, and a Transformers backend for the same weights.
 
-[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/andalibmalit/clarity-chat/compare/v0.3.2...v0.4.0
