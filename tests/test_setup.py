@@ -485,7 +485,7 @@ def test_the_launcher_is_written_with_three_lines_and_mode_0755(tmp_path, root):
 def test_the_same_launcher_is_left_and_already_done(root):
     root, state = done_root(root)
     launcher = desktop_of(root) / "Clarity.command"
-    launcher.write_text(launcher_lines(root), encoding="utf-8")
+    launcher.write_text(launcher_lines(root), encoding="utf-8", newline="")
     launcher.chmod(0o755)
     before = launcher.stat().st_mtime_ns
     says = Says()
@@ -499,7 +499,7 @@ def test_the_launcher_an_earlier_release_wrote_is_replaced(root):
     setup's own, so they're replaced with the new lines (the lock checked, no dev group)."""
     root, state = done_root(root)
     launcher = desktop_of(root) / "Clarity.command"
-    launcher.write_text(launcher_lines(root, run="run"), encoding="utf-8")
+    launcher.write_text(launcher_lines(root, run="run"), encoding="utf-8", newline="")
     launcher.chmod(0o644)
     says = Says()
     made(root, says=says, state=state).go()
@@ -508,22 +508,25 @@ def test_the_launcher_an_earlier_release_wrote_is_replaced(root):
     assert "Made Clarity.command on your Desktop: double-click it to start Clarity." in says.lines
 
 
-@pytest.mark.parametrize("other", ["folder", "uv"])
-def test_an_earlier_launcher_for_another_folder_or_uv_is_left_alone(root, other):
-    """Only the exact earlier lines are setup's own: for another folder or another uv, the
-    file is someone's own, left as it is, and the new lines printed."""
+@pytest.mark.parametrize("other", ["folder", "uv", "crlf"])
+def test_an_earlier_launcher_not_byte_for_byte_is_left_alone(root, other):
+    """Only the exact earlier lines are setup's own: for another folder or another uv, or
+    saved with CRLF line ends (the v0.4.6 script read's F2), the file is someone's own, left
+    as it is, and the new lines printed."""
     root, state = done_root(root)
     launcher = desktop_of(root) / "Clarity.command"
     folder, uv = root, "/Users/made-up/.local/bin/uv"
     if other == "folder":
         folder = root / "elsewhere"
-    else:
+    elif other == "uv":
         uv = "/opt/made-up/bin/uv"
     earlier = launcher_lines(folder, uv, run="run")
-    launcher.write_text(earlier, encoding="utf-8")
+    if other == "crlf":
+        earlier = earlier.replace("\n", "\r\n")
+    launcher.write_text(earlier, encoding="utf-8", newline="")
     says = Says()
     made(root, says=says, state=state).go()
-    assert launcher.read_text(encoding="utf-8") == earlier
+    assert launcher.read_text(encoding="utf-8", newline="") == earlier
     said = "\n".join(says.lines)
     assert "Your Desktop already has a Clarity.command that setup didn't write" in said
     assert launcher_lines(root).rstrip("\n") in said
@@ -535,7 +538,7 @@ def test_a_link_to_the_earlier_lines_is_left_alone(root, tmp_path):
     root, state = done_root(root)
     launcher = desktop_of(root) / "Clarity.command"
     target = tmp_path / "elsewhere.command"
-    target.write_text(launcher_lines(root, run="run"), encoding="utf-8")
+    target.write_text(launcher_lines(root, run="run"), encoding="utf-8", newline="")
     try:
         launcher.symlink_to(target)
     except OSError:
