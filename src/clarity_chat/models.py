@@ -480,16 +480,18 @@ def _logged(command: list[str], log: TextIO, env: dict[str, str] | None = None) 
 
 def _make_converter_environment(
     root: Path, commands: list[list[str]], python: Path, log: TextIO, log_path: Path
-) -> None:
+) -> str:
     """Make the converter's environment unless it was made by these commands from this
     converter-requirements.txt: a marker in it holds the sha256 of both, written only after
     the install succeeds, so a failed or interrupted one, or one made with other flags, is
-    made again next time. So is one whose python is gone: it's a link to the one uv chose."""
+    made again next time. So is one whose python is gone: it's a link to the one uv chose.
+    Returns the requirements file's sha256 as checked here, for the lock: a file changed
+    during the conversion isn't the one the environment holds."""
     marker = root / CONVERTER_ENV / CONVERTER_MARKER
     made_by = {"commands": commands, "requirements": sha256_file(CONVERTER_REQUIREMENTS)}
     digest = hashlib.sha256(json.dumps(made_by).encode("utf-8")).hexdigest()
     if marker.is_file() and read_text(marker).strip() == digest and python.is_file():
-        return
+        return made_by["requirements"]
     print(
         f"Making the converter's environment in {CONVERTER_ENV}: Python {CONVERTER_PYTHON} and "
         f"the packages {portable_path(str(CONVERTER_REQUIREMENTS), root)} pins, each checked "
@@ -507,6 +509,7 @@ def _make_converter_environment(
                 f"{CONVERTER_REQUIREMENTS.name} pins, and it wasn't installed."
             )
     marker.write_text(digest + "\n", encoding="utf-8")
+    return made_by["requirements"]
 
 
 def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[str, Any]:
@@ -565,7 +568,9 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
     # As run: not resolved, since the environment's python is a link to the one uv chose.
     shown = [[portable_path(part, root, resolve=False) for part in c] for c in (*setup, command)]
     with (out_dir / "convert.log").open("w", encoding="utf-8", newline="") as log:
-        _make_converter_environment(root, setup, Path(python[0]), log, out_dir / "convert.log")
+        requirements = _make_converter_environment(
+            root, setup, Path(python[0]), log, out_dir / "convert.log"
+        )
         print("Converting:", " ".join(shown[-1]), flush=True)
         # Offline: it reads only the snapshot, so a tokenizer's auto_map can't fetch code
         # from another repo. No stdin: a "run the custom code?" prompt is refused, not left
@@ -599,7 +604,7 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
         "converter": {
             "command": shown,
             "python": converter_env["python"],
-            "requirements_sha256": sha256_file(CONVERTER_REQUIREMENTS),
+            "requirements_sha256": requirements,
             "torch": packages.get("torch"),
             "transformers": packages.get("transformers"),
             # The converter imports gguf from the checkout's gguf-py unless NO_LOCAL_GGUF is set.
