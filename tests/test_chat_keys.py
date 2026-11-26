@@ -151,6 +151,40 @@ def test_a_text_mode_chat_refuses_a_search_key(fetched_root, tiny_tokenizer):
 # --- state 10 and decision 16: reset to the base --------------------------------------------
 
 
+def test_a_search_key_in_a_text_mode_log_is_refused_as_unreadable(fetched_root, tiny_tokenizer):
+    """C6: Clarity never writes a search key into a text-mode chat's `settings` record, so a
+    log with one is refused as any unreadable log is, with Clarity's sentence, not a raw
+    TypeError."""
+    import json
+
+    from tests.test_checkpoint2 import text_chat
+
+    session, path = text_chat(fetched_root, tiny_tokenizer)
+    assert session.conversation is not None
+    record = {
+        "type": "settings",
+        "conversation_id": session.conversation.conversation_id,
+        "name": "budget",
+        "value": 800,
+        "chat_settings": {"budget": 800},
+    }
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+    fresh = Session(
+        fetched_root,
+        backend=FakeBackend([" R."], tokenizer=tiny_tokenizer),
+        tokenizer_loader=lambda r, v: tiny_tokenizer,
+    )
+    _, refused = attempt(Commands(fresh), f"resume {session.conversation.conversation_id}")
+    assert type(refused) is ConfigError, refused
+    said = str(refused)
+    assert said.startswith(f"Can't read the records of {path}"), said
+    assert "a text-mode chat's search setting isn't one Clarity writes" in said, said
+    assert said.endswith(
+        "A log another program wrote or edited can cause this; if not, it's a bug in Clarity."
+    )
+
+
 def test_reset_goes_back_to_the_base_with_its_origin(words):
     session, c, _ = words
     assert attempt(c, "set budget 800")[1] is None
