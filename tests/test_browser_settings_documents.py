@@ -160,6 +160,7 @@ def test_a_new_chat_draws_settings_without_the_last_chat_s_refusal(clarity, page
     refuse_budget(page)
     fake.is_fetched = True  # the new chat starts as it would; only the old words could show
     before = page.evaluate("clarity.state.conversation_id")
+    page.click("#clarity-button")  # New chat is in the Clarity menu
     page.click("#new-chat")
     until(page, lambda: page.evaluate("clarity.state.conversation_id") not in (None, before),
           what="the new chat")  # fmt: skip
