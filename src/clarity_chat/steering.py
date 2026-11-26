@@ -285,7 +285,29 @@ def check(vector: Vector, config: dict[str, Any], layers: object = None) -> list
 
 
 def encode(directions: dict[int, Any], model_hint: str) -> bytes:
-    return b""
+    """A control vector as repeng writes one, byte for byte what gguf's GGUFWriter gives:
+    GGUF version 3, three keys, then one F32 `direction.N` per block, each padded to 32."""
+    import numpy as np
+
+    def text(s: str) -> bytes:
+        return struct.pack("<Q", len(s.encode())) + s.encode()
+
+    def padded(data: bytes) -> bytes:
+        return data + b"\0" * (-len(data) % 32)
+
+    keys = [
+        ("general.architecture", struct.pack("<I", 8) + text("controlvector")),
+        ("controlvector.model_hint", struct.pack("<I", 8) + text(model_hint)),
+        ("controlvector.layer_count", struct.pack("<II", 4, len(directions))),
+    ]
+    out = b"GGUF" + struct.pack("<IQQ", 3, len(directions), len(keys))
+    out += b"".join(text(key) + value for key, value in keys)
+    data = b""
+    for n in sorted(directions):
+        values = np.ascontiguousarray(directions[n], dtype="<f4").reshape(-1)
+        out += text(f"direction.{n}") + struct.pack("<IQIQ", 1, len(values), 0, len(data))
+        data += padded(values.tobytes())
+    return padded(out) + data
 
 
 @contextmanager
