@@ -505,3 +505,63 @@ def test_a_chats_ids_hash_its_conversation_id_not_its_file_name(make):
     for log in (original, copy):
         spec = read(export_chat(session, log)["path"]).eval
         assert (spec.eval_id, spec.task_id) == (hashed("eval"), hashed("task"))
+
+
+# --- X2 (v0.4.4): the template's own text before the first message -------------------------
+
+
+def bare_chat(make, root: Path, tokenizer) -> tuple[Session, Path]:
+    """A chat on a profile with no system message, its tokenizer's template, one message."""
+    from tests.conftest import CHAT_PROFILE
+
+    text = CHAT_PROFILE.replace('system = "Be brief."\n', "")
+    (root / "profiles" / "bare.toml").write_text(text, encoding="utf-8", newline="\n")
+    session = Session(
+        root,
+        backend=FakeBackend(None, n_ctx=4096, tokenizer=tokenizer),
+        tokenizer_loader=lambda r, v: tokenizer,
+    )
+    session.new_conversation("bare")
+    session.say("The kettle sang twice.")
+    assert session.conversation is not None
+    return session, session.conversation.log.path
+
+
+def test_a_template_s_own_system_message_is_a_system_message(make, fetched_root, olmo_tokenizer):
+    """OLMo 3's template writes a whole system turn when the profile has none: the export
+    shows exactly the text before the first message, markers included, as the template's."""
+    session, log = bare_chat(make, fetched_root, olmo_tokenizer)
+    export_chat(session, log)
+    [sample] = read(session.logs_dir / "exports" / f"{log.stem}.eval").samples
+    row = sample.metadata
+    [first_message] = [s for s in row["message_spans"] if s["kind"] == "message"]
+    before = row["prompt_text"][: first_message["chars"][0]]
+    assert "<|im_start|>system\n" in before and "<|im_end|>" in before  # a whole turn
+    assert [m.role for m in sample.messages] == ["system", "user", "assistant"]
+    system, user, _ = sample.messages
+    assert (system.role, system.text) == ("system", before)
+    assert system.metadata == {"clarity": row["message_spans"][0]}
+    assert row["message_spans"][0]["kind"] == "template"  # the template wrote it
+    assert (user.role, user.text) == ("user", "The kettle sang twice.")
+
+
+def test_a_template_with_no_default_shows_its_header_as_written(make, fetched_root, chat_tokenizer):
+    """The toy template writes only the first message's header: the box holds that, exact.
+    (X2 taken literally; the main session rules on this case.)"""
+    session, log = bare_chat(make, fetched_root, chat_tokenizer)
+    export_chat(session, log)
+    [sample] = read(session.logs_dir / "exports" / f"{log.stem}.eval").samples
+    assert [m.role for m in sample.messages] == ["system", "user", "assistant"]
+    system, user, _ = sample.messages
+    assert (system.role, system.text) == ("system", "<s><user>")
+    assert system.metadata["clarity"]["kind"] == "template"
+    assert user.text == "The kettle sang twice."
+
+
+def test_a_call_with_its_own_system_message_gets_no_other(make):
+    session = make()
+    log = two_messages_regens_and_an_edit(session)
+    export_chat(session, log)
+    for sample in read(session.logs_dir / "exports" / f"{log.stem}.eval").samples:
+        roles = [m.role for m in sample.messages]
+        assert roles.count("system") == 1 and sample.messages[0].text == "Be brief."
