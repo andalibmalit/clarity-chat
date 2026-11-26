@@ -175,7 +175,7 @@ def test_an_old_root_with_links_is_rebuilt(tmp_path, repo):
         ["export", "ID", "--ou", "/tmp/x.jsonl"],
         ["export", "ID", "--out=/tmp/x.jsonl"],
         ["fetch", "olmo-3-7b-instruct"],
-        ["run", "--openings", "o.txt", "--profiles", "smol-chat"],
+        ["run", "--openings", "OUTSIDE/o.txt", "--profiles", "smol-chat"],
         ["mark", "OUTSIDE/logs/a.jsonl", "c1"],
         ["--root", "/elsewhere", "chat", "--profile", "smol-chat"],
     ],
