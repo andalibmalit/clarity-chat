@@ -9,6 +9,6 @@ What the next releases hold. Each release has a written plan, so later entries c
 - **v0.5.0, thinking models.** Reasoning stored with each reply, and the extra samplers these models use.
 - **v0.6.0, Linux.** CUDA, Vulkan and CPU builds, with the GPU driver and CUDA version logged. Check, on a real CUDA and Vulkan run, how the GPU placement check reads llama.cpp's `CUDA_Host` and `Vulkan_Host` buffers.
 - **v0.7.0, Windows.**
-- **0.8.0, the reviewed candidate.** Cross-platform, and easy to install for people who don't use a terminal. Before 0.8.0, a full-project review by parallel agents, each finding independently checked, plus a QA pass. 0.9 releases fix what extended use finds.
+- **0.8.0, the reviewed candidate.** Cross-platform, easy to install for people who don't use a terminal, and moving to a new release done for you, including a rebuilt llama.cpp or a model converted again when a release needs one (Getting started's steps cover a release that needs neither). Before 0.8.0, a full-project review by parallel agents, each finding independently checked, plus a QA pass. 0.9 releases fix what extended use finds.
 - **1.0.** When extended use shows that the log format, profile keys, commands and the replay promise hold.
 - **Later, not scheduled.** Import of chats from other apps. Live probe readings, when an experiment needs them.
