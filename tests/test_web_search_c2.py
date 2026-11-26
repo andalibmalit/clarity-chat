@@ -206,8 +206,13 @@ def test_the_chooser_with_an_empty_library(root, make):
 
 
 def test_the_chooser_in_a_text_mode_chat(root, make):
+    """N71 keeps the chooser's sentence; v0.4.4 QA (Q-c): the button said "Searching: no
+    documents" in a chat that can't search, so it says it's off instead."""
     client, _ = make(profile="text")
     assert "Searching needs a chat-mode profile; text is in text mode." in text_of(chooser(client))
+    picker = get(client, "picker")
+    assert re.search(r'id="search-button"[^>]*>.*?Searching: off \(text mode\)<', picker, re.S)
+    assert "no documents" not in text_of(picker)
 
 
 def test_unticking_a_missing_document_lets_the_next_send_go(root, make):
