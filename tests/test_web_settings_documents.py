@@ -79,7 +79,8 @@ def test_a_chat_mode_panel_has_the_documents_group_after_common(documents):
         '<h3 class="sh">Documents</h3>'
     )
     rows = group(fragment)
-    assert f'<p class="gl">{SENTENCES["searching_applies"]}</p>' in rows
+    # The small grey style of the panel's other explanatory lines (the main session's look).
+    assert f'<p class="from">{SENTENCES["searching_applies"]}</p>' in rows
     assert re.findall(r'data-setting="(\w+)"', rows) == [
         "search_method",
         "min_similarity",
@@ -142,12 +143,17 @@ def test_a_sampling_row_s_way_back_has_the_separator(documents):
     client, session = documents
     long = (session.root / "profiles" / "meaning.toml").read_text("utf-8")
     (session.root / "profiles" / "long.toml").write_text(
-        long.replace("max_tokens = 16", "max_tokens = 2048"), "utf-8"
+        long.replace("max_tokens = 16", "max_tokens = 2048").replace("seed = 42", "seed = 12345"),
+        "utf-8",
     )
     command(client, "profile", "long")
     result(client, "set", "max_tokens 100")
-    r = row(panel(client), "max_tokens")
+    result(client, "set", "seed 7")
+    fragment = panel(client)
+    r = row(fragment, "max_tokens")
     assert 'data-set="max_tokens">Back to 2,048 (profile)<' in r and 'value="100"' in r
+    # A seed is an ID, copied into /set seed: no separators.
+    assert 'data-set="seed">Back to 12345 (profile)<' in row(fragment, "seed")
 
 
 def test_a_text_mode_chat_has_no_documents_group(documents):

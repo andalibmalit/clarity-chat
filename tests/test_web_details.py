@@ -110,7 +110,7 @@ def test_settings_as_logged_with_origins(chat):
     assert call["seed_drawn"]
     fragment = details(client, call["call_id"])
     seed = call["settings"]["seed"]["value"]
-    assert f"{seed:,} (random)" in fragment  # ruling 5: the page's separators
+    assert f"{seed} (random)" in fragment  # an ID, copied into /set seed: no separators
     # Checkpoint 4, finding 20: a sampler's neutral value is "neutral" (temperature 1 isn't
     # off); logprobs and steering_scale at 0 are off.
     assert "0.6</dd>" in fragment and "0 (neutral)" in fragment and "0 (off)" in fragment
@@ -390,6 +390,25 @@ def test_what_changed_since_the_call_shows_old_and_new_values():
         "logged_server_found": True,
     }
     assert web.replay_result(replay)["changed"] == ["machine · macos.version 26.0.1 → 26.1"]
+
+
+def test_a_change_s_ids_stay_plain_and_its_amounts_have_separators():
+    """Ruling 5 is for amounts: a seed, a token ID or any *_id/*_ids value stays as the log
+    has it, so it can be copied; an amount of 1,000 or more has separators."""
+    differences = {
+        "server": [
+            {"path": "model.tokenizer.ggml.bos_token_id", "logged": 128000, "now": 1},
+            {"path": "settings.seed", "logged": 931002756, "now": 1234},
+            {"path": "n_ctx", "logged": 8192, "now": 4096},
+        ]
+    }
+    assert web.changed_lines(differences, "the log") == [
+        "server · model.tokenizer.ggml.bos_token_id 128000 → 1",
+        "server · settings.seed 931002756 → 1234",
+        "server · n_ctx 8,192 → 4,096",
+    ]
+    assert web.changed_words({"seed": 1234, "max_tokens": 2048}) == "seed 1234 and max_tokens 2,048"
+    assert web.setting_words("seed", 931002756) == "seed 931002756"
 
 
 def test_tokens_without_places_are_listed_unshaded_with_a_reason(chat):
