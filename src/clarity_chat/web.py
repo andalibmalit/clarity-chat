@@ -1010,7 +1010,8 @@ def searching_chooser(state: dict[str, Any], docs: list[dict[str, Any]] | None) 
         SENTENCES["searching_none"])  # fmt: skip
     hot = any(d["state"] != "ready" for d in searching)
     chooser: dict[str, Any] = {"label": label, "hot": hot, "rows": [], "text_mode": None}
-    if state["mode"] != "chat":  # N71, pressing Searching in a text-mode chat
+    if state["mode"] != "chat":  # N71, pressing Searching in a text-mode chat; Q-c, its label
+        chooser["label"] = SENTENCES["searching_off"]
         chooser["text_mode"] = SENTENCES["text_mode_search"].format(profile=state["profile"])
         return chooser
     unread, docs = docs is None, docs or []  # unread: /documents waits behind a reply

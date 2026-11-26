@@ -153,6 +153,7 @@ SENTENCES = {
     "{minimum}, {origin}), best match first",
     "searching_some": "Searching: {documents}",
     "searching_none": "Searching: no documents",
+    "searching_off": "Searching: off (text mode)",
     "searching_head": "Searched by words for each message you send",
     "searching_head_meaning": "Searched by meaning for each message you send",  # state 14
     "searching_applies": "A change applies from your next message. Regenerate keeps the parts a "

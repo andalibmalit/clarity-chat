@@ -346,6 +346,7 @@ The attach sheet's "Search it", the Searching chooser, a reply's "From documents
 - `search_it`: For each message you send, Clarity adds the parts of this document {how}. A message gets at most {considered} parts and {budget} tokens ({origin}), shared by every document this chat searches. Added parts stay in the chat with that message.
 - `searching_some`: Searching: {documents}
 - `searching_none`: Searching: no documents
+- `searching_off`: Searching: off (text mode)
 - `search_it_words`: that share a word with your message, best match first; common words such as "the" don't count
 - `search_it_meaning`: whose meaning is close enough to your message (similarity at least {minimum}, {origin}), best match first
 - `searching_head`: Searched by words for each message you send
