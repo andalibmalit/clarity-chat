@@ -26,9 +26,9 @@ from clarity_chat.render import library_versions, render_chat, tokenize
 from clarity_chat.session import Prepared, Session, model_config
 
 LEGEND = (  # teaching text (T11): docs/reference.md quotes it
-    "Activation size: the average length of the block's output. Gap: the length of this "
-    "vector, the average difference between the two sides. Agreement: the average cosine "
-    "similarity between each pair's difference and this vector, from -1 to 1."
+    "Activation size: the average length of the block's output at the last token. Gap: the "
+    "length of this vector, the average difference between the two sides. Agreement: the "
+    "average cosine similarity between each pair's difference and this vector, from -1 to 1."
 )
 MAX_BYTES = 4 * 1024 * 1024
 MIN_PAIRS, MAX_PAIRS = 2, 1024  # one pair has nothing to agree with; a crossed file multiplies
@@ -90,7 +90,7 @@ def read_pairs(path: Path) -> Pairs:
     def unknown(table: dict, allowed: tuple[str, ...], where: str) -> None:
         if extra := sorted(set(table) - set(allowed)):
             raise ConfigError(
-                f"{name}: unknown keys {extra} in {where}. Allowed there: {', '.join(allowed)}."
+                f"{name}: unknown keys {extra} {where}. Allowed there: {', '.join(allowed)}."
             )
 
     def needed(key: str, where: str = "") -> NoReturn:
@@ -105,7 +105,7 @@ def read_pairs(path: Path) -> Pairs:
             raise ConfigError(f"{name}: {key} must be a list of strings.")
         return value
 
-    unknown(table, ("author", "description", "messages", "openings", "systems"), "the top level")
+    unknown(table, ("author", "description", "messages", "openings", "systems"), "at the top level")
     systems = table.get("systems")
     if systems is None:
         needed("systems")
@@ -115,7 +115,7 @@ def read_pairs(path: Path) -> Pairs:
         where = f"system pair {i}"
         if not isinstance(entry, dict):
             raise ConfigError(f"{name}: {where} must be a table with positive and negative.")
-        unknown(entry, SIDES, where)
+        unknown(entry, SIDES, f"in {where}")
         for side in SIDES:
             if side not in entry:
                 needed(side, f" in {where}")
@@ -320,6 +320,11 @@ def make(session: Session, path: Path, name: str) -> int:
     gguf, json_path = (vectors / f"{path.stem}-{profile.name}{x}" for x in (".gguf", ".json"))
     relative = gguf.relative_to(session.root).as_posix()  # as the snippet and record give it
     file, record_file = shown(relative), shown(json_path.relative_to(session.root).as_posix())
+    if len(gguf.name.encode()) > 255:  # .json is as long; found here, not after the read
+        raise ConfigError(
+            f"The vector's file name, {shown(gguf.name)}, is over 255 bytes, more than a file "
+            "system takes. Rename the pairs file or the profile."
+        )
     if os.path.lexists(gguf):
         raise ConfigError(
             f"{file} already exists, and a profile may pin it by its sha256. Rename or delete "
@@ -327,7 +332,7 @@ def make(session: Session, path: Path, name: str) -> int:
         )
     ctx_size = session.ctx_size_for(profile)
     prompts = render_pairs(prepared, pairs, ctx_size.value)
-    model_name, n = prepared.model.name, len(pairs.pairs)
+    model_name, n = shown(prepared.model.name), len(pairs.pairs)
     for warning in session._profile_warnings(prepared):  # as a chat on the profile shows them
         err(warning)
     err(f"Reading {len(prompts)} prompts ({n} pairs) with {model_name} on {profile.device}…")
@@ -398,9 +403,9 @@ def make(session: Session, path: Path, name: str) -> int:
         "--- negative ---",
         escaped(prompts[1].text),
         "",
-        "block  activation size    gap  agreement",
+        "block  activation size      gap  agreement",
         *(
-            f"{b:5}  {x.size:15.2f}  {x.gap:5.2f}  {x.agreement:+9.2f}"
+            f"{b:5}  {x.size:15.2f}  {x.gap:7.2f}  {x.agreement:+9.2f}"
             for b, x in sorted(blocks.items())
         ),
         LEGEND,

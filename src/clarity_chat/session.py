@@ -163,7 +163,7 @@ def model_config(weights: Path) -> dict[str, Any]:
     """A Transformers model's config.json, from its weights folder."""
     try:
         config = json.loads((weights / "config.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
+    except (OSError, ValueError, RecursionError) as e:
         raise ConfigError(f"Can't read {weights / 'config.json'}: {e}") from e
     if not isinstance(config, dict):
         raise ConfigError(f"{weights / 'config.json'} isn't a JSON object.")

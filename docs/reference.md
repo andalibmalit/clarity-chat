@@ -100,7 +100,7 @@ Enter sends a message. Alt+Enter, or Esc then Enter, starts a new line. Pasted t
 
 **Naming a call.** `/prompt`, `/probs`, `/mark`, `/unmark`, `/note`, `/replay` and `/compare` act on the current reply, or on another call when their first word is its call ID: `call-` and 12 lowercase hex digits, as the status line and `/prompt` show it. The ID must be one of this conversation's calls, failed ones included, or the command is refused; it's never read as text. A first word that only looks like an ID, such as `call-me`, is the command's own text, so `/mark call-me` labels the current reply "call-me".
 
-After each reply, a status line shows the stop reason, the reply length in tokens, the time ("time unknown" when the record has none, as for a llama.cpp reply cancelled mid-stream), the seed (with its origin unless it came from the profile), the context used (prompt plus reply tokens, of the context size) and the call ID, then, for a steered reply, `steered ×S` with the scale it was steered at. Warnings and [call flags](#call-flags) appear above it, marked `!`. A warning appears when the prompt uses more than 80% of the context.
+After each reply, a status line shows the stop reason, the reply length in tokens, the time ("time unknown" when the record has none, as for a llama.cpp reply cancelled mid-stream), the seed (with its origin unless it came from the profile), the context used (prompt plus reply tokens, of the context size) and the call ID, then, for a steered reply, `steered ×S` with the scale it was steered at, or `not steered` on a profile with a vector. Warnings and [call flags](#call-flags) appear above it, marked `!`. A warning appears when the prompt uses more than 80% of the context.
 
 ## Scripting with --json
 
@@ -698,7 +698,7 @@ The file's name, without its extension, names the vector, so it may hold only le
 
 ### What make writes and prints
 
-`make` writes `local/vectors/STEM-PROFILE.gguf` and its record, `local/vectors/STEM-PROFILE.json`, where STEM is the pairs file's name without its extension. So the same pairs can be made on two profiles. If the `.gguf` exists, `make` refuses before it loads the model: a profile may pin that file by its sha256, and Clarity never replaces a pinned file. It writes the record first, then the vector, each through a temporary file. An interrupted make can leave a record alone, but never a vector without its record, and the next make replaces such a record. Ctrl-C while the model reads writes nothing.
+`make` writes `local/vectors/STEM-PROFILE.gguf` and its record, `local/vectors/STEM-PROFILE.json`, where STEM is the pairs file's name without its extension. So the same pairs can be made on two profiles. A name over 255 bytes, more than a file system takes, is refused before the model loads. If the `.gguf` exists, `make` also refuses before it loads the model: a profile may pin that file by its sha256, and Clarity never replaces a pinned file. It writes the record first, then the vector, each through a temporary file. An interrupted make can leave a record alone, but never a vector without its record, and the next make replaces such a record. Ctrl-C while the model reads writes nothing.
 
 While the model reads, the terminal prints the number of prompts and pairs, the model and the device, then up to ten progress lines. The readout then gives:
 
@@ -707,7 +707,7 @@ While the model reads, the terminal prints the number of prompts and pairs, the 
 - the first pair's two prompts exactly as the model read them, with any control or invisible character other than a newline or a tab written as Python writes it (`\x1b`);
 - a table of three numbers for each block, then this legend:
 
-  > Activation size: the average length of the block's output. Gap: the length of this vector, the average difference between the two sides. Agreement: the average cosine similarity between each pair's difference and this vector, from -1 to 1.
+  > Activation size: the average length of the block's output at the last token. Gap: the length of this vector, the average difference between the two sides. Agreement: the average cosine similarity between each pair's difference and this vector, from -1 to 1.
 
 - the lines to add to a Transformers profile of the same model, with `steering_scale = 1.0` in its `[settings]`: `[steering]` with the vector's `file`, `sha256`, and `layers` set to the middle block, n // 2 (15 of SmolLM2's 30). The middle block is a starting point, not a recommendation from a source. Widen `layers` in the profile with no remake.
 

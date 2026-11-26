@@ -488,7 +488,9 @@ def format_resume(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def format_status(record: dict[str, Any]) -> str:
+def format_status(record: dict[str, Any], steerable: bool = False) -> str:
+    """The status line after a reply. `steerable`: the profile has a steering vector, so an
+    unsteered reply says "not steered", as the page's facts line does."""
     timings = record.get("timings") or {}
     # llama.cpp writes no timings for a reply cancelled mid-stream: unknown, not zero.
     known = "prompt_ms" in timings or "predicted_ms" in timings
@@ -507,6 +509,8 @@ def format_status(record: dict[str, Any]) -> str:
     steering = (record.get("request") or {}).get("steering")
     if steering:
         parts.append(f"steered ×{steering['scale']}")
+    elif steerable:
+        parts.append("not steered")
     return "[" + " · ".join(parts) + "]"
 
 
@@ -812,7 +816,9 @@ class ChatLoop:
             self.write(f"! {warning}\n")
         if result["call"].get("flags"):
             self.write("! flags: " + ", ".join(result["call"]["flags"]) + "\n")
-        self.write(format_status(result["call"]) + "\n")
+        conversation = self.session.conversation
+        steerable = conversation is not None and conversation.profile.steering is not None
+        self.write(format_status(result["call"], steerable) + "\n")
 
     def run_cancellable(self, name: str, args: str) -> dict[str, Any]:
         """Run a command with Ctrl-C mapped to /cancel, so a call is cancelled wherever it

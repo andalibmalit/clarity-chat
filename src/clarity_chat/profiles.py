@@ -444,7 +444,7 @@ def parse_setting(name: str, text: str, where: str) -> Any:
     else:
         try:
             value = tomllib.loads(f"v = {text}")["v"]
-        except ValueError:
+        except (ValueError, RecursionError):
             value = text
     return check_chat_setting(name, value, where)
 
