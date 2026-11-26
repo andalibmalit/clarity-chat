@@ -29,6 +29,21 @@ curl --proto '=https' --tlsv1.2 -fsSL -o install.sh https://raw.githubuserconten
 sh install.sh
 ```
 
+## Move to a new release
+
+Your chats, documents and models stay when you move `~/Clarity` to a new release. They live in its `logs/`, `runs/`, `local/` and `models/` folders, which git ignores, so moving leaves them alone. Don't delete `~/Clarity` to install again: that deletes them too.
+
+For a release that moves neither llama.cpp's pinned commit nor a model's conversion, quit Clarity, then run these lines in Terminal, with the new release's tag in place of `vX.Y.Z`:
+
+```
+cd ~/Clarity
+git fetch --depth 1 origin tag vX.Y.Z
+git checkout vX.Y.Z
+uv sync --locked --inexact --group setup
+```
+
+The release's entry in `CHANGELOG.md` says if it moves either. Such a release needs more than these steps: llama.cpp built again at the new commit, or the model converted again. Clarity is planned to do that for you from 0.8.0.
+
 ## Install by hand
 
 For Linux, an Intel Mac or a Mac with less than 16 GB of memory, or to make your own build. This takes you from a fresh clone to a first chat and a first blind test, using SmolLM2-135M-Instruct, a tiny model that downloads in a minute. It takes about 20 minutes, most of it building llama.cpp.
