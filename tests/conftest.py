@@ -174,7 +174,12 @@ def fake_fetch(root: Path, name: str = "tiny") -> Path:
                 "notes": [],
             },
             "llama_cpp": {"commit": "f" * 40},
-            "converter": {"torch": "0", "transformers": "0", "packages": {}},
+            "converter": {
+                "requirements_sha256": "0" * 64,  # v0.4.6 S4: so the golden log pins the key
+                "torch": "0",
+                "transformers": "0",
+                "packages": {},
+            },
         },
     )
     return weights
