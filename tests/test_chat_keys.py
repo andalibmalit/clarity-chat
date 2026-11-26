@@ -330,6 +330,13 @@ def test_found_logs_the_chat_s_values_and_every_reader_reads_them(
         ran(c, line)
     ran(c, "new")
     ran(c, f"resume {log.stem}")
+    assert session.conversation is not None
+    values = session.conversation.search_values()
+    assert {k: values[k].to_json() for k in ("budget", "min_similarity", "search_method")} == {
+        "budget": {"value": 800, "origin": "chat"},
+        "min_similarity": {"value": 0.6, "origin": "chat"},
+        "search_method": {"value": "meaning", "origin": "chat"},
+    }
     assert export_log(session, log)["path"]
     ran(c, "export inspect")
     for call, output in calls.items():  # with no chat open, as `clarity replay` does; replay

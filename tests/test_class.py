@@ -30,6 +30,7 @@ from clarity_chat.backends import BackendError
 from clarity_chat.commands import Commands
 from clarity_chat.documents import SENTENCES, library_add, problem_words, reading
 from clarity_chat.export import export_log
+from clarity_chat.export_inspect import export_chat
 from clarity_chat.logs import read_records
 from clarity_chat.profiles import ConfigError
 from clarity_chat.session import Session
@@ -660,6 +661,12 @@ def write_chat(name: str, c: Commands, backend: FakeBackend, tmp_path: Path) -> 
         run("say How do leaves turn light into sugar?")
         run("set search_method meaning")
         run("say Why does rock wear away?")
+    elif name == "set ctx_size":  # v0.4.4 B3a: calls at two sizes, the size set back
+        run("set ctx_size 4096")
+        run("say At the smaller size?")
+        run("set ctx_size")
+        run("say And back?")
+        assert backend.ctx_sizes == [8192, 4096, 8192], backend.ctx_sizes
     elif name == "failed call":
         backend.fail_with = "made-up failure"
         with pytest.raises(BackendError):
@@ -670,7 +677,7 @@ def write_chat(name: str, c: Commands, backend: FakeBackend, tmp_path: Path) -> 
 
 WRITERS = [
     "say", "regen", "edit", "set", "title", "mark", "note", "attach", "failed call", "search",
-    "meaning", "set search",
+    "meaning", "set search", "set ctx_size",
 ]  # fmt: skip
 
 
@@ -693,6 +700,7 @@ def test_t3_a_chat_that_uses_it_resumes_exports_and_replays(
     assert record["render"] is None or record["render"]["identical"], record["render"]
     exported = export_log(session, log)["path"]
     assert exported
+    assert export_chat(session, log)["path"]
     if name == "meaning":  # each row's found names its method (the whole-branch review's #10)
         rows = [
             json.loads(line) for line in Path(exported).read_text(encoding="utf-8").splitlines()
@@ -700,6 +708,12 @@ def test_t3_a_chat_that_uses_it_resumes_exports_and_replays(
         assert {f["method"] for row in rows for f in row.get("found") or []} == {"meaning"}
     calls = [r for r in read_records(log) if r["type"] == "call" and r.get("turn_id")]
     assert calls
+    if name == "set ctx_size":  # set back, so resumed at the logged size (decision 11)
+        assert session.conversation is not None
+        assert session.conversation.ctx_size.to_json() == {"value": 8192, "origin": "log"}
+        assert [call["n_ctx"] for call in calls] == [8192, 4096, 8192]
+    for call in calls:  # Details
+        assert Commands(session).run("prompt", call["call_id"], quiet)
     for call in calls:  # with no chat open, as `clarity replay` does
         again = FakeBackend([call["output_text"]], tokenizer=chat_tokenizer)
         fresh = Session(  # replay never searches: an embedder used fails the test
