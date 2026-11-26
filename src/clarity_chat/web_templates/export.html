@@ -2,7 +2,7 @@
 <div class="problem"><p role="alert"><strong>!</strong> {{ error }}</p></div>
 <p>Nothing was written, and any earlier export of this chat is unchanged.</p>
 <div class="actions"><button type="button" class="btn pri" data-action="export">Try again</button><button type="button" class="btn" data-action="export-close">Close</button></div>
-{% else %}<h2 id="export-title" tabindex="-1">Exported for a Python notebook</h2>
+{% else %}<h2 id="export-title" tabindex="-1">{% if notebook %}Exported for a Python notebook{% else %}Export{% endif %}</h2>
 <div class="dl"><button type="button" class="btn pri" data-action="download">Download</button><span class="d2">Saves a copy where your browser keeps downloads.</span></div>
 <p class="refused" role="alert" hidden></p>
 <p>The file stays at <span class="path">{{ path }}</span>{{ copy(path, "the file’s path") }} {% if replaced %}It replaced the earlier export of this chat. {% endif %}Readable only by you (on Mac and Linux).</p>
@@ -10,9 +10,9 @@
 {% if holds %}<p>{{ holds }}</p>
 {% endif %}<p>It also records facts about this computer, such as its model and OS, and the model file’s path, which can include your user name.</p>
 {% if left_out %}<p>Left out: {{ left_out }}. Replays aren’t exported: they re-ran replies already here.</p>
-{% endif %}<div class="callout"><p>Recomputing these replies under other conditions, such as different hardware or software, can give slightly different numbers, sometimes enough to change the likeliest token. Run Clarity’s recompute check first: it lists what differs.{% if steered %} Some replies were steered: apply the same vector before recomputing them.{% endif %} <a data-docs="{{ guide }}" target="_blank" rel="noopener noreferrer">How to check, in the guide</a></p></div>
+{% endif %}{% if notebook %}<div class="callout"><p>Recomputing these replies under other conditions, such as different hardware or software, can give slightly different numbers, sometimes enough to change the likeliest token. Run Clarity’s recompute check first: it lists what differs.{% if steered %} Some replies were steered: apply the same vector before recomputing them.{% endif %} <a data-docs="{{ guide }}" target="_blank" rel="noopener noreferrer">How to check, in the guide</a></p></div>
 <p>Sending it to a friend? Your friend can read it with pandas; the check needs Clarity installed (<a data-docs="{{ guide }}" target="_blank" rel="noopener noreferrer">guide</a>).</p>
-{% if steered %}<p>The file names the steering vector but doesn’t contain it, so send the vector too:</p>
+{% endif %}{% if steered %}<p>The file names the steering vector but doesn’t contain it, so send the vector too:</p>
 {% for v in steered %}<p><span class="path">{{ v.file }}</span>{% if v.can_copy %}{{ copy(v.file, "the vector’s path") }}{% endif %}</p>
 {% endfor %}{% endif %}<div class="actions"><button type="button" class="btn" data-action="export-close">Done</button></div>
 {% endif %}

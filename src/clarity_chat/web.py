@@ -2092,6 +2092,8 @@ def export_sheet(answer: dict[str, Any]) -> dict[str, Any]:
     return {
         "error": None,
         "path": result["path"],
+        # An Inspect log isn't read in a notebook or by the recompute check (decision 18).
+        "notebook": result.get("format") != "inspect",
         "replaced": result["replaced"],
         "holds": holds(result),
         "left_out": f"{n} call that produced no reply"
