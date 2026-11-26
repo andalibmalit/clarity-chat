@@ -202,19 +202,20 @@ class Setup:
     def launcher(self) -> None:
         """~/Desktop/Clarity.command (state 15; decision 13): three lines, #!/bin/sh (so it
         runs under sh whatever the login shell: Checkpoint 1's C6), `cd` to this folder and
-        `exec` uv's absolute path, so it needs no shell profile. A file of that name
-        setup didn't write, or can't read, is left alone; a Desktop macOS won't let setup
-        write to is said. Either way the lines are printed, and setup still ends without an
-        error."""
-        lines = (
-            f"#!/bin/sh\ncd {shlex.quote(str(self.root))}\n"
-            f"exec {shlex.quote(self.uv)} run clarity ui\n"
-        )
+        `exec` uv's absolute path, so it needs no shell profile; `--locked --no-dev`, as the
+        install runs it (v0.4.6 S1). The lines v0.4.2 to v0.4.5 wrote, for this folder and
+        uv, are setup's own and replaced (v0.4.6 decision 2). A file of that name setup
+        didn't write, or can't read, is left alone; a Desktop macOS won't let setup write to
+        is said. Either way the lines are printed, and setup still ends without an error."""
+        run = f"#!/bin/sh\ncd {shlex.quote(str(self.root))}\nexec {shlex.quote(self.uv)} run"
+        lines = f"{run} --locked --no-dev clarity ui\n"
         shown = lines.rstrip("\n")
         path = self.desktop / "Clarity.command"
         try:  # Desktop access revoked after the first run makes a launcher unreadable
-            ours = path.is_file() and path.read_text(encoding="utf-8", errors="replace") == lines
-            other = path.exists() or path.is_symlink()
+            text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+            ours = text == lines
+            earlier = text == f"{run} clarity ui\n" and not path.is_symlink()
+            other = (path.exists() or path.is_symlink()) and not earlier
         except OSError as e:
             self.say(
                 "Setup couldn't read the Clarity.command on your Desktop "

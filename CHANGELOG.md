@@ -8,6 +8,12 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Changed
+- The install and the launcher run uv with `--locked` and without the dev group: `uv sync --locked --inexact --no-dev --group setup`, then `uv run --locked --no-dev`. A `uv.lock` that doesn't match `pyproject.toml` stops them instead of being rewritten. Setup replaces a `Clarity.command` that an earlier release's setup wrote, and says it made it.
+
+### Migration
+- An install made by v0.4.2 to v0.4.5 keeps its dev tools. Its old launcher keeps working, without the lock check. For the new launcher, after the steps for moving to a new release, run `uv run --locked --no-dev --group setup clarity setup` in `~/Clarity`, or paste the new release's install command, which finds Clarity at the tag and runs setup; setup replaces its own launcher.
+
 ## [0.4.5] - 2026-11-26
 
 Live tests on an M2 Max (macOS), 2026-11-26, every tier at commit `c0a75b1`, the release's last change to its code, tests or install script, with the same counts as at `b958b6e` (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 39 passed, `-m browser` 192 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m embed` 12 passed (bge-m3 on Metal), `-m hf` 25 passed, `-m olmo` 13 passed and `-m llama` 3 passed.

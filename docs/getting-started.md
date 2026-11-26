@@ -39,7 +39,7 @@ For a release that moves neither llama.cpp's pinned commit nor a model's convers
 cd ~/Clarity
 git fetch --depth 1 origin tag vX.Y.Z
 git checkout vX.Y.Z
-uv sync --locked --inexact --group setup
+uv sync --locked --inexact --no-dev --group setup
 ```
 
 The release's entry in `CHANGELOG.md` says if it moves either. Such a release needs more than these steps: llama.cpp built again at the new commit, or the model converted again. Clarity is planned to do that for you from 0.8.0.

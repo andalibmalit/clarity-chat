@@ -123,9 +123,11 @@ main() {
     fi
     cd "$clarity"
     # --inexact: a hand install's extras (--extra hf, the browser group) stay installed.
-    env -i HOME="$HOME" PATH="$PATH" "$uv" sync --locked --inexact --group setup
-    env -i HOME="$HOME" PATH="$PATH" "$uv" run --group setup clarity setup </dev/tty
-    env -i HOME="$HOME" PATH="$PATH" "$uv" run clarity ui </dev/tty
+    # --locked stops at a uv.lock that doesn't match pyproject.toml; --no-dev leaves out the
+    # dev group, which only the tests use.
+    env -i HOME="$HOME" PATH="$PATH" "$uv" sync --locked --inexact --no-dev --group setup
+    env -i HOME="$HOME" PATH="$PATH" "$uv" run --locked --no-dev --group setup clarity setup </dev/tty
+    env -i HOME="$HOME" PATH="$PATH" "$uv" run --locked --no-dev clarity ui </dev/tty
 }
 
 main "$@"

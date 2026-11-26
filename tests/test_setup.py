@@ -529,6 +529,24 @@ def test_an_earlier_launcher_for_another_folder_or_uv_is_left_alone(root, other)
     assert launcher_lines(root).rstrip("\n") in said
 
 
+def test_a_link_to_the_earlier_lines_is_left_alone(root, tmp_path):
+    """A link isn't setup's own, even to the exact earlier lines: replacing it would write
+    through the link to a file elsewhere."""
+    root, state = done_root(root)
+    launcher = desktop_of(root) / "Clarity.command"
+    target = tmp_path / "elsewhere.command"
+    target.write_text(launcher_lines(root, run="run"), encoding="utf-8")
+    try:
+        launcher.symlink_to(target)
+    except OSError:
+        pytest.skip("symlinks need privileges on Windows")
+    says = Says()
+    made(root, says=says, state=state).go()
+    assert launcher.is_symlink()
+    assert target.read_text(encoding="utf-8") == launcher_lines(root, run="run")
+    assert any(line.startswith("Your Desktop already has a Clarity.command") for line in says.lines)
+
+
 def test_another_file_of_that_name_is_left_alone_and_the_lines_printed(root):
     root, state = done_root(root)
     launcher = desktop_of(root) / "Clarity.command"
