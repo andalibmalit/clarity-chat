@@ -7,8 +7,10 @@ import hashlib
 import itertools
 import re
 import tomllib
+from collections.abc import Callable, Generator
+from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 from clarity_chat.profiles import ConfigError, Profile, load_profile, shown
 from clarity_chat.render import render_chat, tokenize
@@ -208,3 +210,22 @@ def render_pairs(prepared: Prepared, pairs: Pairs, ctx_size: int) -> list[Render
                 )
             rendered.append(Rendered(i, side, text, ids))
     return rendered
+
+
+@dataclasses.dataclass(frozen=True)
+class Block:
+    direction: Any
+    size: float
+    gap: float
+    agreement: float
+
+
+@contextmanager
+def reading(model: Any) -> Generator[dict[int, Any]]:
+    yield {}
+
+
+def read_blocks(
+    model: Any, prompts: list[Rendered], on_progress: Callable[[int, int], None]
+) -> dict[int, Block]:
+    return {}
