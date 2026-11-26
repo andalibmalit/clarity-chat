@@ -595,6 +595,7 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
         "converter": {
             "command": shown,
             "python": converter_env["python"],
+            "requirements_sha256": sha256_file(CONVERTER_REQUIREMENTS),
             "torch": packages.get("torch"),
             "transformers": packages.get("transformers"),
             # The converter imports gguf from the checkout's gguf-py unless NO_LOCAL_GGUF is set.

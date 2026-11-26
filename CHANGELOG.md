@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Added
+- A conversion's lock entry records the sha256 of the `converter-requirements.txt` its environment was installed from, as `converter.requirements_sha256`, and each call's `model.converted_with.converter` carries it.
+
 ### Changed
 - The install and the launcher run uv with `--locked` and without the dev group: `uv sync --locked --inexact --no-dev --group setup`, then `uv run --locked --no-dev`. A `uv.lock` that doesn't match `pyproject.toml` stops them instead of being rewritten. Setup replaces a `Clarity.command` that an earlier release's setup wrote, and says it made it.
 - The install passes `HF_HOME`, `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE` and `XDG_CACHE_HOME` to uv and setup when your shell sets them, even to an empty value, so the models go where Clarity, started from the launcher, looks for them. uv's installer and git still get only `HOME` and `PATH`.
