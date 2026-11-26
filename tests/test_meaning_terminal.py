@@ -210,6 +210,25 @@ def test_json_sends_building_events(fetched_root, chat_tokenizer):
     ]
 
 
+EMBEDDER_RECORDED = (  # v0.4.4 A5, state 2: said by the terminal and a run, not the page
+    "The embedding model's file's modified time changed since it was fetched; its bytes still "
+    "match, so the new time is recorded in local/models.lock."
+)
+
+
+def test_the_embedder_s_re_check_line_is_said_in_the_terminal_and_sent_in_json(
+    terminal, fetched_root, chat_tokenizer
+):
+    loop, output, _, fake = terminal
+    fake.notice = EMBEDDER_RECORDED  # what the real start says (test_embedder, A5)
+    loop.handle(ASKED)
+    assert output.count(EMBEDDER_RECORDED + "\n") == 1
+    fake.notice = EMBEDDER_RECORDED
+    session = session_on(fetched_root, chat_tokenizer, fake)
+    events = run(session, [line("profile", "meaning"), line("say", ASKED)])
+    assert {"event": "notice", "text": EMBEDDER_RECORDED} in events
+
+
 # --- states 5 to 7: refusals and their ways out ----------------------------------------------
 
 

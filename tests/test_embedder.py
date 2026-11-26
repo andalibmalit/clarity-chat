@@ -323,6 +323,23 @@ def test_a_changed_gguf_at_send_says_the_lock_s_sentence_not_state_5(fetched_roo
     assert "isn't fetched" not in refused.terminal
 
 
+def test_a_touched_gguf_is_checked_again_at_its_start_and_said(m3_root, fake):
+    """v0.4.4 A5, state 2: the same bytes with a new time start it, and one line says so."""
+    from tests.test_weights_recheck import TOUCHED_NS, hashed, locked_gguf, raised, touched
+
+    touched(hashed(m3_root, "bge-m3"))
+    said: list[str] = []
+    embedder = made(m3_root)
+    embedder.on_notice = said.append  # ty: ignore[unresolved-attribute]  (until A5's code)
+    refused = raised(embedder.start)
+    assert refused is None, refused
+    assert said == [
+        "The embedding model's file's modified time changed since it was fetched; its bytes "
+        "still match, so the new time is recorded in local/models.lock."
+    ]
+    assert locked_gguf(m3_root, "bge-m3")["mtime_ns"] == TOUCHED_NS
+
+
 # --- each vector -----------------------------------------------------------------------
 
 

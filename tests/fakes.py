@@ -248,6 +248,9 @@ class FakeEmbedder:
         self.made = 0
         self.texts: list[str] = []
         self.is_fetched = True  # False: bge-m3 not fetched (state 5)
+        # A line its next start says once, as the real one's A5 re-check does
+        self.notice: str | None = None
+        self.on_notice: Callable[[str], None] | None = None
 
     def fetched(self) -> bool:
         return self.is_fetched
@@ -280,6 +283,9 @@ class FakeEmbedder:
             "device": self.device,
             "machine": {"os": "made up", "build": "0", "chip": "made up"},
         }
+        if self.notice is not None and self.on_notice is not None:
+            self.on_notice(self.notice)
+            self.notice = None
         return {**facts, "setup": setup_of(facts)}
 
     def vector(self, ids: list[int]) -> bytes:
