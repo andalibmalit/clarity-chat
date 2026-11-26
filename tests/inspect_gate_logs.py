@@ -44,7 +44,6 @@ NOTE = (
 TAGS = ["clarity", "not-run-by-inspect"]
 RUN_ID = "r7f3a9c2e"
 CREATED = "2026-11-20T10:00:00+00:00"
-OPENINGS = {1: "Name three colours of the sea.", 2: "Describe a kettle in one sentence."}
 SYSTEM = "You answer in one short line."
 
 # Replies, by (profile, opening, epoch). Two carry what the viewer's checks look for:
@@ -52,6 +51,8 @@ SYSTEM = "You answer in one short line."
 MARKDOWN_REPLY = "   Indented by three spaces.\n* a starred line\n<think>a thought</think> after it"
 REMOTE_IMAGE = "http://198.51.100.7/gate.png"  # TEST-NET-2: never a real host
 HTML_REPLY = f'<script>window.gateRan = 1</script><img src="{REMOTE_IMAGE}"> plain after'
+# v0.4.3's review, C4: the same HTML as an opening and as a note, which V9b checks.
+OPENINGS = {1: "Name three colours of the sea.", 2: HTML_REPLY}
 REPLIES = {
     ("smol-chat", 1, 1): MARKDOWN_REPLY,
     ("smol-chat", 1, 2): "Blue, green and grey.",
@@ -64,7 +65,7 @@ REPLIES = {
 }
 # Marks and notes, by (profile, opening, epoch); every other reply has neither.
 MARKS = {("smol-chat", 1, 1): ["landed"], ("smol-text", 1, 2): ["too long", "landed"]}
-NOTES = {("smol-chat", 2, 1): ["reads well", "but plain"]}
+NOTES = {("smol-chat", 2, 1): ["reads well", HTML_REPLY]}
 LONG_PROMPT = ("smol-chat", 2, 2)  # its prompt_ids hold 4,000 tokens (V2)
 
 

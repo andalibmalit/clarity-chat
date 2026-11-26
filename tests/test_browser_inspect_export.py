@@ -75,9 +75,13 @@ def test_the_viewer_shows_a_runs_export(run, context):
 
 def test_the_viewer_shows_a_chats_export(make, context):
     """Two messages, two /regens of the first, and an /edit of the second: five samples of
-    one epoch, where uneven epochs read as "N / M Samples" (V5)."""
+    one epoch, where uneven epochs read as "N / M Samples" (V5). The chat's title, the log's
+    dataset name, is HTML, which shows as text and runs nothing (V9; v0.4.3's review, C4)."""
+    from tests.inspect_gate_logs import HTML_REPLY, REMOTE_IMAGE
+
     session = make()
     log = test_export_inspect_chat.two_messages_regens_and_an_edit(session)
+    session.set_title(HTML_REPLY)
     path = export_chat(session, log)["path"]
     first = next(r for r in read_records(log) if r["type"] == "turn" and r["role"] == "user")
     replies = [
@@ -95,6 +99,13 @@ def test_the_viewer_shows_a_chats_export(make, context):
         text = show(page, viewer, route, replies[1].strip())
         record(page, "C1-chat-sample")
         assert "The kettle sang twice." in text and "error" not in text.lower()
+        for tab, waits_for in (("", "Ask me about herons."), ("/task", "TASK INFO")):
+            text = show(page, viewer, f"/logs/{name}{tab}", waits_for)
+            record(page, f"C4-chat-title{tab.replace('/', '-')}")
+            assert page.evaluate("window.gateRan") is None, tab
+            images = page.locator(f'img[src="{REMOTE_IMAGE}"]').count()
+            finding(f"C4 title{tab} shown as text:", "plain after" in text, "img:", images)
+        assert not any(REMOTE_IMAGE in url for url in viewer.requests)
         only_local(viewer)
         assert path.endswith(name)
 

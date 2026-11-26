@@ -331,6 +331,25 @@ def test_v9_html_in_a_reply_shows_as_text_and_nothing_runs(viewer, page):
     only_local(viewer)
 
 
+def test_v9b_html_in_an_opening_and_a_note_shows_as_text_and_nothing_runs(viewer, page):
+    """v0.4.3's review, C4: V9's check for the other text a person writes, an opening (the
+    sample's input, in the log's list and in the sample) and a note (the mark score's
+    explanation, on the sample's Scoring tab, beside the note "reads well")."""
+    scoring = sample_route("run/1-smol-chat.eval", 2, 1, "scoring")
+    for route, waits_for, name in (
+        ("/logs/run/1-smol-chat.eval", "plain after", "V9b-html-opening-list"),
+        (sample_route("run/1-smol-chat.eval", 2, 1, "messages"), "plain after", "V9b-html-opening"),
+        (scoring, "reads well", "V9b-html-note"),
+    ):
+        text = show(page, viewer, route, waits_for)
+        record(page, name)
+        assert page.evaluate("window.gateRan") is None, name
+        images = page.locator(f'img[src="{gate.REMOTE_IMAGE}"]').count()
+        finding(f"{name} script text shown:", "<script>" in text, "img elements:", images)
+    assert not any(gate.REMOTE_IMAGE in url for url in viewer.requests)
+    only_local(viewer)
+
+
 def test_v10_no_request_leaves_the_viewers_address(viewer, page):
     routes = {
         "/samples/run": "landed",

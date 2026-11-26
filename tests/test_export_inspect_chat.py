@@ -426,6 +426,38 @@ def test_the_page_serves_the_newest_export_whichever_format(fetched_root, chat_t
         assert served.headers["content-type"].startswith("application/x-ndjson")
 
 
+def test_an_eval_exports_sheet_leaves_out_the_notebook_lines(fetched_root, chat_tokenizer):
+    """v0.4.4 X1 C1 (decision 18, state 32): the sheet for an `.eval` keeps a format-neutral
+    heading, "Export", the dialog's name and focus target, and leaves out the notebook
+    heading, the recompute callout and the pandas line. A plain export's sheet keeps them."""
+    from starlette.testclient import TestClient
+
+    from clarity_chat import web
+    from tests.test_web import ORIGIN, PORT, SECRET, command
+    from tests.test_web_chats import view
+
+    backend = FakeBackend([" Hello!"], tokenizer=chat_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
+    app = web.make_app(session, SECRET.encode(), port=PORT)
+    with TestClient(app, base_url=ORIGIN) as client:
+        command(client, "profile", "chat")
+        command(client, "say", "Hi")
+        command(client, "export", "inspect")
+        assert session.conversation is not None
+        stem = session.conversation.log.path.stem
+        sheet = view(client, "export")
+        assert '<h2 id="export-title" tabindex="-1">Export</h2>' in sheet, sheet
+        assert f"{stem}.eval" in sheet
+        for gone in ("notebook", "pandas", "Recomputing", "recompute check"):
+            assert gone not in sheet, gone
+        command(client, "export")
+        sheet = view(client, "export")
+        assert '<h2 id="export-title" tabindex="-1">Exported for a Python notebook</h2>' in sheet
+        assert f"{stem}.jsonl" in sheet
+        for kept in ("Your friend can read it with pandas", "Recomputing these replies"):
+            assert kept in sheet, kept
+
+
 # The whole-branch review's S1: the documents and steering lines (state 18), and C2: the IDs.
 
 
