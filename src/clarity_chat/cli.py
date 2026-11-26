@@ -488,7 +488,7 @@ def format_resume(result: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def format_status(record: dict[str, Any], steerable: bool = False) -> str:
+def format_status(record: dict[str, Any], steerable: bool) -> str:
     """The status line after a reply. `steerable`: the profile has a steering vector, so an
     unsteered reply says "not steered", as the page's facts line does."""
     timings = record.get("timings") or {}
