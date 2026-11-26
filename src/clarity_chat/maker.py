@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
+from clarity_chat.backends import BackendError
 from clarity_chat.profiles import ConfigError, Profile, load_profile, shown
 from clarity_chat.render import render_chat, tokenize
 
@@ -214,18 +215,90 @@ def render_pairs(prepared: Prepared, pairs: Pairs, ctx_size: int) -> list[Render
 
 @dataclasses.dataclass(frozen=True)
 class Block:
-    direction: Any
-    size: float
-    gap: float
-    agreement: float
+    """What make read at one block: the vector's direction there and the readout's numbers."""
+
+    direction: Any  # float32: the mean difference, positive minus negative
+    size: float  # the mean length of the block's output at the last token, over every prompt
+    gap: float  # the mean difference's length
+    agreement: float  # each pair's difference's cosine with it, averaged over the pairs
 
 
 @contextmanager
 def reading(model: Any) -> Generator[dict[int, Any]]:
-    yield {}
+    """Read-only hooks on blocks 1 to n-1, the blocks steering can add to: after each forward
+    pass the dict holds each block's output at the last token, in float32 on the CPU (the
+    tensor `steering.applied` adds to). The hooks come off however the block ends."""
+    import torch
+
+    rows: dict[int, Any] = {}
+
+    def hook(b: int) -> Callable[..., None]:
+        def read(module: Any, args: Any, output: Any) -> None:
+            if not isinstance(output, torch.Tensor):
+                raise BackendError(f"Block {b} returned {type(output).__name__}, not a tensor.")
+            rows[b] = output[0, -1].detach().to(device="cpu", dtype=torch.float32).numpy()
+
+        return read
+
+    blocks = model.model.layers
+    handles = []
+    try:
+        for b in range(1, len(blocks)):
+            handles.append(blocks[b].register_forward_hook(hook(b)))
+        yield rows
+    finally:
+        for handle in handles:
+            handle.remove()
 
 
 def read_blocks(
     model: Any, prompts: list[Rendered], on_progress: Callable[[int, int], None]
 ) -> dict[int, Block]:
-    return {}
+    """Run each prompt alone and keep running sums per block (no per-pair data): the
+    differences, the differences at length 1, and the activations' lengths. `prompts` are
+    render_pairs', each pair's positive side then its negative."""
+    import numpy as np
+    import torch
+
+    total, n = len(prompts), len(prompts) // 2
+    diffs: dict[int, Any] = {}
+    units: dict[int, Any] = {}
+    lengths: dict[int, float] = {}
+    positive: dict[int, Any] = {}
+    with reading(model) as rows, torch.no_grad():
+        for k, prompt in enumerate(prompts, 1):
+            model.model(input_ids=torch.tensor([prompt.ids], device=model.device), use_cache=False)
+            for b, row in rows.items():
+                if not np.isfinite(row).all():
+                    raise ConfigError(
+                        f"Block {b}'s output for pair {prompt.pair}'s {prompt.side} prompt "
+                        "isn't finite."
+                    )
+                row = row.astype(np.float64)
+                lengths[b] = lengths.get(b, 0.0) + float(np.linalg.norm(row))
+                if prompt.side == "positive":
+                    positive[b] = row
+                    continue
+                d = positive[b] - row
+                length = np.linalg.norm(d)
+                if length == 0:
+                    raise ConfigError(
+                        f"Pair {prompt.pair}'s two prompts give the same output at block {b}, "
+                        "so it has no direction to add."
+                    )
+                diffs[b] = diffs.get(b, 0) + d
+                units[b] = units.get(b, 0) + d / length
+            if 10 * k // total > 10 * (k - 1) // total:
+                on_progress(k, total)
+    blocks = {}
+    for b in sorted(diffs):
+        mean = diffs[b] / n
+        gap = float(np.linalg.norm(mean))
+        if gap == 0:
+            raise ConfigError(
+                f"At block {b} the pairs' differences add up to zero, so there's no direction "
+                "to add; check for a pair written twice with its sides swapped."
+            )
+        agreement = float(units[b] @ mean) / (n * gap)
+        blocks[b] = Block(mean.astype(np.float32), lengths[b] / total, gap, agreement)
+    return blocks
