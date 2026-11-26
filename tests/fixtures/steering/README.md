@@ -1,6 +1,6 @@
 # Steering test fixtures
 
-`brief-hf-chat.gguf` is a vector `clarity vector make` made for v0.4.5's golden log (`tests/fixtures/golden/v0.4.5.jsonl`), from a made-up pairs file (short, plain replies against long, ornate ones: 2 system pairs, 2 messages, 2 openings) with a tiny random Llama on the CPU: width 576 and 30 layers, the shape `tests/test_golden.py` gives its model, and the tests' chat tokenizer. It has blocks 1 to 29. The script that made it isn't published. Its sha256 is `305c3bd0ce2b2a209933a7887805c0db579c1abe2f52233e6a1e25589cc289bd`, 68,256 bytes. Run a second time when it was made, the script gave the same bytes.
+`brief-hf-chat.gguf` is a vector `clarity vector make` made for v0.4.5's golden log (`tests/fixtures/golden/v0.4.5.jsonl`), from a made-up pairs file (short, plain replies against long, ornate ones: 2 system pairs, 2 messages, 2 openings) with a tiny random Llama on the CPU: width 576 and 30 layers, the shape `tests/test_golden.py` gives its model, and the tests' chat tokenizer. It has blocks 1 to 29. `scripts/make_golden_v045.py` made it, and the golden log with it; run it into a scratch folder, as its docstring shows. Its sha256 is `305c3bd0ce2b2a209933a7887805c0db579c1abe2f52233e6a1e25589cc289bd`, 68,256 bytes. Run a second time when it was made, the script gave the same bytes.
 
 `smollm2-repeng.gguf` is a control vector made outside Clarity, with [repeng](https://github.com/vgel/repeng). The tests use this file to check that Clarity reads repeng's real output.
 
