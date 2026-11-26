@@ -10,8 +10,9 @@
 #
 # The whole script is one function, called on its last line, so a download cut short runs
 # nothing. Under `curl … | sh` the script itself is sh's input, so setup's question and the
-# web interface read the terminal (/dev/tty) instead. uv's installer, git, uv and Clarity get
-# only HOME and PATH.
+# web interface read the terminal (/dev/tty) instead. uv's installer and git get only HOME
+# and PATH; uv and Clarity also get HF_HOME, HF_HUB_CACHE, HUGGINGFACE_HUB_CACHE and
+# XDG_CACHE_HOME, each only if it's set.
 set -eu
 
 VERSION=v0.4.5
@@ -32,6 +33,18 @@ say() {
 refuse() {
     printf 'clarity install: %s\n' "$*" >&2
     exit 1
+}
+
+# uv, with HOME, PATH and each of the four cache variables that's set, even to an empty
+# value: the launcher runs from your login shell, so the install must put the models where
+# that shell's variables will look for them.
+uv_run() {
+    env -i HOME="$HOME" PATH="$PATH" \
+        ${HF_HOME+"HF_HOME=$HF_HOME"} \
+        ${HF_HUB_CACHE+"HF_HUB_CACHE=$HF_HUB_CACHE"} \
+        ${HUGGINGFACE_HUB_CACHE+"HUGGINGFACE_HUB_CACHE=$HUGGINGFACE_HUB_CACHE"} \
+        ${XDG_CACHE_HOME+"XDG_CACHE_HOME=$XDG_CACHE_HOME"} \
+        "$uv" "$@"
 }
 
 is_clarity() {
@@ -125,9 +138,9 @@ main() {
     # --inexact: a hand install's extras (--extra hf, the browser group) stay installed.
     # --locked stops at a uv.lock that doesn't match pyproject.toml; --no-dev leaves out the
     # dev group, which only the tests use.
-    env -i HOME="$HOME" PATH="$PATH" "$uv" sync --locked --inexact --no-dev --group setup
-    env -i HOME="$HOME" PATH="$PATH" "$uv" run --locked --no-dev --group setup clarity setup </dev/tty
-    env -i HOME="$HOME" PATH="$PATH" "$uv" run --locked --no-dev clarity ui </dev/tty
+    uv_run sync --locked --inexact --no-dev --group setup
+    uv_run run --locked --no-dev --group setup clarity setup </dev/tty
+    uv_run run --locked --no-dev clarity ui </dev/tty
 }
 
 main "$@"

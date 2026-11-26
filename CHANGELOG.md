@@ -10,6 +10,7 @@ Two headings are Clarity's own, used when they apply:
 
 ### Changed
 - The install and the launcher run uv with `--locked` and without the dev group: `uv sync --locked --inexact --no-dev --group setup`, then `uv run --locked --no-dev`. A `uv.lock` that doesn't match `pyproject.toml` stops them instead of being rewritten. Setup replaces a `Clarity.command` that an earlier release's setup wrote, and says it made it.
+- The install passes `HF_HOME`, `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE` and `XDG_CACHE_HOME` to uv and setup when your shell sets them, even to an empty value, so the models go where Clarity, started from the launcher, looks for them. uv's installer and git still get only `HOME` and `PATH`.
 
 ### Migration
 - An install made by v0.4.2 to v0.4.5 keeps its dev tools. Its old launcher keeps working, without the lock check. For the new launcher, after the steps for moving to a new release, run `uv run --locked --no-dev --group setup clarity setup` in `~/Clarity`, or paste the new release's install command, which finds Clarity at the tag and runs setup; setup replaces its own launcher.

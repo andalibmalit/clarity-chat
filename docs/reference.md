@@ -48,7 +48,7 @@ Exit status:
 5. If `~/Clarity` doesn't exist, clones Clarity at the tag in `VERSION`, with git's global and system config off and no password prompt. If it exists and holds Clarity (`defaults.toml`, `server.toml`, and a `pyproject.toml` naming `clarity-chat`), it goes on, saying so, with the tags at its commit, if `VERSION` isn't among them: the install doesn't update it. Otherwise it stops and leaves the folder alone.
 6. In `~/Clarity`, runs `uv sync --locked --inexact --no-dev --group setup`, which keeps anything installed beyond the setup group (the `hf` extra, say) and leaves out the dev group, then `uv run --locked --no-dev --group setup clarity setup` and `uv run --locked --no-dev clarity ui`, both reading the terminal, not the pipe. `--locked` stops at a `uv.lock` that doesn't match `pyproject.toml`, instead of rewriting it.
 
-uv's installer, git, uv and Clarity get an environment of `HOME` and `PATH` only (`env -i`); `uname`, `sysctl`, `df`, `xcode-select`, `curl` and `shasum` run in yours. The script's own download, uv's installer, uses `curl --proto '=https' --tlsv1.2`; the clone, uv and setup download from `https://` addresses with their own settings.
+uv's installer and git get an environment of `HOME` and `PATH` only (`env -i`). uv and Clarity also get `HF_HOME`, `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE` and `XDG_CACHE_HOME`, each only if it's set, even to an empty value, so the install puts the models where Clarity, started from your shell, looks for them; `uname`, `sysctl`, `df`, `xcode-select`, `curl` and `shasum` run in yours. The script's own download, uv's installer, uses `curl --proto '=https' --tlsv1.2`; the clone, uv and setup download from `https://` addresses with their own settings.
 
 ## Chat commands
 

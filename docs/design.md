@@ -302,11 +302,11 @@ There is no general "results may vary" notice. Replay flags the one case that ne
 **What the install writes, and where.**
 - In `~/Clarity`: Clarity, its `.venv`, `vendor/llama.cpp` and its build (the build's output in `vendor/llama.cpp/build/clarity-build.log`), `models/` (with the converter's environment in `models/.converter`) and `local/models.lock`.
 - By uv's installer: `uv`, `uvx`, `env` and `env.fish` in `~/.local/bin`; by default, a line that adds that folder to `PATH` in `~/.profile`, in `~/.bashrc`, `~/.bash_profile` and `~/.bash_login` if they exist, in one zsh file (`~/.zshrc` by default) and in a file in fish's `conf.d`; and `~/.config/uv/uv-receipt.json`.
-- By uv: its cache, `~/.cache/uv`, and the Python it installs, in `~/.local/share/uv/python`.
-- By setup: the Hugging Face cache, `~/.cache/huggingface`, and the launcher, `~/Desktop/Clarity.command`.
+- By uv: its cache, `~/.cache/uv` (`uv` under `XDG_CACHE_HOME`, if that's set), and the Python it installs, in `~/.local/share/uv/python`.
+- By setup: the Hugging Face cache, `~/.cache/huggingface` unless `HF_HOME`, `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE` or `XDG_CACHE_HOME` moves it, and the launcher, `~/Desktop/Clarity.command`.
 - Temporary files: uv's installer, in `$TMPDIR` while it's checked, removed however the install ends; and what the commands it runs put in `/tmp`, since they don't get `TMPDIR`.
 
-**What the install command passes on.** uv's installer, git, uv and Clarity get only `HOME` and `PATH` (`env -i`), so nothing else in your environment changes what they do; git also runs with its global and system config off, and never asks for a password. The checks before them, and the download of uv's installer, run in your environment. The cost: proxy settings such as `HTTPS_PROXY` don't reach them, so behind a proxy, install by hand.
+**What the install command passes on.** uv's installer and git get only `HOME` and `PATH` (`env -i`), so nothing else in your environment changes what they do. uv and Clarity also get `HF_HOME`, `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE` and `XDG_CACHE_HOME`, each only if it's set, even to an empty value: the launcher runs Clarity from your login shell, so the install must put the models where that shell's variables say. `XDG_CACHE_HOME` also moves uv's cache, as your own `uv` runs do; git also runs with its global and system config off, and never asks for a password. The checks before them, and the download of uv's installer, run in your environment. The cost: proxy settings such as `HTTPS_PROXY` don't reach them, so behind a proxy, install by hand.
 
 ## Not in scope
 
@@ -323,6 +323,7 @@ When a choice above changes, the old one, the new one and the reason go here, ne
 
 | Date | Was | Now | Why |
 |---|---|---|---|
+| 2026-11-26 | uv and Clarity got only `HOME` and `PATH` from the install; a shell that set a Hugging Face cache variable had to remove it or install by hand. | The install passes `HF_HOME`, `HF_HUB_CACHE`, `HUGGINGFACE_HUB_CACHE` and `XDG_CACHE_HOME` to uv and Clarity when they're set. | The launcher runs from your login shell, so an install without those variables put the models in a cache the launcher never looked in. |
 | 2026-11-26 | The launcher's last line ran `uv run clarity ui`, and the install ran uv without `--no-dev`. | The install and the launcher run uv with `--locked` and `--no-dev`; setup replaces a launcher an earlier release wrote. | A plain `uv run` installs the dev tools, which only the tests use, and rewrites a `uv.lock` that doesn't match `pyproject.toml` instead of stopping. |
 | 2026-11-26 | A pinned vector made by another tool is added by a hook; Clarity never makes one. | Clarity also makes one, from a file of pairs, on the Transformers backend (`clarity vector make`). | The owner's experiments need a vector made from pairs they can read, on the tensor the hook adds to, without a separate environment pinned to old numpy. |
 | 2026-11-26 | A chat's context size came from its profile or `server.toml`; a larger one meant editing the profile and starting a new chat. | `/set ctx_size` and Settings' Context row change a running chat's size: llama-server starts again at it, the chat keeps its turns, and a resume takes the chat's size first. | A full context, or a size that doesn't fit in memory, was a dead end in a running chat. Each call logs its context size, so replay still runs a call at the size it was made with.
