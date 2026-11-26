@@ -263,7 +263,7 @@ def test_found_logs_the_chat_s_values_and_every_reader_reads_them(
     assert (by_meaning["budget"], by_meaning["budget_origin"]) == (800, "chat")
     assert session.conversation is not None
     log = session.conversation.log.path
-    calls = [r["call_id"] for r in calls_of(session)]
+    calls = {r["call_id"]: r["output_text"] for r in calls_of(session)}
     for line in (
         "history",
         *(f"{name} {call}" for call in calls for name in ("prompt", "compare")),
@@ -273,10 +273,10 @@ def test_found_logs_the_chat_s_values_and_every_reader_reads_them(
     ran(c, f"resume {log.stem}")
     assert export_log(session, log)["path"]
     ran(c, "export inspect")
-    for call in calls:  # with no chat open, as `clarity replay` does; replay never searches
-        replayed = Session(
+    for call, output in calls.items():  # with no chat open, as `clarity replay` does; replay
+        replayed = Session(  # never searches
             fetched_root,
-            backend=FakeBackend([" R0.", " R1."], tokenizer=chat_tokenizer),
+            backend=FakeBackend([output], tokenizer=chat_tokenizer),
             tokenizer_loader=lambda r, v: chat_tokenizer,
             embedder=Untouchable(),  # ty: ignore[invalid-argument-type]
         )
@@ -304,7 +304,7 @@ def test_a_regenerated_reply_s_prompt_is_its_sibling_s_after_a_budget_change(wor
     session, c, _ = words
     first = ran(c, f"say {ASKED}")["call"]
     assert attempt(c, "set budget 5")[1] is None
-    again = ran(c, "regen")["call"]
+    (again,) = (r["call"] for r in ran(c, "regen")["replies"])
     assert again["prompt_ids"] == first["prompt_ids"]
 
 
@@ -313,3 +313,17 @@ def test_document_try_reads_the_profile_s_values(words):
     assert attempt(c, "set budget 5")[1] is None
     found, _ = session.try_documents(["notes"], "searching", ASKED)
     assert (found["budget"], found["budget_origin"]) == (BUDGET, "default")
+
+
+def test_a_batch_run_reads_the_profile_s_values(fetched_root, chat_tokenizer, words):
+    from clarity_chat.batch import run_batch
+
+    session, c, _ = words
+    assert attempt(c, "set budget 5")[1] is None
+    (fetched_root / "openings.txt").write_text(ASKED + "\n", encoding="utf-8")
+    run_dir = fetched_root / "runs" / "r"
+    run_batch(
+        session, "r", run_dir, fetched_root / "openings.txt", ["searching"], 1, lambda line: None
+    )
+    found = [r["found"] for r in read_records(run_dir / "calls.jsonl") if "found" in r]
+    assert found and {(f["budget"], f["budget_origin"]) for f in found} == {(BUDGET, "default")}

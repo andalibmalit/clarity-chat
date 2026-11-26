@@ -117,6 +117,7 @@ SENTENCES = {
     "a reply and {budget} for the parts search can add to your next message ({origin})",
     "budget_profile": "the profile's budget",
     "budget_default": "Clarity's default budget",
+    "budget_chat": "this chat's budget",  # v0.4.4 B1: /set budget
     # /undo of a message that had attachments (QA 9): they were part of it.
     "undone_attachments": "Its attachments went with it: {names}.",
     # Refusals the reader and its child write: their texts live beside the code that raises
@@ -130,6 +131,7 @@ SENTENCES = {
     "no_framing": "No framing line ({origin}).",
     "origin_default": "Clarity's default",
     "origin_profile": "this profile",
+    "origin_chat": "this chat",
     "search_not_kept": "Not kept: this chat's search list ({names}). The new chat searches "
     "its profile's: {searched}.",  # the close batch: siblings C1
     "encrypted": "encrypted (it opens without a password)",
@@ -476,7 +478,7 @@ FOUND_COMMON: dict[str, Callable[[Any], bool]] = {
     "searched_for": lambda v: isinstance(v, str),
     "considered": _whole_number,
     "budget": _whole_number,
-    "budget_origin": lambda v: v in ("default", "profile"),
+    "budget_origin": lambda v: v in ("default", "profile", "chat"),
     "left_out": _dicts(
         {
             "id": lambda v: isinstance(v, str),
@@ -522,7 +524,7 @@ FOUND_BY_METHOD: dict[str, dict[str, Callable[[Any], bool]]] = {
             and isinstance(v["sha256"], str)
         ),
         "min_similarity": lambda v: _number(v) and -1 <= v <= 1,
-        "min_similarity_origin": lambda v: v in ("default", "profile"),
+        "min_similarity_origin": lambda v: v in ("default", "profile", "chat"),
         # A similarity is finite: a log's Infinity is refused, not shown (the fix review's F2).
         "parts": _dicts({**FOUND_PART_TYPES, "score": lambda v: _number(v) and math.isfinite(v)}),
     },

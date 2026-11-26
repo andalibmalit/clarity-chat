@@ -1795,7 +1795,7 @@ def search_choice(filename: str, state: dict[str, Any]) -> dict[str, Any]:
     goes, whatever the box names, a document of that name replaced (the page QA's should
     2), and the name box (N9). A control token is said when a message finds its part."""
     budget = state["budget"]
-    origin = SENTENCES["budget_profile" if budget["origin"] == "profile" else "budget_default"]
+    origin = SENTENCES[f"budget_{budget['origin']}"]
     how = SENTENCES["search_it_words"]
     if state["search_method"] == "meaning":  # the minimum and its origin, as Details says them
         minimum = state["min_similarity"]

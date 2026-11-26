@@ -33,13 +33,12 @@ from clarity_chat.documents import (
     summaries,
 )
 from clarity_chat.logs import LOG_NAME, list_chats, unreadable
-from clarity_chat.profiles import ConfigError, profile_path
+from clarity_chat.profiles import CHAT_KEYS, ConfigError, profile_path
 from clarity_chat.session import (
     CallOutcome,
     CancelledBeforeReply,
     DoesntFit,
     Session,
-    minimum_of,
 )
 
 Emit = Callable[[dict[str, Any]], None]
@@ -727,7 +726,17 @@ def _set(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     record = c.session.set_setting(name, value.strip())
     conversation = c.session.conversation
     assert conversation is not None
-    return {"record": record, "setting": conversation.settings[name].to_json()}
+    if name not in CHAT_KEYS:
+        return {"record": record, "setting": conversation.settings[name].to_json()}
+    setting = conversation.search_values()[name].to_json()
+    if name != "search_method":
+        return {"record": record, "setting": setting}
+    # Meaning chosen without bge-m3 is said as /search says it (state 12).
+    return {
+        "record": record,
+        "setting": setting,
+        "warnings": c.session.search_warnings(conversation),
+    }
 
 
 def _title(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -1183,9 +1192,7 @@ def _state(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         # One conversation for every field (the part 2 whole-branch review's could 1).
         "budget": dict(zip(("tokens", "origin"), session.budget(conversation), strict=True)),
         # Meaning search's minimum, as Search it says it (the C1 review's ruling).
-        "min_similarity": dict(
-            zip(("value", "origin"), minimum_of(conversation.profile), strict=True)
-        ),
+        "min_similarity": conversation.search_values()["min_similarity"].to_json(),
         "head": conversation.head,
         "turns": turns,
         "unanswered": conversation.unanswered,
@@ -1262,6 +1269,13 @@ def settings_view(session: Session) -> dict[str, Any]:
         "eog_tokens": model_file.get("eog_tokens"),
         "recommended": recommended and {**recommended, "used": profile.use_recommended},
         "not_applied": not_applied_now(profile.backend, conversation.settings),
+        # The search keys a chat can /set (v0.4.4 B1), each with the base it goes back to.
+        "documents": {
+            name: {**value.to_json(), "base": conversation.search_bases()[name].to_json()}
+            for name, value in conversation.search_values().items()
+        }
+        if profile.mode == "chat"
+        else None,
         "ctx_size": conversation.ctx_size.to_json(),
         "stop": profile.stop,
         "steering": {

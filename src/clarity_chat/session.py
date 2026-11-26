@@ -80,6 +80,7 @@ from clarity_chat.models import (
 )
 from clarity_chat.profiles import (
     BUDGET,
+    CHAT_KEYS,
     MIN_SIMILARITY,
     SEARCH_METHOD,
     SEED_MAX,
@@ -90,6 +91,7 @@ from clarity_chat.profiles import (
     ServerConfig,
     Setting,
     check_backend_settings,
+    check_chat_setting,
     check_samplers,
     check_server_flags,
     check_setting,
@@ -271,13 +273,30 @@ class Conversation:
     # changes it ("chat"), logged as `search` records and resumed.
     searching: list[str] = field(default_factory=list)
     searching_origin: str = "profile"
-    search_method: str = SEARCH_METHOD  # the whole-branch review's could 2
+    # A resumed chat's last searched message's method (decision 3): its base when the
+    # logged profile names none.
+    searched_method: str | None = None
 
     @property
     def settings(self) -> dict[str, Setting]:
-        """The profile's settings, with this conversation's /set values over them."""
-        chat = {name: Setting(value, "chat") for name, value in self.chat_settings.items()}
+        """The profile's settings, with this conversation's /set values over them. The
+        search keys aren't settings of a call (v0.4.4 B1): search_values has them."""
+        chat = {n: Setting(v, "chat") for n, v in self.chat_settings.items() if n not in CHAT_KEYS}
         return {**self.profile.settings, **chat}
+
+    def search_bases(self) -> dict[str, Setting]:
+        """What each search key goes back to with `/set NAME` (decision 16)."""
+        return search_bases(self.profile, self.searched_method)
+
+    def search_values(self) -> dict[str, Setting]:
+        """Each search key's value for this chat's next message: its /set value, else its
+        base."""
+        chat = {n: Setting(v, "chat") for n, v in self.chat_settings.items() if n in CHAT_KEYS}
+        return {**self.search_bases(), **chat}
+
+    @property
+    def search_method(self) -> str:
+        return self.search_values()["search_method"].value
 
     def path_to(self, turn_id: str | None) -> list[Turn]:
         """Turns from the root to `turn_id`, in order."""
@@ -765,7 +784,6 @@ class Session:
             started_server=started,
             ctx_size=ctx_size,
             searching=list(prepared.profile.search),
-            search_method=prepared.profile.search_method or SEARCH_METHOD,
         )
         conversation.warnings += self._profile_warnings(prepared)
         log.append(
@@ -925,7 +943,7 @@ class Session:
                 already,
                 at_send,
                 where,
-                method=conversation.search_method,
+                search=conversation.search_values(),
             )
         except SearchRefused as e:
             return fields, e
@@ -942,10 +960,11 @@ class Session:
         at_send: bool = False,
         where: str = "chat",
         *,
-        method: str,
+        search: dict[str, Setting],
     ) -> dict[str, Any]:
-        """What `text` finds in the documents `names`, filled to `profile`'s budget into a
-        block holding `fields`' attachments: one function for a message, /try and a batch
+        """What `text` finds in the documents `names`, searched with `search`'s method,
+        minimum and budget, filled into a block holding `fields`' attachments: one function
+        for a message, /try and a batch
         run (SYS: "one object, three uses"). Every document a search can't read is named in
         one refusal, each with its way out (the board walk's point 6); `at_send` heads it
         "Nothing was sent."; `where` (a chat, a run, `document try`) says how the
@@ -965,9 +984,9 @@ class Session:
             problems.append(problem)
         if problems:
             raise SearchRefused(problems, at_send, where)
-        budget, origin = budget_of(profile)
-        if method == "meaning":
-            found = self._meaning(docs, text, profile, at_send, where)
+        budget = search["budget"]
+        if search["search_method"].value == "meaning":
+            found = self._meaning(docs, text, search["min_similarity"], at_send, where)
         else:
             try:
                 found = search_documents(docs, text)
@@ -979,14 +998,14 @@ class Session:
             attached_in(fields),
             fields["framing"],
             found,
-            budget,
-            origin,
+            budget.value,
+            budget.origin,
             fields["placement"],
             already,
         )
 
     def _meaning(
-        self, docs: list[Loaded], text: str, profile: Profile, at_send: bool, where: str
+        self, docs: list[Loaded], text: str, minimum: Setting, at_send: bool, where: str
     ) -> dict[str, Any]:
         """What `text` finds in `docs` by meaning (decisions 9 to 12), unfilled: the
         embedder started, each document's vectors read or built, the message's vector,
@@ -1029,7 +1048,6 @@ class Session:
             ) from None
         except EmbedderFailed as e:
             raise refused({"state": "embedder", "why": str(e)}) from None
-        minimum, origin = minimum_of(profile)
         # Every part scored once: the best is /try's closest when none reaches the minimum.
         query_vector = memoryview(query).cast("f")
         found_vectors = {name: v for name, (v, _) in vectors.items()}
@@ -1049,9 +1067,9 @@ class Session:
             ],
             "engine": engine,
             "query": {"tokens": len(ids), "sha256": hashlib.sha256(query).hexdigest()},
-            "min_similarity": minimum,
-            "min_similarity_origin": origin,
-            "matches": [m for m in scored if m["score"] >= minimum],
+            "min_similarity": minimum.value,
+            "min_similarity_origin": minimum.origin,
+            "matches": [m for m in scored if m["score"] >= minimum.value],
         }
 
     def _unsearchable(self, name: str) -> dict[str, Any] | None:
@@ -1116,7 +1134,8 @@ class Session:
         profile, model, _ = self.profile_for(profile_name)
         if profile.mode != "chat":  # N71, as /search says it
             raise ConfigError(SENTENCES["text_mode_search"].format(profile=profile.name))
-        method = profile.search_method or SEARCH_METHOD
+        search = search_bases(profile)  # a new chat's values, not this chat's /set ones
+        method = search["search_method"].value
         if where == "try" and method == "meaning":  # decision 17: no embedder, no lock
             raise ConfigError(
                 "clarity document try searches by words only; /try in a chat searches by meaning."
@@ -1133,7 +1152,7 @@ class Session:
             profile,
             {**fields, "placement": profile.placement},
             where=where,
-            method=method,  # a run's pre-check searches as its messages will
+            search=search,  # a run's pre-check searches as its messages will
         )
         return found, self._control_token_problem(found, tokenizer)
 
@@ -1358,7 +1377,7 @@ class Session:
             "preselected": shown(counts.roomy),
             "max_tokens": room.max_tokens,  # what the numbers were counted with
             "aside": aside,  # a searching chat's budget, which the preselected start leaves too
-            "aside_origin": budget_of(conversation.profile)[1] if aside else None,
+            "aside_origin": self.budget(conversation)[1] if aside else None,
             "chosen": chosen,
             # null and false when today's profile file can't start a chat: /new would refuse
             "free_new_chat": new_chat and new_chat.free,
@@ -1656,9 +1675,10 @@ class Session:
         )
 
     def budget(self, conversation: Conversation | None = None) -> tuple[int, str]:
-        """Search's budget for a message, and where it comes from: the profile, or Clarity's
-        default."""
-        return budget_of((conversation or self._require_conversation()).profile)
+        """Search's budget for this chat's next message, and where it comes from: the chat,
+        the profile, or Clarity's default."""
+        budget = (conversation or self._require_conversation()).search_values()["budget"]
+        return budget.value, budget.origin
 
     def aside(self) -> int:
         """What a suggested start leaves free for search: the budget, when this chat searches
@@ -1711,11 +1731,17 @@ class Session:
             raise refused
 
     def set_setting(self, name: str, text: str) -> dict[str, Any]:
-        """Change a setting for this conversation (`text` empty: back to the profile's value).
-        Checked like a profile, and logged as a `settings` record with every /set value."""
+        """Change a setting for this conversation (`text` empty: back to its base). Checked
+        like a profile, and logged as a `settings` record with every /set value. A search key
+        (v0.4.4 B1) applies from the next message; words stops the embedder (state 13)."""
         conversation = self._require_conversation()
-        if name not in SETTING_NAMES:
-            raise ConfigError(f"/set: unknown setting {name!r}. Known: {list(SETTING_NAMES)}.")
+        if name not in (*SETTING_NAMES, *CHAT_KEYS):
+            known = [*SETTING_NAMES, *CHAT_KEYS]
+            raise ConfigError(f"/set: unknown setting {name!r}. Known: {known}.")
+        if name in CHAT_KEYS and conversation.profile.mode != "chat":  # state 9
+            raise ConfigError(
+                SENTENCES["text_mode_search"].format(profile=conversation.profile.name)
+            )
         chat = dict(conversation.chat_settings)
         if text:
             chat[name] = parse_setting(name, text, "/set")
@@ -1724,11 +1750,13 @@ class Session:
         else:
             raise ConfigError(f"{name} isn't set in this chat. Usage: /set NAME VALUE")
         trial = {**conversation.profile.settings}
-        trial.update({k: Setting(v, "chat") for k, v in chat.items()})
+        trial.update({k: Setting(v, "chat") for k, v in chat.items() if k not in CHAT_KEYS})
         check_samplers(trial, "/set")
         steered = conversation.profile.steering is not None
         check_backend_settings(trial, conversation.profile.backend, "/set", steered)
         conversation.chat_settings = chat
+        if name == "search_method":
+            self._free_embedder(conversation.search_method)
         return conversation.log.append(
             {
                 "type": "settings",
@@ -2278,11 +2306,12 @@ class Session:
         last = state.last_call
         n_ctx = last["n_ctx"] if last else (start.get("ctx_size") or {}).get("value")
         ctx_size = Setting(n_ctx, "log") if n_ctx else self.ctx_size_for(prepared.profile)
-        chat = {
-            k: check_setting(k, v, f"{path}: a setting changed in the chat")
-            for k, v in state.chat_settings.items()
-        }
-        merged = {**prepared.profile.settings, **{k: Setting(v, "chat") for k, v in chat.items()}}
+        where = f"{path}: a setting changed in the chat"
+        chat = {k: check_chat_setting(k, v, where) for k, v in state.chat_settings.items()}
+        if prepared.profile.mode != "chat" and set(chat) & set(CHAT_KEYS):  # state 9
+            raise TypeError("a text-mode chat's search setting isn't one Clarity writes")
+        sampling = {k: Setting(v, "chat") for k, v in chat.items() if k not in CHAT_KEYS}
+        merged = {**prepared.profile.settings, **sampling}
         check_samplers(merged, f"{path}: a setting changed in the chat")
         steered = prepared.profile.steering is not None
         check_backend_settings(
@@ -2324,12 +2353,10 @@ class Session:
                 t.get("call_id"), seed, t.get("regen_of"), t.get("edit_of"), **attached,
             )  # fmt: skip
         conversation.head = state.head
-        # D4: the logged profile's method, else the last searched message's, else the
-        # default today, as any setting added since takes.
+        # D4 and decision 3: the chat's /set, else the logged profile's method, else the
+        # last searched message's, else the default today (search_values).
         searched = [t["found"]["method"] for t in state.turns if "found" in t]
-        conversation.search_method = prepared.profile.search_method or (
-            searched[-1] if searched else SEARCH_METHOD
-        )
+        conversation.searched_method = searched[-1] if searched else None
         if state.searching is not None:  # a `search` record: this chat's own list
             for name in state.searching:  # refused before it's ever a path (S14), said
                 if (problem := library_name_problem(name)) is not None:  # with its record
@@ -2575,6 +2602,21 @@ def attached_tokens(spans: Any, conversation: Conversation, user_turn: Turn) -> 
     return (
         f", {n:,} of them for {' and '.join(what)}, counted when {' or '.join(when)}" if n else ""
     )
+
+
+def search_bases(profile: Profile, searched: str | None = None) -> dict[str, Setting]:
+    """What each search key goes back to (decision 16): the profile's value, else, for the
+    method, the last searched message's in a resumed chat (decision 3), else Clarity's
+    default."""
+    if profile.search_method is not None:
+        method = Setting(profile.search_method, "profile")
+    else:
+        method = Setting(searched, "log") if searched else Setting(SEARCH_METHOD, "default")
+    return {
+        "search_method": method,
+        "min_similarity": Setting(*minimum_of(profile)),
+        "budget": Setting(*budget_of(profile)),
+    }
 
 
 def budget_of(profile: Profile) -> tuple[int, str]:

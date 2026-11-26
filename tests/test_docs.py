@@ -11,6 +11,7 @@ import pytest
 from clarity_chat.cli import HELP_TAIL, main
 from clarity_chat.commands import COMMANDS
 from clarity_chat.profiles import (
+    CHAT_KEYS,
     PROFILE_KEYS_CHAT,
     PROFILE_KEYS_COMMON,
     PROFILE_KEYS_TEXT,
@@ -68,11 +69,17 @@ def settings_table() -> dict[str, dict[str, str]]:
 def test_every_setting_has_one_line_of_help_and_the_docs_show_the_same():
     """AGENTS.md: each explanation lives in one place, the settings table, which the UI and
     the docs reuse. profiles.SETTING_HELP is that place; the docs' column repeats it."""
-    assert set(SETTING_NAMES) <= set(SETTING_HELP), "a setting has no help"
+    names = {*SETTING_NAMES, *CHAT_KEYS}  # v0.4.4 B1: the search keys /set takes
+    assert names <= set(SETTING_HELP), "a setting has no help"
     table = settings_table()
-    assert set(table) == set(SETTING_NAMES)
+    assert set(table) == names
     for name, help_text in SETTING_HELP.items():
         assert table[name].get("What it does") == help_text, name
+    # S8: the profile's [documents] row points to the table, which holds their explanation.
+    (documents,) = [
+        line for line in REFERENCE.splitlines() if line.startswith("| `documents` | A table")
+    ]
+    assert "explained in [Settings](#settings)" in documents
 
 
 def written_checks() -> set[str]:

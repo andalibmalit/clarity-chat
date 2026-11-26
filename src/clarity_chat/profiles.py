@@ -138,6 +138,9 @@ MARKER_FIELDS = {"units", "first", "last", "total"}
 BUDGET = 1500  # tokens search may add to a message, by default (v0.3.2 decision 9)
 SEARCH_METHOD = "meaning"  # a chat's search method by default (v0.4.1, Q15)
 MIN_SIMILARITY = 0.5  # the lowest that drops small talk on A5's made-up text (decision 12)
+# The [documents] keys a chat can /set (v0.4.4 B1). They change what a message's search adds,
+# not the call, so they stay out of a call's settings; `found` logs them.
+CHAT_KEYS = ("search_method", "min_similarity", "budget")
 PLACEMENTS = ("start", "end")
 # A library document's name (v0.3.2 decision 20), here so a profile's `search` list and the
 # library check names by one rule: the documents package imports it.
@@ -319,6 +322,19 @@ SETTING_HELP = {
         "likeliest tokens with theirs."
     ),
     "steering_scale": "Strength: the profile’s vector is multiplied by it before it’s added.",
+    # The search keys a chat can /set (v0.4.4 B1; drafts, for the release's fact-check).
+    "search_method": (
+        "How search picks the parts of your documents to add to a message: by meaning, the "
+        "parts closest in meaning to it (bge-m3's similarity), or by words, the parts that "
+        "share its words."
+    ),
+    "min_similarity": (
+        "For meaning search: the lowest similarity, from -1 to 1, a part can have and still be "
+        "added. Lower adds more parts, some less related."
+    ),
+    "budget": (
+        "The most tokens search may add to a message, shared by every document this chat searches."
+    ),
 }
 
 
@@ -414,8 +430,8 @@ def check_samplers(resolved: dict[str, Setting], where: str) -> None:
 
 
 def parse_setting(name: str, text: str, where: str) -> Any:
-    """A setting typed as text (`/set`): a number, `random` for seed, or sampler names
-    separated by spaces or commas. Checked like a profile's value."""
+    """A setting typed as text (`/set`): a number, `random` for seed, a search method, or
+    sampler names separated by spaces or commas. Checked like a profile's value."""
     if name == "samplers":
         value: Any = text.replace(",", " ").split()
     else:
@@ -423,7 +439,32 @@ def parse_setting(name: str, text: str, where: str) -> Any:
             value = tomllib.loads(f"v = {text}")["v"]
         except ValueError:
             value = text
+    return check_chat_setting(name, value, where)
+
+
+def check_chat_setting(name: str, value: object, where: str) -> Any:
+    """A value a chat set with /set: a search key as [documents] checks it, else a setting."""
+    if name in CHAT_KEYS:
+        return check_chat_key(name, value, f"{where}:")
     return check_setting(name, value, where)
+
+
+def check_chat_key(name: str, value: object, where: str) -> Any:
+    """One of CHAT_KEYS, checked; `where` heads the sentence ("path: [documents]", "/set:")."""
+    if name == "budget":
+        tokens = _integer(value)
+        if tokens is None or tokens <= 0:
+            raise ConfigError(
+                f"{where} budget must be a positive whole number of tokens, got {value!r}."
+            )
+        return tokens
+    if name == "search_method":
+        if value not in ("meaning", "words"):
+            raise ConfigError(f'{where} search_method must be "meaning" or "words".')
+        return value
+    if isinstance(value, bool) or not isinstance(value, int | float) or not -1 <= value <= 1:
+        raise ConfigError(f"{where} min_similarity must be a number from -1 to 1, got {value!r}.")
+    return float(value)
 
 
 # --- profiles ---------------------------------------------------------------------------
@@ -641,21 +682,10 @@ def _documents(table: object, mode: str, where: str) -> DocumentsTable:
     placement = table.get("placement", "start")
     if placement not in PLACEMENTS:
         raise ConfigError(f'{where}: [documents] placement must be "start" or "end".')
-    budget = table.get("budget")
-    if budget is not None and (_integer(budget) is None or budget <= 0):
-        raise ConfigError(
-            f"{where}: [documents] budget must be a positive whole number of tokens, "
-            f"got {budget!r}."
-        )
-    method = table.get("search_method")
-    if method is not None and method not in ("meaning", "words"):
-        raise ConfigError(f'{where}: [documents] search_method must be "meaning" or "words".')
-    minimum = table.get("min_similarity")
-    number = isinstance(minimum, int | float) and not isinstance(minimum, bool)
-    if minimum is not None and not (number and -1 <= minimum <= 1):
-        raise ConfigError(
-            f"{where}: [documents] min_similarity must be a number from -1 to 1, got {minimum!r}."
-        )
+    budget, method, minimum = (
+        None if table.get(key) is None else check_chat_key(key, table[key], f"{where}: [documents]")
+        for key in ("budget", "search_method", "min_similarity")
+    )
     search = table.get("search", [])
     if not isinstance(search, list):
         raise ConfigError(f"{where}: [documents] search must be a list of document names.")
@@ -686,7 +716,7 @@ def _documents(table: object, mode: str, where: str) -> DocumentsTable:
         budget,
         placement,
         method,
-        None if minimum is None else float(minimum),
+        minimum,
     )
 
 

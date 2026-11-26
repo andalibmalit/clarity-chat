@@ -208,6 +208,22 @@ def test_set_in_the_terminal_and_in_settings(loop):
     assert any("temperature" in line and "chat" in line for line in text.splitlines())
 
 
+def test_a_search_key_in_the_terminal_and_in_settings(fetched_root, chat_tokenizer):
+    """v0.4.4 B1: /settings lists the search keys apart from the call's settings."""
+    backend = FakeBackend([" Hello!"], tokenizer=chat_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: chat_tokenizer)
+    output: list[str] = []
+    chat = ChatLoop(session, "chat", read=lambda default: "", write=output.append)
+    chat.start()
+    chat.handle("/set budget 800")
+    chat.handle("/settings")
+    text = "".join(output)
+    assert "budget = 800 for this chat." in text
+    assert "search, for each message you send:\n" in text
+    search = text.split("search, for each message you send:\n", 1)[1].splitlines()
+    assert any(line.split()[:2] == ["budget", "800"] and "chat" in line for line in search[:3])
+
+
 def test_title_and_chats_in_the_terminal(loop, fetched_root, capsys):
     from clarity_chat import cli
 

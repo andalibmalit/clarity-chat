@@ -163,11 +163,16 @@ def format_prompt(record: dict[str, Any] | None, as_repr: bool) -> str:
 def format_settings(view: dict[str, Any]) -> str:
     profile = view["profile"]
     lines = [f"profile {profile['name']} ({profile['mode']} mode, model {profile['model']})"]
-    width = max(len(name) for name in view["settings"])
+    search = view.get("documents") or {}
+    width = max(len(name) for name in [*view["settings"], *search])
     for name, setting in view["settings"].items():
         value = setting["value"]
         note = "  (a new seed is drawn and logged for every call)" if value == "random" else ""
         lines.append(f"  {name:<{width}}  {value!r:<44} {setting['origin']}{note}")
+    if search:  # v0.4.4 B1: what a message's search adds, not a setting of the call
+        lines.append("search, for each message you send:")
+        for name, setting in search.items():
+            lines.append(f"  {name:<{width}}  {setting['value']!r:<44} {setting['origin']}")
     if view["steering"]:
         steering = view["steering"]
         blocks = ", ".join(str(n) for n in steering["layers"])
@@ -740,6 +745,8 @@ class ChatLoop:
                 self.write(f"{record['name']} is back to {now['value']!r} ({now['origin']}).\n")
             else:
                 self.write(f"{record['name']} = {record['value']!r} for this chat.\n")
+            for w in result.get("warnings", []):  # meaning without bge-m3 (state 12)
+                self.write(f"! {problem_words(w, True, 'chat', False)}\n")
         elif name == "title":
             self.write(f"Titled {result['record']['title']!r}.\n")
         elif name == "compare":

@@ -386,15 +386,19 @@ def test_a_part_exactly_at_the_minimum_is_added_through_a_chat(meaning):
     assert c.run("try", ASKED, lambda e: None)["found"]["matched"] == 0
 
 
-def test_a_conversation_s_method_defaults_to_clarity_s_default():
-    """Could 2: a constructor that doesn't set it searches as Clarity does by default."""
+def test_a_conversation_s_method_defaults_to_clarity_s_default(meaning):
+    """Could 2: a chat whose profile names no method searches as Clarity does by default.
+    Since v0.4.4 B1 the method is a chat's search value, from its bases, not a field."""
     import dataclasses
 
-    from clarity_chat.profiles import SEARCH_METHOD
-    from clarity_chat.session import Conversation
+    from clarity_chat.profiles import SEARCH_METHOD, Setting
 
-    (field,) = [f for f in dataclasses.fields(Conversation) if f.name == "search_method"]
-    assert field.default == SEARCH_METHOD == "meaning"
+    session, _, _ = meaning
+    conversation = session.conversation
+    assert conversation is not None
+    conversation.profile = dataclasses.replace(conversation.profile, search_method=None)
+    assert conversation.search_values()["search_method"] == Setting(SEARCH_METHOD, "default")
+    assert conversation.search_method == SEARCH_METHOD == "meaning"
 
 
 def test_search_on_a_chat_that_searches_nothing_doesn_t_warn(meaning):

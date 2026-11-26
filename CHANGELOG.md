@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Added
+- `/set` takes the search keys `search_method`, `min_similarity` and `budget` in a chat, from the next message, so trying the other method or a lower minimum needs no new profile. A message's `found` logs each value with its origin (`chat` when set); a call's `settings` doesn't hold them. `/set search_method words` stops bge-m3. `/settings` lists them with their bases, and `/set NAME` with no value goes back to the base. A text-mode chat refuses them.
+
 ### Changed
 - A model file whose modified time changed, with its size the same, no longer stops a new chat, a resume or a meaning search with a hint to run `clarity verify`. Clarity hashes it there: if its bytes match, it records the new time in `local/models.lock` and says so in one line (among the start warnings; for the embedder, in the terminal and a run's output, and as a `notice` event in `--json`). Other bytes, or another size, are refused with the fetch hint. Replay and a batch run refuse as before. The profile listing and setup count a file of the fetched size as fetched and never hash it.
 
