@@ -417,11 +417,12 @@ def converter_commands(root: Path) -> list[list[str]]:
     decision 4: conda's, Homebrew's or the system's could be upgraded or removed under it),
     then converter-requirements.txt installed with every file's sha256 checked, wheels only
     (--no-build). uv's environment variables still apply, except UV_PYTHON_PREFERENCE,
-    which --managed-python replaces (uv refuses the two together): an index they name
-    (UV_DEFAULT_INDEX, say) is used, and the hashes cover what it serves. The first-index
-    strategy is set so UV_INDEX_STRATEGY can't merge indexes. -I keeps the working folder
-    and PYTHON* variables out of the converter. The uv is the one running Clarity (uv sets
-    UV for what it runs), as for setup: install.sh's PATH doesn't hold ~/.local/bin."""
+    which can't be used with --managed-python (uv 0.11.19 refuses the two together): an
+    index they name (UV_DEFAULT_INDEX, say) is used, and the hashes cover what it serves. The
+    first-index strategy is set so UV_INDEX_STRATEGY can't merge indexes. -I keeps the
+    working folder and PYTHON* variables out of the converter. The uv is the one running
+    Clarity (uv sets UV for what it runs), as for setup: install.sh's PATH doesn't hold
+    ~/.local/bin."""
     env = root / CONVERTER_ENV
     uv = os.environ.get("UV") or "uv"
     python = env / "Scripts" / "python.exe" if os.name == "nt" else env / "bin" / "python"
