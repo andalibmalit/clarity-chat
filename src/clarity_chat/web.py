@@ -1064,13 +1064,16 @@ async def _about(worker: Worker, params: dict[str, str | None]) -> str:
 # --- The replies pop-out and Compare (C3), from /compare
 
 
-def value_words(value: Any) -> str:
-    """A value as Python writes it (1.0, 1e-05), so the screen matches the log and /set;
-    a whole number of 1,000 or more has separators, as the page's other numbers do (Round 8,
-    ruling 5). A number box keeps the plain number."""
+def value_words(value: Any, name: str = "") -> str:
+    """A value as Python writes it (1.0, 1e-05), so the screen matches the log and /set; an
+    amount of 1,000 or more has separators, as the page's other numbers do (Round 8, ruling
+    5). `name` (a setting, or a record's dotted path) keeps an ID plain, to be copied: a
+    seed, a token ID, anything `*_id` or `*_ids`. A number box keeps the plain number."""
     if isinstance(value, list):
         return ", ".join(str(v) for v in value)
-    if isinstance(value, int) and not isinstance(value, bool) and abs(value) >= 1000:
+    last = name.rsplit(".", 1)[-1]
+    amount = last != "seed" and not last.endswith(("_id", "_ids"))
+    if amount and isinstance(value, int) and not isinstance(value, bool) and abs(value) >= 1000:
         return f"{value:,}"
     return str(value)
 
@@ -1079,13 +1082,15 @@ def setting_words(name: str, value: Any) -> str:
     """A setting as a row or a card says it, when it's what differs."""
     if name == "steering_scale":
         return "not steered" if value == 0 else f"steered ×{value}"
-    return f"{name} {value_words(value)}"
+    return f"{name} {value_words(value, name)}"
 
 
 def changed_words(settings: dict[str, Any], joiner: str = " ") -> str:
     """A change as "now at …" and the divider say it: steering's strength by that word."""
     names = {"steering_scale": "strength"}
-    return " and ".join(f"{names.get(n, n)}{joiner}{value_words(v)}" for n, v in settings.items())
+    return " and ".join(
+        f"{names.get(n, n)}{joiner}{value_words(v, n)}" for n, v in settings.items()
+    )
 
 
 def numbers(ks: list[int]) -> str:
@@ -1266,7 +1271,7 @@ def setting_row(name: str, setting: dict[str, Any], model: dict[str, Any]) -> di
     row: dict[str, Any] = {
         "name": name,
         "value": value,
-        "in_use": value_words(value),
+        "in_use": value_words(value, name),
         "origin": origin,
         "help": SETTING_HELP.get(name),
         "slider": SLIDERS.get(name),
@@ -1286,9 +1291,9 @@ def setting_row(name: str, setting: dict[str, Any], model: dict[str, Any]) -> di
         back = setting["profile"]
         rest = at_rest(name, back["value"]) if name != "steering_scale" else None
         label = (
-            f"{rest.capitalize()} ({value_words(back['value'])})"
+            f"{rest.capitalize()} ({value_words(back['value'], name)})"
             if rest
-            else f"Back to {value_words(back['value'])} ({back['origin']})"
+            else f"Back to {value_words(back['value'], name)} ({back['origin']})"
         )
         row["buttons"].append((name, label))
     return row
@@ -1306,11 +1311,11 @@ def document_row(name: str, setting: dict[str, Any]) -> dict[str, Any]:
     budget as number boxes, and Back to the base (decision 16) when this chat set it."""
     value, origin, base = setting["value"], setting["origin"], setting["base"]
     methods = ("meaning", "words")
-    back = [(name, f"Back to {value_words(base['value'])} ({base['origin']})")]
+    back = [(name, f"Back to {value_words(base['value'], name)} ({base['origin']})")]
     return {
         "name": name,
         "value": value,
-        "in_use": value_words(value),
+        "in_use": value_words(value, name),
         "origin": origin,
         "help": SETTING_HELP[name],
         "slider": None,
@@ -1334,7 +1339,7 @@ def settings_panel(settings: dict[str, Any], waits: str | None) -> dict[str, Any
     more = ["min_p", "top_k"]
     if "penalties" in samplers:
         more += ["repeat_penalty"] if transformers else list(PENALTY_ROWS)
-    unused = [{**e, "value": value_words(e["value"])} for e in settings["not_applied"]]
+    unused = [{**e, "value": value_words(e["value"], e["name"])} for e in settings["not_applied"]]
     found = settings.get("documents")  # chat mode only (B2)
     documents = found and [
         document_row(n, found[n])
@@ -1489,14 +1494,14 @@ def changed_lines(differences: dict[str, list[dict[str, Any]]], record: str) -> 
     most SHOWN_CHANGES per fact, then how many more `record` holds. A replay's result in
     Details and a reopened chat's list of what changed both say changes this way."""
 
-    def clipped(value: Any) -> str:  # a /props entry can be long; the record has it all
-        words = value_words(value)
+    def clipped(entry: dict[str, Any], key: str) -> str:  # a /props entry can be long
+        words = value_words(entry[key], entry["path"])  # the record has it all
         return words if len(words) <= 70 else words[:69] + "…"
 
     lines = []
     for fact, entries in differences.items():
         lines += [
-            f"{fact} · {e['path']} {clipped(e['logged'])} → {clipped(e['now'])}"
+            f"{fact} · {e['path']} {clipped(e, 'logged')} → {clipped(e, 'now')}"
             for e in entries[:SHOWN_CHANGES]
         ]
         if len(entries) > SHOWN_CHANGES:
@@ -1674,7 +1679,7 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
         replaying=replaying,
         waits=running is not None and not replaying,
         settings=[
-            (name, value_words(v["value"]), at_rest(name, v["value"]), v["origin"])
+            (name, value_words(v["value"], name), at_rest(name, v["value"]), v["origin"])
             for name, v in call["settings"].items()
         ],
         seed_drawn=call.get("seed_drawn"),

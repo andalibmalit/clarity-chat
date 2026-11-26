@@ -12,7 +12,7 @@
 {% if changed %}<button type="button" class="btn" data-action="reset-all" data-names="{{ changed | join(' ') }}"{{ wait | safe }}>Reset all</button>
 {% endif %}<h3 class="sh">Common</h3>
 {% for r in common %}{{ row(r) }}{% endfor %}{% if documents %}<h3 class="sh">Documents</h3>
-<p class="gl">{{ applies }}</p>
+<p class="from">{{ applies }}</p>
 {% for r in documents %}{{ row(r) }}{% endfor %}{% endif %}{% if steering %}<h3 class="sh">Steering</h3>
 <dl class="kv"><dt>Vector</dt><dd>{{ steering.file.rsplit("/", 1)[-1] }}</dd><dt>sha256</dt><dd>{{ steering.sha256[:12] }}</dd><dt>Blocks</dt><dd>{% if steering.layers %}{{ steering.layers[0] }} to {{ steering.layers[-1] }}{% else %}every block{% endif %}</dd></dl>
 {{ row(strength) }}{% endif %}{% if logprobs %}<h3 class="sh">Probabilities</h3>
