@@ -728,17 +728,11 @@ def _set(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     record = c.session.set_setting(name, value.strip())
     conversation = c.session.conversation
     assert conversation is not None
-    if name not in CHAT_KEYS:
-        return {"record": record, "setting": conversation.settings[name].to_json()}
-    setting = conversation.search_values()[name].to_json()
-    if name != "search_method":
-        return {"record": record, "setting": setting}
-    # Meaning chosen without bge-m3 is said as /search says it (state 12).
-    return {
-        "record": record,
-        "setting": setting,
-        "warnings": c.session.search_warnings(conversation),
-    }
+    values = conversation.search_values() if name in CHAT_KEYS else conversation.settings
+    result = {"record": record, "setting": values[name].to_json()}
+    if name == "search_method":  # meaning without bge-m3 is said as /search says it (state 12)
+        result["warnings"] = c.session.search_warnings(conversation)
+    return result
 
 
 def _set_ctx_size(c: Commands, value: str, emit: Emit) -> dict[str, Any]:
