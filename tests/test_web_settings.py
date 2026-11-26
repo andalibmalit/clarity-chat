@@ -252,3 +252,25 @@ def test_the_seed_row_says_which_replies_it_seeds(chat):
         "Used for the next message you send or edit. Regenerate and More replies take the "
         "next seed up instead; to run a reply again with its own seed, use Replay in Details."
     ) in r
+
+
+def test_a_row_s_not_applied_note_names_its_value_as_the_page_writes_it(chat):
+    """The whole-branch review's should 5 and mutations #17 and #20: the note under a row
+    (B3b's "Not applied: the next reply still uses X") reads its value from the note's own
+    data-in-use, not the box's; an amount of 1,000 or more gets separators, a seed stays
+    plain to be copied."""
+    client, _ = chat
+    result(client, "set", "max_tokens 2048")
+    result(client, "set", "seed 12345")
+    fragment = panel(client)
+    tokens = row(fragment, "max_tokens")
+    assert '<p class="gl note" data-in-use="2,048 (chat)" hidden></p>' in tokens
+    assert "data-in-use" not in tokens.split('<p class="gl note"')[0], "the box has none"
+    assert '<p class="gl note" data-in-use="12345 (chat)" hidden></p>' in row(fragment, "seed")
+
+
+def test_an_amount_gets_separators_from_1000():
+    """Mutation #17: the boundary."""
+    assert web.value_words(999) == "999"
+    assert web.value_words(1000) == "1,000"
+    assert web.value_words(1000, "seed") == "1000"

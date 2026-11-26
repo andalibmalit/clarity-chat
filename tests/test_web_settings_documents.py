@@ -103,7 +103,8 @@ def test_a_chat_mode_panel_has_the_documents_group_after_common(documents):
     )
     # Ruling 5: the box keeps the plain number; the page's own words have the separator.
     budget = row(fragment, "budget")
-    assert 'value="1500" step="1" data-in-use="1,500 (default)"' in budget
+    assert 'value="1500" step="1">' in budget  # the box has no data-in-use (review C1)
+    assert '<p class="gl note" data-in-use="1,500 (default)" hidden></p>' in budget
     assert 'data-action="reset-all"' not in fragment
 
 
@@ -213,3 +214,19 @@ def test_the_documents_rows_wait_while_a_reply_runs(documents):
     controls = re.findall(r"<(?:input|button)[^>]*>", group(fragment))
     assert len(controls) == 4  # two method buttons, two boxes
     assert all('aria-disabled="true"' in c and "settings-waits" in c for c in controls)
+
+
+def test_the_method_s_help_says_what_each_search_picks(documents):
+    """The fact-check: no model named in the help, and word search's match is one word."""
+    assert SETTING_HELP["search_method"] == (
+        "How search picks the parts of your documents to add to a message: by meaning, the "
+        "parts closest in meaning to it, or by words, the parts that share a word with it."
+    )
+
+
+def test_the_method_buttons_are_a_group_named_by_its_key(documents):
+    """Mutation #24, as tests/test_web_settings_context.py checks the Context row."""
+    client, _ = documents
+    r = row(panel(client), "search_method")
+    assert '<span class="key" id="key-search_method">search_method</span>' in r
+    assert re.search(r'<div class="ctl" role="group" aria-labelledby="key-search_method"[ >]', r)

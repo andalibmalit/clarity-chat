@@ -144,7 +144,7 @@ def test_details_and_replay_keep_a_call_s_own_size(clarity, page):  # noqa: F811
     page.wait_for_selector("#panel .refused:not([hidden])")
     assert page.text_content("#panel .refused") == (
         f"Call {call} ran with a context of 8,192 tokens, but this chat uses 16,384. Set "
-        "ctx_size to 8,192 to replay it here."
+        "ctx_size to 8192 to replay it here."
     )
     shot(page, "B3b-replay-other-size", "v044-b3b")
 

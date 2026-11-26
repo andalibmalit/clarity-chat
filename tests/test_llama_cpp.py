@@ -600,7 +600,7 @@ def test_more_than_the_gpu_had_free_is_refused_on_metal_only():
     problem = memory_problem(32768, [over])
     assert problem is not None
     assert "At ctx_size 32768, the model needs 21,154 MiB" in problem
-    assert "recommended limit for this GPU, 20,000 MiB. Lower ctx_size" in problem
+    assert "recommended maximum for this GPU, 20,000 MiB. Lower ctx_size" in problem
     assert memory_problem(32768, [{**over, "device": "CUDA0"}]) is None  # logged only
     assert memory_problem(32768, [{**over, "limit_mib": 25558}]) is None
     too_big = {**over, "limit_mib": 12000}  # the model alone is over the limit
@@ -613,7 +613,7 @@ def test_the_memory_figures_are_logged_and_an_overflow_stops_the_server(monkeypa
     _, _, record = started_server(monkeypatch, root, STARTUP_OLMO_32K)
     assert '"memory": [{"device": "MTL0", "limit_mib": 25558' in record
     tight = STARTUP_OLMO_32K.replace("25558 MiB free", "20000 MiB free")
-    with pytest.raises(ConfigError, match="recommended limit for this GPU, 20,000 MiB"):
+    with pytest.raises(ConfigError, match="recommended maximum for this GPU, 20,000 MiB"):
         started_server(monkeypatch, root, tight)
 
 
@@ -796,7 +796,7 @@ def two_servers(monkeypatch, root):  # conftest's no_running_servers empties RUN
 
 BOTH = (
     "Meaning search's embedder needs 1,800 MiB of GPU memory and the chat model 9,000 MiB at "
-    "ctx_size {ctx}: together 10,800 MiB, more than Metal's recommended limit for this GPU, "
+    "ctx_size {ctx}: together 10,800 MiB, more than Metal's recommended maximum for this GPU, "
     "10,700 MiB. Use a smaller chat model or a lower ctx_size. Or search by words: set "
     'search_method to "words".'
 )
@@ -844,7 +844,7 @@ def test_a_stopped_server_isn_t_counted(two_servers):
 
 EMBEDDER_ALONE = (
     "Meaning search's embedder needs 1,800 MiB of GPU memory, more than Metal's "
-    'recommended limit for this GPU, 1,500 MiB. Search by words: set search_method to "words".'
+    'recommended maximum for this GPU, 1,500 MiB. Search by words: set search_method to "words".'
 )
 
 

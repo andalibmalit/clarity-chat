@@ -21,7 +21,7 @@ from clarity_chat.cli import ChatLoop
 from clarity_chat.commands import Commands, settings_view
 from clarity_chat.logs import read_records
 from clarity_chat.profiles import ConfigError, Setting, load_server_config
-from clarity_chat.resume import rebuild
+from clarity_chat.resume import rebuild, what_differs
 from clarity_chat.session import Session
 from tests.fake_llama import fake_llama, startup
 from tests.fakes import FakeBackend
@@ -98,7 +98,7 @@ def refusal_of(action) -> BaseException:
 
 MEMORY_16384 = (
     "At 16,384 tokens, the model uses 6,012 MiB of GPU memory (4,610 for the model, 1,152 "
-    "for the context cache, 250 for computing), out of Metal's recommended limit for this GPU, "
+    "for the context cache, 250 for computing), out of Metal's recommended maximum for this GPU, "
     "25,559 MiB."
 )  # state 20, as the plan has it
 
@@ -140,7 +140,7 @@ def test_a_size_over_metal_s_limit_is_refused_and_the_old_size_runs_on(llama):
     assert str(refused) == (
         "At ctx_size 16384, the model needs 6,012 MiB of GPU memory (4,610 for the model, "
         "1,152 for the context cache, 250 for computing), more than Metal's recommended "
-        "limit for this GPU, 6,000 MiB. Lower ctx_size: the context cache grows with it."
+        "maximum for this GPU, 6,000 MiB. Lower ctx_size: the context cache grows with it."
     )
     assert size_of(session) == Setting(8192, "server.toml")
     assert records(session, "settings") == [], "a refused size was logged as the chat's"
@@ -270,6 +270,24 @@ def test_a_resumed_chat_keeps_its_set_size(fake, fetched_root, tiny_tokenizer):
     assert backend.ctx_sizes == [16384, 8192]
 
 
+def test_only_a_log_with_no_size_warns_on_resume(fake, fetched_root, tiny_tokenizer):
+    """v0.4.4 QA: a chat that set its size resumed with "The log doesn't say its context
+    size: using 4096 (chat)", though its `settings` record and calls hold 4,096. The size
+    set in the chat is in the log; only a size that came from today's files is a guess."""
+    session, _ = fake
+    assert raised(lambda: session.set_setting("ctx_size", "4096")) is None
+    session.say("Hi")
+    path = session.conversation.log.path
+    resume(fetched_root, tiny_tokenizer, path)
+    (resumed,) = [r for r in read_records(path) if r["type"] == "resume"]
+    assert resumed["ctx_size"] == {"value": 4096, "origin": "chat"}
+    said = [item["text"] for item in what_differs(resumed)]
+    assert not [t for t in said if "context size" in t], said
+    guessed = {**resumed, "ctx_size": {"value": 8192, "origin": "server.toml"}}
+    said = [item["text"] for item in what_differs(guessed)]
+    assert "The log doesn't say its context size: using 8192 (server.toml)." in said
+
+
 def test_set_call_reset_resume_comes_back_at_the_base(fake, fetched_root, tiny_tokenizer):
     """The case today's rule gets wrong: the last call ran at 16,384, but the chat went
     back to 8,192 after it."""
@@ -343,7 +361,7 @@ def test_replay_at_another_size_says_to_set_it_and_replays_after(fake):
     refused = refusal_of(lambda: session.replay(path, call_id))
     assert str(refused) == (
         f"Call {call_id} ran with a context of 8,192 tokens, but this chat uses 16,384. Set "
-        "ctx_size to 8,192 to replay it here."
+        "ctx_size to 8192 to replay it here."
     )
     assert raised(lambda: session.set_setting("ctx_size", "8192")) is None
     assert session.replay(path, call_id)["identical"]

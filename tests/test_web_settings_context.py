@@ -76,7 +76,7 @@ def test_the_context_row_has_the_four_presets_and_the_size_in_use_pressed(chat):
     assert '<span class="tag">server.toml</span>' in r
     assert SETTING_HELP["ctx_size"] == (
         "The context size in tokens: the prompt and the reply together must fit in it. A larger "
-        "context takes more memory."
+        "context usually takes more memory."
     )
     assert f'<p class="gl">{SETTING_HELP["ctx_size"]}</p>' in r
     assert 'data-set="ctx_size"' not in r, "a size that wasn't changed has no way back"
@@ -96,7 +96,7 @@ def test_a_size_set_here_is_pressed_with_its_way_back_and_its_memory(chat):
     assert (
         '<p class="gl">At 16,384 tokens, the model uses 6,012 MiB of GPU memory (4,610 for the '
         "model, 1,152 for the context cache, 250 for computing), out of Metal's recommended "
-        "limit for this GPU, 25,559 MiB.</p>"
+        "maximum for this GPU, 25,559 MiB.</p>"
     ) in r
     assert '<button type="button" class="btn" data-set="ctx_size"' in r
     assert ">Back to 8,192 (server.toml)</button>" in r
@@ -186,3 +186,13 @@ def test_the_thread_keeps_the_chat_and_says_its_model_is_starting(chat):
     assert '<div class="starting"><p class="st" role="status">' in thread
     assert "Starting text…" in thread
     assert "Waits until the model has started." in picker
+
+
+def test_each_choice_group_is_named_by_its_key(chat):
+    """Mutation #24: the Context and method rows' buttons are a group labelled by the row's
+    key, so a screen reader says which setting a button sets. The method row's: in
+    tests/test_web_settings_documents.py."""
+    client, _ = chat
+    r = row(context(panel(client)), "ctx_size")
+    assert '<span class="key" id="key-ctx_size">ctx_size</span>' in r
+    assert '<div class="ctl" role="group" aria-labelledby="key-ctx_size">' in r
