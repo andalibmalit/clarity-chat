@@ -7,15 +7,17 @@ Only the `gpu`-marked test needs the model on a GPU; CI runs the rest on a Linux
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
 import pytest
 
+from clarity_chat.backends import BackendError
 from clarity_chat.backends.llama_cpp import LlamaCppBackend, server_binary
 from clarity_chat.logs import read_records
 from clarity_chat.models import check_weights_quick, lock_entry
-from clarity_chat.profiles import ConfigError, load_models, load_server_config
+from clarity_chat.profiles import ConfigError, Setting, load_models, load_server_config
 from clarity_chat.render import Tokenizer
 from clarity_chat.replay import find_call
 from clarity_chat.session import ContextError, Session
@@ -735,3 +737,161 @@ def test_a_start_s_output_holds_the_build_line_and_system_info(session):
     assert len(commit) >= 7 and pin.startswith(commit), (line, pin)
     assert " with " in line and " for " in line and not line.startswith("build "), line
     assert built.get("features"), built
+
+
+# --- v0.4.4's gates G1 to G3 (notes/plans/v0.4.4.md, "Gates"). Tests only: each prints what
+# it finds, for the status file, and the main session rules on it before Part 1. Run with -s
+# to see the lines: uv run pytest -m live -v -s -k gate_g
+
+N_CTX_TRAIN_LINE = re.compile(r"print_info: n_ctx_train\s+=\s+(\d+)")
+CONTEXT_LENGTH_KV = re.compile(r"\b([\w-]+)\.context_length\b.*?=\s*(\d+)")
+
+
+def test_gate_g1_where_a_start_shows_the_trained_maximum(session):
+    """Where a real SmolLM2 start says the size it was trained on, in the order decision 9
+    reads them: the print_info line, the GGUF metadata dump, /v1/models' meta. Records only:
+    with none of them, Q3's option (c) is the build."""
+    import httpx
+
+    output = session.backend.server_record["startup_output"]
+    line = N_CTX_TRAIN_LINE.search(output)
+    kv = CONTEXT_LENGTH_KV.search(output)
+    server = session.backend.server
+    r = httpx.get(f"{server.url}/v1/models", headers=server.headers, timeout=10, trust_env=False)
+    body = r.json() if r.status_code == 200 else {}
+    meta = [m.get("meta", {}).get("n_ctx_train") for m in body.get("data", [])]
+    found = {
+        "print_info: n_ctx_train": int(line[1]) if line else None,
+        "<arch>.context_length": int(kv[2]) if kv else None,
+        "/v1/models meta.n_ctx_train": meta[0] if meta else None,
+    }
+    print("\nG1, the trained maximum on SmolLM2's start:")
+    for source, value in found.items():
+        print(f"  {source}: {value}")
+    print(f"  the n_ctx_train line: {line[0] if line else None!r}")
+    print(f"  the metadata line: {kv[0].strip() if kv else None!r}")
+    print(f"  /v1/models: HTTP {r.status_code}, meta {meta}")
+    first = next((s for s, v in found.items() if v == 8192), None)
+    print(f"  G1: the first source equal to 8,192: {first}")
+
+
+G2_PROMPTS = (
+    "Tell me a short story about a lighthouse keeper.",
+    "List three uses for a paper clip.",
+    "Describe a quiet morning in a made-up mountain town.",
+)
+G2_SEEDS = (42, 7)
+
+
+def test_gate_g2_does_the_context_size_change_a_seeded_reply(session, tmp_path):
+    """The same logged request (prompt, settings, seed) sent to a new server at 4,096 and to
+    a new server at 8,192, against the reply made at 8,192. Records whether 4,096 changes
+    output_ids. The new 8,192 server is the control, and the only assertion: if it differs,
+    a difference at 4,096 says nothing about the size."""
+    asked = [(prompt, seed) for prompt in G2_PROMPTS for seed in G2_SEEDS]
+    calls = []
+    for prompt, seed in asked:
+        session.new_conversation("smol-chat")  # temperature 0.6: the seed decides
+        calls.append(session.say(prompt, seed=Setting(seed, "run")).record)
+    assert {c["n_ctx"] for c in calls} == {8192}
+    model = load_models(REPO)[MODEL]
+    weights = check_weights_quick(REPO, lock_entry(REPO, model))
+    outputs: dict[int, list[list[int]]] = {}
+    for n_ctx in (4096, 8192):
+        backend = LlamaCppBackend(load_server_config(REPO), tmp_path / f"logs-{n_ctx}")
+        try:
+            backend.start(model, weights, n_ctx)
+            assert backend.n_ctx == n_ctx
+            outputs[n_ctx] = [
+                backend.complete(
+                    c["prompt_ids"],
+                    {k: v["value"] for k, v in c["settings"].items()},
+                    c["stop"],
+                    request=c["request"],
+                ).token_ids
+                for c in calls
+            ]
+        finally:
+            backend.close()
+
+    def first_difference(a: list[int], b: list[int]) -> int | None:
+        return next((i for i, (x, y) in enumerate(zip(a, b, strict=False)) if x != y), None)
+
+    print("\nG2, the same request at 4,096 and on a new 8,192 server, against the 8,192 reply:")
+    differs = {4096: 0, 8192: 0}
+    for i, call in enumerate(calls):
+        cells = []
+        for n_ctx in (4096, 8192):
+            got, want = outputs[n_ctx][i], call["output_ids"]
+            same = got == want
+            differs[n_ctx] += not same
+            where = (
+                ""
+                if same
+                else f" (first at {first_difference(got, want)}, {len(got)} vs {len(want)})"
+            )
+            cells.append(f"{n_ctx}: {'equal' if same else 'DIFFERENT'}{where}")
+        (prompt, seed), n = asked[i], len(call["output_ids"])
+        print(f"  seed {seed}, {n} tokens, {prompt!r}: {'; '.join(cells)}")
+    print(f"  G2: 4,096 differs in {differs[4096]} of {len(calls)}; the control in {differs[8192]}")
+    assert differs[8192] == 0, "a new server at the same size differs: G2 can't be read"
+
+
+def test_gate_g3_the_restart_and_restore_path_today(tmp_path):
+    """start_model at another size in a live chat, as decision 6 will use it: 4,096, then
+    16,384 (above SmolLM2's 8,192, so refused). Two forms: (a) today's, where nothing
+    changes the conversation's ctx_size; (b) the conversation's ctx_size set to 4,096 after
+    the start worked. Prints each call's n_ctx and the server_start records. Asserts the
+    16,384 start is refused, the chat goes on after it, and each call's logged server
+    started at the call's n_ctx."""
+    session = Session(REPO, logs_dir=tmp_path)
+    try:
+        session.new_conversation("smol-chat")
+        conversation = session.conversation
+        assert conversation is not None
+        prepared = session.prepare("smol-chat")
+        steps = [("the chat's start", session.say("Name one colour.").record)]
+
+        # (a) today: nothing sets conversation.ctx_size.
+        assert session.start_model(prepared, Setting(4096, "chat")) is not None
+        steps.append(("(a) after start_model at 4,096", session.say("Name another.").record))
+        with pytest.raises((ConfigError, BackendError)) as refused_a:
+            session.start_model(prepared, Setting(16384, "chat"))
+        steps.append(("(a) after the refused 16,384", session.say("And one more.").record))
+
+        # (b) the conversation's size follows a start that worked.
+        session.start_model(prepared, Setting(4096, "chat"))
+        conversation.ctx_size = Setting(4096, "chat")
+        steps.append(("(b) after start_model at 4,096", session.say("Name a fruit.").record))
+        with pytest.raises((ConfigError, BackendError)) as refused_b:
+            session.start_model(prepared, Setting(16384, "chat"))
+        steps.append(("(b) after the refused 16,384", session.say("And a tree.").record))
+        log = conversation.log.path
+    finally:
+        session.close()
+
+    records = list(read_records(log))
+    starts = {r["server_id"]: r for r in records if r["type"] == "server_start"}
+    print("\nG3, the restart and restore path today:")
+    print(f"  (a) the refusal: {type(refused_a.value).__name__}: {refused_a.value}")
+    print(f"  (b) the refusal: {type(refused_b.value).__name__}: {refused_b.value}")
+    for label, call in steps:
+        print(f"  {label}: call n_ctx {call['n_ctx']}, server {call['backend']['server_id']}")
+    print(f"  server_start records in the log: {len(starts)}")
+    for server_id, start in starts.items():
+        n_ctx = start["props"]["default_generation_settings"]["n_ctx"]
+        print(f"    {server_id}: ctx-size {start['flags'].get('ctx-size')}, /props n_ctx {n_ctx}")
+    print(f"  conversation records: {sum(r['type'] == 'conversation' for r in records)}")
+
+    for label, call in steps:
+        all_checks_ok(call)
+        assert call["stop_type"] in ("eos", "limit"), (label, call["stop_type"])
+        start = starts.get(call["backend"]["server_id"])
+        assert start is not None, f"{label}: its server's start isn't in the log"
+        assert start["props"]["default_generation_settings"]["n_ctx"] == call["n_ctx"], label
+        at = next(
+            i
+            for i, r in enumerate(records)
+            if r["type"] == "call" and r["call_id"] == call["call_id"]
+        )
+        assert records.index(start) < at, f"{label}: its server's start is logged after the call"
