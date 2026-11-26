@@ -514,26 +514,29 @@ def test_the_longest_vector_name_makes_and_one_byte_more_is_refused_before_the_m
     longest = profile(project, "a" * 207, extra="ctx_size = 256")  # brief-a….gguf: 218 bytes
     made(project, chat_tokenizer, name=longest)
     assert (project / "local" / "vectors" / f"brief-{longest}.gguf").is_file()
-    over = profile(project, "a" * 208, extra="ctx_size = 256")
-    session = session_on(project, chat_tokenizer)
+    # One byte more; and a name counted in bytes, not characters (the second fix review's
+    # should 1): "ж" is 2 bytes, so brief-ж….gguf is 223 bytes in 117 characters.
+    for over, size in (("a" * 208, 219), ("ж" * 106, 223)):
+        profile(project, over, extra="ctx_size = 256")
+        session = session_on(project, chat_tokenizer)
 
-    def start_model(prepared, ctx_size):
-        raise Started
+        def start_model(prepared, ctx_size):
+            raise Started
 
-    session.start_model = start_model
-    outcome = None
-    try:
-        make(session, project / "brief.toml", over)
-    except (ConfigError, Started, OSError) as e:
-        outcome = e
-    finally:
-        session.close()
-    assert str(outcome) == (
-        f"The vector's file name, brief-{over}.gguf, is 219 bytes, more than make takes "
-        "(218): it writes the file first under a name up to 37 bytes longer, and a file "
-        "system takes 255. Rename the pairs file or the profile."
-    ), f"not refused: {outcome!r}"
-    assert not list((project / "local" / "vectors").glob(f"*{over}*"))
+        session.start_model = start_model
+        outcome = None
+        try:
+            make(session, project / "brief.toml", over)
+        except (ConfigError, Started, OSError) as e:
+            outcome = e
+        finally:
+            session.close()
+        assert str(outcome) == (
+            f"The vector's file name, brief-{over}.gguf, is {size} bytes, more than make "
+            "takes (218): it writes the file first under a name up to 37 bytes longer, and "
+            "a file system takes 255. Rename the pairs file or the profile."
+        ), f"not refused: {outcome!r}"
+        assert not list((project / "local" / "vectors").glob(f"*{over}*"))
 
 
 def test_the_writers_write_under_temp_path_and_its_longest_form_bounds_it(tmp_path, monkeypatch):
