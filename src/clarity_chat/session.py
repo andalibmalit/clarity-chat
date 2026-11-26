@@ -24,7 +24,6 @@ import jinja2
 
 from clarity_chat import steering
 from clarity_chat.backends import Backend, BackendError, Result
-from clarity_chat.backends.llama_cpp import outside_chat_words
 from clarity_chat.documents import (
     EMBEDDER_MODEL,
     SENTENCES,
@@ -253,6 +252,7 @@ class Conversation:
     profile: Profile
     log: LogFile
     ctx_size: Setting  # the context size it runs at
+    ctx_base: Setting  # what `/set ctx_size` goes back to (decision 16)
     turns: dict[str, Turn] = field(default_factory=dict)
     head: str | None = None
     run: dict[str, Any] | None = None  # set for a batch run's conversations
@@ -280,8 +280,9 @@ class Conversation:
     @property
     def settings(self) -> dict[str, Setting]:
         """The profile's settings, with this conversation's /set values over them. The
-        search keys aren't settings of a call (v0.4.4 B1): search_values has them."""
-        chat = {n: Setting(v, "chat") for n, v in self.chat_settings.items() if n not in CHAT_KEYS}
+        search keys and ctx_size aren't settings of a call (v0.4.4): search_values and
+        ctx_size have them."""
+        chat = {n: Setting(v, "chat") for n, v in self.chat_settings.items() if n in SETTING_NAMES}
         return {**self.profile.settings, **chat}
 
     def search_bases(self) -> dict[str, Setting]:
@@ -783,6 +784,7 @@ class Session:
             run=run,
             started_server=started,
             ctx_size=ctx_size,
+            ctx_base=ctx_size,
             searching=list(prepared.profile.search),
         )
         conversation.warnings += self._profile_warnings(prepared)
@@ -1013,8 +1015,6 @@ class Session:
         vectors file Clarity can't write is said as it is."""
 
         def refused(problem: dict[str, Any]) -> SearchRefused:
-            if "why" in problem and where != "chat":  # no chat to start in a run (#6b)
-                problem = {**problem, "why": outside_chat_words(problem["why"])}
             return SearchRefused([problem], at_send, where)
 
         embedder = self.embedder()
@@ -1733,10 +1733,12 @@ class Session:
     def set_setting(self, name: str, text: str) -> dict[str, Any]:
         """Change a setting for this conversation (`text` empty: back to its base). Checked
         like a profile, and logged as a `settings` record with every /set value. A search key
-        (v0.4.4 B1) applies from the next message; words stops the embedder (state 13)."""
+        (v0.4.4 B1) applies from the next message; words stops the embedder (state 13). A new
+        ctx_size starts the model again, and is the chat's only once that start worked (G3):
+        a refused one leaves the old size running (decision 6)."""
         conversation = self._require_conversation()
-        if name not in (*SETTING_NAMES, *CHAT_KEYS):
-            known = [*SETTING_NAMES, *CHAT_KEYS]
+        if name not in (*SETTING_NAMES, *CHAT_KEYS, "ctx_size"):
+            known = [*SETTING_NAMES, *CHAT_KEYS, "ctx_size"]
             raise ConfigError(f"/set: unknown setting {name!r}. Known: {known}.")
         if name in CHAT_KEYS and conversation.profile.mode != "chat":  # state 9
             raise ConfigError(
@@ -1750,10 +1752,12 @@ class Session:
         else:
             raise ConfigError(f"{name} isn't set in this chat. Usage: /set NAME VALUE")
         trial = {**conversation.profile.settings}
-        trial.update({k: Setting(v, "chat") for k, v in chat.items() if k not in CHAT_KEYS})
+        trial.update({k: Setting(v, "chat") for k, v in chat.items() if k in SETTING_NAMES})
         check_samplers(trial, "/set")
         steered = conversation.profile.steering is not None
         check_backend_settings(trial, conversation.profile.backend, "/set", steered)
+        if name == "ctx_size":
+            self._resize(conversation, Setting(chat[name], "chat") if text else None)
         conversation.chat_settings = chat
         if name == "search_method":
             self._free_embedder(conversation.search_method)
@@ -1766,6 +1770,23 @@ class Session:
                 "chat_settings": chat,
             }
         )
+
+    def _resize(self, conversation: Conversation, size: Setting | None) -> None:
+        """Run the chat's model at `size` (None: the base), starting it again if the size
+        is new. `conversation.ctx_size` changes only after the start worked: on a failure
+        start_model's restore runs the old size again, or says it couldn't (state 31)."""
+        size = size or conversation.ctx_base
+        if size.value != conversation.ctx_size.value:
+            model, weights = self.model, self.weights
+            tokenizer, template_tokenizer = self.tokenizer, self.template_tokenizer
+            assert model and weights and tokenizer and template_tokenizer  # a chat runs
+            running = Prepared(
+                conversation.profile, model, self.model_lock, weights,
+                tokenizer, template_tokenizer, self.template,
+            )  # fmt: skip
+            self.start_model(running, size)
+        conversation.ctx_size = size
+        self._log_server_start()
 
     def history(self, conversation: Conversation | None = None) -> list[dict[str, Any]]:
         """The conversation from its start to `head`: each turn with its current marks and
@@ -2172,10 +2193,10 @@ class Session:
                 "Resume the conversation it's from to replay it there."
             )
         if self.conversation is not None and call["n_ctx"] != self.backend.n_ctx:
-            raise ConfigError(
-                f"Call {call_id} ran with a context of {call['n_ctx']} tokens, but this "
-                f"conversation uses {self.backend.n_ctx}. Resume the conversation it's from "
-                "to replay it there."
+            raise ConfigError(  # decision 12: the size is a condition the chat can meet
+                f"Call {call_id} ran with a context of {call['n_ctx']:,} tokens, but this chat "
+                f"uses {self.backend.n_ctx:,}. Set ctx_size to {call['n_ctx']:,} to replay it "
+                "here."
             )
         device = described.get("device") if backend_name == "transformers" else None
         weights = self.weights_for(backend_name, entry)
@@ -2304,13 +2325,17 @@ class Session:
         logged = {**filled, **start["settings"]}
         prepared.profile.settings = {k: Setting(v["value"], v["origin"]) for k, v in logged.items()}
         last = state.last_call
-        n_ctx = last["n_ctx"] if last else (start.get("ctx_size") or {}).get("value")
-        ctx_size = Setting(n_ctx, "log") if n_ctx else self.ctx_size_for(prepared.profile)
+        # Decision 11: the chat's /set size, else the conversation record's, else (a log
+        # from before that field) the last call's, else the profile's today. The base, what
+        # a reset goes back to, is the logged one (decision 16).
+        n_ctx = (start.get("ctx_size") or {}).get("value") or (last["n_ctx"] if last else None)
+        base = Setting(n_ctx, "log") if n_ctx else self.ctx_size_for(prepared.profile)
         where = f"{path}: a setting changed in the chat"
         chat = {k: check_chat_setting(k, v, where) for k, v in state.chat_settings.items()}
         if prepared.profile.mode != "chat" and set(chat) & set(CHAT_KEYS):  # state 9
             raise TypeError("a text-mode chat's search setting isn't one Clarity writes")
-        sampling = {k: Setting(v, "chat") for k, v in chat.items() if k not in CHAT_KEYS}
+        ctx_size = Setting(chat["ctx_size"], "chat") if "ctx_size" in chat else base
+        sampling = {k: Setting(v, "chat") for k, v in chat.items() if k in SETTING_NAMES}
         merged = {**prepared.profile.settings, **sampling}
         check_samplers(merged, f"{path}: a setting changed in the chat")
         steered = prepared.profile.steering is not None
@@ -2327,6 +2352,7 @@ class Session:
             calls=state.calls,
             chat_settings=chat,
             ctx_size=ctx_size,
+            ctx_base=base,
             resumed=True,
             # The settings are the logged ones, so their source is too.
             # Failed calls too: a chat whose only call failed still logged them.

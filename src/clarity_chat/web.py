@@ -1631,7 +1631,6 @@ async def _details(worker: Worker, params: dict[str, str | None]) -> str:
             for name, v in call["settings"].items()
         ],
         seed_drawn=call.get("seed_drawn"),
-        ctx=settings["ctx_size"],
         record=record_text(call),
         probs=probs_section(probs, call.get("output_text") or ""),
     )

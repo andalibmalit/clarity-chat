@@ -24,7 +24,14 @@ import httpx
 
 from clarity_chat.backends import BackendError, Result
 from clarity_chat.logs import git_state, machine, new_id
-from clarity_chat.profiles import ConfigError, ModelEntry, ServerConfig, fetch_hint
+from clarity_chat.profiles import (
+    WAY_BY_WORDS,
+    WORDS_WAY_OUT,
+    ConfigError,
+    ModelEntry,
+    ServerConfig,
+    fetch_hint,
+)
 
 if TYPE_CHECKING:
     from clarity_chat.steering import Steering
@@ -348,18 +355,30 @@ def memory_use(startup_output: str, placement: dict[str, Any]) -> list[dict[str,
 # search's embedder. Each is removed once it has exited.
 RUNNING: list[LlamaServer] = []
 
-WORDS_WAY_OUT = (
-    'set search_method = "words" under [documents] in your own profile (copy a shipped one '
-    "into local/profiles/ first) and start a new chat."
-)
+
+def metal_memory(memory: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The Metal device's measured memory, if the start logged one (decision 8)."""
+    return next((m for m in memory if m["device"].startswith("MTL")), None)
 
 
-def outside_chat_words(said: str) -> str:
-    """A memory refusal said where no chat is open (a run): its way out by words ends by
-    running the command again, as state 5's does there (#6b). Other sentences are kept."""
-    if not said.endswith(WORDS_WAY_OUT[1:]):
-        return said
-    return said.removesuffix("start a new chat.") + "run the command again."
+def memory_breakdown(m: dict[str, Any]) -> str:
+    return (
+        f"{m['total_mib']:,.0f} MiB of GPU memory ({m['model_mib']:,.0f} for the model, "
+        f"{m['kv_mib']:,.0f} for the context cache, {m['compute_mib']:,.0f} for computing)"
+    )
+
+
+def metal_limit(m: dict[str, Any]) -> str:
+    return f"Metal's recommended limit for this GPU, {m['limit_mib']:,} MiB."
+
+
+def memory_sentence(ctx_size: int, memory: list[dict[str, Any]]) -> str | None:
+    """What a size uses on Metal, said after `/set ctx_size` and on /settings (state 20).
+    None without Metal's figures (the Transformers backend, other GPUs: state 21)."""
+    m = metal_memory(memory)
+    if m is None:
+        return None
+    return f"At {ctx_size:,} tokens, the model uses {memory_breakdown(m)}, of {metal_limit(m)}"
 
 
 def memory_problem(
@@ -384,10 +403,8 @@ def memory_problem(
             continue
         if not embedder and m["total_mib"] > m["limit_mib"]:  # the chat model alone
             return (
-                f"At ctx_size {ctx_size}, the model needs {m['total_mib']:,.0f} MiB of GPU "
-                f"memory ({m['model_mib']:,.0f} for the model, {m['kv_mib']:,.0f} for the "
-                f"context cache, {m['compute_mib']:,.0f} for computing), more than Metal's "
-                f"recommended limit for this GPU, {m['limit_mib']:,} MiB. "
+                f"At ctx_size {ctx_size}, the model needs {memory_breakdown(m)}, more than "
+                f"{metal_limit(m)} "
                 + (
                     "The model alone is over the limit, so no ctx_size fits: use a smaller "
                     "model or a smaller quantization."
@@ -395,21 +412,20 @@ def memory_problem(
                     else "Lower ctx_size: the context cache grows with it."
                 )
             )
-        limit = f"more than Metal's recommended limit for this GPU, {m['limit_mib']:,} MiB."
+        limit = f"more than {metal_limit(m)}"
         if other is None or (embedder and m["total_mib"] > m["limit_mib"]):
             # the embedder alone, with or without a chat server beside it: its 8,192 is
             # fixed, and nothing the chat server could give up would make room (#1)
-            way_out = WORDS_WAY_OUT[0].upper() + WORDS_WAY_OUT[1:]
             return (
                 f"Meaning search's embedder needs {m['total_mib']:,.0f} MiB of GPU memory, "
-                f"{limit} {way_out}"
+                f"{limit} {WAY_BY_WORDS[0].upper()}{WAY_BY_WORDS[1:]}"
             )
         mine, theirs = (m, other) if embedder else (other, m)
         chat_ctx = beside[0] if embedder and beside else ctx_size
         return (
             f"Meaning search's embedder needs {mine['total_mib']:,.0f} MiB of GPU memory and "
             f"the chat model {theirs['total_mib']:,.0f} MiB at ctx_size {chat_ctx}: together "
-            f"{total:,.0f} MiB, {limit} Use a smaller chat model or a lower ctx_size, or "
+            f"{total:,.0f} MiB, {limit} Use a smaller chat model or a lower ctx_size. "
             f"{WORDS_WAY_OUT}"
         )
     return None

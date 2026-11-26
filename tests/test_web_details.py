@@ -114,7 +114,7 @@ def test_settings_as_logged_with_origins(chat):
     # Checkpoint 4, finding 20: a sampler's neutral value is "neutral" (temperature 1 isn't
     # off); logprobs and steering_scale at 0 are off.
     assert "0.6</dd>" in fragment and "0 (neutral)" in fragment and "0 (off)" in fragment
-    assert "8,192" in fragment and "server.toml" in fragment
+    assert "<dt>context</dt><dd>8,192</dd>" in fragment  # its own size, no origin (v0.4.4)
     # Closed at first (design walkthrough, finding 2), so Probabilities is near the top.
     assert '<details class="sec" data-key="settings">' in fragment
 

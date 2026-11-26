@@ -286,7 +286,7 @@ def test_set_changes_a_setting_for_this_chat_and_logs_it(make_session):
     ("name", "text", "message"),
     [
         ("temperature", "hot", "temperature must be"),
-        ("ctx_size", "4096", "unknown setting 'ctx_size'"),
+        ("ctx_size", "0", "ctx_size must be a positive integer"),  # a chat key (v0.4.4)
         ("samplers", "top_k bogus", "unknown sampler names"),
         ("top_p", "", "isn't set in this chat"),
         ("foo", "", "unknown setting 'foo'"),

@@ -141,6 +141,10 @@ MIN_SIMILARITY = 0.5  # the lowest that drops small talk on A5's made-up text (d
 # The [documents] keys a chat can /set (v0.4.4 B1). They change what a message's search adds,
 # not the call, so they stay out of a call's settings; `found` logs them.
 CHAT_KEYS = ("search_method", "min_similarity", "budget")
+# The way out by words, in a chat or a run (v0.4.4, advisor D6): it names the setting, not
+# where to set it, so it holds for /set, a profile and a run's profiles alike.
+WAY_BY_WORDS = 'search by words: set search_method to "words".'
+WORDS_WAY_OUT = f"Or {WAY_BY_WORDS}"
 PLACEMENTS = ("start", "end")
 # A library document's name (v0.3.2 decision 20), here so a profile's `search` list and the
 # library check names by one rule: the documents package imports it.
@@ -443,10 +447,20 @@ def parse_setting(name: str, text: str, where: str) -> Any:
 
 
 def check_chat_setting(name: str, value: object, where: str) -> Any:
-    """A value a chat set with /set: a search key as [documents] checks it, else a setting."""
+    """A value a chat set with /set: a search key as [documents] checks it, ctx_size as a
+    profile's, else a setting."""
     if name in CHAT_KEYS:
         return check_chat_key(name, value, f"{where}:")
+    if name == "ctx_size":
+        return check_ctx_size(value, where)
     return check_setting(name, value, where)
+
+
+def check_ctx_size(value: object, where: str) -> int:
+    size = _integer(value)
+    if size is None or size <= 0:
+        raise ConfigError(f"{where}: ctx_size must be a positive integer, got {value!r}.")
+    return size
 
 
 def check_chat_key(name: str, value: object, where: str) -> Any:
@@ -783,8 +797,8 @@ def load_profile(
             "the vector is multiplied by, such as 4.0, or 0 for none."
         )
     ctx_size = data.get("ctx_size")
-    if ctx_size is not None and (_integer(ctx_size) is None or ctx_size <= 0):
-        raise ConfigError(f"{where}: ctx_size must be a positive integer, got {ctx_size!r}.")
+    if ctx_size is not None:
+        check_ctx_size(ctx_size, where)
     use_recommended = data.get("use_recommended", False)
     if not isinstance(use_recommended, bool):
         raise ConfigError(f"{where}: use_recommended must be true or false.")

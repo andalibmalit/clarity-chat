@@ -723,6 +723,8 @@ def _undo(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
 
 def _set(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     name, _, value = needs(args, "/set NAME [VALUE]").partition(" ")
+    if name == "ctx_size":
+        return _set_ctx_size(c, value.strip(), emit)
     record = c.session.set_setting(name, value.strip())
     conversation = c.session.conversation
     assert conversation is not None
@@ -737,6 +739,44 @@ def _set(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
         "setting": setting,
         "warnings": c.session.search_warnings(conversation),
     }
+
+
+def _set_ctx_size(c: Commands, value: str, emit: Emit) -> dict[str, Any]:
+    """A new size starts the model again, said as a start is (decision 6). The chat is
+    ready again after a refusal too, at its old size, unless that couldn't start either."""
+    running = c.session.conversation
+    assert running is not None
+    emit({"event": "status", "status": "starting", "profile": running.profile.name})
+    try:
+        record = c.session.set_setting("ctx_size", value)
+    finally:
+        if (conversation := c.session.conversation) is not None:
+            emit(
+                {
+                    "event": "status",
+                    "status": "ready",
+                    "conversation_id": conversation.conversation_id,
+                }
+            )
+    assert conversation is not None
+    return {
+        "record": record,
+        "setting": conversation.ctx_size.to_json(),
+        "memory": memory_view(c.session),
+    }
+
+
+def memory_view(session: Session) -> dict[str, Any] | None:
+    """The memory the running model measured at its start, on Metal, and the sentence that
+    says it (decision 8, state 20); None without Metal's figures (state 21)."""
+    from clarity_chat.backends.llama_cpp import memory_sentence, metal_memory
+
+    conversation = session.conversation
+    memory = (session.backend.server_record or {}).get("memory") or []
+    if conversation is None or (m := metal_memory(memory)) is None:
+        return None
+    text = memory_sentence(conversation.ctx_size.value, memory)
+    return {**m, "text": text}
 
 
 def _title(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
@@ -1277,6 +1317,7 @@ def settings_view(session: Session) -> dict[str, Any]:
         if profile.mode == "chat"
         else None,
         "ctx_size": conversation.ctx_size.to_json(),
+        "memory": memory_view(session),
         "stop": profile.stop,
         "steering": {
             "file": profile.steering.file,

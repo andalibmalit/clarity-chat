@@ -205,6 +205,8 @@ def format_settings(view: dict[str, Any]) -> str:
     lines += [f"  {n['name']}: {n.get('reason', 'no reason given')}" for n in not_applied]
     ctx = view["ctx_size"]
     lines.append(f"context {ctx['value']} tokens ({ctx['origin']}); stop {view['stop']!r}")
+    if memory := view.get("memory"):  # measured at the start, on Metal (decision 8)
+        lines.append(f"  {memory['text']}")
     return "\n".join(lines)
 
 
@@ -747,6 +749,8 @@ class ChatLoop:
                 self.write(f"{record['name']} = {record['value']!r} for this chat.\n")
             for w in result.get("warnings", []):  # meaning without bge-m3 (state 12)
                 self.write(f"! {problem_words(w, True, 'chat', False)}\n")
+            if memory := result.get("memory"):  # what the new size uses (state 20)
+                self.write(memory["text"] + "\n")
         elif name == "title":
             self.write(f"Titled {result['record']['title']!r}.\n")
         elif name == "compare":

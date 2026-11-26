@@ -96,9 +96,10 @@ SENTENCES = {
     "recount them; this table shows what each span holds.",
     # The stop (the final fact-check's FIX 1, F8, ruling 9 and row 53b).
     "too_long": "It's {over} tokens too long.",
-    "stop_advice": "Shorten your message, start a new chat, or lower max_tokens.",
+    # State 30 (v0.4.4): ctx_size is the way out a full context names.
+    "stop_advice": "Shorten your message, start a new chat, lower max_tokens, or raise ctx_size.",
     "remove_waiting": "Shorten your message, remove an attachment and attach a shorter part, "
-    "start a new chat, or lower max_tokens.",
+    "start a new chat, lower max_tokens, or raise ctx_size.",
     "slow_read": SLOW_READ,
     # An empty /say, on the page and in the terminal (the whole-branch review's could 17).
     "empty_message": "Type a message to send.",

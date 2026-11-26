@@ -10,8 +10,10 @@ Two headings are Clarity's own, used when they apply:
 
 ### Added
 - `/set` takes the search keys `search_method`, `min_similarity` and `budget` in a chat, from the next message, so trying the other method or a lower minimum needs no new profile. A message's `found` logs each value with its origin (`chat` when set); a call's `settings` doesn't hold them. `/set search_method words` stops bge-m3. `/settings` lists them with their bases, and `/set NAME` with no value goes back to the base. A text-mode chat refuses them.
+- `/set ctx_size N` changes a chat's context size: llama-server starts again at N tokens, and on a Mac Clarity says the GPU memory the model measured. A refused size leaves the old one running. `/settings` shows that memory (`memory` in `--json`), and `/set ctx_size` with no value goes back to the profile's size, or a resumed chat's logged one. Resume takes a chat's `/set` size first.
 
 ### Changed
+- The context-full advice adds "or raise ctx_size". A memory refusal's way out by words says `set search_method to "words"`, the same in a chat and in a run. Replay's refusal at another context size names the size to set. Details shows a call's own context size, with no origin.
 - A model file whose modified time changed, with its size the same, no longer stops a new chat, a resume or a meaning search with a hint to run `clarity verify`. Clarity hashes it there: if its bytes match, it records the new time in `local/models.lock` and says so in one line (among the start warnings; for the embedder, in the terminal and a run's output, and as a `notice` event in `--json`). Other bytes, or another size, are refused with the fetch hint. Replay and a batch run refuse as before. The profile listing and setup count a file of the fetched size as fetched and never hash it.
 
 ### Fixed

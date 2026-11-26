@@ -98,7 +98,7 @@ def test_the_replay_refusals(make, fetched_root):
     session.new_conversation("big")
     with pytest.raises(ConfigError) as caught:
         session.replay(path, call["call_id"])
-    assert "context of 8192" in str(caught.value) and names_no_command(str(caught.value))
+    assert "context of 8,192" in str(caught.value) and names_no_command(str(caught.value))
 
 
 def test_the_busy_refusal(make):

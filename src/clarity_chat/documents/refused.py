@@ -12,7 +12,7 @@ from clarity_chat.documents.embedder import MAX_TOKENS
 from clarity_chat.documents.embedder import MODEL as EMBEDDER
 from clarity_chat.documents.library import way_out
 from clarity_chat.documents.search import NO_FTS5
-from clarity_chat.profiles import ConfigError, fetch_hint, shown
+from clarity_chat.profiles import WORDS_WAY_OUT, ConfigError, fetch_hint, shown
 
 NOTHING_SENT = "Nothing was sent."  # N29: a refusal at Send's first line
 WITHOUT_SEARCH = "To send without searching, stop searching every document in this chat."
@@ -52,14 +52,9 @@ def problem_words(problem: dict[str, Any], terminal: bool, where: str, at_send: 
     if state == "profile_missing":  # N37; the page's start has no chat to add it in
         said = f"Profile {problem['profile']} searches {name}, which isn't in your documents."
         return f"{said} Add it with {add}, or {KEY}." if terminal else f"{said} {KEY.capitalize()}."
-    if state == "no_embedder":  # state 5: fetch it, or search by words in a new chat (S4)
+    if state == "no_embedder":  # state 5: fetch it, or search by words (S4; advisor D6)
         fetch = fetch_hint(EMBEDDER) if terminal else "Getting started shows how to fetch it."
-        then = "start a new chat" if chat else "run the command again"  # a run has no chat (#6b)
-        return (
-            f"Meaning search needs {EMBEDDER}, which isn't fetched. {fetch} Or set "
-            'search_method = "words" under [documents] in your own profile (copy a shipped one '
-            f"into local/profiles/ first) and {then}."
-        )
+        return f"Meaning search needs {EMBEDDER}, which isn't fetched. {fetch} {WORDS_WAY_OUT}"
     if state == "embedder":  # state 6: the reason, then how to send without searching
         if not at_send:
             return problem["why"]

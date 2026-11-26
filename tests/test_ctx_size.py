@@ -335,7 +335,8 @@ def test_the_new_resume_rule_and_today_s_agree_on_every_golden_log(log):
 
 
 def test_replay_at_another_size_says_to_set_it_and_replays_after(fake):
-    session, _ = fake
+    session, backend = fake
+    backend.replies = [" Same.", " Same."]  # the call, then its replay
     call_id = session.say("Hi").record["call_id"]
     path = session.conversation.log.path
     assert raised(lambda: session.set_setting("ctx_size", "16384")) is None
@@ -407,3 +408,39 @@ def test_the_terminal_says_only_the_set_line_without_a_figure(fake):
     loop = ChatLoop(session, "text", read=lambda default: "", write=output.append)
     loop.handle("/set ctx_size 16384")
     assert "".join(output) == "ctx_size = 16384 for this chat.\n"
+
+
+def test_the_terminal_s_settings_say_the_memory_under_the_context(llama):
+    session, _ = llama
+    output: list[str] = []
+    loop = ChatLoop(session, "text", read=lambda default: "", write=output.append)
+    loop.handle("/set ctx_size 16384")
+    output.clear()
+    loop.handle("/settings")
+    said = "".join(output)
+    assert f"context 16384 tokens (chat); stop ['\\nUser:']\n  {MEMORY_16384}\n" in said, said
+
+
+# --- Details (decision 10) ----------------------------------------------------------------
+
+
+def test_details_show_the_call_s_own_context_with_no_origin(fetched_root, tiny_tokenizer):
+    """A call ran at 8,192; the chat runs at 16,384 now. Details says the call's size and
+    no origin: the chat's origin belongs to Settings, not to a past call."""
+    import re
+
+    from starlette.testclient import TestClient
+
+    from clarity_chat import web
+    from tests.test_web import ORIGIN, PORT, SECRET, command
+    from tests.test_web_details import details, result
+
+    backend = FakeBackend([" Hello!"], tokenizer=tiny_tokenizer)
+    session = Session(fetched_root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    with TestClient(web.make_app(session, SECRET.encode(), port=PORT), base_url=ORIGIN) as client:
+        command(client, "profile", "text")
+        call = result(client, "say", "Hi")["call"]
+        result(client, "set", "ctx_size 16384")
+        row = re.search(r"<dt>context</dt>(.*?)</dl>", details(client, call["call_id"]), re.S)
+    assert row, "no context row"
+    assert row.group(1) == '<dd>8,192</dd><dd class="o"></dd>', row.group(1)

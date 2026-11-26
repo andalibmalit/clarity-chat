@@ -25,7 +25,6 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.backends import BackendError
-from clarity_chat.backends.llama_cpp import outside_chat_words
 from clarity_chat.files import read_text, sha256_text, write_text_atomic
 from clarity_chat.logs import LogFile, client_git, machine
 from clarity_chat.models import portable_path
@@ -288,9 +287,9 @@ def run_batch(
                     block = blocks[i, name]
                     outcome = session.say(opening, seed=Setting(seed, "run"), block=block)
                 except (ContextError, BackendError, ConfigError) as e:
-                    # a run's words: its commands, and no chat to start (#6b)
+                    # a search refusal in a run's words, its commands (#6b)
                     is_search = isinstance(e, SearchRefused)
-                    said = e.terminal if is_search else outside_chat_words(str(e))
+                    said = e.terminal if is_search else str(e)
                     raise RunError(f"{where.capitalize()}: {said}") from e
                 except KeyboardInterrupt as e:
                     raise RunError(f"Interrupted (Ctrl-C) during {where}.") from e

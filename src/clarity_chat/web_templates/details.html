@@ -41,7 +41,7 @@
 <p class="d2"><a data-docs="guides.md#replay-a-call" target="_blank" rel="noopener noreferrer">How replay works, in the guide</a></p>
 </details>
 {% endif %}<details class="sec" data-key="settings"><summary class="sh2">Settings <span class="n">as logged</span></summary>
-<dl class="kv three">{% for name, value, rest, origin in settings %}<dt>{{ name }}</dt><dd>{{ value }}{% if rest %} ({{ rest }}){% endif %}{% if name == "seed" and seed_drawn %} (random){% endif %}</dd><dd class="o">{{ origin }}</dd>{% endfor %}<dt>context</dt><dd>{{ "{:,}".format(call.n_ctx) }}</dd><dd class="o">{{ ctx.origin }}</dd></dl>
+<dl class="kv three">{% for name, value, rest, origin in settings %}<dt>{{ name }}</dt><dd>{{ value }}{% if rest %} ({{ rest }}){% endif %}{% if name == "seed" and seed_drawn %} (random){% endif %}</dd><dd class="o">{{ origin }}</dd>{% endfor %}<dt>context</dt><dd>{{ "{:,}".format(call.n_ctx) }}</dd><dd class="o"></dd></dl>
 </details>
 {% if not error %}{% set heading = {"waits": "waits", "off": "not recorded", "llama_cpp": "not on llama.cpp, for now", "cancelled": "none recorded", "unreadable": "can’t be read"} %}<details class="sec" data-key="probs" data-call="{{ call.call_id }}"><summary class="sh2">Probabilities <span class="n">{% if probs.reason is none %}{{ probs.n }} likeliest per token{% else %}{{ heading.get(probs.reason, "none") }}{% endif %}</span></summary>
 {% if probs.reason == "waits" %}<p class="d2">Waits until the reply is done.</p>
