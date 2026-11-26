@@ -412,7 +412,9 @@ def converter_commands(root: Path) -> list[list[str]]:
     """A conversion's three commands: make the converter's environment, install its
     requirements, and run its Python. `uv run --with-requirements` doesn't check a file's
     hashes, so Clarity makes the environment itself (v0.4.2 decision 15): a fresh venv,
-    with nothing from Clarity's project or uv's config files (--no-project, --no-config),
+    with nothing from Clarity's project or uv's config files (--no-project, --no-config), on
+    a Python uv installed itself, which it downloads if it has none (--managed-python, v0.4.6
+    decision 4: conda's, Homebrew's or the system's could be upgraded or removed under it),
     then converter-requirements.txt installed with every file's sha256 checked, wheels only
     (--no-build). uv's environment variables still apply: an index they name
     (UV_DEFAULT_INDEX, say) is used, and the hashes cover what it serves. The first-index
@@ -429,6 +431,7 @@ def converter_commands(root: Path) -> list[list[str]]:
             "--clear",
             "--no-project",
             "--no-config",
+            "--managed-python",
             "--python",
             CONVERTER_PYTHON,
             str(env),
