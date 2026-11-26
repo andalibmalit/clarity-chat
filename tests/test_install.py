@@ -258,22 +258,23 @@ def test_a_mac_installs_clarity_and_runs_setup_and_the_page_on_the_terminal(benc
         assert set(line.split()[1:]) <= {"HOME", "PATH"} | SH_SETS, line
 
 
-@pytest.mark.parametrize("given", ["paths", "empty", "unset"])
+@pytest.mark.parametrize("given", ["paths", "empty", "unset", "one"])
 def test_the_cache_variables_reach_uv_and_nothing_else(bench, given):
     """v0.4.6 S2 (decision 3): each of the four that's set, even to an empty value, reaches
     the three uv commands as it is, so the install puts the models where the launcher, run
     from the login shell, looks for them; one that isn't set isn't passed. git and uv's
-    installer get none of them."""
-    if given != "unset":
+    installer get none of them. "one" (the second script read's G1): only HF_HUB_CACHE,
+    with a space, quotes, `$` and `*` in it, reaches uv unsplit and unexpanded."""
+    if given == "empty":
         bench.env = {name: "" for name in CACHES}
-    if given == "paths":
+    elif given == "paths":
         bench.env = {name: f"/Users/made up/{name.lower()}" for name in CACHES}
+    elif given == "one":
+        bench.env = {"HF_HUB_CACHE": """/Users/made up/it's "$HOME" *"""}
     bench.uv_on_path = False  # so uv's installer runs too
     done = bench.run()
     assert done.returncode == 0, done.stderr
-    expected = "caches" + "".join(
-        f" {name}=[{bench.env[name]}]" if bench.env else f" {name}=[unset]" for name in CACHES
-    )
+    expected = "caches" + "".join(f" {name}=[{bench.env.get(name, 'unset')}]" for name in CACHES)
     assert bench.ran("caches ") == [expected] * 3
     for line in bench.ran("env "):
         assert set(line.split()[1:]) - SH_SETS == {"HOME", "PATH", *bench.env}, line
