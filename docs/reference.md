@@ -713,6 +713,8 @@ While the model reads, the terminal prints the number of prompts and pairs, the 
 
 Agreement is a hint, not a guarantee. In one study (Llama 2 7B Chat, 36 multiple-choice datasets, one block), datasets whose pairs' differences pointed more nearly the way of their average steered better. The readout gives facts about the pairs, not a score: there's no threshold and no "works".
 
+Making a vector again isn't promised to give the same file, but in v0.4.5's tests it did: a remake of the same pairs on the same profile and device gave the same vector bit for bit, for SmolLM2 on the CPU and on MPS and for OLMo 3 7B Instruct on MPS.
+
 The record, `STEM-PROFILE.json`, holds:
 
 | Field | Contents |
