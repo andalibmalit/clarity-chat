@@ -110,7 +110,7 @@ def test_settings_as_logged_with_origins(chat):
     assert call["seed_drawn"]
     fragment = details(client, call["call_id"])
     seed = call["settings"]["seed"]["value"]
-    assert f"{seed} (random)" in fragment
+    assert f"{seed:,} (random)" in fragment  # ruling 5: the page's separators
     # Checkpoint 4, finding 20: a sampler's neutral value is "neutral" (temperature 1 isn't
     # off); logprobs and steering_scale at 0 are off.
     assert "0.6</dd>" in fragment and "0 (neutral)" in fragment and "0 (off)" in fragment

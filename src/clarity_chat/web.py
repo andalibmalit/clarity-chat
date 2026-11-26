@@ -80,6 +80,7 @@ from clarity_chat.export import holds
 from clarity_chat.json_chat import JsonChat
 from clarity_chat.logs import unreadable
 from clarity_chat.profiles import (
+    CHAT_KEYS,
     NAME_RULE,
     NEUTRAL,
     SETTING_HELP,
@@ -967,8 +968,7 @@ async def _picker(worker: Worker, params: dict[str, str | None]) -> str:
     )
     changed = context = None
     if in_chat:
-        settings = (await result_of(worker, "settings"))["settings"]
-        changed = sum(1 for s in settings.values() if s["origin"] == "chat")
+        changed = len(changed_names(await result_of(worker, "settings")))
         if running is None or running in REPLY_COMMANDS:  # /prompt runs at once then too
             context = await context_figure(worker, state)
     button = starting or (
@@ -1065,9 +1065,13 @@ async def _about(worker: Worker, params: dict[str, str | None]) -> str:
 
 
 def value_words(value: Any) -> str:
-    """A value as Python writes it (1.0, 1e-05), so the screen matches the log and /set."""
+    """A value as Python writes it (1.0, 1e-05), so the screen matches the log and /set;
+    a whole number of 1,000 or more has separators, as the page's other numbers do (Round 8,
+    ruling 5). A number box keeps the plain number."""
     if isinstance(value, list):
         return ", ".join(str(v) for v in value)
+    if isinstance(value, int) and not isinstance(value, bool) and abs(value) >= 1000:
+        return f"{value:,}"
     return str(value)
 
 
@@ -1262,12 +1266,14 @@ def setting_row(name: str, setting: dict[str, Any], model: dict[str, Any]) -> di
     row: dict[str, Any] = {
         "name": name,
         "value": value,
+        "in_use": value_words(value),
         "origin": origin,
         "help": SETTING_HELP.get(name),
         "slider": SLIDERS.get(name),
         "integer": SETTING_RANGES[name][0] == "integer",
         "marks": [],
         "buttons": [],
+        "choices": None,
     }
     if row["slider"]:
         if name in NEUTRAL:
@@ -1288,9 +1294,39 @@ def setting_row(name: str, setting: dict[str, Any], model: dict[str, Any]) -> di
     return row
 
 
+def changed_names(settings: dict[str, Any]) -> list[str]:
+    """What this chat changed, from /settings: for Reset all and the picker's count. The
+    Documents rows count; ctx_size doesn't, as it has its own way back (S4)."""
+    both = {**settings["settings"], **(settings.get("documents") or {})}
+    return [name for name, setting in both.items() if setting["origin"] == "chat"]
+
+
+def document_row(name: str, setting: dict[str, Any]) -> dict[str, Any]:
+    """A Documents row (B2): the method as a button for each choice, the minimum and the
+    budget as number boxes, and Back to the base (decision 16) when this chat set it."""
+    value, origin, base = setting["value"], setting["origin"], setting["base"]
+    methods = ("meaning", "words")
+    back = [(name, f"Back to {value_words(base['value'])} ({base['origin']})")]
+    return {
+        "name": name,
+        "value": value,
+        "in_use": value_words(value),
+        "origin": origin,
+        "help": SETTING_HELP[name],
+        "slider": None,
+        "integer": name == "budget",
+        "marks": [],
+        "buttons": back if origin == "chat" else [],
+        "choices": [(f"{name} {m}", m, m == value) for m in methods]
+        if name == "search_method"
+        else None,
+    }
+
+
 def settings_panel(settings: dict[str, Any], waits: str | None) -> dict[str, Any]:
-    """What the Settings panel draws, from /settings: Common, Steering, Probabilities (on
-    Transformers), More settings, and the Transformers lines from `not_applied`."""
+    """What the Settings panel draws, from /settings: Common, Documents (chat mode),
+    Steering, Probabilities (on Transformers), More settings, and the Transformers lines
+    from `not_applied`."""
     values = settings["settings"]
     model = (settings["recommended"] or {}).get("values", {})
     transformers = settings["backend"] == "transformers"
@@ -1299,10 +1335,21 @@ def settings_panel(settings: dict[str, Any], waits: str | None) -> dict[str, Any
     if "penalties" in samplers:
         more += ["repeat_penalty"] if transformers else list(PENALTY_ROWS)
     unused = [{**e, "value": value_words(e["value"])} for e in settings["not_applied"]]
+    found = settings.get("documents")  # chat mode only (B2)
+    documents = found and [
+        document_row(n, found[n])
+        for n in CHAT_KEYS  # words search has no minimum, so its row goes (state 17)
+        if n != "min_similarity" or found["search_method"]["value"] == "meaning"
+    ]
     return {
         "profile": settings["profile"]["name"],
         "waits": waits,
-        "changed": [n for n, s in values.items() if s["origin"] == "chat"],
+        "changed": changed_names(settings),
+        "documents": documents,
+        "applies": SENTENCES["searching_applies"],
+        "no_embedder": problem_words(
+            {"state": "no_embedder"}, terminal=False, where="chat", at_send=False
+        ),
         "common": [setting_row(n, values[n], model) for n in COMMON],
         "steering": settings["steering"],
         "strength": setting_row("steering_scale", values["steering_scale"], model)

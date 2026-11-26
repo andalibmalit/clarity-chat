@@ -161,21 +161,23 @@ def test_a_text_mode_chat_has_no_documents_group(documents):
 
 def test_a_resumed_chat_shows_chat_origins_and_logged_bases(documents):
     """States 11 and 25: the chat's /set values come back with origin chat; a profile with
-    no method gets the last searched message's as its base, origin log (decision 3)."""
+    no method gets the last searched message's, origin log, which is also its base
+    (decision 3)."""
     client, _ = documents
     command(client, "profile", "plain")
-    result(client, "set", "search_method meaning")
     result(client, "set", "budget 800")
     result(client, "say", ASKED)
     resumed(client)
     fragment = panel(client)
-    method = row(fragment, "search_method")
-    assert '<span class="tag">chat</span>' in method
-    assert 'data-set="search_method">Back to meaning (log)<' in method
-    assert method_buttons(fragment) == {"meaning": "true", "words": "false"}
     budget = row(fragment, "budget")
     assert '<span class="tag">chat</span>' in budget and 'value="800"' in budget
     assert 'data-set="budget">Back to 1,500 (default)<' in budget
+    assert '<span class="tag">log</span>' in row(fragment, "search_method")
+    assert method_buttons(fragment) == {"meaning": "true", "words": "false"}
+    result(client, "set", "search_method words")
+    method = row(panel(client), "search_method")
+    assert '<span class="tag">chat</span>' in method
+    assert 'data-set="search_method">Back to meaning (log)<' in method
 
 
 def test_the_method_row_carries_the_words_for_bge_m3_not_fetched(documents):

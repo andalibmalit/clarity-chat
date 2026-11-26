@@ -28,6 +28,7 @@ const clarity = {
   failedCall: null, // the last failed call's ID, from its record on the stream
   focusBox: false, // a start from the picker or New chat is running: focus to the box
   alerted: new Set(), // sentences already announced, so a redraw doesn't repeat them
+  noEmbedder: false, // the last /set chose meaning without bge-m3 (state 12)
 };
 window.clarity = clarity;
 
@@ -1008,6 +1009,12 @@ async function showPanel(name, params, opener) {
     opener: opener || (panelOf && panelOf.opener),
     refusal: same && !opener ? panelOf.refusal : null, // a replay's refusal, kept on redraws
   };
+  const method = clarity.noEmbedder && $("panel").querySelector("[data-setting=search_method] [data-no-embedder]");
+  if (method) {
+    const note = method.closest(".srow").querySelector(".note");
+    note.textContent = method.dataset.noEmbedder;
+    note.hidden = false;
+  }
   const refused = $("panel").querySelector(".refused");
   if (panelOf.refusal && refused) {
     refused.textContent = panelOf.refusal;
@@ -1070,6 +1077,9 @@ async function setting(args, row = null, box = null) {
     return;
   }
   if (answer.error) notice("!", sentence);
+  // O1 (state 12): meaning chosen and bge-m3 isn't fetched. Its words go under the method
+  // row each time the panel is drawn, until the next change.
+  clarity.noEmbedder = (answer.result?.warnings || []).some((w) => w.state === "no_embedder");
   await refresh();
 }
 
@@ -2009,9 +2019,11 @@ const THREAD = {
   replay: (element, call) => replay(call, element),
   "replay-stop": () => command("cancel"),
   "reset-all": async (element) => {
+    clarity.noEmbedder = false;
     for (const name of element.dataset.names.split(" ")) {
       const answer = await command("set", name);
       if (answer.error) notice("!", answer.error.replace(/^\/set: /, ""));
+      if ((answer.result?.warnings || []).some((w) => w.state === "no_embedder")) clarity.noEmbedder = true;
     }
     await refresh();
   },
