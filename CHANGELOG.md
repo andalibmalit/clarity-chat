@@ -22,6 +22,7 @@ Two headings are Clarity's own, used when they apply:
 - A model file whose modified time changed, with its size the same, no longer stops a new chat, a resume or a meaning search with a hint to run `clarity verify`. Clarity hashes it there: if its bytes match, it records the new time in `local/models.lock` and says so in one line (among the start warnings; for the embedder, in the terminal and a run's output, and as a `notice` event in `--json`). Other bytes, or another size, are refused with the fetch hint. Replay and a batch run refuse as before. The profile listing and setup count a file of the fetched size as fetched and never hash it.
 
 ### Fixed
+- The side panel starts at its top when it shows another view: Details after Settings, or Details of another reply. It kept the last view's scroll, so Details could open with "What the model got" under the panel's header.
 - The page's sheet after an Inspect export no longer says the file is for a Python notebook, read with pandas or checked with the recompute check, none of which reads an `.eval`. Its heading is Export.
 - `clarity export`'s line in `clarity --help` says a conversation, not only a run, can be exported for Inspect, and its argument's help says a run is named by its folder or its `calls.jsonl`. The README's Features list now mentions export for Inspect.
 

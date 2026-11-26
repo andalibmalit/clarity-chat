@@ -324,6 +324,11 @@ async function draw(number) {
   }
   const [thread, row, chips] = await Promise.all([view("thread"), view("picker"), view("pending")]);
   if (number !== drawn) return;
+  if (answer.result.conversation_id !== clarity.state?.conversation_id) {
+    // A refusal under a row and O1's words belong to the chat they came from (review, should 1).
+    clarity.rowRefused = null;
+    clarity.noEmbedder = false;
+  }
   clarity.state = answer.result;
   if (openMenu && openMenu.menu.id === "picker-menu") hideMenu(false);
   openPop = null; // the thread's popovers are drawn again, closed
@@ -1027,6 +1032,7 @@ async function showPanel(name, params, opener) {
     refused.hidden = false;
   }
   $("panel").hidden = false;
+  if (!same) $("panel").scrollTop = 0; // another view starts at its top (QA, Q-b)
   $("branches-button").setAttribute("aria-expanded", String(name === "branches"));
   docsLinks($("panel"));
   shade();
@@ -1070,6 +1076,7 @@ function closePanel() {
   const opener = panelOf && panelOf.opener;
   panelOf = null;
   clarity.rowRefused = null;
+  clarity.noEmbedder = false;
   $("panel").hidden = true;
   $("branches-button").setAttribute("aria-expanded", "false");
   shade(); // clears the shading
