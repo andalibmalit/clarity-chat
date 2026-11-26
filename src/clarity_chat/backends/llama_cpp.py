@@ -378,7 +378,7 @@ def memory_sentence(ctx_size: int, memory: list[dict[str, Any]]) -> str | None:
     m = metal_memory(memory)
     if m is None:
         return None
-    return f"At {ctx_size:,} tokens, the model uses {memory_breakdown(m)}, of {metal_limit(m)}"
+    return f"At {ctx_size:,} tokens, the model uses {memory_breakdown(m)}, out of {metal_limit(m)}"
 
 
 def memory_problem(
