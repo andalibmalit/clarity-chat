@@ -661,6 +661,21 @@ def test_a_change_to_the_setup_commands_makes_the_environment_again(tmp_path, mo
     assert [command[1] for command in again][:2] == ["venv", "pip"], again
 
 
+def test_the_venv_command_runs_without_uv_python_preference(tmp_path, monkeypatch):
+    """The whole-branch review's finding 1: uv refuses `--managed-python` beside
+    UV_PYTHON_PREFERENCE (uv 0.11.19: "the argument `--managed-python` cannot be used with
+    `--python-preference`"), so the venv command, and only it, runs without that variable.
+    uv's other variables still reach it."""
+    monkeypatch.setenv("UV_PYTHON_PREFERENCE", "only-managed")
+    monkeypatch.setenv("UV_DEFAULT_INDEX", "https://index.example/simple")
+    (venv, made), (install, installed), _ = converting(tmp_path, monkeypatch)
+    assert venv[1] == "venv" and install[1] == "pip", (venv, install)
+    env = made.get("env")
+    assert env is not None and "UV_PYTHON_PREFERENCE" not in env, env
+    assert env["UV_DEFAULT_INDEX"] == "https://index.example/simple"
+    assert installed.get("env") is None  # the install inherits Clarity's environment
+
+
 def test_an_environment_made_by_v0_4_5_s_commands_is_made_again(tmp_path, monkeypatch):
     """v0.4.6 S3 (decision 4, state 5): an environment made before `--managed-python`, on
     whichever Python 3.13 uv found first, is made again once, on a Python uv installed. A
