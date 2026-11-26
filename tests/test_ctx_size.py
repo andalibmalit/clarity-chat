@@ -414,6 +414,8 @@ def test_a_new_size_s_server_warnings_are_the_chat_s(fake):
     c = Commands(session)
     c.run("set", "ctx_size 16384", lambda e: None)
     assert c.run("state", "", lambda e: None)["warnings"] == ["the second server's warning"]
+    c.run("set", "ctx_size 16384", lambda e: None)  # the same size: the server runs on
+    assert c.run("state", "", lambda e: None)["warnings"] == ["the second server's warning"]
     session.say("Hello.")
     starts = records(session, "server_start")
     assert [r["warnings"] for r in starts] == [[], ["the second server's warning"]]
