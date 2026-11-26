@@ -511,6 +511,8 @@ def test_the_converter_s_environment_is_made_from_the_hashed_requirements(tmp_pa
     env = tmp_path / "models" / ".converter"
     assert venv[:2] == ["uv", "venv"] and venv[-1] == str(env), venv
     assert venv[venv.index("--python") + 1] == "3.13", venv
+    # v0.4.6 S3: only a Python uv installed, never conda's, Homebrew's or the system's
+    assert "--managed-python" in venv, venv
     assert {"--clear", "--no-project", "--no-config"} <= set(venv), venv
     assert install[:3] == ["uv", "pip", "install"] and "--require-hashes" in install, install
     # --require-hashes doesn't cover an sdist's build dependencies (its build backend comes
@@ -635,6 +637,31 @@ def test_a_change_to_the_setup_commands_makes_the_environment_again(tmp_path, mo
     new flag (--no-build, say) or Python version remakes an environment made without it."""
     assert len(converting(tmp_path, monkeypatch)) == 3
     monkeypatch.setattr(models, "CONVERTER_PYTHON", "3.12")
+    again = [command for command, _ in converting(tmp_path, monkeypatch)]
+    assert [command[1] for command in again][:2] == ["venv", "pip"], again
+
+
+def test_an_environment_made_by_v0_4_5_s_commands_is_made_again(tmp_path, monkeypatch):
+    """v0.4.6 S3 (decision 4, state 5): an environment made before `--managed-python`, on
+    whichever Python 3.13 uv found first, is made again once, on a Python uv installed. A
+    marker from today's commands is the control: with it, the fetch only converts."""
+    monkeypatch.delenv("UV", raising=False)
+    assert len(converting(tmp_path, monkeypatch)) == 3
+    env = tmp_path / "models" / ".converter"
+    _, install, _ = models.converter_commands(tmp_path)
+    before = ["uv", "venv", "--clear", "--no-project", "--no-config", "--python", "3.13", str(env)]
+
+    def mark(venv: list[str]) -> None:
+        made_by = {
+            "commands": [venv, install],
+            "requirements": models.sha256_file(made_up_requirements(tmp_path)),
+        }
+        digest = hashlib.sha256(json.dumps(made_by).encode("utf-8")).hexdigest()
+        (env / models.CONVERTER_MARKER).write_text(digest + "\n", "utf-8")
+
+    mark(models.converter_commands(tmp_path)[0])
+    assert len(converting(tmp_path, monkeypatch)) == 1
+    mark(before)
     again = [command for command, _ in converting(tmp_path, monkeypatch)]
     assert [command[1] for command in again][:2] == ["venv", "pip"], again
 

@@ -509,7 +509,8 @@ def test_a_message_holding_unicode_line_separators_completes_and_replays(session
 def test_converting_twice_gives_the_same_file(tmp_path, capsys):
     """fetch's convert step, run twice on SmolLM2 into scratch folders, writes the same bytes.
     Whether they also equal models.lock's hash is printed, not asserted: the converter's
-    environment may have changed since the model was fetched."""
+    environment may have changed since the model was fetched. The sha256 and the converter's
+    Python are printed too, for v0.4.6's A1 (a Python uv installed, against conda-forge's)."""
     from clarity_chat.models import fetch_convert
 
     model = load_models(REPO)[MODEL]
@@ -520,6 +521,7 @@ def test_converting_twice_gives_the_same_file(tmp_path, capsys):
     with capsys.disabled():
         same = first == lock_entry(REPO, model)["gguf"]["sha256"]
         print(f"\nconverted file equals models.lock's: {same}")
+        print(f"sha256 {first}, converter Python {entries[0]['converter']['python']}")
 
 
 def test_the_backend_contract_on_llama_cpp(tmp_path):
