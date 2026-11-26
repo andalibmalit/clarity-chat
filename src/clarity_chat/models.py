@@ -416,7 +416,8 @@ def converter_commands(root: Path) -> list[list[str]]:
     a Python uv installed itself, which it downloads if it has none (--managed-python, v0.4.6
     decision 4: conda's, Homebrew's or the system's could be upgraded or removed under it),
     then converter-requirements.txt installed with every file's sha256 checked, wheels only
-    (--no-build). uv's environment variables still apply: an index they name
+    (--no-build). uv's environment variables still apply, except UV_PYTHON_PREFERENCE,
+    which --managed-python replaces (uv refuses the two together): an index they name
     (UV_DEFAULT_INDEX, say) is used, and the hashes cover what it serves. The first-index
     strategy is set so UV_INDEX_STRATEGY can't merge indexes. -I keeps the working folder
     and PYTHON* variables out of the converter. The uv is the one running Clarity (uv sets
@@ -496,7 +497,10 @@ def _make_converter_environment(
         flush=True,
     )
     for command in commands:
-        if _logged(command, log) != 0:
+        env = None
+        if command[1] == "venv":
+            env = {k: v for k, v in os.environ.items() if k != "UV_PYTHON_PREFERENCE"}
+        if _logged(command, log, env=env) != 0:
             raise ConfigError(
                 f"Making the converter's environment failed; see {log_path}. If it says "
                 '"Hash mismatch", a package file differs from the one '
