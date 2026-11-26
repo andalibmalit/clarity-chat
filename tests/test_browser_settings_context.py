@@ -180,3 +180,31 @@ def test_a_restart_that_fails_twice_ends_the_chat_on_the_first_screen(clarity, p
     assert page.is_hidden("#panel")
     page.wait_for_selector("#picker-menu:not([hidden])")
     shot(page, "B3b-state-31", "v044-b3b")
+
+
+def test_a_view_opened_in_the_panel_starts_at_its_top(clarity, page):  # noqa: F811
+    """v0.4.4 QA (Q-b): Details opened scrolled, "What the model got" under the panel's
+    header, as the panel kept Settings' scroll. Another view, or Details of another reply,
+    starts at its top."""
+    _, redirect, _ = clarity
+    page.set_viewport_size({"width": 1280, "height": 480})  # both views scroll
+    chat_on(page, redirect)
+    for text in ("Hi", "Again"):
+        say(page, text)
+        page.wait_for_selector(".reply.last .tb")
+        settled(page)
+    first, last = page.locator("#thread .reply[data-call]").evaluate_all(
+        "rows => rows.map((row) => row.dataset.call)"
+    )
+    open_settings(page)
+    page.evaluate("document.getElementById('panel').scrollTop = 10000")
+    assert page.evaluate("document.getElementById('panel').scrollTop") > 0
+    page.click(".reply.last [data-action=details]")
+    page.wait_for_selector(f"#panel .body[data-call='{last}']")
+    assert page.evaluate("document.getElementById('panel').scrollTop") == 0
+    page.evaluate("document.getElementById('panel').scrollTop = 10000")
+    assert page.evaluate("document.getElementById('panel').scrollTop") > 0
+    page.click(f"#thread .reply[data-call='{first}'] [data-action=details]")
+    page.wait_for_selector(f"#panel .body[data-call='{first}']")
+    assert page.evaluate("document.getElementById('panel').scrollTop") == 0
+    shot(page, "Q-b-details-at-top", "v044-close")

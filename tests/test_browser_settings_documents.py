@@ -14,7 +14,7 @@ import pytest
 from clarity_chat.documents import library_add, reading
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend, FakeEmbedder
-from tests.test_browser import served, settled, shot
+from tests.test_browser import served, settled, shot, until
 from tests.test_browser_attach import browser_type_launch_args  # noqa: F401
 from tests.test_browser_meaning import NO_EMBEDDER, start
 from tests.test_meaning import GLOSSARY, MEANING, profile
@@ -66,6 +66,7 @@ def test_a_budget_refused_changed_and_back(clarity, page):
         "Not applied: the next reply still uses 1,500 (default)."
     )
     assert page.input_value("#set-budget") == "0"
+    assert page.get_attribute("#set-budget", "aria-invalid") == "true"  # mutation, review
     shot(page, "B2-budget-refused", "v044-b2")
     page.fill("#set-budget", "800")
     page.press("#set-budget", "Enter")
@@ -117,3 +118,63 @@ def test_reset_all_leaves_the_size(clarity, page):
     settings = page.evaluate("clarity.command('settings')")["result"]
     assert settings["documents"]["budget"]["origin"] == "default"
     assert settings["ctx_size"]["value"] == 16384
+
+
+# --- The whole-branch review: should 1 and the page mutations that survived
+
+
+def refuse_budget(page) -> None:
+    page.fill("#set-budget", "0")
+    page.press("#set-budget", "Enter")
+    page.wait_for_selector("[data-setting=budget] .refused:not([hidden])")
+
+
+def meaning_without_bge_m3(page, fake) -> None:
+    """O1's words under the method row (state 12)."""
+    page.click("[data-set='search_method words']")
+    page.wait_for_selector("[data-setting=min_similarity]", state="detached")
+    fake.is_fetched = False
+    page.click("[data-set='search_method meaning']")
+    page.wait_for_selector("[data-setting=search_method] .note:not([hidden])")
+
+
+def test_closing_settings_forgets_a_refusal_and_the_missing_embedder(clarity, page):
+    redirect, fake = clarity
+    open_documents(page, redirect)
+    meaning_without_bge_m3(page, fake)
+    refuse_budget(page)
+    page.click("#panel [data-action=panel-close]")
+    page.click("#composer-row [data-action=settings]")
+    page.wait_for_selector("#panel:not([hidden]) [data-setting=budget]")
+    settled(page)
+    assert page.is_hidden("[data-setting=budget] .refused")
+    assert page.is_hidden("[data-setting=search_method] .note")
+
+
+def test_a_new_chat_draws_settings_without_the_last_chat_s_refusal(clarity, page):
+    """Should 1: a refusal and O1's words belong to the chat they came from; Settings stays
+    open across a new chat and is drawn again for it."""
+    redirect, fake = clarity
+    open_documents(page, redirect)
+    meaning_without_bge_m3(page, fake)
+    refuse_budget(page)
+    fake.is_fetched = True  # the new chat starts as it would; only the old words could show
+    before = page.evaluate("clarity.state.conversation_id")
+    page.click("#new-chat")
+    until(page, lambda: page.evaluate("clarity.state.conversation_id") not in (None, before),
+          what="the new chat")  # fmt: skip
+    settled(page)
+    page.wait_for_selector("[data-setting=budget] .refused", state="hidden", timeout=5_000)
+    page.wait_for_selector("[data-setting=search_method] .note", state="hidden", timeout=5_000)
+
+
+def test_reset_all_forgets_the_missing_embedder(clarity, page):
+    """Mutation: Reset all starts with no O1 words; only its own /set can bring them back."""
+    redirect, fake = clarity
+    open_documents(page, redirect)
+    meaning_without_bge_m3(page, fake)
+    fake.is_fetched = True
+    page.click("#panel [data-action=reset-all]")
+    page.wait_for_selector("[data-setting=search_method] .tag:has-text('profile')")
+    settled(page)
+    page.wait_for_selector("[data-setting=search_method] .note", state="hidden", timeout=5_000)
