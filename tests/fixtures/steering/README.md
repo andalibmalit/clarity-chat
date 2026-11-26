@@ -1,6 +1,8 @@
-# Steering test fixture
+# Steering test fixtures
 
-`smollm2-repeng.gguf` is a control vector made outside Clarity, with [repeng](https://github.com/vgel/repeng). Clarity never makes vectors; it applies one made elsewhere. The tests use this file to check that Clarity reads repeng's real output.
+`brief-hf-chat.gguf` is a vector `clarity vector make` made for v0.4.5's golden log (`tests/fixtures/golden/v0.4.5.jsonl`), from a made-up pairs file (short, plain replies against long, ornate ones: 2 system pairs, 2 messages, 2 openings) with a tiny random Llama on the CPU: width 576 and 30 layers, the shape `tests/test_golden.py` gives its model, and the tests' chat tokenizer. It has blocks 1 to 29. The script that made it, `make_golden_v045.py`, is kept with the maintainer's release notes; made again, it gives the same bytes (sha256 `305c3bd0ce2b2a209933a7887805c0db579c1abe2f52233e6a1e25589cc289bd`, 68,256 bytes).
+
+`smollm2-repeng.gguf` is a control vector made outside Clarity, with [repeng](https://github.com/vgel/repeng). The tests use this file to check that Clarity reads repeng's real output.
 
 - **Tool:** repeng from git, commit `0ba7196d81f7c5de28b1159c9d1732440afd97ce` (`main`, 2025-09-24), installed with `uv pip install "repeng @ git+https://github.com/vgel/repeng@0ba7196"` in a separate venv. Its PyPI release, 0.4.0, needs numpy below 2, so it can't install next to Clarity.
 - **Libraries in that venv:** torch 2.15.0, transformers 5.22.2, numpy 2.5.4, tokenizers 0.23.3 (Clarity's pins), and gguf 0.19.0, scikit-learn 1.9.1 (repeng's dependencies).

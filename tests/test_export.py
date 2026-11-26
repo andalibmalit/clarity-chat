@@ -191,7 +191,7 @@ def test_older_calls_get_derived_spans_or_a_reason(make, golden, tmp_path):
     header, rows = read_export(Path(export_log(session, log)["path"]))
     assert rows
     steered = {g["conditions"]["steering"] != "none" for g in header["conditions"]}
-    assert steered == ({True, False} if golden.stem == "v0.2.2" else {False})
+    assert steered == ({True, False} if golden.stem in {"v0.2.2", "v0.4.5"} else {False})
     for row in rows:
         # "none" for every call logged before steering existed
         assert row["steering"] == (calls[row["call_id"]]["request"].get("steering") or "none")

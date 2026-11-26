@@ -1,7 +1,7 @@
 #!/bin/sh
 # Clarity's install command, for a Mac with Apple silicon and 16 GB of memory or more:
 #
-#   curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/andalibmalit/clarity-chat/v0.4.4/install.sh | sh
+#   curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/andalibmalit/clarity-chat/v0.4.5/install.sh | sh
 #
 # It checks this Mac first and writes nothing until those checks pass. Then it installs uv
 # if it's missing (its installer checked by sha256 first), puts Clarity in ~/Clarity at
@@ -14,7 +14,7 @@
 # only HOME and PATH.
 set -eu
 
-VERSION=v0.4.4
+VERSION=v0.4.5
 REPO_URL=https://github.com/andalibmalit/clarity-chat
 UV_VERSION=0.11.19
 # The sha256 of https://astral.sh/uv/0.11.19/install.sh (the owner's run, 2026-11-22).

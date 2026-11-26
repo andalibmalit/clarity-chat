@@ -6,6 +6,7 @@ promise, and it covers logs written by older versions.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 from pathlib import Path
@@ -28,6 +29,8 @@ def test_the_golden_logs_are_found():
 
 
 VECTOR = Path(__file__).parent / "fixtures" / "steering" / "smollm2-repeng.gguf"
+# v0.4.5's log is steered with a vector `clarity vector make` made, at the same shape.
+MADE = VECTOR.with_name("brief-hf-chat.gguf")
 
 
 @pytest.fixture
@@ -49,7 +52,8 @@ def steerable(fetched_root) -> Path:
     )
     write_lock_entry(fetched_root, "mine", {**entry, "name": "mine"})
     (fetched_root / "local" / "vectors").mkdir(parents=True)
-    shutil.copy(VECTOR, fetched_root / "local" / "vectors" / VECTOR.name)
+    for vector in (VECTOR, MADE):
+        shutil.copy(vector, fetched_root / "local" / "vectors" / vector.name)
     return fetched_root
 
 
@@ -326,3 +330,26 @@ def test_the_v0_4_4_golden_log_holds_a_chat_s_own_size_and_search_key_through_a_
     assert rows.index(resume) < rows.index(calls[1])
     replay = next(r for r in rows if r["type"] == "replay")
     assert replay["identical"] and replay["call_id"] == calls[0]["call_id"]
+
+
+def test_the_v0_4_5_golden_log_holds_a_call_steered_with_a_made_vector_and_regen_same():
+    """v0.4.5's new path: a profile steered with the snippet `clarity vector make` printed
+    (its file, sha256 and middle block, at scale 1.0), a steered call that replays
+    identically, then /set steering_scale 0 and /regen same, the guides' way to compare."""
+    rows = list(read_records(GOLDEN / "v0.4.5.jsonl"))
+    calls = [r for r in rows if r["type"] == "call"]
+    steering = {
+        "file": "local/vectors/brief-hf-chat.gguf",
+        "sha256": hashlib.sha256(MADE.read_bytes()).hexdigest(),
+        "scale": 1.0,
+        "layers": [15],
+    }
+    assert calls[0]["request"]["steering"] == steering
+    assert calls[0]["settings"]["steering_scale"] == {"value": 1.0, "origin": "profile"}
+    replay = next(r for r in rows if r["type"] == "replay")
+    assert replay["identical"] and replay["call_id"] == calls[0]["call_id"]
+    assert calls[1]["regen_of"] == calls[0]["call_id"]
+    assert calls[1]["settings"]["seed"] == {"value": 42, "origin": "regen"}
+    assert calls[0]["settings"]["seed"] == {"value": 42, "origin": "profile"}
+    assert calls[1]["settings"]["steering_scale"] == {"value": 0.0, "origin": "chat"}
+    assert not calls[1]["request"].get("steering")
