@@ -8,9 +8,12 @@ import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NoReturn
+from typing import TYPE_CHECKING, NoReturn
 
 from clarity_chat.profiles import ConfigError, shown
+
+if TYPE_CHECKING:
+    from clarity_chat.session import Prepared, Session
 
 MAX_BYTES = 4 * 1024 * 1024
 MIN_PAIRS, MAX_PAIRS = 2, 1024  # one pair has nothing to agree with; a crossed file multiplies
@@ -145,3 +148,19 @@ def read_pairs(path: Path) -> Pairs:
         {"systems": len(systems), "messages": len(messages), "openings": len(openings)},
         pairs,
     )
+
+
+@dataclass(frozen=True)
+class Rendered:
+    pair: int  # from 1, in the order read_pairs expands them
+    side: str
+    text: str
+    ids: list[int]
+
+
+def prepare(session: Session, name: str) -> Prepared:
+    return session.prepare(name)
+
+
+def render_pairs(prepared: Prepared, pairs: Pairs, ctx_size: int) -> list[Rendered]:
+    return [Rendered(0, "", "", [])]
