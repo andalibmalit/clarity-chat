@@ -25,7 +25,7 @@ ROW = "#panel [data-setting=ctx_size]"
 
 def open_settings(page) -> None:
     page.click("#composer-row [data-action=settings]")
-    page.wait_for_selector(f"#panel:not([hidden]) {ROW}")
+    page.wait_for_selector("#panel:not([hidden]) [data-setting=ctx_size]")
 
 
 def pressed(page) -> list[str]:
@@ -34,7 +34,8 @@ def pressed(page) -> list[str]:
 
 def starts(backend, seconds: float = 1.5, refuse: int | None = None, memory: bool = True):
     """Each start takes `seconds`, measures MEMORY on Metal, and refuses the size `refuse`
-    as llama.cpp's memory check would, the old size running on."""
+    as llama.cpp's memory check would, the old size running on. FakeBackend has no trained
+    maximum, so 16,384 starts here (on SmolLM2, trained on 8,192, it's refused)."""
     started = backend.start
 
     def start(model, weights, ctx_size):
@@ -135,7 +136,10 @@ def test_details_and_replay_keep_a_call_s_own_size(clarity, page):  # noqa: F811
     page.hover(first)  # an earlier reply's Details shows on hover
     page.locator(f"{first} [data-action=details]:visible").first.click()
     page.wait_for_selector("#panel:not([hidden]) .sec")
-    assert page.is_visible("#panel dt:has-text('context') + dd:has-text('8,192')")
+    page.click("#panel details[data-key=settings] summary")  # Settings as logged, collapsed
+    size = "#panel details[data-key=settings] dt:text-is('context') + dd"
+    assert page.is_visible(size)
+    assert page.text_content(size) == "8,192"
     page.click("#panel [data-action=replay]")
     page.wait_for_selector("#panel .refused:not([hidden])")
     assert page.text_content("#panel .refused") == (
