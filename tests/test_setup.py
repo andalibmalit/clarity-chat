@@ -445,11 +445,14 @@ def done_root(root: Path) -> tuple[Path, Any]:
     return root, states(root, source={"commit": pin(root), "dirty": False})
 
 
-def launcher_lines(folder: Path, uv: str = "/Users/made-up/.local/bin/uv") -> str:
+def launcher_lines(
+    folder: Path, uv: str = "/Users/made-up/.local/bin/uv", run: str = "run --locked --no-dev"
+) -> str:
+    """The launcher's three lines; `run="run"` gives the lines v0.4.2 to v0.4.5 wrote."""
     import shlex
 
     # Checkpoint 1's C6: a shebang first, so the file runs under sh whatever the login shell
-    return f"#!/bin/sh\ncd {shlex.quote(str(folder))}\nexec {shlex.quote(uv)} run clarity ui\n"
+    return f"#!/bin/sh\ncd {shlex.quote(str(folder))}\nexec {shlex.quote(uv)} {run} clarity ui\n"
 
 
 def test_the_launcher_is_written_with_three_lines_and_mode_0755(tmp_path, root):
@@ -470,8 +473,9 @@ def test_the_launcher_is_written_with_three_lines_and_mode_0755(tmp_path, root):
     assert text == launcher_lines(folder, "/Users/a b/.local/bin/uv")
     assert text.splitlines()[0] == "#!/bin/sh"
     assert shlex.split(text.splitlines()[1]) == ["cd", str(folder)]
-    assert shlex.split(text.splitlines()[2]) == ["exec", "/Users/a b/.local/bin/uv", "run",
-                                                 "clarity", "ui"]  # fmt: skip
+    assert shlex.split(text.splitlines()[2]) == [
+        "exec", "/Users/a b/.local/bin/uv", "run", "--locked", "--no-dev", "clarity", "ui"
+    ]  # fmt: skip
     # Windows keeps only a read-only flag (chmod there can't mark a file executable), so
     # its 0755 reads back as 0666. Setup runs on macOS; the file's content is checked above.
     assert launcher.stat().st_mode & 0o777 == (0o666 if os.name == "nt" else 0o755)
@@ -488,6 +492,41 @@ def test_the_same_launcher_is_left_and_already_done(root):
     made(root, says=says, state=state).go()
     assert launcher.stat().st_mtime_ns == before
     assert "Clarity.command on your Desktop: already done." in says.lines
+
+
+def test_the_launcher_an_earlier_release_wrote_is_replaced(root):
+    """v0.4.6 decision 2: the lines v0.4.2 to v0.4.5 wrote, for this folder and this uv, are
+    setup's own, so they're replaced with the new lines (the lock checked, no dev group)."""
+    root, state = done_root(root)
+    launcher = desktop_of(root) / "Clarity.command"
+    launcher.write_text(launcher_lines(root, run="run"), encoding="utf-8")
+    launcher.chmod(0o644)
+    says = Says()
+    made(root, says=says, state=state).go()
+    assert launcher.read_text(encoding="utf-8") == launcher_lines(root)
+    assert launcher.stat().st_mode & 0o777 == (0o666 if os.name == "nt" else 0o755)
+    assert "Made Clarity.command on your Desktop: double-click it to start Clarity." in says.lines
+
+
+@pytest.mark.parametrize("other", ["folder", "uv"])
+def test_an_earlier_launcher_for_another_folder_or_uv_is_left_alone(root, other):
+    """Only the exact earlier lines are setup's own: for another folder or another uv, the
+    file is someone's own, left as it is, and the new lines printed."""
+    root, state = done_root(root)
+    launcher = desktop_of(root) / "Clarity.command"
+    folder, uv = root, "/Users/made-up/.local/bin/uv"
+    if other == "folder":
+        folder = root / "elsewhere"
+    else:
+        uv = "/opt/made-up/bin/uv"
+    earlier = launcher_lines(folder, uv, run="run")
+    launcher.write_text(earlier, encoding="utf-8")
+    says = Says()
+    made(root, says=says, state=state).go()
+    assert launcher.read_text(encoding="utf-8") == earlier
+    said = "\n".join(says.lines)
+    assert "Your Desktop already has a Clarity.command that setup didn't write" in said
+    assert launcher_lines(root).rstrip("\n") in said
 
 
 def test_another_file_of_that_name_is_left_alone_and_the_lines_printed(root):

@@ -83,3 +83,34 @@ def test_starting_clarity_does_not_import_inspect_ai():
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "[]"
+
+
+def test_nothing_clarity_runs_imports_a_dev_group_package():
+    """The install and the launcher run uv with `--no-dev` (v0.4.6 S1), so a module of the dev
+    group's that `src/` imports would fail only on an installed Mac, never in a checkout. The
+    group's names are read from pyproject.toml; their modules from what's installed, keeping
+    only the modules no other installed distribution also provides."""
+    import ast
+    from importlib.metadata import packages_distributions
+
+    def norm(name: str) -> str:
+        return re.sub(r"[-_.]+", "-", name).lower()
+
+    groups = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    dev = {norm(re.split(r"[^A-Za-z0-9_.-]", d)[0]) for d in groups["dependency-groups"]["dev"]}
+    modules = {name.replace("-", "_") for name in dev}  # a module named as its package
+    for module, dists in packages_distributions().items():
+        if {norm(d) for d in dists} <= dev:
+            modules.add(module)
+    assert {"hypothesis", "pytest", "xdist", "gguf"} <= modules, modules  # read, not guessed
+    found = []
+    for path in sorted((REPO / "src").rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names = [node.module]
+            else:
+                continue
+            found += [f"{path.relative_to(REPO)}: {n}" for n in names if n.split(".")[0] in modules]
+    assert found == []

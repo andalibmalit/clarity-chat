@@ -237,10 +237,10 @@ def test_a_mac_installs_clarity_and_runs_setup_and_the_page_on_the_terminal(benc
     # could send the clone elsewhere), and no prompt.
     assert bench.ran("git-config ") == ["git-config 1 /dev/null 0"]
     uv = bench.ran("uv ")
-    assert uv == [
-        "uv sync --locked --inexact --group setup",  # (ii): a hand install keeps its extras
-        "uv run --group setup clarity setup",
-        "uv run clarity ui",
+    assert uv == [  # (ii): --inexact, so a hand install keeps its extras; v0.4.6 S1: no dev
+        "uv sync --locked --inexact --no-dev --group setup",  # group, and the lock checked
+        "uv run --locked --no-dev --group setup clarity setup",
+        "uv run --locked --no-dev clarity ui",
     ]
     stdins = [line for line in bench.ran("stdin ") if " clarity " in line]
     assert len(stdins) == 2
@@ -320,7 +320,7 @@ def test_without_uv_its_installer_is_checked_then_run(bench):
     assert (bench.home / ".local" / "bin" / "uv").is_file()
     (env,) = bench.ran("installer-env ")  # run once, with HOME and PATH only
     assert set(env.split()[1:]) <= {"HOME", "PATH"} | SH_SETS, env
-    assert bench.ran("uv sync --locked --inexact --group setup")
+    assert bench.ran("uv sync --locked --inexact --no-dev --group setup")
 
 
 def test_an_installer_with_another_sha256_is_refused_and_not_run(bench):
@@ -372,7 +372,9 @@ def test_clarity_already_there_goes_straight_to_its_setup(bench):
     done = bench.run()
     assert done.returncode == 0, done.stderr
     assert done.stdout.startswith("Clarity is already in ~/Clarity; checking its setup.\n")
-    assert not bench.ran("git clone") and bench.ran("uv run --group setup clarity setup")
+    assert not bench.ran("git clone") and bench.ran(
+        "uv run --locked --no-dev --group setup clarity setup"
+    )
 
 
 # --- the security review's S1, C1, C3, (i), (ii) and (v)
@@ -396,7 +398,7 @@ def test_clarity_at_another_version_is_said_and_not_updated(bench, tag):
     assert set(git_env.split()[1:]) - SH_SETS == {
         "HOME", "PATH", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_GLOBAL", "GIT_TERMINAL_PROMPT"
     }, git_env  # fmt: skip
-    assert bench.ran("uv run --group setup clarity setup")
+    assert bench.ran("uv run --locked --no-dev --group setup clarity setup")
 
 
 @pytest.mark.parametrize(
@@ -434,7 +436,7 @@ def test_uv_from_an_earlier_run_is_found_without_the_shell_profile(bench):
     done = bench.run()
     assert done.returncode == 0, done.stderr
     assert not bench.ran("curl ") and not bench.ran("installer-env ")
-    assert bench.ran("uv sync --locked --inexact --group setup")
+    assert bench.ran("uv sync --locked --inexact --no-dev --group setup")
 
 
 def test_a_free_disk_figure_that_isn_t_a_number_is_refused(bench):
@@ -500,7 +502,7 @@ def test_exactly_15_gb_free_passes(bench):
     bench.facts["FREE_KB"] = str(NEED_KB)
     done = bench.run()
     assert done.returncode == 0, done.stderr
-    assert bench.ran("uv run --group setup clarity setup")
+    assert bench.ran("uv run --locked --no-dev --group setup clarity setup")
 
 
 def test_exactly_16_gib_of_memory_passes_and_a_byte_less_is_refused(bench):
