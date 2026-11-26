@@ -394,6 +394,19 @@ def test_set_ctx_size_sends_the_starting_status(fake):
     assert result["setting"] == {"value": 16384, "origin": "chat"}
 
 
+def test_a_new_size_s_server_warnings_are_the_chat_s(fake):
+    """After /set ctx_size the screen shows the new server's start warnings, not the first
+    one's (checkpoint 1, S5)."""
+    session, backend = fake
+    backend.start_warnings = ["the second server's warning"]
+    c = Commands(session)
+    c.run("set", "ctx_size 16384", lambda e: None)
+    assert c.run("state", "", lambda e: None)["warnings"] == ["the second server's warning"]
+    session.say("Hello.")
+    starts = records(session, "server_start")
+    assert [r["warnings"] for r in starts] == [[], ["the second server's warning"]]
+
+
 def test_the_terminal_says_the_memory_after_set_ctx_size(llama):
     session, _ = llama
     output: list[str] = []
