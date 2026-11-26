@@ -539,23 +539,66 @@ def test_a_template_s_own_system_message_is_a_system_message(make, fetched_root,
     assert "<|im_start|>system\n" in before and "<|im_end|>" in before  # a whole turn
     assert [m.role for m in sample.messages] == ["system", "user", "assistant"]
     system, user, _ = sample.messages
-    assert (system.role, system.text) == ("system", before)
-    assert system.metadata == {"clarity": row["message_spans"][0]}
+    header = "<|im_end|>\n<|im_start|>user\n"  # the turn's end and the user's header
+    assert before.endswith(header)
+    assert (system.role, system.text) == ("system", before.removesuffix(header))
+    assert system.metadata["clarity"]["kind"] == "template"
     assert row["message_spans"][0]["kind"] == "template"  # the template wrote it
     assert (user.role, user.text) == ("user", "The kettle sang twice.")
 
 
-def test_a_template_with_no_default_shows_its_header_as_written(make, fetched_root, chat_tokenizer):
-    """The toy template writes only the first message's header: the box holds that, exact.
-    (X2 taken literally; the main session rules on this case.)"""
-    session, log = bare_chat(make, fetched_root, chat_tokenizer)
+# Toy templates in three shapes (the main session's X2 ruling): ChatML with no system message
+# of its own, Llama 3.1's system header with its date, and Gemma's, which writes only BOS and
+# requires the roles to alternate.
+CHATML = (
+    "{% for m in messages %}<|im_start|>{{ m.role }}\n{{ m.content }}<|im_end|>\n{% endfor %}"
+    "{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}"
+)
+LLAMA_HEADER = (
+    "<|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\n\n"
+)
+LLAMA = (
+    "{{ bos_token }}" + LLAMA_HEADER.replace("\n", "\\n") + "{% if messages[0].role == 'system' %}"
+    "{{ messages[0].content }}{% set messages = messages[1:] %}{% endif %}<|eot_id|>"
+    "{% for m in messages %}<|start_header_id|>{{ m.role }}<|end_header_id|>\n\n"
+    "{{ m.content }}<|eot_id|>{% endfor %}"
+    "{% if add_generation_prompt %}<|start_header_id|>assistant<|end_header_id|>\n\n{% endif %}"
+)
+GEMMA = (
+    "{{ bos_token }}{% for m in messages %}"
+    "{% if (m.role == 'user') != (loop.index0 % 2 == 0) %}"
+    "{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant') }}"
+    "{% endif %}<start_of_turn>{{ 'model' if m.role == 'assistant' else m.role }}\n"
+    "{{ m.content }}<end_of_turn>\n{% endfor %}"
+    "{% if add_generation_prompt %}<start_of_turn>model\n{% endif %}"
+)
+
+
+@pytest.mark.parametrize(
+    ("template", "box"),
+    [(CHATML, None), (LLAMA, LLAMA_HEADER), (GEMMA, None)],
+    ids=["chatml-no-default", "llama-3.1-date-header", "gemma-bos-only"],
+)
+def test_only_the_template_s_own_text_gets_a_system_message(
+    make, fetched_root, tmp_path, template, box
+):
+    """The text before the first message, less that message's header (what the template
+    writes between a turn's end and the next message) and the BOS text: a box if any is left."""
+    from tests.conftest import build_tokenizer
+
+    tokenizer = build_tokenizer(tmp_path / "tok", False, False, template)
+    session, log = bare_chat(make, fetched_root, tokenizer)
     export_chat(session, log)
     [sample] = read(session.logs_dir / "exports" / f"{log.stem}.eval").samples
-    assert [m.role for m in sample.messages] == ["system", "user", "assistant"]
-    system, user, _ = sample.messages
-    assert (system.role, system.text) == ("system", "<user>")
-    assert system.metadata["clarity"]["kind"] == "template"
-    assert user.text == "The kettle sang twice."
+    roles = [m.role for m in sample.messages]
+    if box is None:
+        assert roles == ["user", "assistant"]
+    else:
+        assert roles == ["system", "user", "assistant"]
+        system = sample.messages[0]
+        assert system.text == box
+        assert system.metadata["clarity"]["kind"] == "template"
+    assert sample.messages[-2].text == "The kettle sang twice."
 
 
 def test_a_call_with_its_own_system_message_gets_no_other(make):
