@@ -186,16 +186,15 @@ def test_a_view_opened_in_the_panel_starts_at_its_top(clarity, page):  # noqa: F
     """v0.4.4 QA (Q-b): Details opened scrolled, "What the model got" under the panel's
     header, as the panel kept Settings' scroll. Another view, or Details of another reply,
     starts at its top."""
-    from playwright.sync_api import expect  # the browser group only: CI's offline job lacks it
-
     _, redirect, _ = clarity
     page.set_viewport_size({"width": 1280, "height": 480})  # both views scroll
     chat_on(page, redirect)
     for n, text in enumerate(("Hi", "Again"), 1):
         say(page, text)
         # .reply.last .tb alone is already there from the first reply: wait for this one's row
-        # (expect, not wait_for_function: the page's CSP forbids evaluating a string)
-        expect(page.locator("#thread .reply[data-call]")).to_have_count(n)
+        # (not wait_for_function: the page's CSP forbids evaluating a string; and no import
+        # of playwright here, which CI's offline ty run can't resolve)
+        page.locator("#thread .reply[data-call]").nth(n - 1).wait_for()
         page.wait_for_selector(".reply.last .tb")
         settled(page)
     first, last = page.locator("#thread .reply[data-call]").evaluate_all(
