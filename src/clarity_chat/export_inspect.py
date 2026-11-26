@@ -362,9 +362,9 @@ def sample(
         if first["kind"] == "template" and all(s.get("role") != "system" for s in spans):
             at = first["chars"][0]
             before = text[at : first["chars"][1]]
-            opening = next(s for s in spans if s["kind"] == "message")
+            opening = next((s for s in spans if s["kind"] == "message"), None)
             try:
-                mine = own(call, before, opening["role"])
+                mine = own(call, before, opening["role"]) if opening else slice(0)
             except Exception as e:  # a tokenizer not in the cache: no box, and why
                 own_failed = {"unavailable": f"{type(e).__name__}: {e}"}
             else:
