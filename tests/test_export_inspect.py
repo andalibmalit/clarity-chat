@@ -590,6 +590,26 @@ def test_a_run_whose_records_dont_agree_is_refused_as_unreadable(run, edit):
     assert not (run_dir / "inspect").exists()
 
 
+DEEP = "x = " + "[" * 2000 + "]" * 2000  # tomllib raises RecursionError here
+
+
+def test_a_logged_profile_nested_too_deeply_is_refused_as_unreadable(run):
+    """v0.4.5's fix review: a shared run's logged profile TOML is read for each sample."""
+    session, run_dir = run
+    records = records_of(run_dir)
+    for r in records:
+        if r["type"] == "call":
+            r["profile"]["toml"] = DEEP
+    rewrite(run_dir, records)
+    try:
+        got = export_run(session, run_dir)
+    except Exception as e:
+        got = e
+    assert isinstance(got, ConfigError), f"not refused: {got!r}"
+    assert str(got).startswith(f"Can't read the records of {run_dir / 'calls.jsonl'} and its")
+    assert not (run_dir / "inspect").exists()
+
+
 def test_without_the_extra_or_with_another_version_the_export_is_refused(run, monkeypatch):
     session, run_dir = run
     for name in ("inspect_ai", "inspect_ai.log"):

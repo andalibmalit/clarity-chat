@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from clarity_chat.maker import LEGEND, make, prepare, read_pairs, render_pairs
+from clarity_chat.maker import LEGEND, make, prepare, read_pairs, render_pairs, toml_string
 from clarity_chat.profiles import ConfigError
 from tests.test_maker_render import HF_CHAT, PAIRS, hf_root, profile, session_for
 
@@ -361,6 +361,24 @@ def test_a_profile_name_prints_escaped_in_prepares_refusals(root, chat_tokenizer
     with pytest.raises(ConfigError) as refused:
         make(session, root / "brief.toml", name)
     assert str(refused.value).startswith("Profile cpp\\u202ex runs on llama.cpp;")
+    text = HF_CHAT.replace(
+        'mode = "chat"\nsystem = "Be brief."',
+        'mode = "text"\nuser_name = "User"\nassistant_name = "Assistant"',
+    )
+    name = profile(root, "text\u202ex", text=text)  # the fix review: the text-mode refusal too
+    with pytest.raises(ConfigError) as refused:
+        make(session, root / "brief.toml", name)
+    assert str(refused.value).startswith("Profile text\\u202ex is in text mode;")
+
+
+@pytest.mark.parametrize(
+    "text", ['say "hi"', "C:\\new", "rub\x7fout", "a\u202eb", "smile \U0001f600", "tab\there"]
+)
+def test_toml_string_reads_back_as_the_same_text(text):
+    """The fix review: the snippet's escaping, checked against tomllib itself."""
+    written = toml_string(text)
+    assert written.isascii() and written.isprintable()
+    assert tomllib.loads("v = " + written)["v"] == text
 
 
 def test_a_control_token_prints_escaped(root, chat_tokenizer, monkeypatch):

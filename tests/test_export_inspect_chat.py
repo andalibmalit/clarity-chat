@@ -711,3 +711,20 @@ def test_a_template_that_can_t_be_rendered_gets_no_system_message_and_says_why(
     assert sample.metadata.get("template_own_text") == {
         "unavailable": "OSError: no tokenizer in the cache"
     }
+
+
+def test_a_logged_profile_nested_too_deeply_is_refused_as_unreadable(make):
+    """v0.4.5's fix review: a shared log's profile TOML is read for each sample."""
+    session = make()
+    log = two_messages_regens_and_an_edit(session)
+    records = records_of(log)
+    for r in records:
+        if r["type"] == "call":
+            r["profile"]["toml"] = "x = " + "[" * 2000 + "]" * 2000
+    log.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    try:
+        got = export_chat(session, log)
+    except Exception as e:
+        got = e
+    assert isinstance(got, ConfigError), f"not refused: {got!r}"
+    assert str(got).startswith(f"Can't read the records of {log} (")
