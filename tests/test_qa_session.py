@@ -103,6 +103,16 @@ def test_each_run_rewrites_what_an_agent_could_have_changed(root, repo):
     ]
 
 
+def test_a_profile_qa_adds_to_local_profiles_survives_a_run(root, repo):
+    """v0.4.5's QA writes a profile to steer with the vector it made; the driver rewrites the
+    root's profiles/ each run, and must leave local/profiles/ alone."""
+    added = root / "local" / "profiles" / "made-up-steered.toml"
+    added.parent.mkdir(parents=True)
+    added.write_text('model = "smollm2-135m-instruct"\n', encoding="utf-8")
+    qa.prepare_root(root, repo, init=False)
+    assert added.read_text(encoding="utf-8") == 'model = "smollm2-135m-instruct"\n'
+
+
 def test_server_toml_may_change_only_its_flags(root, repo):
     path = root / "server.toml"
     text = path.read_text(encoding="utf-8")
