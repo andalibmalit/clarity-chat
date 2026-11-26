@@ -1776,17 +1776,17 @@ class Session:
         is new. `conversation.ctx_size` changes only after the start worked: on a failure
         start_model's restore runs the old size again, or says it couldn't (state 31)."""
         size = size or conversation.ctx_base
-        if size.value != conversation.ctx_size.value:
-            model, weights = self.model, self.weights
-            tokenizer, template_tokenizer = self.tokenizer, self.template_tokenizer
-            assert model and weights and tokenizer and template_tokenizer  # a chat runs
-            running = Prepared(
-                conversation.profile, model, self.model_lock, weights,
-                tokenizer, template_tokenizer, self.template,
-            )  # fmt: skip
-            self.start_model(running, size)
+        model, weights = self.model, self.weights
+        tokenizer, template_tokenizer = self.tokenizer, self.template_tokenizer
+        assert model and weights and tokenizer and template_tokenizer  # a chat runs
+        running = Prepared(
+            conversation.profile, model, self.model_lock, weights,
+            tokenizer, template_tokenizer, self.template,
+        )  # fmt: skip
+        # None at the same size: the server runs on, and so do its warnings (S5).
+        started = self.start_model(running, size)
+        conversation.started_server = started or conversation.started_server
         conversation.ctx_size = size
-        self._log_server_start()
 
     def history(self, conversation: Conversation | None = None) -> list[dict[str, Any]]:
         """The conversation from its start to `head`: each turn with its current marks and
