@@ -255,7 +255,7 @@ def test_the_seed_row_says_which_replies_it_seeds(chat):
 
 
 def test_a_row_s_not_applied_note_names_its_value_as_the_page_writes_it(chat):
-    """The whole-branch review's should 5 and mutations #17 and #20: the note under a row
+    """The whole-branch review's should 5 and mutation #17: the note under a row
     (B3b's "Not applied: the next reply still uses X") reads its value from the note's own
     data-in-use, not the box's; an amount of 1,000 or more gets separators, a seed stays
     plain to be copied."""
