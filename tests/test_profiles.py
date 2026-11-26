@@ -276,3 +276,21 @@ def test_a_prompt_file_outside_the_project_folder_is_refused(root, how):
     write_profile(root, "p", BASE + f'header = {{ file = "{ref}" }}\n')
     with pytest.raises(ConfigError, match="outside the project folder"):
         load_profile(root, "p", load_defaults(root))
+
+
+DEEP = "x = " + "[" * 2000 + "]" * 2000 + "\n"  # tomllib raises RecursionError here
+
+
+@pytest.mark.parametrize("load", ["read_toml", "load_profile"])
+def test_a_toml_file_nested_too_deeply_is_refused(root, load):
+    """v0.4.5 checkpoint 1's S1, in the older readers: a sentence, not a traceback."""
+    from clarity_chat.profiles import read_toml
+
+    write_profile(root, "deep", DEEP)
+    path = root / "profiles" / "deep.toml"
+    try:
+        got = read_toml(path) if load == "read_toml" else load_profile(root, "deep", {})
+    except Exception as e:
+        got = e
+    assert isinstance(got, ConfigError), f"not refused: {got!r}"
+    assert str(got).startswith(f"{path}: ")

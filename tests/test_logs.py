@@ -200,3 +200,21 @@ def test_a_new_log_is_readable_only_by_you(tmp_path):
     LogFile(path).append({"type": "x"})
     if os.name != "nt":
         assert path.stat().st_mode & 0o777 == 0o600
+
+
+@pytest.mark.parametrize(
+    "toml",
+    [
+        "x = " + "[" * 2000 + "]" * 2000,  # tomllib raises RecursionError
+        "description = " + "1" * 4301,  # and a plain ValueError for this
+    ],
+)
+def test_a_logged_profile_tomllib_cant_read_has_no_description(toml):
+    """v0.4.5 checkpoint 1's S1: a log's profile text is whatever the file holds."""
+    from clarity_chat.logs import logged_description
+
+    try:
+        got = logged_description({"toml": toml})
+    except Exception as e:
+        got = e
+    assert got is None, f"not None: {got!r}"

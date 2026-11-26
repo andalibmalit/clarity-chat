@@ -101,6 +101,17 @@ def test_a_file_over_4_mb(tmp_path):
     assert refusal(path) == f"{path} is over 4 MB; a pairs file is smaller."
 
 
+def test_a_file_nested_too_deeply(tmp_path):
+    """Checkpoint 1's S1: tomllib raises RecursionError, not a ValueError, at 2,000 deep."""
+    path = write(tmp_path, "description = " + "[" * 2000 + "]" * 2000 + "\n")
+    try:
+        got = read_pairs(path)
+    except Exception as e:
+        got = e
+    assert isinstance(got, ConfigError), f"not refused: {got!r}"
+    assert str(got).startswith(f"{path} isn't a TOML file: ")
+
+
 @pytest.mark.parametrize("data", [b"description = \xff\n", b"description = \n"])
 def test_a_file_that_isnt_utf8_or_toml(tmp_path, data):
     path = write(tmp_path, data)

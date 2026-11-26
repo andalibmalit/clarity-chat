@@ -8,13 +8,14 @@ import hashlib
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
 
 from clarity_chat.maker import LEGEND, make, prepare, read_pairs, render_pairs
 from clarity_chat.profiles import ConfigError
-from tests.test_maker_render import HF_CHAT, PAIRS, hf_root, profile
+from tests.test_maker_render import HF_CHAT, PAIRS, hf_root, profile, session_for
 
 FIELDS = {"clarity", "time", "vector", "read", "pairs", "profile", "backend", "libraries"}
 FIELDS |= {"readout", "prompts"}
@@ -291,3 +292,107 @@ def test_the_pairs_path_is_as_given(project, chat_tokenizer, monkeypatch):
     assert (project / RECORD).is_file(), "make wrote no record"
     record = json.loads((project / RECORD).read_text(encoding="utf-8"))
     assert record["pairs"]["file"] == "brief.toml"
+
+
+# --- checkpoint 1's fixes: M1, S4, S7 and the lock's wording
+
+
+class Started(Exception):
+    """Raised in place of starting the model: what make did before that is what's tested."""
+
+
+def unstarted(root, chat_tokenizer, config=None):
+    """A project with the tiny model's config.json only (no weights), whose session refuses
+    to start a model: make gets as far as start_model and no further."""
+    hf_root(root)
+    if config is not None:
+        (root / "models" / "tiny-hf" / "config.json").write_text(json.dumps(config), "utf-8")
+    (root / "brief.toml").write_text(PAIRS, encoding="utf-8")
+    session = session_for(root, chat_tokenizer)
+
+    def start_model(prepared, ctx_size):
+        raise Started
+
+    session.start_model = start_model
+    return session
+
+
+def test_a_model_type_steering_hasnt_been_checked_on_is_refused_before_the_model_starts(
+    root, chat_tokenizer
+):
+    """M1: make reads the profile unsteered, so the type check steering does on a pinned
+    vector never ran; a Qwen3 profile made a vector every chat would refuse."""
+    config = {"model_type": "qwen3", "hidden_size": 8, "num_hidden_layers": 4}
+    session = unstarted(root, chat_tokenizer, config)
+    profile(root, extra="ctx_size = 256")
+    outcome = None
+    try:
+        make(session, root / "brief.toml", "hf-chat")
+    except (ConfigError, Started) as e:
+        outcome = e
+    assert str(outcome) == (
+        "Steering hasn't been checked on model type 'qwen3'; it runs on llama and olmo3. Ask "
+        "for it to be added."
+    ), f"not refused: {outcome!r}"
+    assert not (root / "local" / "vectors").exists()
+
+
+def test_the_profiles_warnings_print_before_the_read(root, chat_tokenizer, capsys):
+    """S4: the warnings a chat on this profile shows when it starts, here on stderr."""
+    session = unstarted(root, chat_tokenizer)
+    profile(root, extra='ctx_size = 256\n[template_kwargs]\ngreting = "hey"')
+    with pytest.raises(Started):
+        make(session, root / "brief.toml", "hf-chat")
+    assert capsys.readouterr().err.splitlines() == [
+        "The chat template never reads template_kwargs ['greting'], so they change nothing. "
+        "Check their names against the template: the prompt shows its output.",
+        "Reading 16 prompts (8 pairs) with tiny on cpu…",
+    ]
+
+
+def test_a_profile_name_prints_escaped_in_prepares_refusals(root, chat_tokenizer):
+    """S7: a profile's name is its file's name, which can hold any character."""
+    session = unstarted(root, chat_tokenizer)
+    name = profile(
+        root,
+        "cpp\u202ex",
+        text=HF_CHAT.replace('"transformers"', '"llama.cpp"').replace('device = "cpu"\n', ""),
+    )
+    with pytest.raises(ConfigError) as refused:
+        make(session, root / "brief.toml", name)
+    assert str(refused.value).startswith("Profile cpp\\u202ex runs on llama.cpp;")
+
+
+def test_a_control_token_prints_escaped(root, chat_tokenizer, monkeypatch):
+    """S7: the control token's text comes from the tokenizer's files."""
+    session = unstarted(root, chat_tokenizer)
+    profile(root, extra="ctx_size = 256")
+    prepared = prepare(session, "hf-chat")
+    monkeypatch.setattr(prepared.tokenizer, "special_tokens_in", lambda text: ["<\x1b[2J>"])
+    with pytest.raises(ConfigError) as refused:
+        render_pairs(prepared, read_pairs(root / "brief.toml"), 256)
+    assert "contains <\\x1b[2J>, which the tokenizer" in str(refused.value)
+
+
+def test_the_snippet_writes_any_profile_name_in_ascii(project, chat_tokenizer, capsys):
+    """S7: the snippet's file names the profile; written with TOML's escapes, it prints
+    nothing raw and still reads back as the file's path. json.dumps would write the emoji
+    as two surrogates, which TOML refuses."""
+    profile(project, "hf\u202echat\U0001f600\x7f", extra="ctx_size = 256")
+    made(project, chat_tokenizer, name="hf\u202echat\U0001f600\x7f")
+    out = capsys.readouterr().out
+    assert "\u202e" not in out and "\x7f" not in out
+    line = next(line for line in out.splitlines() if line.startswith("file = "))
+    assert line == 'file = "local/vectors/brief-hf\\u202echat\\U0001f600\\u007f.gguf"'
+    steering = tomllib.loads(out[out.index("[steering]") :])["steering"]
+    assert steering["file"] == "local/vectors/brief-hf\u202echat\U0001f600\x7f.gguf"
+
+
+def test_the_lock_names_vector_make(root, monkeypatch):
+    from clarity_chat import instance, maker
+    from clarity_chat.cli import main
+
+    held = []
+    monkeypatch.setattr(maker, "make", lambda s, p, n: held.append(instance.read_info(root)) or 0)
+    assert main(["--root", str(root), "vector", "make", "brief.toml", "--profile", "x"]) == 0
+    assert held[0]["command"] == "vector make"
