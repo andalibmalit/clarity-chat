@@ -1155,14 +1155,25 @@ def test_an_unsteered_profile_shows_no_vector(session):
 
 
 def test_the_status_line_says_what_steered_the_reply(session):
-    from clarity_chat.cli import format_status
+    from clarity_chat.cli import ChatLoop
+
+    output: list[str] = []
+    loop = ChatLoop(session, "steered", read=lambda default: "", write=output.append)
+
+    def status(line: str) -> str:
+        output.clear()
+        loop.handle(line)
+        return "".join(output).splitlines()[-1]
 
     session.new_conversation(steered(session.root))
-    assert format_status(session.say("Hi").record).endswith(" · steered ×4.0]")
-    session.set_setting("steering_scale", "-4")
-    assert format_status(session.say("Again").record).endswith(" · steered ×-4.0]")
-    session.set_setting("steering_scale", "0")
-    assert "steered" not in format_status(session.say("More").record)
+    assert status("Hi").endswith(" · steered ×4.0]")
+    loop.handle("/set steering_scale -4")
+    assert status("Again").endswith(" · steered ×-4.0]")
+    loop.handle("/set steering_scale 0")
+    # QA v0.4.5: on a profile with a vector, the terminal says so, as the page's facts line does
+    assert status("More").endswith(" · not steered]")
+    session.new_conversation(steered(session.root, name="plain", steering="", scale=None))
+    assert "steered" not in status("Hi")
 
 
 def test_json_settings_carry_the_vector(session):

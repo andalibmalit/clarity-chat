@@ -304,3 +304,15 @@ def test_a_toml_file_nested_too_deeply_is_refused(root, load):
         got = e
     assert isinstance(got, ConfigError), f"not refused: {got!r}"
     assert str(got).startswith(f"{path}: " + ("priming file: " if load == "priming" else ""))
+
+
+def test_a_typed_setting_nested_too_deeply_is_refused():
+    """v0.4.5 whole-branch review, should 7: /set reads its value as TOML, so ~2,000
+    brackets raised RecursionError, which ended the session."""
+    from clarity_chat.profiles import parse_setting
+
+    try:
+        got = parse_setting("temperature", "[" * 2000 + "]" * 2000, "/set")
+    except Exception as e:
+        got = e
+    assert isinstance(got, ConfigError), f"not refused: {got!r}"

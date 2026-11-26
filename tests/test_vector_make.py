@@ -117,7 +117,7 @@ def test_the_readout_line_by_line(project, chat_tokenizer, capsys):
         "<system>Reply ornately.</s><user>Boil an egg?</s><assistant>",
     )
     rows = [
-        f"{b['block']:5}  {b['activation_size']:15.2f}  {b['gap']:5.2f}  {b['agreement']:+9.2f}"
+        f"{b['block']:5}  {b['activation_size']:15.2f}  {b['gap']:7.2f}  {b['agreement']:+9.2f}"
         for b in record["readout"]["blocks"]
     ]
     expected = [
@@ -132,7 +132,7 @@ def test_the_readout_line_by_line(project, chat_tokenizer, capsys):
         "--- negative ---",
         first[1],
         "",
-        "block  activation size    gap  agreement",
+        "block  activation size      gap  agreement",  # a gap of 144 was seen (P's try)
         *rows,
         LEGEND,
         "These are facts about the pairs, not a score.",
@@ -152,7 +152,8 @@ def test_the_readout_line_by_line(project, chat_tokenizer, capsys):
         *(f"{k} of 16" for k in (2, 4, 5, 7, 8, 10, 12, 13, 15, 16)),
     ]
     assert LEGEND == (
-        "Activation size: the average length of the block's output. Gap: the length of this "
+        "Activation size: the average length of the block's output at the last token. Gap: "
+        "the length of this "
         "vector, the average difference between the two sides. Agreement: the average cosine "
         "similarity between each pair's difference and this vector, from -1 to 1."
     )
@@ -480,6 +481,70 @@ def test_a_link_at_the_records_name_is_replaced_not_followed(project, chat_token
     made(project, chat_tokenizer)
     assert not (project / RECORD).is_symlink()
     assert elsewhere.read_text(encoding="utf-8") == "made up\n"
+
+
+def test_a_vector_name_over_255_bytes_is_refused_before_the_model_starts(root, chat_tokenizer):
+    """The whole-branch review's should 5: the name was found only at the write, after the
+    read, as a traceback. "ж" is 2 bytes in UTF-8, so the name is long in bytes, not in
+    characters (Windows' path length)."""
+    session = unstarted(root, chat_tokenizer)
+    at_255 = profile(root, "ж" * 122, extra="ctx_size = 256")  # brief-ж….json: 255 bytes
+    outcome = None
+    try:
+        make(session, root / "brief.toml", at_255)
+    except (ConfigError, Started) as e:
+        outcome = e
+    assert isinstance(outcome, Started), f"refused at 255 bytes: {outcome!r}"
+    over = profile(root, "ж" * 122 + "a", extra="ctx_size = 256")
+    try:
+        make(session, root / "brief.toml", over)
+    except (ConfigError, Started, OSError) as e:
+        outcome = e
+    assert str(outcome) == (
+        f"The vector's file name, brief-{over}.gguf, is over 255 bytes, more than a file "
+        "system takes. Rename the pairs file or the profile."
+    ), f"not refused: {outcome!r}"
+    assert not (root / "local" / "vectors").exists() or not any(
+        (root / "local" / "vectors").iterdir()
+    )
+
+
+def test_the_model_name_prints_escaped(root, chat_tokenizer, monkeypatch, capsys):
+    """The whole-branch review's low note: a model's name is a models.toml key, which can
+    hold any character."""
+    import dataclasses
+
+    from clarity_chat import maker
+
+    session = unstarted(root, chat_tokenizer)
+    profile(root, extra="ctx_size = 256")
+    real = maker.prepare
+
+    def renamed(session, name):
+        prepared = real(session, name)
+        model = dataclasses.replace(prepared.model, name="tiny\x1b[2J")
+        return dataclasses.replace(prepared, model=model)
+
+    monkeypatch.setattr(maker, "prepare", renamed)
+    with pytest.raises(Started):
+        make(session, root / "brief.toml", "hf-chat")
+    err = capsys.readouterr().err
+    assert "\x1b" not in err
+    assert "Reading 16 prompts (8 pairs) with tiny\\x1b[2J on cpu…" in err
+
+
+def test_a_config_json_nested_too_deeply_is_refused(tmp_path):
+    """The whole-branch review's should 7: json.loads raises RecursionError for a deep
+    enough file (Python 3.13 parses 2,000 deep and refuses 10,000)."""
+    from clarity_chat.session import model_config
+
+    (tmp_path / "config.json").write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
+    try:
+        got = model_config(tmp_path)
+    except Exception as e:
+        got = e
+    assert isinstance(got, ConfigError), f"not refused: {got!r}"
+    assert str(got).startswith(f"Can't read {tmp_path / 'config.json'}: ")
 
 
 def test_olmo3s_vector_names_olmo3(root, chat_tokenizer):

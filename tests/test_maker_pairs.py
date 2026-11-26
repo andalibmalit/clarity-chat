@@ -158,7 +158,7 @@ def test_a_file_name_that_cant_name_a_vector(tmp_path, name):
 REFUSALS = {
     "an unknown top-level key": (
         CROSSED.replace("author", 'colour = "red"\nauthor'),
-        "{p}: unknown keys ['colour'] in the top level. "
+        "{p}: unknown keys ['colour'] at the top level. "  # QA v0.4.5: "in" read oddly
         "Allowed there: author, description, messages, openings, systems.",
     ),
     "messages written after [[systems]]": (
