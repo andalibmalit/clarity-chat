@@ -1435,6 +1435,12 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     )  # fmt: skip
     tried.add_argument("--profile", required=True, help="whose tokenizer counts the budget")
     tried.add_argument("--json", action="store_true", help="the whole found object, for scripts")
+    vector = commands.add_parser("vector", help="steering vectors").add_subparsers(
+        dest="action", required=True
+    )
+    made = vector.add_parser("make", help="")
+    made.add_argument("pairs", type=Path)
+    made.add_argument("--profile", required=True)
     return parser, chat
 
 
@@ -1501,6 +1507,10 @@ def run_command(args: argparse.Namespace) -> int:
                 return cmd_setup(root)
         if args.command == "document":
             return cmd_document(root, args)
+        if args.command == "vector":
+            from clarity_chat.maker import make
+
+            return make(Session(root), args.pairs, args.profile)
     except (ConfigError, BackendError) as e:
         said = outside_chat(e).terminal if isinstance(e, SearchRefused) else e
         print(f"clarity: {said}", file=sys.stderr)

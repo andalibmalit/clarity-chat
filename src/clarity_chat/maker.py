@@ -19,6 +19,7 @@ from clarity_chat.render import render_chat, tokenize
 if TYPE_CHECKING:
     from clarity_chat.session import Prepared, Session
 
+LEGEND = ""
 MAX_BYTES = 4 * 1024 * 1024
 MIN_PAIRS, MAX_PAIRS = 2, 1024  # one pair has nothing to agree with; a crossed file multiplies
 STEM = re.compile(r"[A-Za-z0-9_-]+")  # the vector's file name starts with it
@@ -302,3 +303,7 @@ def read_blocks(
         agreement = float(units[b] @ mean) / (n * gap)
         blocks[b] = Block(mean.astype(np.float32), lengths[b] / total, gap, agreement)
     return blocks
+
+
+def make(session: Session, path: Path, name: str) -> int:
+    return 0
