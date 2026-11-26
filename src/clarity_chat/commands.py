@@ -775,8 +775,7 @@ def memory_view(session: Session) -> dict[str, Any] | None:
     memory = (session.backend.server_record or {}).get("memory") or []
     if conversation is None or (m := metal_memory(memory)) is None:
         return None
-    text = memory_sentence(conversation.ctx_size.value, memory)
-    return {**m, "text": text}
+    return {**m, "text": memory_sentence(conversation.ctx_size.value, m)}
 
 
 def _title(c: Commands, args: str, emit: Emit) -> dict[str, Any]:

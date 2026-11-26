@@ -380,6 +380,18 @@ def test_settings_carry_no_memory_without_metal_s_figure(fake):
     assert "memory" in view and view["memory"] is None
 
 
+def test_settings_carry_no_memory_from_another_gpu(llama):
+    """Another GPU's figures are logged, but the sentence is Metal's (state 21; checkpoint 1,
+    S4 (c))."""
+    session, seen = llama
+    on_metal = sized()
+    seen["startups"]["tiny"] = lambda ctx_size: on_metal(ctx_size).replace("MTL0", "CUDA0")
+    assert raised(lambda: session.set_setting("ctx_size", "16384")) is None
+    memory = (session.backend.server_record or {}).get("memory") or []
+    assert [m["device"] for m in memory] == ["CUDA0"]
+    assert settings_view(session)["memory"] is None
+
+
 def test_set_ctx_size_sends_the_starting_status(fake):
     session, _ = fake
     events: list[dict[str, Any]] = []

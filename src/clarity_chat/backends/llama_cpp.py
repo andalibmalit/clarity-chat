@@ -372,12 +372,9 @@ def metal_limit(m: dict[str, Any]) -> str:
     return f"Metal's recommended limit for this GPU, {m['limit_mib']:,} MiB."
 
 
-def memory_sentence(ctx_size: int, memory: list[dict[str, Any]]) -> str | None:
-    """What a size uses on Metal, said after `/set ctx_size` and on /settings (state 20).
-    None without Metal's figures (the Transformers backend, other GPUs: state 21)."""
-    m = metal_memory(memory)
-    if m is None:
-        return None
+def memory_sentence(ctx_size: int, m: dict[str, Any]) -> str:
+    """What a size uses on Metal (`m`, metal_memory's entry), said after `/set ctx_size` and
+    on /settings (state 20)."""
     return f"At {ctx_size:,} tokens, the model uses {memory_breakdown(m)}, out of {metal_limit(m)}"
 
 
