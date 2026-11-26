@@ -98,7 +98,7 @@ def refusal_of(action) -> BaseException:
 
 MEMORY_16384 = (
     "At 16,384 tokens, the model uses 6,012 MiB of GPU memory (4,610 for the model, 1,152 "
-    "for the context cache, 250 for computing), of Metal's recommended limit for this GPU, "
+    "for the context cache, 250 for computing), out of Metal's recommended limit for this GPU, "
     "25,559 MiB."
 )  # state 20, as the plan has it
 
