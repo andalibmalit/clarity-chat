@@ -711,7 +711,7 @@ While the model reads, the terminal prints the number of prompts and pairs, the 
 
 - the lines to add to a Transformers profile of the same model, with `steering_scale = 1.0` in its `[settings]`: `[steering]` with the vector's `file`, `sha256`, and `layers` set to the middle block, n // 2 (15 of SmolLM2-135M's 30). The middle block is a starting point; no source says it is best. Widen `layers` in the profile with no remake.
 
-Agreement is a hint, not a guarantee. In one study (Llama 2 7B Chat, 36 multiple-choice datasets, one block), datasets whose pairs' differences pointed more nearly the way of their average steered better. The readout gives facts about the pairs, not a score: there's no threshold and no "works".
+Agreement is a hint, not a guarantee. In one study (Llama 2 7B Chat, 36 multiple-choice datasets, one block), datasets whose pairs' differences pointed more nearly the way of their average steered better (Braun et al., [arXiv 2505.22637](https://arxiv.org/abs/2505.22637)). The readout gives facts about the pairs, not a score: there's no threshold and no "works".
 
 Making a vector again isn't promised to give the same file, but in v0.4.5's tests it did: a remake of the same pairs on the same profile and device gave the same vector bit for bit, for SmolLM2 on the CPU and on MPS and for OLMo 3 7B Instruct on MPS.
 
