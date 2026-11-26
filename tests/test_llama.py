@@ -91,6 +91,32 @@ def test_one_bos_the_dated_header_and_the_same_prompt_ids_on_both_backends(
         assert llama["bos"]["prepended"] and "Today Date" not in text
 
 
+def test_a_chat_at_16384_runs_llama_3_1_at_that_size(session, tmp_path):
+    """v0.4.6 L1 (v0.4.4's carried S2): a real model at 16,384, under its trained maximum
+    of 131,072. `/set ctx_size 16384` is accepted with the chat as its origin, the server
+    starts at it, and the call runs at it with every check passing. Before the steering
+    test, which closes the module's session."""
+    from clarity_chat.logs import read_records
+    from clarity_chat.profiles import Setting
+
+    need(INSTRUCT)
+    session.new_conversation(copy(tmp_path, "llama-3.1-8b-chat", "llama.cpp", max_tokens="8"))
+    session.set_setting("ctx_size", "16384")
+    conversation = session.conversation
+    assert conversation is not None
+    assert conversation.ctx_size == Setting(16384, "chat")
+    record = session.say("Reply with one word: ready.").record
+    checks_ok(record)
+    assert record["n_ctx"] == 16384
+    starts = {
+        r["server_id"]: r
+        for r in read_records(conversation.log.path)
+        if r["type"] == "server_start"
+    }
+    argv = starts[record["backend"]["server_id"]]["argv"]
+    assert argv[argv.index("--ctx-size") + 1] == "16384", argv
+
+
 def test_steering_llama_3_1_instruct_on_mps(session, tmp_path):
     """The four steering checks of tests/test_hf.py on Llama 3.1 8B Instruct (model type
     `llama`), with a random direction the test writes across blocks 10 to 20, as the OLMo 3
