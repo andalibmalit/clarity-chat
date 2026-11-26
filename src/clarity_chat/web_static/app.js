@@ -339,7 +339,8 @@ async function draw(number) {
   const state = clarity.state;
   const starting = state.model === "starting";
   const chat = Boolean(state.conversation_id) && !starting;
-  const again = starting && state.running && state.running.command === "resume"; // same chat
+  // The same chat's model starting again: Start the model again, or a new ctx_size (B3b).
+  const again = starting && state.running && ["resume", "set"].includes(state.running.command);
   // Nothing to rename or export before the first message (design walkthrough, finding 9).
   const said = state.turns.some((turn) => turn.role === "user");
   $("title").hidden = (!chat && !again) || !said || clarity.renaming;
@@ -367,7 +368,9 @@ async function draw(number) {
   $("new-chat").setAttribute("aria-disabled", String(waits));
   showWriting(state.running);
   readingLine(state);
-  if (panelOf) showPanel(panelOf.name, panelOf.params);
+  // /settings waits behind a model start, so the panel waits here until it's over (B3b).
+  if (panelOf && starting && panelOf.name === "settings") settingsWait();
+  else if (panelOf) showPanel(panelOf.name, panelOf.params);
   if (!$("drawer").hidden) await showDrawer();
   countBranches(chat);
   if (state.unanswered && clarity.filled !== state.unanswered.turn_id) {
@@ -625,7 +628,8 @@ document.addEventListener("click", (event) => {
   }
   const set = event.target.closest("[data-set]");
   if (set) {
-    if (set.getAttribute("aria-disabled") !== "true") setting(set.dataset.set);
+    const row = set.closest("#panel .srow"); // a row's button: its refusal goes under it
+    if (set.getAttribute("aria-disabled") !== "true") setting(set.dataset.set, row);
     return;
   }
   const unmark = event.target.closest("[data-unmark]");
@@ -1015,6 +1019,8 @@ async function showPanel(name, params, opener) {
     note.textContent = method.dataset.noEmbedder;
     note.hidden = false;
   }
+  const row = clarity.rowRefused && $("panel").querySelector(`.srow[data-setting="${clarity.rowRefused.name}"]`);
+  if (name === "settings" && row) showRefusal(row, clarity.rowRefused.sentence); // kept on redraws
   const refused = $("panel").querySelector(".refused");
   if (panelOf.refusal && refused) {
     refused.textContent = panelOf.refusal;
@@ -1030,6 +1036,26 @@ async function showPanel(name, params, opener) {
   else if (opening) $("panel-title").focus();
 }
 
+function settingsWait() {
+  // The panel as drawn before the start, its controls waiting and saying why, as the
+  // server draws them during a reply (ruling 8).
+  const body = $("panel").querySelector(".body");
+  if (!body) return;
+  let waits = $("settings-waits");
+  if (!waits) {
+    waits = document.createElement("p");
+    waits.className = "waits";
+    waits.id = "settings-waits";
+    body.prepend(waits);
+  }
+  waits.textContent = "Waits until the model has started.";
+  for (const control of body.querySelectorAll("[data-set], [data-action=reset-all], input")) {
+    control.setAttribute("aria-disabled", "true");
+    control.setAttribute("aria-describedby", "settings-waits");
+    if (control.type === "number" || control.type === "text") control.readOnly = true;
+  }
+}
+
 function docsLinks(root) {
   for (const link of root.querySelectorAll("a[data-docs]")) {
     link.href = `${clarity.docs || ""}${link.dataset.docs}`; // the guide at this version
@@ -1043,6 +1069,7 @@ function closePanel() {
   panelOpening = 0;
   const opener = panelOf && panelOf.opener;
   panelOf = null;
+  clarity.rowRefused = null;
   $("panel").hidden = true;
   $("branches-button").setAttribute("aria-expanded", "false");
   shade(); // clears the shading
@@ -1055,25 +1082,46 @@ function closePanel() {
   (back || $("message")).focus();
 }
 
-function refuseRow(row, box, sentence) {
-  // A refusal shows its sentence under its row, and the box keeps what you typed.
+function showRefusal(row, sentence) {
+  // A refusal's sentence under its row, and the value still in use.
   const refused = row.querySelector(".refused");
   refused.textContent = sentence;
   refused.hidden = false;
   const note = row.querySelector(".note");
-  note.textContent = `Not applied: the next reply still uses ${box.dataset.inUse}.`;
+  note.textContent = `Not applied: the next reply still uses ${note.dataset.inUse}.`;
   note.hidden = false;
-  box.setAttribute("aria-invalid", "true");
+}
+
+function refuseRow(row, box, sentence) {
+  // A refusal shows its sentence under its row, kept until the next change, and a box keeps
+  // what you typed.
+  clarity.rowRefused = { name: row.dataset.setting, sentence };
+  showRefusal(row, sentence);
+  if (box && box.tagName === "INPUT") box.setAttribute("aria-invalid", "true");
   const slider = row.querySelector('input[type="range"]');
   if (slider) slider.value = slider.getAttribute("value");
 }
 
 async function setting(args, row = null, box = null) {
-  // /set NAME VALUE, or /set NAME (back to the profile's value).
+  // /set NAME VALUE, or /set NAME (back to the profile's value). A row's refusal shows
+  // under it: a box's, or a button's (a preset's, B3b).
+  clarity.rowRefused = null;
+  const chat = clarity.state && clarity.state.conversation_id;
   const answer = await command("set", args);
   const sentence = answer.error && answer.error.replace(/^\/set: /, ""); // no command line here
+  const now = answer.error && chat && (await command("state")).result;
+  if (now && !now.conversation_id && now.model !== "starting") {
+    // State 31 (ruling 10): a new size failed and so did the old one, so no chat runs.
+    await refresh();
+    closePanel();
+    notice("! Failed:", sentence);
+    openPicker("first");
+    return;
+  }
   if (answer.error && row) {
-    refuseRow(row, box, sentence);
+    // The model's restart redrew the panel meanwhile: the refusal goes under the row now.
+    const live = $("panel").querySelector(`.srow[data-setting="${row.dataset.setting}"]`) || row;
+    refuseRow(live, live === row ? box : null, sentence);
     return;
   }
   if (answer.error) notice("!", sentence);

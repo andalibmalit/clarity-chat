@@ -101,7 +101,8 @@ def test_a_changed_row_offers_one_way_back(chat):
     # top_k's profile value is 0, its neutral value: "Neutral (0)", the same /set top_k
     # (Checkpoint 4, finding 20: neutral, not off; temperature 1 isn't off).
     assert 'data-set="top_k">Neutral (0)<' in row(fragment, "top_k")
-    assert 'data-action="reset-all"' in fragment and fragment.count("data-set=") == 2
+    assert 'data-action="reset-all"' in fragment
+    assert len(re.findall(r'data-set="(?!ctx_size \d)', fragment)) == 2  # B3b: the presets aside
 
 
 def test_while_a_reply_is_written_the_controls_wait_and_say_why(chat):

@@ -1309,7 +1309,8 @@ def settings_view(session: Session) -> dict[str, Any]:
         }
         if profile.mode == "chat"
         else None,
-        "ctx_size": conversation.ctx_size.to_json(),
+        # The size in use and the base its row's Back to returns to (v0.4.4 B3b).
+        "ctx_size": {**conversation.ctx_size.to_json(), "base": conversation.ctx_base.to_json()},
         "memory": memory_view(session),
         "stop": profile.stop,
         "steering": {

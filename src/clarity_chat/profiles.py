@@ -339,6 +339,10 @@ SETTING_HELP = {
     "budget": (
         "The most tokens search may add to a message, shared by every document this chat searches."
     ),
+    "ctx_size": (
+        "The context size in tokens: the prompt and the reply together must fit in it. A larger "
+        "context takes more memory."
+    ),
 }
 
 

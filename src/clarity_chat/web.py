@@ -695,6 +695,7 @@ def starting_profile(state: dict[str, Any], profiles: list[dict[str, Any]]) -> d
         "profile": running["args"],
         "new": state["profile"],
         "resume": state["profile"] if same_chat else None,
+        "set": state["profile"],  # a new ctx_size starts the chat's own model again
     }.get(running["command"])
     row = next((p for p in profiles if p["name"] == name), None)
     return row or {"name": name, "model_name": None, "backend": None}
@@ -1328,10 +1329,35 @@ def document_row(name: str, setting: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+CTX_PRESETS = (4096, 8192, 16384, 32768)  # decision 5: the four sizes the row offers
+
+
+def context_row(setting: dict[str, Any]) -> dict[str, Any]:
+    """The Context row (B3b): the four presets as buttons, and the size in use among them in
+    size order when it isn't one, pressed; Back to its base when this chat set it."""
+    value, origin, base = setting["value"], setting["origin"], setting["base"]
+    back = [("ctx_size", f"Back to {value_words(base['value'])} ({base['origin']})")]
+    return {
+        "name": "ctx_size",
+        "value": value,
+        "in_use": value_words(value),
+        "origin": origin,
+        "help": SETTING_HELP["ctx_size"],
+        "slider": None,
+        "integer": True,
+        "marks": [],
+        "buttons": back if origin == "chat" else [],
+        "choices": [
+            (f"ctx_size {size}", value_words(size), size == value)
+            for size in sorted({*CTX_PRESETS, value})
+        ],
+    }
+
+
 def settings_panel(settings: dict[str, Any], waits: str | None) -> dict[str, Any]:
     """What the Settings panel draws, from /settings: Common, Documents (chat mode),
-    Steering, Probabilities (on Transformers), More settings, and the Transformers lines
-    from `not_applied`."""
+    Steering, Probabilities (on Transformers), Context, More settings, and the Transformers
+    lines from `not_applied`."""
     values = settings["settings"]
     model = (settings["recommended"] or {}).get("values", {})
     transformers = settings["backend"] == "transformers"
@@ -1352,6 +1378,8 @@ def settings_panel(settings: dict[str, Any], waits: str | None) -> dict[str, Any
         "changed": changed_names(settings),
         "documents": documents,
         "applies": SENTENCES["searching_applies"],
+        "context": (size := settings.get("ctx_size")) and context_row(size),
+        "memory": (settings.get("memory") or {}).get("text"),  # Metal's figures only (state 21)
         "no_embedder": problem_words(
             {"state": "no_embedder"}, terminal=False, where="chat", at_send=False
         ),

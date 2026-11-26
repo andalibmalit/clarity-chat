@@ -54,7 +54,9 @@ def documents(fetched_root, chat_tokenizer):
 
 def group(fragment: str) -> str:
     """The Documents group: from its heading to the next section."""
-    found = re.search(r'<h3 class="sh">Documents</h3>(.*?)<details class="more"', fragment, re.S)
+    found = re.search(
+        r'<h3 class="sh">Documents</h3>(.*?)<h3 class="sh">Context</h3>', fragment, re.S
+    )
     assert found, "no Documents group"
     return found.group(1)
 
