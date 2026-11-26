@@ -19,7 +19,7 @@ from typing import Any, NoReturn
 
 from clarity_chat import steering
 from clarity_chat.backends import BackendError
-from clarity_chat.files import write_bytes_atomic, write_text_atomic
+from clarity_chat.files import temp_path, write_bytes_atomic, write_text_atomic
 from clarity_chat.logs import client_git, now_utc
 from clarity_chat.profiles import ConfigError, Profile, load_profile, shown
 from clarity_chat.render import library_versions, render_chat, tokenize
@@ -320,10 +320,12 @@ def make(session: Session, path: Path, name: str) -> int:
     gguf, json_path = (vectors / f"{path.stem}-{profile.name}{x}" for x in (".gguf", ".json"))
     relative = gguf.relative_to(session.root).as_posix()  # as the snippet and record give it
     file, record_file = shown(relative), shown(json_path.relative_to(session.root).as_posix())
-    if len(gguf.name.encode()) > 255:  # .json is as long; found here, not after the read
+    size, extra = len(gguf.name.encode()), len(temp_path(gguf, longest=True).name) - len(gguf.name)
+    if size + extra > 255:  # .json is as long; found here, not after the read
         raise ConfigError(
-            f"The vector's file name, {shown(gguf.name)}, is over 255 bytes, more than a file "
-            "system takes. Rename the pairs file or the profile."
+            f"The vector's file name, {shown(gguf.name)}, is {size} bytes, more than make takes "
+            f"({255 - extra}): it writes the file first under a name up to {extra} bytes "
+            "longer, and a file system takes 255. Rename the pairs file or the profile."
         )
     if os.path.lexists(gguf):
         raise ConfigError(

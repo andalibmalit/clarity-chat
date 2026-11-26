@@ -536,6 +536,24 @@ def test_the_longest_vector_name_makes_and_one_byte_more_is_refused_before_the_m
     assert not list((project / "local" / "vectors").glob(f"*{over}*"))
 
 
+def test_the_writers_write_under_temp_path_and_its_longest_form_bounds_it(tmp_path, monkeypatch):
+    """The fix review's item 1: make's length check holds only if the writers name their
+    temporary file as temp_path does, and its longest form is the longest they can write."""
+    import os
+
+    from clarity_chat import files
+
+    replaced = []
+    real = os.replace
+    monkeypatch.setattr(os, "replace", lambda a, b: (replaced.append(Path(a)), real(a, b)))
+    path = tmp_path / "v.gguf"
+    files.write_bytes_atomic(path, b"x")
+    assert replaced == [files.temp_path(path)]
+    longest = files.temp_path(path, longest=True).name
+    assert longest == ".v.gguf.4294967295.18446744073709551615.tmp"
+    assert len(files.temp_path(path).name) <= len(longest)
+
+
 def test_the_model_name_prints_escaped(root, chat_tokenizer, monkeypatch, capsys):
     """The whole-branch review's low note: a model's name is a models.toml key, which can
     hold any character."""

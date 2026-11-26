@@ -698,7 +698,7 @@ The file's name, without its extension, names the vector, so it may hold only le
 
 ### What make writes and prints
 
-`make` writes `local/vectors/STEM-PROFILE.gguf` and its record, `local/vectors/STEM-PROFILE.json`, where STEM is the pairs file's name without its extension. So the same pairs can be made on two profiles. A name over 255 bytes, more than a file system takes, is refused before the model loads. If the `.gguf` exists, `make` also refuses before it loads the model: a profile may pin that file by its sha256, and Clarity never replaces a pinned file. It writes the record first, then the vector, each through a temporary file. An interrupted make can leave a record alone, but never a vector without its record, and the next make replaces such a record. Ctrl-C while the model reads writes nothing.
+`make` writes `local/vectors/STEM-PROFILE.gguf` and its record, `local/vectors/STEM-PROFILE.json`, where STEM is the pairs file's name without its extension. So the same pairs can be made on two profiles. A file name over 218 bytes is refused before the model loads: `make` writes each file first under a temporary name up to 37 bytes longer, and a file system takes 255. If the `.gguf` exists, `make` also refuses before it loads the model: a profile may pin that file by its sha256, and Clarity never replaces a pinned file. It writes the record first, then the vector, each through a temporary file. An interrupted make can leave a record alone, but never a vector without its record, and the next make replaces such a record. Ctrl-C while the model reads writes nothing.
 
 While the model reads, the terminal prints the number of prompts and pairs, the model and the device, then up to ten progress lines. The readout then gives:
 
