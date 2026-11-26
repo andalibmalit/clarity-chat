@@ -551,6 +551,27 @@ def test_the_lock_records_the_sha256_of_the_requirements_the_converter_ran_with(
     assert recorded() == hashlib.sha256(requirements.read_bytes()).hexdigest() != first
 
 
+def test_the_lock_holds_the_requirements_hash_the_environment_was_checked_against(
+    tmp_path, monkeypatch
+):
+    """The whole-branch review's finding 3: a requirements file that changes while the
+    converter runs (a `git pull` during an 8B conversion, say) doesn't change what the lock
+    records. The hash is the one taken when the environment was checked or made."""
+    requirements = made_up_requirements(tmp_path)
+    requirements.parent.mkdir(parents=True)
+    requirements.write_text(MADE_UP_REQUIREMENTS, "utf-8")
+    first = hashlib.sha256(requirements.read_bytes()).hexdigest()
+
+    def seen(command):
+        if command[1:2] == ["-I"]:  # the converter starts: the file changes under it
+            requirements.write_text(MADE_UP_REQUIREMENTS.replace("1.0", "1.1"), "utf-8")
+
+    converting(tmp_path, monkeypatch, seen=seen)
+    lock = json.loads((tmp_path / "local" / "models.lock").read_text("utf-8"))
+    recorded = lock["models"]["smollm2-135m-instruct"]["converter"]["requirements_sha256"]
+    assert recorded == first
+
+
 def test_the_converter_runs_the_uv_that_runs_clarity(tmp_path, monkeypatch):
     """install.sh runs Clarity under `env -i` with a PATH that doesn't hold ~/.local/bin,
     where uv's installer puts uv; uv sets UV to itself for what it runs, so the converter
