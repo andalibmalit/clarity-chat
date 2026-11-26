@@ -4,10 +4,10 @@
 
 ## Two ways to use it
 
-- **With a coding agent in Clarity's folder** (Claude Code, Codex, or another): ask it to follow this page for your description and save the file in `local/pairs/`. Then run `clarity vector make local/pairs/NAME.toml --profile PROFILE`.
+- **With a coding agent in Clarity's folder** (Claude Code, Codex, or another): ask it to follow this page for your description and save the file in `local/pairs/`. Then run `uv run clarity vector make local/pairs/NAME.toml --profile PROFILE`.
 - **With any chat app:** copy the prompt below, replace `{DESCRIPTION}` with your description, and save the answer as a `.toml` file in `local/pairs/`. Then run the same command.
 
-Read the file before you make a vector from it. The vector carries every way the two sides differ, so a word on one side only becomes part of it.
+Read the file before you make a vector from it. The vector carries every way the two sides differ in the same direction across pairs, so a word on one side of every pair becomes part of it.
 
 ## The prompt
 
@@ -34,8 +34,7 @@ Rules for the system pairs:
   opposite. The two sides match in everything else: who the assistant is, length,
   sentence shape, and every word that isn't about the behaviour.
 - Vary who the assistant is across the 6 pairs ("an assistant", "a librarian", "a tutor",
-  "a guide", and so on), and keep it the same on both sides of a pair, so that the
-  behaviour is the only thing every pair shares.
+  "a guide", and so on), and keep it the same on both sides of a pair.
 - No names of people, products or places, and no special terms.
 - No praise, politeness or warmth on one side only, unless that is the behaviour itself.
 

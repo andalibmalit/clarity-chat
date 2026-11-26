@@ -24,8 +24,8 @@ A conversation's ID, as `clarity chats` lists it, is its log file's name: `logs/
 | `clarity verify [NAME …]` | Re-hash fetched models against their lock entries (`local/models.lock`'s, else the shipped `models.lock`'s); with no names, every fetched model. |
 | `clarity document add FILE [--name NAME]` | Add a file to the documents Clarity searches, in `local/documents/NAME/` ([The library](#the-library)). It's read as `/attach` reads it, and Clarity says where it writes before and after. NAME defaults to the file's name; a document of that name is replaced. |
 | `clarity document list [--json]` | The library's folder, then each document's name, kind, size, parts (and how many have a title) and state (`--json` adds `original` and `added`): `ready`, or `unreadable` with why (`why`, the reason, and `add_again`, true when adding the file again is the way out, as the line says). |
-| `clarity vector make PAIRS --profile NAME` | Make a steering vector from PAIRS, a file of contrasting prompt pairs, by reading the model of NAME, a Transformers chat profile. It writes the vector and its record to `local/vectors/` and prints a readout and the lines to add to a profile ([Making a vector](#making-a-vector)). `docs/pairs-prompt.md` is a prompt that has a coding agent or a chat app write a pairs file. Like `chat`, it refuses while another Clarity runs in the project. |
 | `clarity document try NAME … --profile P TEXT [--json]` | What a first message with TEXT would find in these documents, in a new chat on profile P, counted with its tokenizer, with no model: the words searched and ignored, each part added and why, and what was left out. The names and the text may sit on either side of `--profile`: the last word is the text, so quote it if it has spaces. `--json` prints the whole object, as a turn's `found`. It searches by words only: with a profile that searches by meaning it's refused, and `/try` in a chat searches by meaning. |
+| `clarity vector make PAIRS --profile NAME` | Make a steering vector from PAIRS, a file of contrasting prompt pairs, by reading the model of NAME, a Transformers chat profile. It writes the vector and its record to `local/vectors/` and prints a readout and the lines to add to a profile ([Making a vector](#making-a-vector)). `docs/pairs-prompt.md` is a prompt that has a coding agent or a chat app write a pairs file. Like `chat`, it refuses while another Clarity runs in the project. |
 
 `--root PATH` sets the project folder, and goes before the command: `clarity --root PATH chat --profile NAME`. By default, the project folder is the nearest folder, from the current one upwards, that holds both `defaults.toml` and `server.toml`. `mark` and `note` don't need a project folder, only the log file.
 
@@ -646,7 +646,7 @@ layers = [10, 11, 12]              # optional; default: every block in the file
 steering_scale = 4.0               # required with [steering]; negative steers the other way
 ```
 
-The `4.0` is for a repeng vector, which has length 1 at every block. For a vector `make` writes, start at `1.0` ([why](#making-a-vector)). A vector `make` writes holds every block that can be steered, so keep the `layers` line the snippet gives: without it, every block is steered.
+The `4.0` is for a repeng vector from its default method, which has length 1 at every block. For a vector `make` writes, start at `1.0` ([why](#making-a-vector)). A vector `make` writes holds every block that can be steered, so keep the `layers` line the snippet gives: without it, every block is steered.
 
 When a conversation starts, resumes or switches profile, and before a batch run, Clarity loads the file, checks its sha256, and checks it against the model's `config.json`: the model type, the width, and that each block exists and is in the file. A vector that changed since the profile pinned it is refused. `/set steering_scale` changes the scale for one conversation without reloading the model.
 
@@ -663,7 +663,7 @@ The profile must use `backend = "transformers"` and `mode = "chat"`, with a mode
 
 Clarity reads each prompt at its last token, after the reply's opening words, where the model is about to write the reply. A read-only hook on each block takes that token's row of the block's output, the tensor steering adds to (not Transformers' last `hidden_states` entry, which comes after the final normalization). Each prompt runs alone, with no batch and no padding. Blocks 1 to n−1 of an n-block model are made; block 0 can't be steered ([Steering vectors](#steering-vectors)).
 
-The vector is stored in float32 and isn't scaled to length 1. A vector Clarity makes is the average difference itself, so steering_scale 1 adds that difference at each block in layers. Its length at each block is the gap in the readout. A repeng vector has length 1 at every block, so the same scale is a different push: scale 1 on a Clarity vector equals scale gap on a unit-length one. The file is a control vector in repeng's layout ([Steering vectors](#steering-vectors)), so it can't say which kind it is; the record says `"length": "not normalized"`.
+The vector is stored in float32 and isn't scaled to length 1. A vector Clarity makes is the average difference itself, so steering_scale 1 adds that difference at each block in layers. Its length at each block is the gap in the readout. A repeng vector from its default method has length 1 at every block, so the same scale is a different push: at each block, scale 1 on a Clarity vector equals scale gap, that block's gap, on a unit-length one. The file is a control vector in repeng's layout ([Steering vectors](#steering-vectors)), so it can't say which kind it is; the record says `"length": "not normalized"`.
 
 ### The pairs file
 
@@ -688,7 +688,7 @@ negative = "You are a librarian. You make every answer long and elaborate."
 
 Every system pair, with every message and every opening, is one pair: this file makes 2 × 2 × 2 = 8. Pairs are numbered by system pair first, then message, then opening. Only the system message differs between the two sides, so a pair whose sides differ in the message or the opening can't be written yet; a form for that is planned for v0.4.8. An opening is the start of the reply, the same on both sides, after which the prompt is read.
 
-The vector carries every way the two sides differ, so a word on one side only becomes part of it.
+The vector carries every way the two sides differ in the same direction across pairs, so a word on one side of every pair becomes part of it.
 
 `description` and `author` are required and can't be empty. Clarity can't tell who wrote a pairs file: the author is what the file says. The record keeps it as `author_self_reported`.
 
@@ -702,14 +702,14 @@ The file's name, without its extension, names the vector, so it may hold only le
 
 While the model reads, the terminal prints the number of prompts and pairs, the model and the device, then up to ten progress lines. The readout then gives:
 
-- the files it wrote and how long the read took;
+- the files it wrote and how long the make took, the model's load included;
 - the pairs' counts, and the file's `description` and `author`;
 - the first pair's two prompts exactly as the model read them, with any control or invisible character other than a newline or a tab written as Python writes it (`\x1b`);
 - a table of three numbers for each block, then this legend:
 
   > Activation size: the average length of the block's output at the last token. Gap: the length of this vector, the average difference between the two sides. Agreement: the average cosine similarity between each pair's difference and this vector, from -1 to 1.
 
-- the lines to add to a Transformers profile of the same model, with `steering_scale = 1.0` in its `[settings]`: `[steering]` with the vector's `file`, `sha256`, and `layers` set to the middle block, n // 2 (15 of SmolLM2's 30). The middle block is a starting point, not a recommendation from a source. Widen `layers` in the profile with no remake.
+- the lines to add to a Transformers profile of the same model, with `steering_scale = 1.0` in its `[settings]`: `[steering]` with the vector's `file`, `sha256`, and `layers` set to the middle block, n // 2 (15 of SmolLM2-135M's 30). The middle block is a starting point; no source says it is best. Widen `layers` in the profile with no remake.
 
 Agreement is a hint, not a guarantee. In one study (Llama 2 7B Chat, 36 multiple-choice datasets, one block), datasets whose pairs' differences pointed more nearly the way of their average steered better. The readout gives facts about the pairs, not a score: there's no threshold and no "works".
 
