@@ -326,11 +326,10 @@ SETTING_HELP = {
         "likeliest tokens with theirs."
     ),
     "steering_scale": "Strength: the profile’s vector is multiplied by it before it’s added.",
-    # The search keys a chat can /set (v0.4.4 B1; drafts, for the release's fact-check).
+    # The search keys a chat can /set (v0.4.4 B1), as the release's fact-check left them.
     "search_method": (
         "How search picks the parts of your documents to add to a message: by meaning, the "
-        "parts closest in meaning to it (bge-m3's similarity), or by words, the parts that "
-        "share its words."
+        "parts closest in meaning to it, or by words, the parts that share a word with it."
     ),
     "min_similarity": (
         "For meaning search: the lowest similarity, from -1 to 1, a part can have and still be "
@@ -341,7 +340,7 @@ SETTING_HELP = {
     ),
     "ctx_size": (
         "The context size in tokens: the prompt and the reply together must fit in it. A larger "
-        "context takes more memory."
+        "context usually takes more memory."
     ),
 }
 

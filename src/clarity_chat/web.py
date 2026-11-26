@@ -1069,12 +1069,13 @@ def value_words(value: Any, name: str = "") -> str:
     """A value as Python writes it (1.0, 1e-05), so the screen matches the log and /set; an
     amount of 1,000 or more has separators, as the page's other numbers do (Round 8, ruling
     5). `name` (a setting, or a record's dotted path) keeps an ID plain, to be copied: a
-    seed, a token ID, anything `*_id` or `*_ids`. A number box keeps the plain number."""
+    seed, a token ID, anything `*_id` (a list of IDs is joined plain). A number box keeps
+    the plain number."""
     if isinstance(value, list):
         return ", ".join(str(v) for v in value)
     last = name.rsplit(".", 1)[-1]
-    amount = last != "seed" and not last.endswith(("_id", "_ids"))
-    if amount and isinstance(value, int) and not isinstance(value, bool) and abs(value) >= 1000:
+    amount = last != "seed" and not last.endswith("_id")
+    if amount and isinstance(value, int) and abs(value) >= 1000:
         return f"{value:,}"
     return str(value)
 
@@ -1307,51 +1308,30 @@ def changed_names(settings: dict[str, Any]) -> list[str]:
     return [name for name, setting in both.items() if setting["origin"] == "chat"]
 
 
-def document_row(name: str, setting: dict[str, Any]) -> dict[str, Any]:
-    """A Documents row (B2): the method as a button for each choice, the minimum and the
-    budget as number boxes, and Back to the base (decision 16) when this chat set it."""
+CTX_PRESETS = (4096, 8192, 16384, 32768)  # decision 5: the four sizes the row offers
+
+
+def choice_row(
+    name: str, setting: dict[str, Any], choices: list[Any] | None, integer: bool
+) -> dict[str, Any]:
+    """A Documents row (B2) or the Context row (B3b): a button for each choice, the one in
+    use pressed, or a number box; and Back to the base (decision 16) when this chat set it.
+    The template reads a missing slider, marks or choices as none."""
     value, origin, base = setting["value"], setting["origin"], setting["base"]
-    methods = ("meaning", "words")
-    back = [(name, f"Back to {value_words(base['value'], name)} ({base['origin']})")]
-    return {
+    row = {
         "name": name,
         "value": value,
         "in_use": value_words(value, name),
         "origin": origin,
         "help": SETTING_HELP[name],
-        "slider": None,
-        "integer": name == "budget",
-        "marks": [],
-        "buttons": back if origin == "chat" else [],
-        "choices": [(f"{name} {m}", m, m == value) for m in methods]
-        if name == "search_method"
-        else None,
+        "integer": integer,
+        "buttons": [(name, f"Back to {value_words(base['value'], name)} ({base['origin']})")]
+        if origin == "chat"
+        else [],
     }
-
-
-CTX_PRESETS = (4096, 8192, 16384, 32768)  # decision 5: the four sizes the row offers
-
-
-def context_row(setting: dict[str, Any]) -> dict[str, Any]:
-    """The Context row (B3b): the four presets as buttons, and the size in use among them in
-    size order when it isn't one, pressed; Back to its base when this chat set it."""
-    value, origin, base = setting["value"], setting["origin"], setting["base"]
-    back = [("ctx_size", f"Back to {value_words(base['value'])} ({base['origin']})")]
-    return {
-        "name": "ctx_size",
-        "value": value,
-        "in_use": value_words(value),
-        "origin": origin,
-        "help": SETTING_HELP["ctx_size"],
-        "slider": None,
-        "integer": True,
-        "marks": [],
-        "buttons": back if origin == "chat" else [],
-        "choices": [
-            (f"ctx_size {size}", value_words(size), size == value)
-            for size in sorted({*CTX_PRESETS, value})
-        ],
-    }
+    if choices:
+        row["choices"] = [(f"{name} {c}", value_words(c, name), c == value) for c in choices]
+    return row
 
 
 def settings_panel(settings: dict[str, Any], waits: str | None) -> dict[str, Any]:
@@ -1368,7 +1348,12 @@ def settings_panel(settings: dict[str, Any], waits: str | None) -> dict[str, Any
     unused = [{**e, "value": value_words(e["value"], e["name"])} for e in settings["not_applied"]]
     found = settings.get("documents")  # chat mode only (B2)
     documents = found and [
-        document_row(n, found[n])
+        choice_row(
+            n,
+            found[n],
+            ["meaning", "words"] if n == "search_method" else None,
+            integer=n == "budget",
+        )  # fmt: skip
         for n in CHAT_KEYS  # words search has no minimum, so its row goes (state 17)
         if n != "min_similarity" or found["search_method"]["value"] == "meaning"
     ]
@@ -1378,7 +1363,8 @@ def settings_panel(settings: dict[str, Any], waits: str | None) -> dict[str, Any
         "changed": changed_names(settings),
         "documents": documents,
         "applies": SENTENCES["searching_applies"],
-        "context": (size := settings.get("ctx_size")) and context_row(size),
+        "context": (size := settings.get("ctx_size"))
+        and choice_row("ctx_size", size, sorted({*CTX_PRESETS, size["value"]}), integer=True),
         "memory": (settings.get("memory") or {}).get("text"),  # Metal's figures only (state 21)
         "no_embedder": problem_words(
             {"state": "no_embedder"}, terminal=False, where="chat", at_send=False

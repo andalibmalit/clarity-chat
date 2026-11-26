@@ -2195,7 +2195,7 @@ class Session:
         if self.conversation is not None and call["n_ctx"] != self.backend.n_ctx:
             raise ConfigError(  # decision 12: the size is a condition the chat can meet
                 f"Call {call_id} ran with a context of {call['n_ctx']:,} tokens, but this chat "
-                f"uses {self.backend.n_ctx:,}. Set ctx_size to {call['n_ctx']:,} to replay it "
+                f"uses {self.backend.n_ctx:,}. Set ctx_size to {call['n_ctx']} to replay it "
                 "here."
             )
         device = described.get("device") if backend_name == "transformers" else None

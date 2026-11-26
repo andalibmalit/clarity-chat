@@ -128,7 +128,7 @@ def what_differs(record: dict[str, Any]) -> list[dict[str, Any]]:
             record["profile_file"], "is outside the project folder, so it wasn't read"
         )
         items.append((f"The profile's file {state}; this chat uses the profile as logged.", 1))
-    if record["ctx_size"]["origin"] != "log":
+    if record["ctx_size"]["origin"] not in ("log", "chat"):  # a /set size is in the log too
         items.append(
             (
                 f"The log doesn't say its context size: using {record['ctx_size']['value']} "

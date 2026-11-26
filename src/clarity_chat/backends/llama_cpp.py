@@ -369,7 +369,7 @@ def memory_breakdown(m: dict[str, Any]) -> str:
 
 
 def metal_limit(m: dict[str, Any]) -> str:
-    return f"Metal's recommended limit for this GPU, {m['limit_mib']:,} MiB."
+    return f"Metal's recommended maximum for this GPU, {m['limit_mib']:,} MiB."
 
 
 def memory_sentence(ctx_size: int, m: dict[str, Any]) -> str:
