@@ -36,6 +36,8 @@ mkdir -p "$HOME/.local/bin"
 cp "{stub_uv}" "$HOME/.local/bin/uv"
 """
 SH_SETS = {"PWD", "SHLVL", "_", "OLDPWD"}  # what sh itself puts in a child's environment
+# v0.4.6 S2: the variables that move the Hugging Face cache and uv's own, passed to uv
+CACHES = ("HF_HOME", "HF_HUB_CACHE", "HUGGINGFACE_HUB_CACHE", "XDG_CACHE_HOME")
 
 
 class Bench:
@@ -62,6 +64,7 @@ class Bench:
         # has; S4's test of a Mac without one takes it away, with the system's.
         self.sha256sum = True
         self.system_path = "/usr/bin:/bin"
+        self.env: dict[str, str] = {}  # the user's own variables, beyond HOME, PATH, TMPDIR
 
     def stub(self, name: str, body: str) -> Path:
         path = self.bin / name
@@ -111,7 +114,10 @@ class Bench:
             "uv",
             'echo "uv $*" >> "$LOG"\n'
             'case "$*" in *clarity*) echo "stdin $* $(head -n 1)" >> "$LOG";; esac\n'
-            "echo \"env $(env | cut -d= -f1 | sort | tr '\\n' ' ')\" >> \"$LOG\"\n",
+            "echo \"env $(env | cut -d= -f1 | sort | tr '\\n' ' ')\" >> \"$LOG\"\n"
+            + 'echo "caches'
+            + "".join(f" {name}=[${{{name}-unset}}]" for name in CACHES)
+            + '" >> "$LOG"\n',
         )
         if not self.uv_on_path:
             uv.rename(self.stub_uv)
@@ -139,7 +145,7 @@ class Bench:
         self.write_stubs()
         self.tmp.mkdir(exist_ok=True)
         path = f"{self.bin}:{self.system_path}"
-        env = {"HOME": str(self.home), "PATH": path, "TMPDIR": str(self.tmp)}
+        env = {"HOME": str(self.home), "PATH": path, "TMPDIR": str(self.tmp), **self.env}
         # Its working folder is the test's own, so a relative path lands there, not in the
         # checkout (nothing_outside checks).
         return subprocess.run(
@@ -250,6 +256,31 @@ def test_a_mac_installs_clarity_and_runs_setup_and_the_page_on_the_terminal(benc
     assert envs
     for line in envs:  # env -i: only HOME and PATH, and what sh itself sets
         assert set(line.split()[1:]) <= {"HOME", "PATH"} | SH_SETS, line
+
+
+@pytest.mark.parametrize("given", ["paths", "empty", "unset"])
+def test_the_cache_variables_reach_uv_and_nothing_else(bench, given):
+    """v0.4.6 S2 (decision 3): each of the four that's set, even to an empty value, reaches
+    the three uv commands as it is, so the install puts the models where the launcher, run
+    from the login shell, looks for them; one that isn't set isn't passed. git and uv's
+    installer get none of them."""
+    if given != "unset":
+        bench.env = {name: "" for name in CACHES}
+    if given == "paths":
+        bench.env = {name: f"/Users/made up/{name.lower()}" for name in CACHES}
+    bench.uv_on_path = False  # so uv's installer runs too
+    done = bench.run()
+    assert done.returncode == 0, done.stderr
+    expected = "caches" + "".join(
+        f" {name}=[{bench.env[name]}]" if bench.env else f" {name}=[unset]" for name in CACHES
+    )
+    assert bench.ran("caches ") == [expected] * 3
+    for line in bench.ran("env "):
+        assert set(line.split()[1:]) - SH_SETS == {"HOME", "PATH", *bench.env}, line
+    (installer,) = bench.ran("installer-env ")
+    (git,) = bench.ran("git-env ")
+    for line in installer, git:
+        assert not set(line.split()) & set(CACHES), line
 
 
 def test_a_script_cut_off_at_any_line_runs_nothing(bench):
