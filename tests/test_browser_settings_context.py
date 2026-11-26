@@ -1,8 +1,9 @@
 """v0.4.4 B3b: the Settings panel's Context size row in a real browser: a preset starts the
 model again (the start state, then the memory sentence), a refusal under the row with the
-old preset still chosen, a size that isn't a preset, Details' own size and Replay at another
-size, the context-full way out, and a restart whose old size fails too (state 31). The rows'
-drawing is tested offline in tests/test_web_settings_context.py. Made-up text only.
+old preset still chosen (and under the row redrawn while it was on its way), a size that
+isn't a preset, Details' own size and Replay at another size, the context-full way out, and
+a restart whose old size fails too (state 31). The rows' drawing is tested offline in
+tests/test_web_settings_context.py. Made-up text only.
 
 Run with `uv run pytest -m browser`.
 """
@@ -14,7 +15,7 @@ import time
 import pytest
 
 from clarity_chat.profiles import ConfigError
-from tests.test_browser import chat_on, clarity, say, settled, shot  # noqa: F401
+from tests.test_browser import chat_on, clarity, say, settled, shot, until  # noqa: F401
 from tests.test_browser_attach import browser_type_launch_args  # noqa: F401
 from tests.test_web_settings_context import MEMORY
 
@@ -100,6 +101,47 @@ def test_a_refused_size_leaves_the_old_preset_chosen(clarity, page):  # noqa: F8
     assert pressed(page) == ["8,192"]
     assert page.text_content(f"{ROW} .tag") == "server.toml"
     shot(page, "B3b-refused", "v044-b3b")
+
+
+def test_a_refusal_answered_after_the_redraw_goes_under_the_new_row(clarity, page):  # noqa: F811
+    """v0.4.6 B1 (page mutation 40, `live = row`): the restart redraws the panel while /set's
+    answer is on its way, so setting() must put the refusal under the row drawn in its place,
+    not the detached one that was clicked. The answer is held until that redraw has landed.
+    The clicked row is checked, not the new one: a later redraw would also show the refusal
+    under a new row, which is how the mutation survived the test above."""
+    _, redirect, backend = clarity
+    chat_on(page, redirect)
+    open_settings(page)
+    starts(backend, seconds=0.5, refuse=32768)
+    held: list = []
+
+    def hold_set(route):
+        if '"command":"set"' in (route.request.post_data or ""):
+            held.append((route, route.fetch()))  # Clarity has answered; the page waits
+        else:
+            route.continue_()
+
+    page.route("**/command", hold_set)
+    clicked = page.query_selector(ROW)
+    page.click(f"{ROW} [data-set='ctx_size 32768']")
+    until(page, lambda: bool(held), what="Clarity answered /set")
+    until(
+        page,
+        lambda: (
+            not clicked.evaluate("row => row.isConnected")
+            and page.query_selector("#settings-waits") is None
+        ),
+        what="the panel redrawn after the restart",
+    )
+    route, answer = held[0]
+    route.fulfill(response=answer)
+    until(page, lambda: page.evaluate("Boolean(clarity.rowRefused)"), what="the refusal shown")
+    assert clicked.evaluate("row => row.querySelector('.refused').hidden")
+    assert page.text_content(f"{ROW} .refused") == (
+        "At ctx_size 32768, the model needs more memory (made up)."
+    )
+    assert page.is_visible(f"{ROW} .refused")
+    page.unroute("**/command")
 
 
 def test_a_size_that_isn_t_a_preset_is_listed_with_its_origin(clarity, page):  # noqa: F811
