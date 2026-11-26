@@ -504,30 +504,36 @@ def test_a_link_at_the_records_name_is_replaced_not_followed(project, chat_token
     assert elsewhere.read_text(encoding="utf-8") == "made up\n"
 
 
-def test_a_vector_name_over_255_bytes_is_refused_before_the_model_starts(root, chat_tokenizer):
-    """The whole-branch review's should 5: the name was found only at the write, after the
-    read, as a traceback. "ж" is 2 bytes in UTF-8, so the name is long in bytes, not in
-    characters (Windows' path length)."""
-    session = unstarted(root, chat_tokenizer)
-    at_255 = profile(root, "ж" * 122, extra="ctx_size = 256")  # brief-ж….json: 255 bytes
+def test_the_longest_vector_name_makes_and_one_byte_more_is_refused_before_the_model_starts(
+    project, chat_tokenizer
+):
+    """The whole-branch review's should 5, then the fix review's item 1: the atomic writers
+    first write .NAME.PID.THREAD.tmp, so the limit is 255 bytes less the longest suffix the
+    format can take (a 10-digit pid and a 20-digit thread id: 37 bytes), not 255. A name
+    that passed a check on the final name failed at the write, after the whole read."""
+    longest = profile(project, "a" * 207, extra="ctx_size = 256")  # brief-a….gguf: 218 bytes
+    made(project, chat_tokenizer, name=longest)
+    assert (project / "local" / "vectors" / f"brief-{longest}.gguf").is_file()
+    over = profile(project, "a" * 208, extra="ctx_size = 256")
+    session = session_on(project, chat_tokenizer)
+
+    def start_model(prepared, ctx_size):
+        raise Started
+
+    session.start_model = start_model
     outcome = None
     try:
-        make(session, root / "brief.toml", at_255)
-    except (ConfigError, Started) as e:
-        outcome = e
-    assert isinstance(outcome, Started), f"refused at 255 bytes: {outcome!r}"
-    over = profile(root, "ж" * 122 + "a", extra="ctx_size = 256")
-    try:
-        make(session, root / "brief.toml", over)
+        make(session, project / "brief.toml", over)
     except (ConfigError, Started, OSError) as e:
         outcome = e
+    finally:
+        session.close()
     assert str(outcome) == (
-        f"The vector's file name, brief-{over}.gguf, is over 255 bytes, more than a file "
-        "system takes. Rename the pairs file or the profile."
+        f"The vector's file name, brief-{over}.gguf, is 219 bytes, more than make takes "
+        "(218): it writes the file first under a name up to 37 bytes longer, and a file "
+        "system takes 255. Rename the pairs file or the profile."
     ), f"not refused: {outcome!r}"
-    assert not (root / "local" / "vectors").exists() or not any(
-        (root / "local" / "vectors").iterdir()
-    )
+    assert not list((project / "local" / "vectors").glob(f"*{over}*"))
 
 
 def test_the_model_name_prints_escaped(root, chat_tokenizer, monkeypatch, capsys):
