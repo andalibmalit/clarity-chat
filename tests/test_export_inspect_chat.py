@@ -610,11 +610,11 @@ def test_a_call_with_its_own_system_message_gets_no_other(make):
         assert roles.count("system") == 1 and sample.messages[0].text == "Be brief."
 
 
-def test_a_template_that_can_t_be_rendered_gives_the_whole_text_and_says_why(
+def test_a_template_that_can_t_be_rendered_gets_no_system_message_and_says_why(
     make, fetched_root, olmo_tokenizer, monkeypatch
 ):
-    """Not a silent gap: the box holds all the text before the first message, and its
-    metadata says why it couldn't be narrowed."""
+    """No box (the whole text would put the first message's header in one), and the
+    sample's metadata says the template's own text couldn't be separated, and why."""
     from clarity_chat import export_inspect
 
     session, log = bare_chat(make, fetched_root, olmo_tokenizer)
@@ -622,12 +622,11 @@ def test_a_template_that_can_t_be_rendered_gives_the_whole_text_and_says_why(
     def missing(session, call):
         raise OSError("no tokenizer in the cache")
 
-    # raising=False: if the name goes, the box is narrowed and the last line fails
+    # raising=False: if the name goes, OLMo 3's box comes back and the roles fail
     monkeypatch.setattr(export_inspect, "logged_template", missing, raising=False)
     export_chat(session, log)
     [sample] = read(session.logs_dir / "exports" / f"{log.stem}.eval").samples
-    row = sample.metadata
-    [first_message] = [s for s in row["message_spans"] if s["kind"] == "message"]
-    system = sample.messages[0]
-    assert system.text == row["prompt_text"][: first_message["chars"][0]]
-    assert system.metadata["clarity"].get("unavailable") == "OSError: no tokenizer in the cache"
+    assert [m.role for m in sample.messages] == ["user", "assistant"]
+    assert sample.metadata.get("template_own_text") == {
+        "unavailable": "OSError: no tokenizer in the cache"
+    }
