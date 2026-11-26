@@ -846,7 +846,7 @@ def load_profile(
                 text = _text_or_file(priming, "priming", base, root, files, where, logged_files)
                 try:
                     priming_data = tomllib.loads(text)
-                except ValueError as e:
+                except (ValueError, RecursionError) as e:  # RecursionError: nested too deeply
                     raise ConfigError(f"{where}: priming file: {e}") from e
                 if set(priming_data) != {"messages"}:
                     raise ConfigError(

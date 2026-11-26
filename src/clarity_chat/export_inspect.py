@@ -82,8 +82,8 @@ def export_run(session: Session, run_dir: Path) -> dict[str, Any]:
         groups = by_profile(run, conversations, run_dir)
         own = own_text(session)
         logs = [run_log(run, n, name, group, own) for n, (name, group) in enumerate(groups, 1)]
-    except (LookupError, StopIteration, TypeError, AttributeError, ValueError) as e:
-        # a log or key.json not Clarity's, or a bug
+    except (LookupError, StopIteration, TypeError, AttributeError, ValueError, RecursionError) as e:
+        # a log or key.json not Clarity's (RecursionError: its profile's TOML too deep), or a bug
         raise ConfigError(unreadable(e, f"the records of {log} and its key.json")) from e
     folder = run_dir / "inspect"
     if folder.is_symlink():  # a run folder from someone else could carry one
@@ -121,7 +121,8 @@ def export_chat(session: Session, log_path: Path) -> dict[str, Any]:
         records = list(read_records(log_path))
         header, rows = conversation_rows(session, records, str(log_path))
         log = chat_log(records, header, rows, chat_summary(log_path)["title"], own_text(session))
-    except (LookupError, TypeError, AttributeError, ValueError) as e:  # not Clarity's, or a bug
+    except (LookupError, TypeError, AttributeError, ValueError, RecursionError) as e:
+        # not Clarity's (RecursionError: its profile's TOML too deep), or a bug
         raise ConfigError(unreadable(e, f"the records of {log_path}")) from e
     folder = session.logs_dir / "exports"
     path = folder / f"{log_path.stem}.eval"
