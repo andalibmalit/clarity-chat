@@ -10,6 +10,7 @@ Two headings are Clarity's own, used when they apply:
 
 ### Added
 - The pairs file that `clarity vector make` reads, a TOML file: `description` and `author`, then `messages`, optional `openings` and one `[[systems]]` table per system pair, each with a `positive` and a `negative` system message. Every system pair × message × opening is one pair, from 2 to 1,024, and the file is at most 4 MB. Each refusal names the entry as the file writes it.
+- The prompts `clarity vector make` reads: for each side of each pair, what the profile would send for the pair's message, with that side's system message in place of the profile's and the opening after the generation prompt. The profile must be a chat-mode Transformers profile; a llama.cpp or text-mode profile is refused before any weights are looked for. Control-token text in a pair and a prompt longer than the context size are refused.
 
 ## [0.4.4] - 2026-11-26
 

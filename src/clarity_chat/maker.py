@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import itertools
 import re
 import tomllib
-from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
-from clarity_chat.profiles import ConfigError, shown
+from clarity_chat.profiles import ConfigError, Profile, load_profile, shown
+from clarity_chat.render import render_chat, tokenize
 
 if TYPE_CHECKING:
     from clarity_chat.session import Prepared, Session
@@ -27,7 +28,7 @@ NEEDED = {
 }
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class Pair:
     """One pair: the two sides differ only in their system messages here. `entries` names
     where the system messages, the message and the opening came from, as the file says."""
@@ -39,7 +40,7 @@ class Pair:
     entries: tuple[str, str, str]
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class Pairs:
     path: Path  # as given
     stem: str
@@ -150,7 +151,7 @@ def read_pairs(path: Path) -> Pairs:
     )
 
 
-@dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True)
 class Rendered:
     pair: int  # from 1, in the order read_pairs expands them
     side: str
@@ -159,8 +160,51 @@ class Rendered:
 
 
 def prepare(session: Session, name: str) -> Prepared:
-    return session.prepare(name)
+    """The profile, prepared, once its backend and mode are checked: before any weights are
+    looked for, so a llama.cpp profile hears why it can't be used and not a fetch hint."""
+
+    def usable(profile: Profile) -> None:
+        if profile.backend != "transformers":
+            raise ConfigError(
+                f"Profile {profile.name} runs on llama.cpp; make reads the model on the "
+                'Transformers backend. Use a profile with backend = "transformers".'
+            )
+        if profile.mode != "chat":
+            raise ConfigError(
+                f"Profile {profile.name} is in text mode; make needs a chat-mode profile, "
+                "whose system message each pair replaces."
+            )
+
+    usable(load_profile(session.root, name, session.defaults))
+    prepared = session.prepare(name)
+    usable(prepared.profile)  # read again by prepare: the file may have changed since
+    return prepared
 
 
 def render_pairs(prepared: Prepared, pairs: Pairs, ctx_size: int) -> list[Rendered]:
-    return [Rendered(0, "", "", [])]
+    """Each side of each pair as this profile would send its message, with the pair's
+    system message in place of the profile's and the opening after the generation prompt."""
+    name, tokenizer = shown(str(pairs.path)), prepared.tokenizer
+    rendered = []
+    for i, pair in enumerate(pairs.pairs, 1):
+        system, message, opening = pair.entries
+        sides = {"positive": pair.positive_system, "negative": pair.negative_system}
+        fields = {f"{system}'s {side} system message": text for side, text in sides.items()}
+        for where, text in {**fields, message: pair.message, opening: pair.opening}.items():
+            if found := tokenizer.special_tokens_in(text):
+                raise ConfigError(
+                    f"{name}: {where} contains {found[0]}, which the tokenizer reads as a "
+                    "control token, not text."
+                )
+        for side, system_text in sides.items():
+            sided = dataclasses.replace(prepared.profile, system=system_text)
+            text = render_chat(prepared.template_tokenizer, sided, [("user", pair.message)])
+            text += pair.opening
+            ids, _ = tokenize(tokenizer, text, "chat")
+            if len(ids) > ctx_size:
+                raise ConfigError(
+                    f"Pair {i}'s {side} prompt is {len(ids)} tokens, more than this "
+                    f"profile's context size, {ctx_size}."
+                )
+            rendered.append(Rendered(i, side, text, ids))
+    return rendered
