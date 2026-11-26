@@ -26,7 +26,7 @@ Teaching text, anything that explains how models or settings work, is checked ag
 Clarity writes files only visibly. Shipped files stay read-only; the user's own files live in `local/`.
 
 ## How to work
-- Never open files in `logs/`, `runs/` or `local/documents/` unless I ask; they hold private conversations and documents. Tests use made-up text.
+- Never open files in `logs/`, `runs/`, `local/documents/` or `notes/experiments/` unless I ask; they hold private conversations, documents and experiments. Tests use made-up text.
 - Each release follows its approved plan in `notes/plans/`. If the build departs from the plan, update the plan in the same step and say so. Reviews and the release process: `CONTRIBUTING.md`.
 - State your assumptions in each step report, and ask before decisions that are hard to undo. Run the checks above before every commit, the failing-test commit included, and quote their output in the report.
 - For behaviour the plan fixes (record fields, refusals, command results and events, replay, resume, reading old logs), write the test first and see it fail on its own assertion; the report quotes the failure. For tests written with their code, stash the source change, run the new tests, and quote the ones that fail. A bug fix starts with a failing test, committed before the fix; a fix commit that changes a test from that commit says what changed and why.
@@ -34,7 +34,7 @@ Clarity writes files only visibly. Shipped files stay read-only; the user's own 
 - Before `-m olmo` or `-m llama` (each loads 15–16 GB), check that no model is loaded and about 16 GB is free; otherwise ask.
 - A change to the llama.cpp commit, `tokenizers`, `transformers` or `jinja2` can change output: give it its own commit and a changelog line, and ask the owner to run the live tests.
 - One commit does one plan item, with its tests, its docs and its `CHANGELOG.md` line under Unreleased.
-- Docs are for human readers, in Google developer-docs style: lead with the point, use short sentences and plain words, and use lists only for parallel items. Say each thing once. Keep caveats and sources; cut padding.
+- Everything a person reads (docs, commit messages, notes, reports, questions for me) is in Google developer-docs style: lead with the point, use short sentences and plain words, and use lists only for parallel items. Say each thing once. Keep caveats and sources; cut padding. Explain an internal label or leave it out.
 - Use the same names everywhere: profile, conversation, turn, call, mark and note mean the same thing in code, profiles, logs and commands.
 - If you make a mistake an earlier session also made, propose one line for this file. Check it against the bar this file keeps (true on every task, not learnable from the code), and say whether a hook or deny rule would serve better, or which line it replaces.
 
@@ -46,3 +46,4 @@ Clarity writes files only visibly. Shipped files stay read-only; the user's own 
 - `vendor/llama.cpp` can't be cloned or updated from inside the sandbox; the owner runs its git commands.
 - Delete files with Python's `shutil`; `rm -rf` is denied.
 - Run a live tier (`uv run pytest -m live -v`, `-m olmo`, `-m hf`) on its own: no pipe, `cd` or `&&`. Only then does its `excludedCommands` entry take it out of the sandbox, which hides the GPU.
+- The browser tier leaves the sandbox only as `uv run pytest -m browser`, with `-v` or `-x` at most: a `-k` or a path puts it back inside, where Chrome can't start.
