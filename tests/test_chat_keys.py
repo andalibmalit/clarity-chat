@@ -235,28 +235,53 @@ def test_a_resumed_chat_has_its_values_back_with_origin_chat(fetched_root, chat_
     assert found_budget(again) == (800, "chat")
 
 
-def test_on_resume_the_method_comes_from_the_last_searched_message_after_the_profile(
-    fetched_root, chat_tokenizer
-):
-    """Decision 3's order against a profile with no method: the chat's /set; then the logged
-    profile's (none here); then the last searched message's, origin `log`; then the default."""
+def test_a_method_set_back_in_the_chat_stays_the_default_on_resume(fetched_root, chat_tokenizer):
+    """Decision 3 (checkpoint 1's S1): a chat whose settings records name search_method has
+    had its method chosen in the chat, so its searched messages don't make a base: a
+    method set back to the default before the quit is the default after it."""
     session, c, _ = chat_on(fetched_root, chat_tokenizer, PLAIN)
     assert attempt(c, "set search_method words")[1] is None
     assert say(c, ASKED)["method"] == "words"
     ran(c, "set search_method")  # back to meaning, Clarity's default, before the resume
     fresh, again = resumed(session, c, fetched_root, chat_tokenizer)
-    assert fresh.conversation is not None and fresh.conversation.search_method == "words"
+    assert fresh.conversation is not None and fresh.conversation.search_method == "meaning"
     method = (documents_of(again) or {}).get("search_method")
     assert method == {
-        "value": "words",
-        "origin": "log",
-        "base": {"value": "words", "origin": "log"},
+        "value": "meaning",
+        "origin": "default",
+        "base": {"value": "meaning", "origin": "default"},
     }
-    ran(again, "set search_method meaning")
-    assert ran(again, "set search_method")["setting"] == {"value": "words", "origin": "log"}
 
 
-# --- states 12 and 13: the method's embedder -----------------------------------------------
+def test_on_resume_with_no_method_set_the_last_searched_message_s_is_the_base(
+    fetched_root, chat_tokenizer
+):
+    """Decision 3's order against a profile with no method and no settings record naming
+    one (a log from before meaning search, here two searched messages with the settings
+    records taken out): the last searched message's method, origin `log`."""
+    import json
+
+    from clarity_chat.files import write_text_atomic
+
+    session, c, _ = chat_on(fetched_root, chat_tokenizer, PLAIN)
+    ran(c, "set search_method words")
+    assert say(c, ASKED)["method"] == "words"
+    ran(c, "set search_method meaning")
+    assert say(c, "And the roots?")["method"] == "meaning"
+    assert session.conversation is not None
+    log = session.conversation.log.path
+    kept = [r for r in read_records(log) if r["type"] != "settings"]
+    write_text_atomic(log, "".join(json.dumps(r) + "\n" for r in kept))
+    fresh, again = resumed(session, c, fetched_root, chat_tokenizer)
+    assert fresh.conversation is not None and fresh.conversation.search_method == "meaning"
+    method = (documents_of(again) or {}).get("search_method")
+    assert method == {
+        "value": "meaning",
+        "origin": "log",
+        "base": {"value": "meaning", "origin": "log"},
+    }
+    ran(again, "set search_method words")
+    assert ran(again, "set search_method")["setting"] == {"value": "meaning", "origin": "log"}
 
 
 def test_choosing_meaning_without_bge_m3_says_so_as_search_does(words):
