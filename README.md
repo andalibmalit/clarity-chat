@@ -45,6 +45,26 @@ The same call on the same machine and llama.cpp build gives the same output. Liv
 - A llama-server that Clarity starts and checks itself, and a Transformers backend that runs the same weights in-process (`uv sync --extra hf`).
 - Steering on the Transformers backend: a vector made by another tool, pinned by its hash, logged with every reply and replayed.
 
+## The web interface
+
+These are from `clarity ui` with SmolLM2-135M, the smallest model Clarity ships, which is why the replies are weak.
+
+A reply, and under it why it stopped:
+
+![A message asking for three colours in a sunset, the model's numbered reply, and under it the line "stopped at the token limit (max_tokens 128)" with a link to raise max_tokens in Settings.](docs/images/chat.png)
+
+Details shows exactly what the model got, with the text the chat template wrote highlighted:
+
+![The Details panel beside the chat: the prompt with its chat template markers highlighted, 30 tokens starting with a start token, then a summary of why the reply stopped, its length, the model, the profile and the call ID, and a Replay button.](docs/images/details.png)
+
+Settings for one chat, each value with where it comes from:
+
+![The Settings panel beside the reply: the Common group with temperature 0.6, top_p 0.95, max_tokens 128 and seed 42, each marked as from the profile, and the start of the Documents group with the search method, meaning or words.](docs/images/settings.png)
+
+Compare lines up replies by seed, so a change of setting is the only difference in each row:
+
+![Compare: four replies to one message in a grid, seeds 42 and 43 down the side and temperature 0.6 and 1.2 across the top, with a mark where each reply at 1.2 first differs from the one at 0.6.](docs/images/compare.png)
+
 ## Install on a Mac
 
 On a Mac with Apple silicon and 16 GB of memory or more, paste this into Terminal:

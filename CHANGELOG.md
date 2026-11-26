@@ -14,6 +14,8 @@ Two headings are Clarity's own, used when they apply:
 - The page's Settings panel has a Documents group in a chat-mode chat: the search method as two buttons, and the minimum similarity and budget as boxes, each with its origin and a way back. Reset all and the picker's count include them.
 - The page's Settings panel has a Context row: 4,096, 8,192, 16,384 or 32,768 tokens as buttons. Choosing one starts the model again while the chat stays, then says the GPU memory it measured on a Mac. A refused size shows its sentence under the row and leaves the old size running.
 
+- The README shows the web interface in four screenshots: a reply, Details, Settings and Compare.
+
 ### Changed
 - An Inspect export of a call with no system message of its own shows the text its chat template wrote of its own before the first message as a system message, markers included, so a template's default system message (OLMo 3's, SmolLM2's) is where people look for it. A template that writes only the first message's header writes none.
 - The context-full advice adds "or raise ctx_size". A memory refusal's way out by words says `set search_method to "words"`, the same in a chat and in a run. Replay's refusal at another context size names the size to set. Details shows a call's own context size, with no origin. The page writes amounts of 1,000 or more with separators ("Back to 2,048 (profile)"); boxes, seeds and token IDs keep the plain number.
