@@ -553,7 +553,7 @@ def test_a_template_with_no_default_shows_its_header_as_written(make, fetched_ro
     [sample] = read(session.logs_dir / "exports" / f"{log.stem}.eval").samples
     assert [m.role for m in sample.messages] == ["system", "user", "assistant"]
     system, user, _ = sample.messages
-    assert (system.role, system.text) == ("system", "<s><user>")
+    assert (system.role, system.text) == ("system", "<user>")
     assert system.metadata["clarity"]["kind"] == "template"
     assert user.text == "The kettle sang twice."
 
