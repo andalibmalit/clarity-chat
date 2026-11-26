@@ -251,6 +251,7 @@ class FakeEmbedder:
         # A line its next start says once, as the real one's A5 re-check does
         self.notice: str | None = None
         self.on_notice: Callable[[str], None] | None = None
+        self.closed = 0  # how many times it was stopped
 
     def fetched(self) -> bool:
         return self.is_fetched
@@ -305,7 +306,7 @@ class FakeEmbedder:
         return struct.pack("<1024f", *(v / norm for v in values))
 
     def close(self) -> None:
-        pass
+        self.closed += 1
 
 
 class FakeRunner:

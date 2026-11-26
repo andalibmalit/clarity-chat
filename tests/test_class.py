@@ -229,6 +229,10 @@ def test_t1_every_read_and_view_answers_when_a_found_field_is_missing(page_chat,
     reading._last = None
     library_add(session.root, b"## Wren\nA made-up bird.\n", "birds.md")
     session.set_search(["birds"])
+    set_budget = command(client, "set", "budget 800").json()  # v0.4.4 B1: the chat's budget
+    assert set_budget.get("result", {}).get("setting") == {"value": 800, "origin": "chat"}, (
+        set_budget
+    )
     command(client, "say", "Tell me about the wren")
     call = command(client, "say", "The wren again").json()["result"]["call"]  # left out
     assert session.conversation is not None and kind == "turn"
@@ -644,6 +648,18 @@ def write_chat(name: str, c: Commands, backend: FakeBackend, tmp_path: Path) -> 
         assert c.session.conversation.search_method == "meaning"
         sent = run("say How do leaves turn light into sugar?")["call"]
         assert '<part document="notes"' in sent["prompt_text"]
+    elif name == "set search":  # v0.4.4 B1: the chat keys, then a message by each method
+        from tests.test_meaning import GLOSSARY, MEANING, profile, raised
+
+        profile(c.session.root, "meaning", MEANING)
+        library_add(c.session.root, GLOSSARY.encode(), "notes.md")
+        run("profile meaning")
+        for line in ("budget 800", "min_similarity 0.6", "search_method words"):
+            refused = raised(lambda line=line: run(f"set {line}"))
+            assert refused is None, f"set {line}: {refused}"
+        run("say How do leaves turn light into sugar?")
+        run("set search_method meaning")
+        run("say Why does rock wear away?")
     elif name == "failed call":
         backend.fail_with = "made-up failure"
         with pytest.raises(BackendError):
@@ -654,7 +670,7 @@ def write_chat(name: str, c: Commands, backend: FakeBackend, tmp_path: Path) -> 
 
 WRITERS = [
     "say", "regen", "edit", "set", "title", "mark", "note", "attach", "failed call", "search",
-    "meaning",
+    "meaning", "set search",
 ]  # fmt: skip
 
 
