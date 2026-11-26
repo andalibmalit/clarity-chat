@@ -1378,12 +1378,13 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     commands.add_parser("chats", help="list your conversations in logs/, newest first")
     export = commands.add_parser(
         "export",
-        help="write a conversation for a notebook (logs/exports/ID.jsonl), or a run for "
-        "Inspect (runs/RUN_ID/inspect/)",
+        help="write a conversation for a notebook (logs/exports/ID.jsonl), or a conversation "
+        "or a run for Inspect (logs/exports/ID.eval, runs/RUN_ID/inspect/)",
     )
     export.add_argument(
         "conversation",
-        help="a conversation's ID (from `clarity chats`) or log file, or a run's folder",
+        help="a conversation's ID (from `clarity chats`) or log file, or a run's folder or "
+        "calls.jsonl",
     )
     export.add_argument("--out", type=Path, help="where to write it instead (jsonl only)")
     export.add_argument(

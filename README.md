@@ -35,6 +35,7 @@ The same call on the same machine and llama.cpp build gives the same output. Liv
 - Branches in a chat (`/regen`, `/edit`, `/undo`), and marks and notes on replies, during a chat or afterwards.
 - Replay of any completed call, with a list of everything recorded that changed since.
 - Export of a conversation to one JSON Lines file a notebook can load, with exact token IDs, where each message sits in the prompt, and marks and notes.
+- Export of a conversation or a batch run as Inspect logs, to browse and compare replies in Inspect's viewer (`uv sync --extra inspect`; [Browse a run in Inspect's viewer](docs/guides.md#browse-a-run-in-inspects-viewer)).
 - Blind batch runs for comparing setups.
 - Attach a document to a message (text, HTML or PDF), whole or in part: Clarity shows what it costs and what it leaves before anything is sent, and logs its text with the message.
 - Search your documents by meaning (with bge-m3, a second local model) or by word: each message you send adds the best parts of the documents a chat searches, within a token budget, and logs which parts and why ([Search your documents](docs/guides.md#search-your-documents)).

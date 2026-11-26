@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Fixed
+- `clarity export`'s line in `clarity --help` says a conversation, not only a run, can be exported for Inspect, and its argument's help says a run is named by its folder or its `calls.jsonl`. The README's Features list now mentions export for Inspect.
+
 ## [0.4.3] - 2026-11-26
 
 Live tests on an M2 Max (macOS), 2026-11-26, every tier at commit `5e312c9`, the release's last change before the QA driver's (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 32 passed, `-m browser` 178 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m embed` 10 passed (bge-m3 on Metal), `-m hf` 21 passed, `-m setup` 1 passed (setup fetching llama.cpp at the pin and building `llama-server` in a new folder), `-m olmo` 12 passed and `-m llama` 3 passed. `-m live` 32 passed again at `8e01d26`, which changed only the QA driver in `scripts/`.
