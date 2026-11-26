@@ -396,3 +396,99 @@ def test_the_lock_names_vector_make(root, monkeypatch):
     monkeypatch.setattr(maker, "make", lambda s, p, n: held.append(instance.read_info(root)) or 0)
     assert main(["--root", str(root), "vector", "make", "brief.toml", "--profile", "x"]) == 0
     assert held[0]["command"] == "vector make"
+
+
+@pytest.mark.parametrize("fails", ["write_text_atomic", "write_bytes_atomic"])
+def test_the_record_is_written_before_the_vector(project, chat_tokenizer, monkeypatch, fails):
+    """Checkpoint 1's S2: no vector without its record. The record's write failing leaves
+    neither file; the vector's failing leaves the record alone."""
+
+    def broken(*args, **kwargs):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(f"clarity_chat.maker.{fails}", broken)
+    session = session_on(project, chat_tokenizer)
+    with pytest.raises(OSError, match="disk full"):
+        make(session, project / "brief.toml", "hf-chat")
+    session.close()
+    assert (project / RECORD).is_file() == (fails == "write_bytes_atomic")
+    assert not (project / GGUF).exists()
+
+
+def refused_or_started(session) -> ConfigError | Started:
+    try:
+        make(session, session.root / "brief.toml", "hf-chat")
+    except (ConfigError, Started) as e:
+        return e
+    raise AssertionError("make neither refused nor started the model")
+
+
+def test_make_reads_with_the_profiles_context_size(root, chat_tokenizer):
+    """S3: a prompt longer than the profile's ctx_size is refused before the model starts."""
+    session = unstarted(root, chat_tokenizer)
+    profile(root, extra="ctx_size = 16")
+    outcome = refused_or_started(session)
+    assert re.fullmatch(
+        r"Pair 1's positive prompt is \d+ tokens, more than this profile's context size, 16\.",
+        str(outcome),
+    ), f"not refused: {outcome!r}"
+    assert not (root / "local" / "vectors").exists()
+
+
+def symlink(link: Path, target: Path) -> None:
+    link.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlinks need privileges on Windows")
+
+
+def test_a_dangling_link_at_the_vectors_name_is_refused_and_left(root, chat_tokenizer, tmp_path):
+    """S8: the check is os.path.lexists, so a link to nothing counts as an existing vector."""
+    session = unstarted(root, chat_tokenizer)
+    profile(root, extra="ctx_size = 256")
+    symlink(root / GGUF, tmp_path / "nowhere.gguf")
+    outcome = refused_or_started(session)
+    assert str(outcome).startswith(f"{GGUF} already exists"), f"not refused: {outcome!r}"
+    assert (root / GGUF).is_symlink() and not (tmp_path / "nowhere.gguf").exists()
+
+
+def test_a_link_at_the_records_name_is_replaced_not_followed(project, chat_tokenizer, tmp_path):
+    """S8: the record is written beside its name and renamed over it: a link there is
+    replaced by the record, and the file it pointed to is untouched."""
+    elsewhere = tmp_path / "elsewhere.json"
+    elsewhere.write_text("made up\n", encoding="utf-8")
+    symlink(project / RECORD, elsewhere)
+    made(project, chat_tokenizer)
+    assert not (project / RECORD).is_symlink()
+    assert elsewhere.read_text(encoding="utf-8") == "made up\n"
+
+
+def test_olmo3s_vector_names_olmo3(root, chat_tokenizer):
+    """Mutation 17: the record's model_hint and the file's are the model's type."""
+    pytest.importorskip("torch")
+    import transformers
+
+    from clarity_chat import steering
+
+    hf_root(root)
+    weights = root / "models" / "tiny-hf"
+    config = transformers.Olmo3Config(
+        vocab_size=258,
+        hidden_size=8,
+        intermediate_size=32,
+        num_hidden_layers=4,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        max_position_embeddings=256,
+        eos_token_id=257,
+        bos_token_id=256,
+        pad_token_id=257,
+    )
+    transformers.Olmo3ForCausalLM(config).save_pretrained(weights)
+    chat_tokenizer.tok.save_pretrained(weights)
+    profile(root, extra="ctx_size = 256")
+    (root / "brief.toml").write_text(PAIRS, encoding="utf-8")
+    record = made(root, chat_tokenizer)
+    assert record["vector"]["model_hint"] == "olmo3"
+    assert steering.load(root / GGUF, record["vector"]["sha256"]).model_hint == "olmo3"

@@ -4,6 +4,7 @@ made up and neutral."""
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 from pathlib import Path
 
@@ -11,7 +12,7 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from clarity_chat.maker import Pair, read_pairs
+from clarity_chat.maker import MAX_BYTES, Pair, read_pairs
 from clarity_chat.profiles import ConfigError
 
 HEADER = 'description = "Plain replies against ornate ones."\nauthor = "me"\n'
@@ -99,6 +100,30 @@ def test_a_file_that_cant_be_read(tmp_path):
 def test_a_file_over_4_mb(tmp_path):
     path = write(tmp_path, b"#" * (4 * 1024 * 1024 + 1))
     assert refusal(path) == f"{path} is over 4 MB; a pairs file is smaller."
+
+
+def test_a_control_character_in_the_files_path_prints_escaped(tmp_path):
+    """Checkpoint 1's mutation 20: refusals name the file as shown() gives it."""
+    message = refusal(tmp_path / "a\x1b[2Jb" / "brief.toml")
+    assert message.startswith("The pairs file ") and message.endswith(" doesn't exist.")
+    assert "a\\x1b[2Jb" in message and "\x1b" not in message
+
+
+def test_the_file_is_read_no_further_than_the_cap(tmp_path):
+    """S8 (mutation 19): one read of at most 4 MB and a byte, never the whole file."""
+    sizes = []
+
+    class Reader(io.BytesIO):
+        def read(self, n: int | None = -1) -> bytes:
+            sizes.append(n)
+            return super().read(n)
+
+    class Capped(type(tmp_path)):
+        def open(self, *args, **kwargs):
+            return Reader(CROSSED.encode())
+
+    read_pairs(Capped(tmp_path / "brief.toml"))
+    assert sizes == [MAX_BYTES + 1]
 
 
 def test_a_file_nested_too_deeply(tmp_path):
