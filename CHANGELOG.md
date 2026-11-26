@@ -14,6 +14,7 @@ Two headings are Clarity's own, used when they apply:
 - The page's Settings panel has a Documents group in a chat-mode chat: the search method as two buttons, and the minimum similarity and budget as boxes, each with its origin and a way back. Reset all and the picker's count include them.
 - The page's Settings panel has a Context row: 4,096, 8,192, 16,384 or 32,768 tokens as buttons. Choosing one starts the model again while the chat stays, then says the GPU memory it measured on a Mac. A refused size shows its sentence under the row and leaves the old size running.
 - The README shows the web interface in four screenshots: a reply, Details, Settings and Compare.
+- A guide, "When the model doesn't fit", gives the way out of three refusals in a running chat: a message that doesn't fit the context, meaning search's model beside the chat model, and a size that doesn't fit. The guide's context-size section and its troubleshooting line name `/set ctx_size` and Settings' Context row, and say how to replay a call logged at another size in a chat.
 - Getting started says how to move `~/Clarity` to a new release and keep your chats, documents and models, for a release that moves neither llama.cpp's pinned commit nor a model's conversion.
 
 ### Changed

@@ -409,13 +409,25 @@ with applied(model, vector, 4.0):
 
 ## Change the context size or a server flag
 
-For one profile, set `ctx_size = 32768` at the top of the profile. Other profiles keep `ctx-size` from `server.toml`. Starting a conversation with a profile of another size restarts llama-server at that size, and `/settings` shows the size and where it came from.
+For one chat, choose a size under Context in Settings, or type `/set ctx_size 16384`. llama-server starts again at that size, and the chat keeps its turns; `/set ctx_size` with no value goes back to the profile's size. For one profile, set `ctx_size = 32768` at the top of the profile. Other profiles keep `ctx-size` from `server.toml`. Starting a conversation with a profile of another size restarts llama-server at that size, and `/settings` shows the size and where it came from.
 
 For every profile, edit `[flags]` in `server.toml`. The next `clarity` command uses the new values, and every call logs them. A chat that is already running keeps the flags it started with, even if `/profile` restarts its server, so quit and start it again.
 
-`clarity replay` runs a call at the context size it was logged with. `/replay` in a chat refuses a call logged at another size, because it would restart the chat's server at that size.
+`clarity replay` runs a call at the context size it was logged with. `/replay` in a chat refuses a call logged at another size, because it would restart the chat's server at that size. To replay it there, set the chat to the call's size first, as the refusal says (`/set ctx_size 4096`, or that size in Settings), then replay.
 
 Some flags are required, some values are fixed, and some flags are refused; see [server.toml](reference.md#servertoml) in the reference.
+
+## When the model doesn't fit
+
+In a running chat, three refusals have a way out in the chat itself: in Settings, or with `/set` in the terminal. The chat keeps its turns, and the change is logged with origin `chat`.
+
+**Your message doesn't fit the context.** Nothing was sent, and your message is back in the box. The refusal ends "or raise ctx_size". Choose a larger size under Context in Settings, or type `/set ctx_size 16384`, then send again. A size larger than the model was trained on is refused.
+
+**Meaning search's model doesn't fit beside the chat model.** bge-m3 runs on a second llama-server, and on a Mac the two together can need more than Metal's recommended maximum for the GPU. The refusal ends with its way out, `set search_method to "words"`. Choose words under Documents in Settings, or type `/set search_method words`, then send again. This chat searches by words from then on. When the refusal also names a lower `ctx_size`, a smaller context can make room instead.
+
+**A size you just chose doesn't fit.** The refusal says why: the model would need more than Metal's recommended maximum, or the size is more than the model was trained on. The old size keeps running. Choose a smaller size, or type `/set ctx_size` to go back to the profile's size (in a resumed chat, the logged one).
+
+A new chat whose model can't start at its profile's size has no chat to change yet. Lower `ctx_size` in its profile, or choose a profile with a smaller one; see [Change the context size or a server flag](#change-the-context-size-or-a-server-flag).
 
 ## Read your logs
 
@@ -467,6 +479,6 @@ Clarity's errors say what to do. These entries add context where a message can't
 
 **`Tokenizer … is not in the Hugging Face cache.`** `clarity fetch` downloads a model's own tokenizer, but not a `template_repo`'s; see [Use another repo's chat template](#use-another-repos-chat-template).
 
-**`The prompt is N tokens; with max_tokens M it needs more than the context …`** Nothing was sent, and your text and any attachments for it are back. Besides removing one of those attachments, a new conversation or a lower `max_tokens`, you can raise the profile's `ctx_size` (or `ctx-size` in `server.toml`) and restart the chat.
+**`The prompt is N tokens; with max_tokens M it needs more than the context …`** Nothing was sent, and your text and any attachments for it are back. Besides removing one of those attachments, a new conversation or a lower `max_tokens`, you can raise the chat's context size: choose a larger size under Context in Settings, or type `/set ctx_size 16384`. See [When the model doesn't fit](#when-the-model-doesnt-fit).
 
 **`! flags: check_failed:…`** After the call, the server reported something other than what was sent. The reply is logged with the failed check; see [Call flags](reference.md#call-flags).

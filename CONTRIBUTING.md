@@ -81,7 +81,7 @@ A release is done when every item is checked.
 4. A golden log for this release is added to `tests/fixtures/golden/`: a small log written by this release's code with the fake backend and made-up text. `tests/test_golden.py` checks that current code still reads and replays every one.
 5. A shipped model fetched at a new pin, or newly added, has its entry copied to `models.lock` with `uv run python scripts/refresh_lock.py NAME …`, committed on its own.
 6. A new llama.cpp commit in `server.toml` is on ggml-org's `master`: GitHub serves a fork's commit through the parent repository's URL, so the hash fixes the code but not whose it is.
-7. `CHANGELOG.md`: Unreleased becomes the new version, with **Migration** and **Output may change** where they apply.
+7. `CHANGELOG.md`: Unreleased becomes the new version, with **Migration** and **Output may change** where they apply. The entry says when the release moves llama.cpp's pinned commit or converts a model again, since Getting started's steps for moving to a new release don't cover either.
 8. The version is bumped in `pyproject.toml`, `install.sh`'s `VERSION` and `CITATION.cff` (`version` and `date-released`) together, the install command in `README.md` and Getting started names the new tag (`tests/test_install.py` checks both), and `ROADMAP.md` is updated.
 9. The maintainer uses the release as a user would, following its by-hand list. During the sprint to 0.8.0 (v0.2.3 onward) this is done once, for all the sprint's releases, as extended use after 0.8.0, except the first runs on real Linux and Windows machines (v0.6.0, v0.7.0); until then the live tests and the QA pass carry the weight.
 10. A pull request merges the release branch into `main`, and the maintainer tags it `vX.Y.Z`.
