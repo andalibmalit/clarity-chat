@@ -374,7 +374,7 @@ The context size comes from the profile's `ctx_size` or `server.toml` here too, 
 
 ## Make a steering vector
 
-A vector is one way to change how a model replies, and often not the best one. AxBench, which tested steering on Gemma 2 (2B and 9B) with 500 concepts and an LLM judge, found that "for steering, … prompting outperforms all existing methods, followed by finetuning". Treat a vector as something to test.
+A vector is one way to change how a model replies, and often not the best one. AxBench ([arXiv 2501.17148](https://arxiv.org/abs/2501.17148)), which tested steering on Gemma 2 (2B and 9B) with 500 concepts and an LLM judge, found that "for steering, … prompting outperforms all existing methods, followed by finetuning". Treat a vector as something to test.
 
 `clarity vector make` makes a vector from a file of pairs of prompts. In each pair, the two sides have different system messages: the positive one asks for the behaviour you want more of, and the negative one for its opposite. Clarity makes the vector as the average difference between the two sides. Across seven behaviours on one model, one comparison found this beat directions found by PCA or by a classifier on most tasks; a classifier did better on three of them in open-ended replies (Im and Li, [arXiv 2502.02716](https://arxiv.org/abs/2502.02716)).
 

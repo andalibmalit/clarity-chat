@@ -709,7 +709,7 @@ While the model reads, the terminal prints the number of prompts and pairs, the 
 
   > Activation size: the average length of the block's output at the last token. Gap: the length of this vector, the average difference between the two sides. Agreement: the average cosine similarity between each pair's difference and this vector, from -1 to 1.
 
-- the lines to add to a Transformers profile of the same model, with `steering_scale = 1.0` in its `[settings]`: `[steering]` with the vector's `file`, `sha256`, and `layers` set to the middle block, n // 2 (15 of SmolLM2-135M's 30). The middle block is a starting point; no source says it is best. Widen `layers` in the profile with no remake.
+- the lines to add to a Transformers profile of the same model, with `steering_scale = 1.0` in its `[settings]`: `[steering]` with the vector's `file`, `sha256`, and `layers` set to the middle block, n // 2 (15 of SmolLM2-135M's 30). The middle block is a starting point. Widen `layers` in the profile with no remake.
 
 Agreement is a hint, not a guarantee. In one study (Llama 2 7B Chat, 36 multiple-choice datasets, one block), datasets whose pairs' differences pointed more nearly the way of their average steered better (Braun et al., [arXiv 2505.22637](https://arxiv.org/abs/2505.22637)). The readout gives facts about the pairs, not a score: there's no threshold and no "works".
 
