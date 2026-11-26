@@ -254,6 +254,27 @@ def chat_messages(profile: Profile, turns: list[tuple[str, str]]) -> list[dict[s
     return messages
 
 
+def template_own_text(template: Tokenizer, profile: Profile, before: str, role: str) -> slice:
+    """Where in `before`, the text before a call's first message, is what the chat template
+    wrote of its own (v0.4.4 X2): less the first message's header, `before`'s longest common
+    suffix with what the template writes between a turn's end and a later message of the same
+    role, and less the BOS text at the start. Three messages, so a template that requires
+    alternating roles renders."""
+    other = "assistant" if role == "user" else "user"
+    marks = [f"Clarity{secrets.token_hex(6)}M{i}z" for i in range(3)]
+    text = template.tok.apply_chat_template(
+        [{"role": r, "content": m} for r, m in zip((role, other, role), marks, strict=True)],
+        tokenize=False,
+        add_generation_prompt=False,
+        **profile.template_kwargs,
+    )
+    gap = text[text.index(marks[1]) + len(marks[1]) : text.index(marks[2])]
+    end = len(before) - len(os.path.commonprefix([before[::-1], gap[::-1]]))
+    bos = template.tok.bos_token
+    start = len(bos) if bos and before.startswith(bos) else 0
+    return slice(start, max(start, end))
+
+
 def render_chat(template: Tokenizer, profile: Profile, turns: list[tuple[str, str]]) -> str:
     """The chat template's output for this conversation, ending with the generation prompt."""
     try:

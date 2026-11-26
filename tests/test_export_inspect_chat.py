@@ -558,7 +558,7 @@ LLAMA_HEADER = (
     "<|start_header_id|>system<|end_header_id|>\n\nCutting Knowledge Date: December 2023\n\n"
 )
 LLAMA = (
-    "{{ bos_token }}" + LLAMA_HEADER.replace("\n", "\\n") + "{% if messages[0].role == 'system' %}"
+    "{{ bos_token }}" + LLAMA_HEADER + "{% if messages[0].role == 'system' %}"
     "{{ messages[0].content }}{% set messages = messages[1:] %}{% endif %}<|eot_id|>"
     "{% for m in messages %}<|start_header_id|>{{ m.role }}<|end_header_id|>\n\n"
     "{{ m.content }}<|eot_id|>{% endfor %}"
@@ -608,3 +608,26 @@ def test_a_call_with_its_own_system_message_gets_no_other(make):
     for sample in read(session.logs_dir / "exports" / f"{log.stem}.eval").samples:
         roles = [m.role for m in sample.messages]
         assert roles.count("system") == 1 and sample.messages[0].text == "Be brief."
+
+
+def test_a_template_that_can_t_be_rendered_gives_the_whole_text_and_says_why(
+    make, fetched_root, olmo_tokenizer, monkeypatch
+):
+    """Not a silent gap: the box holds all the text before the first message, and its
+    metadata says why it couldn't be narrowed."""
+    from clarity_chat import export_inspect
+
+    session, log = bare_chat(make, fetched_root, olmo_tokenizer)
+
+    def missing(session, call):
+        raise OSError("no tokenizer in the cache")
+
+    # raising=False: if the name goes, the box is narrowed and the last line fails
+    monkeypatch.setattr(export_inspect, "logged_template", missing, raising=False)
+    export_chat(session, log)
+    [sample] = read(session.logs_dir / "exports" / f"{log.stem}.eval").samples
+    row = sample.metadata
+    [first_message] = [s for s in row["message_spans"] if s["kind"] == "message"]
+    system = sample.messages[0]
+    assert system.text == row["prompt_text"][: first_message["chars"][0]]
+    assert system.metadata["clarity"].get("unavailable") == "OSError: no tokenizer in the cache"

@@ -25,11 +25,13 @@ from clarity_chat.export import (
     ConversationExport,
     conversation_rows,
     export_result,
+    logged_template,
     require_log,
     run_conversations,
 )
 from clarity_chat.logs import LOG_NAME, chat_summary, read_records, unreadable
 from clarity_chat.profiles import ConfigError
+from clarity_chat.render import template_own_text
 from clarity_chat.session import Session
 
 if TYPE_CHECKING:  # imported only when an export runs
@@ -49,10 +51,10 @@ INSPECT_NOTE = (
     "provider. Each sample's metadata holds what the model got (`prompt_ids`, "
     "`prompt_text`), every setting with its origin, and the facts replay compares. Each "
     "message's text is that message's part of `prompt_text`. A call with no system message "
-    "of its own gets one holding what the chat template wrote before the first message, "
-    "markers included, like the system message OLMo 3's template adds when the profile has "
-    "none. Other text the chat template adds is only in `prompt_text`: its role markers, and "
-    "any text of its own, like the dates Llama 3.1's puts in its system header. This log "
+    "of its own gets one holding the text its chat template wrote of its own before the "
+    "first message, markers included, like the system message OLMo 3's template adds when "
+    "the profile has none, or the dated system header Llama 3.1's writes. Other text the "
+    "chat template adds, its role markers and BOS, is only in `prompt_text`. This log "
     "asks Inspect's viewer to show its text as written, not as Markdown, and hidden "
     "characters as markers like \u27e8U+200B\u27e9; the metadata (`prompt_text`, "
     "`output_text`) holds the exact characters. "
@@ -78,7 +80,8 @@ def export_run(session: Session, run_dir: Path) -> dict[str, Any]:
     try:
         run, conversations = run_conversations(session, run_dir)
         groups = by_profile(run, conversations, run_dir)
-        logs = [run_log(run, n, name, group) for n, (name, group) in enumerate(groups, 1)]
+        own = own_text(session)
+        logs = [run_log(run, n, name, group, own) for n, (name, group) in enumerate(groups, 1)]
     except (LookupError, StopIteration, TypeError, AttributeError, ValueError) as e:
         # a log or key.json not Clarity's, or a bug
         raise ConfigError(unreadable(e, f"the records of {log} and its key.json")) from e
@@ -117,7 +120,7 @@ def export_chat(session: Session, log_path: Path) -> dict[str, Any]:
     try:
         records = list(read_records(log_path))
         header, rows = conversation_rows(session, records, str(log_path))
-        log = chat_log(records, header, rows, chat_summary(log_path)["title"])
+        log = chat_log(records, header, rows, chat_summary(log_path)["title"], own_text(session))
     except (LookupError, TypeError, AttributeError, ValueError) as e:  # not Clarity's, or a bug
         raise ConfigError(unreadable(e, f"the records of {log_path}")) from e
     folder = session.logs_dir / "exports"
@@ -189,7 +192,9 @@ def by_profile(
     return named
 
 
-def run_log(run: dict[str, Any], n: int, name: str, group: list[ConversationExport]) -> EvalLog:
+def run_log(
+    run: dict[str, Any], n: int, name: str, group: list[ConversationExport], own: OwnText
+) -> EvalLog:
     """A profile's calls in a run: each opening a sample, each seed an epoch."""
     model = f"clarity/{name}"
     records = [r for c in group for r in c.records]
@@ -205,6 +210,7 @@ def run_log(run: dict[str, Any], n: int, name: str, group: list[ConversationExpo
             model,
             row["run"]["opening"],
             seeds.index(row["settings"]["seed"]["value"]) + 1,
+            own,
         )
         for row in rows
     ]
@@ -233,6 +239,7 @@ def chat_log(
     header: dict[str, Any],
     rows: list[dict[str, Any]],
     title: str | None,
+    own: OwnText,
 ) -> EvalLog:
     """A conversation's calls: each reply its own sample, TURN-N, epoch 1."""
     conversation = records[0]  # rebuild refuses a log that starts with anything else
@@ -244,7 +251,7 @@ def chat_log(
     for row in rows:
         place = replies[row["parent_id"]] = replies.get(row["parent_id"], 0) + 1
         sample_id = f"{row['parent_id']}-{place}"
-        samples.append(sample(row, turns, calls[row["call_id"]], model, sample_id, 1))
+        samples.append(sample(row, turns, calls[row["call_id"]], model, sample_id, 1, own))
     # The calls' own times; a chat with no reply has only its start.
     times = [calls[row["call_id"]]["time"] for row in rows] or [conversation["time"]]
     return eval_log(
@@ -304,6 +311,19 @@ def eval_log(
     )
 
 
+OwnText = Callable[[dict[str, Any], str, str], slice]
+
+
+def own_text(session: Session) -> OwnText:
+    """Where a call's template wrote text of its own before the first message (X2)."""
+
+    def own(call: dict[str, Any], before: str, role: str) -> slice:
+        profile, _, template = logged_template(session, call)
+        return template_own_text(template, profile, before, role)
+
+    return own
+
+
 def sample(
     row: dict[str, Any],
     turns: dict[str, dict[str, Any]],
@@ -311,6 +331,7 @@ def sample(
     model: str,
     sample_id: int | str,
     epoch: int,
+    own: OwnText,
 ) -> EvalSample:
     """A call as a sample: its prompt's messages as slices of `prompt_text`, its reply, its
     `mark` score, and its plain-export row, flat, as the metadata."""
@@ -333,16 +354,26 @@ def sample(
     chat = tomllib.loads(call["profile"]["toml"])["mode"] == "chat"
     messages: list[Any] = []
     if chat and isinstance(spans, list):
-        # A call with no system message of its own: what the template wrote before the first
-        # message is a system message, exact, markers included (X2, the owner's yes to Q3).
+        # A call with no system message of its own: what the template wrote of its own before
+        # the first message is a system message, exact, markers included (X2, the owner's yes
+        # to Q3; the main session's ruling: not the first message's header or BOS).
         first = spans[0]
         if first["kind"] == "template" and all(s.get("role") != "system" for s in spans):
-            start, end = first["chars"]
-            messages.append(
-                ChatMessageSystem(
-                    id=f"{call_id}-0", content=text[start:end], metadata={"clarity": first}
+            at = first["chars"][0]
+            before = text[at : first["chars"][1]]
+            opening = next(s for s in spans if s["kind"] == "message")
+            entry: dict[str, Any] = {"kind": "template"}
+            try:
+                mine = own(call, before, opening["role"])
+            except Exception as e:  # a tokenizer not in the cache: the whole text, said so
+                mine, entry["unavailable"] = slice(0, len(before)), f"{type(e).__name__}: {e}"
+            if before[mine]:
+                entry["chars"] = [at + mine.start, at + mine.stop]
+                messages.append(
+                    ChatMessageSystem(
+                        id=f"{call_id}-0", content=before[mine], metadata={"clarity": entry}
+                    )
                 )
-            )
         for span in (s for s in spans if s["kind"] == "message"):
             start, end = span["chars"]
             kind = roles[span["role"]]

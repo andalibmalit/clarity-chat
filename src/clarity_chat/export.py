@@ -14,8 +14,8 @@ from typing import Any, NamedTuple
 from clarity_chat.documents import added_ranges, checked_attachments, message_content
 from clarity_chat.files import write_text_atomic
 from clarity_chat.logs import LOG_NAME, client_git, read_records, unreadable
-from clarity_chat.profiles import ConfigError, load_profile
-from clarity_chat.render import Prompt, message_spans
+from clarity_chat.profiles import ConfigError, Profile, load_profile
+from clarity_chat.render import Prompt, Tokenizer, message_spans
 from clarity_chat.replay import facts_from_call
 from clarity_chat.resume import rebuild
 from clarity_chat.session import Session, marks_and_notes
@@ -313,14 +313,7 @@ def derive_spans(
     logged, and B3's function, which proves its result against the logged prompt or says why
     it can't. A template that inserts today's date can't be proved on a later day."""
     try:
-        profile = load_profile(
-            session.root, call["profile"]["name"], session.defaults, logged=call["profile"]
-        )
-        model = call["model"]
-        tokenizer = session.load_tokenizer(model["tokenizer_repo"], model["tokenizer_revision"])
-        template = tokenizer
-        if profile.mode == "chat" and profile.template_repo and profile.template_revision:
-            template = session.load_tokenizer(profile.template_repo, profile.template_revision)
+        profile, tokenizer, template = logged_template(session, call)
         turns = [t for t in path if t.get("origin") != "priming"]  # the profile renders those
         prompt = Prompt(
             text=call["prompt_text"],
@@ -340,6 +333,20 @@ def derive_spans(
         )
     except Exception as e:  # a tokenizer not in the cache, a record Clarity didn't write
         return {"unavailable": f"{type(e).__name__}: {e}"}
+
+
+def logged_template(session: Session, call: dict[str, Any]) -> tuple[Profile, Tokenizer, Tokenizer]:
+    """A call's profile as logged, its model's tokenizer and the tokenizer whose chat template
+    rendered it."""
+    profile = load_profile(
+        session.root, call["profile"]["name"], session.defaults, logged=call["profile"]
+    )
+    model = call["model"]
+    tokenizer = session.load_tokenizer(model["tokenizer_repo"], model["tokenizer_revision"])
+    template = tokenizer
+    if profile.mode == "chat" and profile.template_repo and profile.template_revision:
+        template = session.load_tokenizer(profile.template_repo, profile.template_revision)
+    return profile, tokenizer, template
 
 
 class ConversationExport(NamedTuple):
