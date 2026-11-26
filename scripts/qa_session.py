@@ -31,13 +31,14 @@ sandbox, could read a file the sandbox denies into the transcript. The document 
 reads (v0.3.2: `clarity document add FILE`, `/documents add PATH [NAME]` typed, inside a
 message or in `--json`) are judged by the same rule; `/documents add` is judged both whole
 and with its last word taken as the name, as Clarity may read it. A batch run's openings
-(`clarity run --openings FILE`) are judged by the same rule, and its `--profiles` must be
-names. A mark's label and a note's text may hold no control character, as a step may not:
-they go into the log and the transcript's first line. Each step is checked
-again, and the root scanned for links and your own model entries again, just before it's
-typed; a step over 1,000 bytes is refused. `--init` also resets server.toml. Arguments are
-parsed with Clarity's own parser and steps with its own command splitter, so they are
-checked as Clarity will read them.
+(`clarity run --openings FILE`) and a vector's pairs file (v0.4.5: `clarity vector make
+PAIRS`, which prints its text) are judged by the same rule, and `--profiles` must be names.
+A mark's label and a note's text may hold no control character, as a step may not: they go
+into the log and the transcript's first line. Each step is checked again, and the root
+scanned for links and your own model entries again, just before it's typed; a step over
+1,000 bytes is refused. `--init` also resets server.toml. Arguments are parsed with
+Clarity's own parser and steps with its own command splitter, so they are checked as
+Clarity will read them.
 """
 
 from __future__ import annotations
@@ -59,7 +60,7 @@ from typing import BinaryIO
 
 REPO = Path(__file__).resolve().parents[1]
 QA_DIR = REPO / "notes" / "qa"  # local-only; scratch roots, steps and transcripts
-QA_COMMANDS = {"chat", "chats", "replay", "export", "document", "run", "mark", "note"}
+QA_COMMANDS = {"chat", "chats", "replay", "export", "document", "run", "mark", "note", "vector"}
 QA_MODEL = "smollm2-135m-instruct"
 QA_MODELS = (QA_MODEL, "bge-m3")  # the chat model, and meaning search's embedder (v0.4.1 E1)
 QA_PROFILES = ("smol-chat", "smol-text")
@@ -221,8 +222,9 @@ def check_server_toml(root: Path, repo: Path, init: bool) -> None:
 
 def check_clarity_args(root: Path, argv: list[str]) -> argparse.Namespace:
     """Parsed by Clarity's own parser: profiles by name, a log or conversation as an ID or a
-    path inside the root, a run's openings as a file in the root, no --out, no control
-    character in a mark's or note's text, and only the commands a QA pass uses."""
+    path inside the root, a run's openings and a vector's pairs as a file in the root, no
+    --out, no control character in a mark's or note's text, and only the commands a QA pass
+    uses."""
     from clarity_chat.cli import build_parser, parse_args
 
     if not argv or argv[0] not in QA_COMMANDS:
@@ -253,6 +255,10 @@ def check_clarity_args(root: Path, argv: list[str]) -> argparse.Namespace:
         openings = str(args.openings)
         if problem := path_problem(root, openings, {openings}):
             raise Refused(f"run --openings {problem}")
+    if args.command == "vector":  # make reads PAIRS and prints its text (v0.4.5)
+        pairs = str(args.pairs)
+        if problem := path_problem(root, pairs, {pairs}):
+            raise Refused(f"vector make {problem}")
     if args.command in ("mark", "note"):  # its text goes into the log and the transcript
         text = args.label if args.command == "mark" else args.text
         if has_control(text):
