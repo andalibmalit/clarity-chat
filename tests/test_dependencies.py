@@ -85,24 +85,46 @@ def test_starting_clarity_does_not_import_inspect_ai():
     assert result.stdout.strip() == "[]"
 
 
+def _locked_closure(packages: dict[str, dict], start: list[dict]) -> set[str]:
+    """Every package uv.lock reaches from `start`, its dependency entries, following the
+    extras an entry names. Markers are ignored, so a package any platform needs counts."""
+    seen: set[str] = set()
+    todo = list(start)
+    while todo:
+        entry = todo.pop()
+        package = packages[entry["name"]]
+        if entry["name"] not in seen:
+            seen.add(entry["name"])
+            todo += package.get("dependencies", [])
+        for extra in entry.get("extra", []):
+            todo += package.get("optional-dependencies", {}).get(extra, [])
+    return seen
+
+
 def test_nothing_clarity_runs_imports_a_dev_group_package():
-    """The install and the launcher run uv with `--no-dev` (v0.4.6 S1), so a module of the dev
-    group's that `src/` imports would fail only on an installed Mac, never in a checkout. The
-    group's names are read from pyproject.toml; their modules from what's installed, keeping
-    only the modules no other installed distribution also provides."""
+    """The install and the launcher run uv with `--no-dev` (v0.4.6 S1), so a module that only
+    the dev group brings in, directly or through its dependencies, would fail on an installed
+    Mac if `src/` imported it, never in a checkout. The packages are read from uv.lock: those
+    the dev group reaches and Clarity's own dependencies don't. Their modules come from what's
+    installed, keeping only modules no other distribution provides."""
     import ast
     from importlib.metadata import packages_distributions
 
     def norm(name: str) -> str:
         return re.sub(r"[-_.]+", "-", name).lower()
 
-    groups = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
-    dev = {norm(re.split(r"[^A-Za-z0-9_.-]", d)[0]) for d in groups["dependency-groups"]["dev"]}
+    lock = tomllib.loads((REPO / "uv.lock").read_text(encoding="utf-8"))
+    packages = {package["name"]: package for package in lock["package"]}
+    root = packages["clarity-chat"]
+    dev = _locked_closure(packages, root["dev-dependencies"]["dev"]) - _locked_closure(
+        packages, root["dependencies"]
+    )
     modules = {name.replace("-", "_") for name in dev}  # a module named as its package
     for module, dists in packages_distributions().items():
         if {norm(d) for d in dists} <= dev:
             modules.add(module)
-    assert {"hypothesis", "pytest", "xdist", "gguf"} <= modules, modules  # read, not guessed
+    # read, not guessed: the group's own packages and two it brings in
+    assert {"hypothesis", "pytest", "xdist", "gguf", "requests", "urllib3"} <= modules, modules
     found = []
     for path in sorted((REPO / "src").rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
