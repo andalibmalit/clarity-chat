@@ -274,7 +274,7 @@ class Conversation:
     searching: list[str] = field(default_factory=list)
     searching_origin: str = "profile"
     # A resumed chat's last searched message's method (decision 3): its base when the
-    # logged profile names none.
+    # logged profile names none and the chat never set one.
     searched_method: str | None = None
 
     @property
@@ -2380,9 +2380,13 @@ class Session:
             )  # fmt: skip
         conversation.head = state.head
         # D4 and decision 3: the chat's /set, else the logged profile's method, else the
-        # last searched message's, else the default today (search_values).
+        # last searched message's if the chat never set one (a log from before meaning
+        # search), else the default today (search_values).
         searched = [t["found"]["method"] for t in state.turns if "found" in t]
-        conversation.searched_method = searched[-1] if searched else None
+        chosen = any(
+            "search_method" in r["chat_settings"] for r in records if r.get("type") == "settings"
+        )
+        conversation.searched_method = searched[-1] if searched and not chosen else None
         if state.searching is not None:  # a `search` record: this chat's own list
             for name in state.searching:  # refused before it's ever a path (S14), said
                 if (problem := library_name_problem(name)) is not None:  # with its record
@@ -2632,8 +2636,8 @@ def attached_tokens(spans: Any, conversation: Conversation, user_turn: Turn) -> 
 
 def search_bases(profile: Profile, searched: str | None = None) -> dict[str, Setting]:
     """What each search key goes back to (decision 16): the profile's value, else, for the
-    method, the last searched message's in a resumed chat (decision 3), else Clarity's
-    default."""
+    method, the last searched message's in a resumed chat that never set one (decision 3),
+    else Clarity's default."""
     if profile.search_method is not None:
         method = Setting(profile.search_method, "profile")
     else:
