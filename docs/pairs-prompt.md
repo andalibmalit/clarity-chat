@@ -7,7 +7,7 @@
 - **With a coding agent in Clarity's folder** (Claude Code, Codex, or another): ask it to follow this page for your description and save the file in `local/pairs/`. Then run `clarity vector make local/pairs/NAME.toml --profile PROFILE`.
 - **With any chat app:** copy the prompt below, replace `{DESCRIPTION}` with your description, and save the answer as a `.toml` file in `local/pairs/`. Then run the same command.
 
-Read the file before you make a vector from it. The pairs shape the vector more than anything else does.
+Read the file before you make a vector from it. The vector carries every way the two sides differ, so a word on one side only becomes part of it.
 
 ## The prompt
 
