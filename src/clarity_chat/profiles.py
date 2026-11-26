@@ -231,7 +231,7 @@ def read_toml(path: Path) -> dict:
         raise ConfigError(f"{path}: file not found.")
     try:
         return tomllib.loads(read_text(path))
-    except ValueError as e:
+    except (ValueError, RecursionError) as e:  # RecursionError: nested too deeply
         raise ConfigError(f"{path}: {e}") from e
 
 
@@ -755,7 +755,7 @@ def load_profile(
         toml_text = read_text(path)
     try:
         data = tomllib.loads(toml_text)
-    except ValueError as e:
+    except (ValueError, RecursionError) as e:  # RecursionError: nested too deeply
         raise ConfigError(f"{where}: {e}") from e
 
     mode = data.get("mode")

@@ -159,6 +159,17 @@ class CancelledBeforeReply(BackendError):
     """The call was cancelled before its first token: logged like a failed call, no reply."""
 
 
+def model_config(weights: Path) -> dict[str, Any]:
+    """A Transformers model's config.json, from its weights folder."""
+    try:
+        config = json.loads((weights / "config.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise ConfigError(f"Can't read {weights / 'config.json'}: {e}") from e
+    if not isinstance(config, dict):
+        raise ConfigError(f"{weights / 'config.json'} isn't a JSON object.")
+    return config
+
+
 def room_left(n_ctx: int, n_prompt: int, max_tokens: int) -> int:
     """How many more prompt tokens fit; a call is allowed only at 0 or more.
 
@@ -690,13 +701,7 @@ class Session:
         """Load a steering vector and check it against the model's config.json. Returns it
         and the blocks it steers. The caller has checked `file` is inside the project."""
         vector = steering.load(self.root / file, sha256)
-        try:
-            config = json.loads((weights / "config.json").read_text(encoding="utf-8"))
-        except (OSError, ValueError) as e:
-            raise ConfigError(f"Can't read {weights / 'config.json'}: {e}") from e
-        if not isinstance(config, dict):
-            raise ConfigError(f"{weights / 'config.json'} isn't a JSON object.")
-        return vector, steering.check(vector, config, layers)
+        return vector, steering.check(vector, model_config(weights), layers)
 
     @staticmethod
     def steering_for(profile: Profile, values: dict[str, Any]) -> steering.Steering | None:

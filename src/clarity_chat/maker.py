@@ -88,7 +88,7 @@ def read_pairs(path: Path) -> Pairs:
     try:
         text = data.decode("utf-8")
         table = tomllib.loads(text)
-    except ValueError as e:  # not UTF-8, not TOML, or an integer of over 4,300 digits
+    except (ValueError, RecursionError) as e:  # not UTF-8 or TOML, a huge integer, too deep
         raise ConfigError(f"{name} isn't a TOML file: {e}.") from None
 
     def unknown(table: dict, allowed: tuple[str, ...], where: str) -> None:
@@ -182,18 +182,21 @@ def prepare(session: Session, name: str) -> Prepared:
     def usable(profile: Profile) -> None:
         if profile.backend != "transformers":
             raise ConfigError(
-                f"Profile {profile.name} runs on llama.cpp; make reads the model on the "
+                f"Profile {shown(profile.name)} runs on llama.cpp; make reads the model on the "
                 'Transformers backend. Use a profile with backend = "transformers".'
             )
         if profile.mode != "chat":
             raise ConfigError(
-                f"Profile {profile.name} is in text mode; make needs a chat-mode profile, "
+                f"Profile {shown(profile.name)} is in text mode; make needs a chat-mode profile, "
                 "whose system message each pair replaces."
             )
 
     usable(load_profile(session.root, name, session.defaults))
     prepared = session.prepare(name, steered=False)
     usable(prepared.profile)  # read again by prepare: the file may have changed since
+    from clarity_chat.session import model_config
+
+    steering.check_type(model_config(prepared.weights))  # a pinned vector's check, made here
     return prepared
 
 
@@ -209,7 +212,7 @@ def render_pairs(prepared: Prepared, pairs: Pairs, ctx_size: int) -> list[Render
         for where, text in {**fields, message: pair.message, opening: pair.opening}.items():
             if found := tokenizer.special_tokens_in(text):
                 raise ConfigError(
-                    f"{name}: {where} contains {found[0]}, which the tokenizer reads as a "
+                    f"{name}: {where} contains {shown(found[0])}, which the tokenizer reads as a "
                     "control token, not text."
                 )
         for side, system_text in sides.items():
@@ -334,6 +337,8 @@ def make(session: Session, path: Path, name: str) -> int:
     ctx_size = session.ctx_size_for(profile)
     prompts = render_pairs(prepared, pairs, ctx_size.value)
     model_name, n = prepared.model.name, len(pairs.pairs)
+    for warning in session._profile_warnings(prepared):  # as a chat on the profile shows them
+        err(warning)
     err(f"Reading {len(prompts)} prompts ({n} pairs) with {model_name} on {profile.device}…")
     started = time.monotonic()
     session.start_model(prepared, ctx_size)
@@ -414,12 +419,27 @@ def make(session: Session, path: Path, name: str) -> int:
         "1.0 to its [settings]:",
         "",
         "[steering]",
-        f"file = {json.dumps(relative, ensure_ascii=False)}",  # a TOML string for any name
+        f"file = {toml_string(relative)}",
         f'sha256 = "{digest}"',
         f"layers = [{len(model.model.layers) // 2}]",
     ]
     print("\n".join(lines))
     return 0
+
+
+def toml_string(text: str) -> str:
+    """`text` as a TOML basic string in printable ASCII, so the snippet prints nothing raw
+    for any profile name. Not json.dumps: it writes a character past U+FFFF as two
+    surrogates, which TOML refuses, and DEL raw."""
+
+    def char(c: str) -> str:
+        if c in '"\\':
+            return "\\" + c
+        if " " <= c < "\x7f":
+            return c
+        return f"\\u{ord(c):04x}" if ord(c) <= 0xFFFF else f"\\U{ord(c):08x}"
+
+    return '"' + "".join(map(char, text)) + '"'
 
 
 def err(line: str) -> None:

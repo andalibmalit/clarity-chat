@@ -248,7 +248,7 @@ def logged_description(profile: dict[str, Any]) -> str | None:
     """The `description` in a logged profile's TOML, if it has a valid one."""
     try:
         value = tomllib.loads(profile.get("toml") or "").get("description")
-    except tomllib.TOMLDecodeError:
+    except (ValueError, RecursionError):  # also an integer over 4,300 digits, or deep nesting
         return None
     return value if one_line(value) else None
 

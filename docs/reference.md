@@ -646,7 +646,7 @@ layers = [10, 11, 12]              # optional; default: every block in the file
 steering_scale = 4.0               # required with [steering]; negative steers the other way
 ```
 
-The `4.0` is for a repeng vector, which has length 1 at every block. A vector `make` writes is longer, so start it at `1.0` ([why](#making-a-vector)). A vector `make` writes holds every block that can be steered, so keep the `layers` line the snippet gives: without it, every block is steered.
+The `4.0` is for a repeng vector, which has length 1 at every block. For a vector `make` writes, start at `1.0` ([why](#making-a-vector)). A vector `make` writes holds every block that can be steered, so keep the `layers` line the snippet gives: without it, every block is steered.
 
 When a conversation starts, resumes or switches profile, and before a batch run, Clarity loads the file, checks its sha256, and checks it against the model's `config.json`: the model type, the width, and that each block exists and is in the file. A vector that changed since the profile pinned it is refused. `/set steering_scale` changes the scale for one conversation without reloading the model.
 
@@ -659,7 +659,7 @@ In a notebook, `clarity_chat.steering` applies a vector exactly as Clarity does:
 
 `clarity vector make PAIRS --profile NAME` makes a steering vector from a file of contrasting prompt pairs. Each pair is two prompts that differ only in their system message: a positive side, written to show the behaviour you want more of, and a negative side, written to show its opposite. The vector is the average difference between the two sides, positive minus negative, at every block that can be steered.
 
-The profile must use `backend = "transformers"` and `mode = "chat"`. Each prompt is what that profile would send for the pair's message, with the pair's system message in place of the profile's: the same chat template, template repo, `template_kwargs` and priming messages, then the pair's opening words after the point where the reply starts. The model runs on the profile's `device`. `make` never applies the profile's `[steering]`: a steered profile is read unsteered, and the readout says so.
+The profile must use `backend = "transformers"` and `mode = "chat"`, with a model of a type steering runs on, checked before the model loads ([Steering vectors](#steering-vectors)). The warnings a chat on the profile shows when it starts print first. Each prompt is what that profile would send for the pair's message, with the pair's system message in place of the profile's: the same chat template, template repo, `template_kwargs` and priming messages, then the pair's opening words after the point where the reply starts. The model runs on the profile's `device`. `make` never applies the profile's `[steering]`: a steered profile is read unsteered, and the readout says so.
 
 Clarity reads each prompt at its last token, after the reply's opening words, where the model is about to write the reply. A read-only hook on each block takes that token's row of the block's output, the tensor steering adds to (not Transformers' last `hidden_states` entry, which comes after the final normalization). Each prompt runs alone, with no batch and no padding. Blocks 1 to n−1 of an n-block model are made; block 0 can't be steered ([Steering vectors](#steering-vectors)).
 

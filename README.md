@@ -43,7 +43,7 @@ The same call on the same machine and llama.cpp build gives the same output. Liv
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - Profiles for SmolLM2-135M, OLMo 3 7B (Instruct and base) and Llama 3.1 8B (Instruct and base; Meta gates its download, see [Fetch a gated model](docs/guides.md#fetch-a-gated-model)).
 - A llama-server that Clarity starts and checks itself, and a Transformers backend that runs the same weights in-process (`uv sync --extra hf`).
-- Steering on the Transformers backend: a vector made by another tool, pinned by its hash, logged with every reply and replayed.
+- Steering on the Transformers backend: a vector made by `clarity vector make` or another tool, pinned by its hash, logged with every reply and replayed.
 
 ## The web interface
 

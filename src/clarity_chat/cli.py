@@ -1478,7 +1478,8 @@ def run_command(args: argparse.Namespace) -> int:
         if args.command in ("chat", "ui", "run", "replay", "vector"):
             from clarity_chat import instance
 
-            with instance.hold(root, args.command) as held:  # these start a model: one at a time
+            command = "vector make" if args.command == "vector" else args.command
+            with instance.hold(root, command) as held:  # these start a model: one at a time
                 if held.orphan:
                     print(f"clarity: {held.orphan}", file=sys.stderr)
                 if args.command == "ui":

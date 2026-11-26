@@ -233,16 +233,23 @@ class _Reader:
         return directions, model_hint
 
 
-def check(vector: Vector, config: dict[str, Any], layers: object = None) -> list[int]:
-    """Check a vector against a model's config (its `config.json`), and return the blocks
-    to steer: `layers`, or every block in the file. `layers` may come from a log, so its
-    type is checked too."""
+def check_type(config: dict[str, Any]) -> str:
+    """The model's type, from its config.json, if steering has been checked on it: making a
+    vector checks it too, before the model loads."""
     model_type = config.get("model_type")
     if model_type not in MODEL_TYPES:
         raise ConfigError(
             f"Steering hasn't been checked on model type {model_type!r}; it runs on "
             f"{' and '.join(MODEL_TYPES)}. Ask for it to be added."
         )
+    return model_type
+
+
+def check(vector: Vector, config: dict[str, Any], layers: object = None) -> list[int]:
+    """Check a vector against a model's config (its `config.json`), and return the blocks
+    to steer: `layers`, or every block in the file. `layers` may come from a log, so its
+    type is checked too."""
+    model_type = check_type(config)
     if vector.model_hint is not None and vector.model_hint != model_type:
         raise ConfigError(
             f"{vector.path} was made for model type {vector.model_hint!r}, not {model_type!r}."
