@@ -30,7 +30,10 @@ followed, with no `..` and not a file with a second name. Otherwise Clarity, out
 sandbox, could read a file the sandbox denies into the transcript. The document library's
 reads (v0.3.2: `clarity document add FILE`, `/documents add PATH [NAME]` typed, inside a
 message or in `--json`) are judged by the same rule; `/documents add` is judged both whole
-and with its last word taken as the name, as Clarity may read it. Each step is checked
+and with its last word taken as the name, as Clarity may read it. A batch run's openings
+(`clarity run --openings FILE`) are judged by the same rule, and its `--profiles` must be
+names. A mark's label and a note's text may hold no control character, as a step may not:
+they go into the log and the transcript's first line. Each step is checked
 again, and the root scanned for links and your own model entries again, just before it's
 typed; a step over 1,000 bytes is refused. `--init` also resets server.toml. Arguments are
 parsed with Clarity's own parser and steps with its own command splitter, so they are
@@ -56,7 +59,7 @@ from typing import BinaryIO
 
 REPO = Path(__file__).resolve().parents[1]
 QA_DIR = REPO / "notes" / "qa"  # local-only; scratch roots, steps and transcripts
-QA_COMMANDS = {"chat", "chats", "replay", "export", "document"}
+QA_COMMANDS = {"chat", "chats", "replay", "export", "document", "run", "mark", "note"}
 QA_MODEL = "smollm2-135m-instruct"
 QA_MODELS = (QA_MODEL, "bge-m3")  # the chat model, and meaning search's embedder (v0.4.1 E1)
 QA_PROFILES = ("smol-chat", "smol-text")
@@ -218,7 +221,8 @@ def check_server_toml(root: Path, repo: Path, init: bool) -> None:
 
 def check_clarity_args(root: Path, argv: list[str]) -> argparse.Namespace:
     """Parsed by Clarity's own parser: profiles by name, a log or conversation as an ID or a
-    path inside the root, no --out, and only the commands a QA pass uses."""
+    path inside the root, a run's openings as a file in the root, no --out, no control
+    character in a mark's or note's text, and only the commands a QA pass uses."""
     from clarity_chat.cli import build_parser, parse_args
 
     if not argv or argv[0] not in QA_COMMANDS:
@@ -232,7 +236,7 @@ def check_clarity_args(root: Path, argv: list[str]) -> argparse.Namespace:
         value = getattr(args, name, None)
         if value is not None and not (ID.fullmatch(str(value)) or inside(root, str(value))):
             raise Refused(f"{value} must be an ID or a path inside {root}")
-    log = getattr(args, "log", None)  # replay's LOG is always a path to Clarity
+    log = getattr(args, "log", None)  # replay's, mark's and note's LOG: always a path
     if log is not None and not inside(root, str(log)):
         raise Refused(f"{log} must be a path inside {root}")
     attach = getattr(args, "attach", None)  # `chat --attach FILE` (v0.3.1), once or more
@@ -242,6 +246,17 @@ def check_clarity_args(root: Path, argv: list[str]) -> argparse.Namespace:
     if args.command == "document" and args.action == "add":  # v0.3.2: it reads FILE
         if problem := path_problem(root, args.file, {args.file, args.file.strip()}):
             raise Refused(f"document add {problem}")
+    if args.command == "run":  # it reads --openings; --profiles also takes paths in Clarity
+        for name in args.profiles:
+            if not ID.fullmatch(name):
+                raise Refused(f"--profiles takes profile names here, not {name!r}")
+        openings = str(args.openings)
+        if problem := path_problem(root, openings, {openings}):
+            raise Refused(f"run --openings {problem}")
+    if args.command in ("mark", "note"):  # its text goes into the log and the transcript
+        text = args.label if args.command == "mark" else args.text
+        if has_control(text):
+            raise Refused(f"a control character in the {args.command}'s text")
     return args
 
 
@@ -350,7 +365,7 @@ def check_step(where: str, line: str, json_mode: bool, root: Path | None) -> Non
     another command. No line over STEP_MAX_BYTES: Clarity might get less than was judged."""
     if len(line.encode("utf-8", "surrogatepass")) > STEP_MAX_BYTES:
         raise Refused(f"{where}: a step over {STEP_MAX_BYTES} bytes")
-    if any(unicodedata.category(c) in ("Cc", "Zl", "Zp") for c in line):
+    if has_control(line):
         raise Refused(f"{where}: a control character; use <ctrl-c> for Ctrl-C")
     if line.startswith("<") and line != "<ctrl-c>":
         if not re.fullmatch(r"<(wait|ctrl-c after) [0-9]+(\.[0-9]+)?>", line):
@@ -359,6 +374,11 @@ def check_step(where: str, line: str, json_mode: bool, root: Path | None) -> Non
         check_json_step(where, line, root)
     elif line.startswith("/"):
         check_command(where, line, root)
+
+
+def has_control(text: str) -> bool:
+    """Whether `text` holds a control character or a line or paragraph separator."""
+    return any(unicodedata.category(c) in ("Cc", "Zl", "Zp") for c in text)
 
 
 def check_command(where: str, line: str, root: Path | None) -> None:
