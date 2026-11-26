@@ -8,6 +8,10 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-11-26
+
+Live tests on an M2 Max (macOS), 2026-11-26, every tier at commit `7bdc7d3` (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 35 passed, `-m browser` 192 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m embed` 10 passed (bge-m3 on Metal), `-m hf` 21 passed, `-m setup` 1 passed (setup fetching llama.cpp at the pin and building `llama-server` in a new folder), `-m olmo` 12 passed and `-m llama` 3 passed.
+
 ### Added
 - `/set` takes the search keys `search_method`, `min_similarity` and `budget` in a chat, from the next message, so trying the other method or a lower minimum needs no new profile. A message's `found` logs each value with its origin (`chat` when set); a call's `settings` doesn't hold them. `/set search_method words` stops bge-m3. `/settings` lists them with their bases, and `/set NAME` with no value goes back to the base. A text-mode chat refuses them.
 - `/set ctx_size N` changes a chat's context size: llama-server starts again at N tokens, and on a Mac Clarity says the GPU memory the model measured. A refused size leaves the old one running. `/settings` shows that memory (`memory` in `--json`), and `/set ctx_size` with no value goes back to the profile's size, or a resumed chat's logged one. Resume takes a chat's `/set` size first, and warns only for a log that holds no size.
@@ -364,7 +368,8 @@ The first release.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - A llama-server that Clarity starts and checks itself, and a Transformers backend for the same weights.
 
-[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.0...v0.4.1

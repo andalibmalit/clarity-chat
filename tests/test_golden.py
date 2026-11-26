@@ -300,3 +300,29 @@ def test_the_v0_4_2_golden_log_holds_a_start_s_build_and_a_replay_that_compared_
     replay = next(r for r in rows if r["type"] == "replay")
     assert replay["identical"] and replay["call_id"] == call["call_id"]
     assert replay["differences"] == {} and "not_recorded" not in replay
+
+
+def test_the_v0_4_4_golden_log_holds_a_chat_s_own_size_and_search_key_through_a_resume():
+    """v0.4.4's /set for the search keys and ctx_size: each settings record's chat_settings,
+    a second start at the chat's size, a call at it, and a quit and resume that took the
+    chat's size (origin chat, no warning, Q-a) and ran the next call at it too."""
+    rows = list(read_records(GOLDEN / "v0.4.4.jsonl"))
+    assert rows[0]["ctx_size"] == {"value": 8192, "origin": "server.toml"}
+    settings = [
+        (r["name"], r["value"], r["chat_settings"]) for r in rows if r["type"] == "settings"
+    ]
+    assert settings == [
+        ("search_method", "words", {"search_method": "words"}),
+        ("ctx_size", 4096, {"search_method": "words", "ctx_size": 4096}),
+    ]
+    starts = [r["flags"]["ctx-size"] for r in rows if r["type"] == "server_start"]
+    assert starts == [8192, 4096, 4096]
+    (resume,) = [r for r in rows if r["type"] == "resume"]
+    assert resume["ctx_size"] == {"value": 4096, "origin": "chat"}
+    assert resume["chat_settings"] == {"search_method": "words", "ctx_size": 4096}
+    assert resume["warnings"] == []
+    calls = [r for r in rows if r["type"] == "call"]
+    assert [c["n_ctx"] for c in calls] == [4096, 4096]
+    assert rows.index(resume) < rows.index(calls[1])
+    replay = next(r for r in rows if r["type"] == "replay")
+    assert replay["identical"] and replay["call_id"] == calls[0]["call_id"]
