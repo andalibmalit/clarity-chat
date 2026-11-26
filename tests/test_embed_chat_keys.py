@@ -69,7 +69,7 @@ def chat(tmp_path, monkeypatch):
     scratch_library(tmp_path, monkeypatch)
     session = Session(REPO, logs_dir=tmp_path / "logs")
     c = Commands(session)
-    c.run("profile", meaning_chat(tmp_path), quiet)
+    c.run("profile", meaning_chat(tmp_path), quiet, paths=True)  # as the terminal names one
     yield c
     session.close()
 

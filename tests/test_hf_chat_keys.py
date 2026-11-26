@@ -37,7 +37,7 @@ def sized(tmp_path_factory) -> dict[str, Any]:
     session = Session(REPO, logs_dir=tmp_path_factory.mktemp("logs"))
     c = Commands(session)
     try:
-        c.run("profile", profile(folder, "smol-chat"), quiet)
+        c.run("profile", profile(folder, "smol-chat"), quiet, paths=True)  # as the terminal does
         calls = {"8192": c.run("say", "Name one colour.", quiet)["call"]}
         backend = session.backend
         assert isinstance(backend, TransformersBackend) and backend.record is not None
