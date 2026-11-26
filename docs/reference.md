@@ -24,6 +24,7 @@ A conversation's ID, as `clarity chats` lists it, is its log file's name: `logs/
 | `clarity verify [NAME …]` | Re-hash fetched models against their lock entries (`local/models.lock`'s, else the shipped `models.lock`'s); with no names, every fetched model. |
 | `clarity document add FILE [--name NAME]` | Add a file to the documents Clarity searches, in `local/documents/NAME/` ([The library](#the-library)). It's read as `/attach` reads it, and Clarity says where it writes before and after. NAME defaults to the file's name; a document of that name is replaced. |
 | `clarity document list [--json]` | The library's folder, then each document's name, kind, size, parts (and how many have a title) and state (`--json` adds `original` and `added`): `ready`, or `unreadable` with why (`why`, the reason, and `add_again`, true when adding the file again is the way out, as the line says). |
+| `clarity vector make PAIRS --profile NAME` | Make a steering vector from PAIRS, a file of contrasting prompt pairs, by reading the model of NAME, a Transformers chat profile. It writes the vector and its record to `local/vectors/` and prints a readout and the lines to add to a profile ([Making a vector](#making-a-vector)). `docs/pairs-prompt.md` is a prompt that has a coding agent or a chat app write a pairs file. Like `chat`, it refuses while another Clarity runs in the project. |
 | `clarity document try NAME … --profile P TEXT [--json]` | What a first message with TEXT would find in these documents, in a new chat on profile P, counted with its tokenizer, with no model: the words searched and ignored, each part added and why, and what was left out. The names and the text may sit on either side of `--profile`: the last word is the text, so quote it if it has spaces. `--json` prints the whole object, as a turn's `found`. It searches by words only: with a profile that searches by meaning it's refused, and `/try` in a chat searches by meaning. |
 
 `--root PATH` sets the project folder, and goes before the command: `clarity --root PATH chat --profile NAME`. By default, the project folder is the nearest folder, from the current one upwards, that holds both `defaults.toml` and `server.toml`. `mark` and `note` don't need a project folder, only the log file.
@@ -516,7 +517,9 @@ The embedder writes its own output to `server-ID.log`, as the chat server does (
 | `logs/exports/ID.jsonl` | A conversation exported for a notebook (`clarity export`, `/export`), named by its log file, so a copied log's export doesn't replace the original's. `clarity chats` doesn't list it. |
 | `logs/exports/ID.eval` | A conversation exported for Inspect (`clarity export ID --format inspect`, `/export inspect`), named by its log file. Readable only by you on Linux and macOS (mode 0600). |
 | `runs/RUN_ID/inspect/N-PROFILE.eval` | A finished batch run exported for Inspect (`clarity export runs/RUN_ID --format inspect`), one log per profile, N its place in the run's `--profiles`. Readable only by you on Linux and macOS (mode 0600). Nothing else in the folder is touched. |
-| `local/clarity.lock` | Locked while `chat`, `ui`, `run` or `replay` runs, so only one of them runs in a project at a time. Empty. |
+| `local/vectors/NAME.gguf` | A steering vector `clarity vector make` wrote ([Making a vector](#making-a-vector)). NAME is the pairs file's name without its extension, a hyphen, and the profile's name. Never replaced: a second make with the same names is refused. |
+| `local/vectors/NAME.json` | The vector's record: the pairs file, every prompt as the model read it, the numbers the readout printed, and what a log records about the model and the machine. Readable only by you on Linux and macOS (mode 0600). |
+| `local/clarity.lock` | Locked while `chat`, `ui`, `run`, `replay` or `vector make` runs, so only one of them runs in a project at a time. Empty. |
 | `local/clarity.json` | Who holds the lock: process ID, command and start time, and the running llama-server's port, process ID and key (`server`), and meaning search's embedder's (`embedder`). Readable only by you on Linux and macOS (mode 0600); on Windows it gets your folder's permissions. Removed on a normal exit; one left behind means Clarity didn't exit normally, and the next start uses it to stop that server or embedder. |
 | `local/documents/NAME/` | A document Clarity searches ([The library](#the-library)). |
 | `local/clarity-open.html` | The private page that opens `clarity ui`'s link, with that start's secret. Readable only by you on Linux and macOS (mode 0600). Deleted when the page it opened connects, and when Clarity stops; Enter in Clarity's terminal writes it again. |
@@ -625,7 +628,7 @@ The Info tab's `inspect_note` says Clarity made the calls, why the generate conf
 
 ## Steering vectors
 
-A steering vector is a file made by another tool, such as repeng; Clarity applies one and never makes one. The file is llama.cpp's control-vector GGUF: one 1-D float32 tensor named `direction.N` for each block N it steers, all the same length (the model's hidden size), and optionally a `controlvector.model_hint` key naming the model type it was made for. Steering adds the scale times `direction.N` to the output of block N, counting from 0, at every position: the prompt's and the reply's. Block 0 can't be steered: llama.cpp keeps no vector for it and its loader refuses `direction.0`, and Clarity keeps a vector usable on both.
+A steering vector is a file made by `clarity vector make` ([Making a vector](#making-a-vector)) or by another tool, such as repeng. The file is llama.cpp's control-vector GGUF: one 1-D float32 tensor named `direction.N` for each block N it steers, all the same length (the model's hidden size), and optionally a `controlvector.model_hint` key naming the model type it was made for. Steering adds the scale times `direction.N` to the output of block N, counting from 0, at every position: the prompt's and the reply's. Block 0 can't be steered: llama.cpp keeps no vector for it and its loader refuses `direction.0`, and Clarity keeps a vector usable on both.
 
 Clarity reads the file with its own reader, which accepts only this format: GGUF version 3, little-endian, at most 16 MB, 1 to 1,024 tensors, every value finite. Anything else is refused with what was wrong.
 
@@ -643,12 +646,89 @@ layers = [10, 11, 12]              # optional; default: every block in the file
 steering_scale = 4.0               # required with [steering]; negative steers the other way
 ```
 
+The `4.0` is for a repeng vector, which has length 1 at every block. A vector `make` writes is longer, so start it at `1.0` ([why](#making-a-vector)). A vector `make` writes holds every block that can be steered, so keep the `layers` line the snippet gives: without it, every block is steered.
+
 When a conversation starts, resumes or switches profile, and before a batch run, Clarity loads the file, checks its sha256, and checks it against the model's `config.json`: the model type, the width, and that each block exists and is in the file. A vector that changed since the profile pinned it is refused. `/set steering_scale` changes the scale for one conversation without reloading the model.
 
 In a notebook, `clarity_chat.steering` applies a vector exactly as Clarity does:
 - `load(path, sha256)` reads the file, checks its sha256, and returns a `Vector` with `sha256`, `directions` (block number to a float32 array) and `model_hint`.
 - `check(vector, config, layers=None)` checks the vector against a model's `config.json` (as a dict) and returns the blocks to steer: `layers`, or every block in the file.
 - `with applied(model, vector, scale, layers=None) as runs:` steers a loaded Transformers model inside the block, and `runs` counts how many times each steered block ran. It computes `scale × direction.N` in float32 and casts it once to the model's dtype, as repeng does (llama.cpp keeps it in float32), then adds it in that dtype. It expects a model on one device. Scale 0 adds nothing and doesn't mark the model, so the recompute check reads it as unsteered. The hooks come off when the block ends, however it ends, and a model already inside `applied` at a non-zero scale is refused.
+
+## Making a vector
+
+`clarity vector make PAIRS --profile NAME` makes a steering vector from a file of contrasting prompt pairs. Each pair is two prompts that differ only in their system message: a positive side, written to show the behaviour you want more of, and a negative side, written to show its opposite. The vector is the average difference between the two sides, positive minus negative, at every block that can be steered.
+
+The profile must use `backend = "transformers"` and `mode = "chat"`. Each prompt is what that profile would send for the pair's message, with the pair's system message in place of the profile's: the same chat template, template repo, `template_kwargs` and priming messages, then the pair's opening words after the point where the reply starts. The model runs on the profile's `device`. `make` never applies the profile's `[steering]`: a steered profile is read unsteered, and the readout says so.
+
+Clarity reads each prompt at its last token, after the reply's opening words, where the model is about to write the reply. A read-only hook on each block takes that token's row of the block's output, the tensor steering adds to (not Transformers' last `hidden_states` entry, which comes after the final normalization). Each prompt runs alone, with no batch and no padding. Blocks 1 to n−1 of an n-block model are made; block 0 can't be steered ([Steering vectors](#steering-vectors)).
+
+The vector is stored in float32 and isn't scaled to length 1. A vector Clarity makes is the average difference itself, so steering_scale 1 adds that difference at each block in layers. Its length at each block is the gap in the readout. A repeng vector has length 1 at every block, so the same scale is a different push: scale 1 on a Clarity vector equals scale gap on a unit-length one. The file is a control vector in repeng's layout ([Steering vectors](#steering-vectors)), so it can't say which kind it is; the record says `"length": "not normalized"`.
+
+### The pairs file
+
+A pairs file is TOML:
+
+```toml
+description = "Short, plain replies against long, ornate ones."
+author = "me"   # who or what wrote it, as you say it
+
+# messages and openings come before the first [[systems]]: after it, TOML puts them in that table
+messages = ["How do I boil an egg?", "What should I pack for a day hike?"]
+openings = ["", "Well,"]   # optional; default [""]
+
+[[systems]]
+positive = "You are an assistant. You reply in as few plain words as you can."
+negative = "You are an assistant. You reply at length, in rich and decorated language."
+
+[[systems]]
+positive = "You are a librarian. You keep every answer short and plain."
+negative = "You are a librarian. You make every answer long and elaborate."
+```
+
+Every system pair, with every message and every opening, is one pair: this file makes 2 × 2 × 2 = 8. Pairs are numbered by system pair first, then message, then opening. Only the system message differs between the two sides, so a pair whose sides differ in the message or the opening can't be written yet; a form for that is planned for v0.4.8. An opening is the start of the reply, the same on both sides, after which the prompt is read.
+
+The vector carries every way the two sides differ, so a word on one side only becomes part of it.
+
+`description` and `author` are required and can't be empty. Clarity can't tell who wrote a pairs file: the author is what the file says. The record keeps it as `author_self_reported`.
+
+The file's name, without its extension, names the vector, so it may hold only letters, digits, `-` and `_`. The file is at most 4 MB and makes 2 to 1,024 pairs. The agreement needs two pairs: one pair has nothing to agree with. Published methods use from one pair to hundreds, and a careful hand-written file of eight pairs is an ordinary experiment, so Clarity sets no floor on quality. The cap bounds the run: every system pair multiplies the messages and openings, so a short file can ask for hours of reading and a record of hundreds of megabytes.
+
+`make` refuses a file with an unknown key, a missing or empty field, a pair whose two sides are the same, text the tokenizer reads as a control token, or a prompt longer than the profile's context size. Each refusal names the entry as the file has it, such as "system pair 2" or "message 3". An unknown key names the table it landed in, so `messages` written after `[[systems]]` is refused as an unknown key in a system pair. It also refuses when a pair's two prompts give the same output at a block, when the differences at a block add up to zero (a pair written twice with its sides swapped does that), and when an output isn't finite: a number in the readout would be undefined, and no pair is dropped silently.
+
+### What make writes and prints
+
+`make` writes `local/vectors/STEM-PROFILE.gguf` and its record, `local/vectors/STEM-PROFILE.json`, where STEM is the pairs file's name without its extension. So the same pairs can be made on two profiles. If the `.gguf` exists, `make` refuses before it loads the model: a profile may pin that file by its sha256, and Clarity never replaces a pinned file. It writes the record first, then the vector, each through a temporary file. An interrupted make can leave a record alone, but never a vector without its record, and the next make replaces such a record. Ctrl-C while the model reads writes nothing.
+
+While the model reads, the terminal prints the number of prompts and pairs, the model and the device, then up to ten progress lines. The readout then gives:
+
+- the files it wrote and how long the read took;
+- the pairs' counts, and the file's `description` and `author`;
+- the first pair's two prompts exactly as the model read them, with any control or invisible character other than a newline or a tab written as Python writes it (`\x1b`);
+- a table of three numbers for each block, then this legend:
+
+  > Activation size: the average length of the block's output. Gap: the length of this vector, the average difference between the two sides. Agreement: the average cosine similarity between each pair's difference and this vector, from -1 to 1.
+
+- the lines to add to a Transformers profile of the same model, with `steering_scale = 1.0` in its `[settings]`: `[steering]` with the vector's `file`, `sha256`, and `layers` set to the middle block, n // 2 (15 of SmolLM2's 30). The middle block is a starting point, not a recommendation from a source. Widen `layers` in the profile with no remake.
+
+Agreement is a hint, not a guarantee. In one study (Llama 2 7B Chat, 36 multiple-choice datasets, one block), datasets whose pairs' differences pointed more nearly the way of their average steered better. The readout gives facts about the pairs, not a score: there's no threshold and no "works".
+
+The record, `STEM-PROFILE.json`, holds:
+
+| Field | Contents |
+|---|---|
+| `clarity` | Clarity's version, and its git `commit` and `dirty` flag. |
+| `time` | When the record was written, in UTC. |
+| `vector` | `file`, `sha256`, `blocks`, `model_hint` (the model's type), `method` (`"mean difference"`), `sign` (`"positive minus negative"`) and `length` (`"not normalized"`). |
+| `read` | `tensor` (`"block output"`) and `position` (`"last token"`). |
+| `pairs` | `file` (the path as given), `sha256`, `text` (the whole file), `form` (`"crossed"`), `counts` (`systems`, `messages`, `openings`), `description` and `author_self_reported`. |
+| `profile` | The profile as written, as a conversation's record logs it, `[steering]` included. |
+| `backend` | The Transformers backend's start record: the model's entry and weights path, device, dtype, attention, the torch and transformers versions, end tokens, environment, machine and warnings. |
+| `libraries` | The versions of `transformers`, `tokenizers` and `jinja2`. |
+| `readout` | `blocks`: each `block` with its `activation_size`, `gap` and `agreement`. |
+| `prompts` | Each prompt: `pair`, `side`, `text` and `ids`. |
+
+The record holds what a log holds, such as the model's path under your home folder and the machine's facts, so read it before you share it with the vector.
 
 ## Call flags
 

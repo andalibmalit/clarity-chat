@@ -1438,9 +1438,22 @@ def build_parser() -> tuple[argparse.ArgumentParser, argparse.ArgumentParser]:
     vector = commands.add_parser("vector", help="steering vectors").add_subparsers(
         dest="action", required=True
     )
-    made = vector.add_parser("make", help="")
-    made.add_argument("pairs", type=Path)
-    made.add_argument("--profile", required=True)
+    made = vector.add_parser(
+        "make",
+        help="make a steering vector from a file of contrasting prompt pairs (Transformers "
+        "profiles)",
+    )
+    made.add_argument(
+        "pairs",
+        type=Path,
+        metavar="PAIRS",
+        help="the pairs file; docs/pairs-prompt.md is a prompt that writes one",
+    )
+    made.add_argument(
+        "--profile",
+        required=True,
+        help="a Transformers chat profile: its model, chat template and device are used",
+    )
     return parser, chat
 
 
@@ -1462,7 +1475,7 @@ def run_command(args: argparse.Namespace) -> int:
                 print(said if args.json else f"Reading {name}…", flush=True)
 
             attach = read_files(args.attach, reading)
-        if args.command in ("chat", "ui", "run", "replay"):
+        if args.command in ("chat", "ui", "run", "replay", "vector"):
             from clarity_chat import instance
 
             with instance.hold(root, args.command) as held:  # these start a model: one at a time
@@ -1481,6 +1494,14 @@ def run_command(args: argparse.Namespace) -> int:
                     )
                 if args.command == "chat":
                     return cmd_chat(root, args.profile, held.record_server, args.resume, attach)
+                if args.command == "vector":  # make, the only action
+                    from clarity_chat.maker import make
+
+                    session = Session(root, on_server=held.record_server)
+                    try:
+                        return make(session, args.pairs, args.profile)
+                    finally:
+                        session.close()
                 if args.command == "run":
                     return cmd_run(
                         root, args.openings, args.profiles, args.seeds, held.record_server
@@ -1507,10 +1528,6 @@ def run_command(args: argparse.Namespace) -> int:
                 return cmd_setup(root)
         if args.command == "document":
             return cmd_document(root, args)
-        if args.command == "vector":
-            from clarity_chat.maker import make
-
-            return make(Session(root), args.pairs, args.profile)
     except (ConfigError, BackendError) as e:
         said = outside_chat(e).terminal if isinstance(e, SearchRefused) else e
         print(f"clarity: {said}", file=sys.stderr)

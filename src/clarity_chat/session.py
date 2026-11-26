@@ -637,19 +637,24 @@ class Session:
         return profile, model, entry
 
     def prepare(
-        self, profile_name: str, logged: dict[str, Any] | None = None, recheck: bool = False
+        self,
+        profile_name: str,
+        logged: dict[str, Any] | None = None,
+        recheck: bool = False,
+        steered: bool = True,
     ) -> Prepared:
         """Load a profile and everything it needs short of starting the model: its model
         entry and lock, the weights (size and time only), tokenizers and chat template.
         `logged`: a log's `profile` field, to use the profile as it was logged. `recheck`
-        (a new chat, a resume): a GGUF whose time alone changed is hashed (decision 15)."""
+        (a new chat, a resume): a GGUF whose time alone changed is hashed (decision 15).
+        `steered=False` (vector make) leaves its [steering] vector unread and unapplied."""
         profile, model, entry = self.profile_for(profile_name, logged)
         rechecked = None
         if recheck and profile.backend != "transformers":
             weights, rechecked = recheck_weights(self.root, entry, "The model file's")
         else:
             weights = self.weights_for(profile.backend, entry)
-        if profile.steering is not None:
+        if steered and profile.steering is not None:
             profile.vector, profile.layers = self.load_vector(
                 profile.steering.file, profile.steering.sha256, profile.steering.layers, weights
             )

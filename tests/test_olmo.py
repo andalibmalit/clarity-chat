@@ -215,3 +215,19 @@ def test_steering_olmo_3_instruct_on_mps(session, tmp_path):
     zero = steered(folder, "1a-stock", "local/vectors/zero.gguf", zero_sha, "8.0", **short)
     real = steered(folder, "1a-stock", "local/vectors/random.gguf", real_sha, "8.0", **short)
     check_steering(root, tmp_path, zero, real, "Describe a quiet harbour in two sentences.")
+
+
+def test_making_a_vector_on_olmo_3_instruct_on_mps(session, tmp_path, capsys):
+    """tests/test_hf.py's make on the model the experiments use, timed: twice on MPS, then
+    the snippet (block 16, scale 1.0) steers a chat that differs from unsteered at seed 42
+    and replays identically. Loads about 15 GB: the module's session closes first."""
+    session.close()  # a later test that needs it starts its model again
+
+    from tests.test_hf import make_and_steer, project
+
+    try:
+        source_weights(REPO, lock_entry(REPO, load_models(REPO)[INSTRUCT]))
+    except ConfigError as e:
+        pytest.skip(str(e))
+    message = "Describe a quiet harbour in two sentences."
+    make_and_steer(project(tmp_path), tmp_path, capsys, "1a-stock", message, max_tokens="48")

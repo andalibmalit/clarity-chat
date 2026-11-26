@@ -372,14 +372,35 @@ Some settings can't run on Transformers exactly as written; [Settings](reference
 
 The context size comes from the profile's `ctx_size` or `server.toml` here too, so the context guard is the same on both backends. A model with fewer positions than that won't start.
 
+## Make a steering vector
+
+A vector is one way to change how a model replies, and often not the best one. AxBench, which tested steering on Gemma 2 (2B and 9B) with 500 concepts and an LLM judge, found that "for steering, … prompting outperforms all existing methods, followed by finetuning". Treat a vector as something to test.
+
+`clarity vector make` makes a vector from a file of pairs of prompts. In each pair, the two sides have different system messages: the positive one asks for the behaviour you want more of, and the negative one for its opposite. Clarity makes the vector as the average difference between the two sides. Across many behaviours, one comparison found this beat directions found by PCA or by a classifier on most tasks; a classifier did better on three open-ended ones.
+
+1. Write the pairs file. Describe the behaviour you want to a coding agent or a chat app, and give it `docs/pairs-prompt.md`, a prompt that writes a file in the form `make` reads. Or write one yourself: [The pairs file](reference.md#the-pairs-file) has the form and an example. Only the system message differs between the two sides.
+2. Read the file before you make. The vector carries every way the two sides differ, so a word on one side only becomes part of it. Check that each system pair differs only in the behaviour, and not also in length, topic or tone you didn't mean.
+3. Make the vector with a Transformers chat profile of the model you'll steer:
+
+   ```
+   uv run clarity vector make local/pairs/brief.toml --profile NAME
+   ```
+
+   Clarity reads each prompt at its last token, after the reply's opening words, where the model is about to write the reply. It writes `local/vectors/brief-NAME.gguf` and its record, then prints a readout.
+4. Read the readout. It shows the first pair exactly as the model read it, so you can check the chat template and the system message. Then, for each block, three numbers: the activation size, the gap and the agreement ([what each means](reference.md#what-make-writes-and-prints)). Agreement is a hint, not a guarantee. In one study (Llama 2 7B Chat, 36 multiple-choice datasets, one block), datasets whose pairs' differences pointed more nearly the way of their average steered better. Pairs that share a system pair count as separate pairs in the agreement, so a crossed file can agree more than its system pairs do.
+5. Paste the lines the readout ends with into a Transformers profile of the same model, and add `steering_scale = 1.0` to its `[settings]`. The vector's length at each block is the gap in the readout, so its scale isn't a repeng vector's ([Steer a chat with a vector](#steer-a-chat-with-a-vector), step 6). The lines steer one block, the middle one. Steering more blocks adds a push at each one, and later blocks read the sum. How much that changes a reply hasn't been measured: widen layers a block at a time and compare.
+6. Compare steered and unsteered replies, as in [Steer a chat with a vector](#steer-a-chat-with-a-vector), step 6: a fixed seed, `/set steering_scale 0`, then `/edit` with the same message. No strength or block carries over from one vector or model to another. Try a few values and compare.
+
+Even a vector that works moves some prompts the wrong way. Across 40 datasets on two models, some datasets did so for almost half their inputs, and how well a vector steered depended more on the dataset than on the model. A vector that steers isn't proof that it is the idea you meant. In one study on two models, at one block each, the vector plus a random direction at right angles to it steered about as well as the vector alone, so different vectors can steer the same way.
+
 ## Steer a chat with a vector
 
-A steering vector nudges a model's replies in a direction, such as calm rather than hurried, by adding a fixed vector to the output of some of its blocks. Clarity applies a vector made by another tool; it never makes one. Steering runs on the Transformers backend, on OLMo 3 and on Llama-architecture models such as SmolLM2 and Llama 3.1.
+A steering vector nudges a model's replies in a direction, such as calm rather than hurried, by adding a fixed vector to the output of some of its blocks. Clarity applies a vector it made ([Make a steering vector](#make-a-steering-vector)) or one made by another tool. Steering runs on the Transformers backend, on OLMo 3 and on Llama-architecture models such as SmolLM2 and Llama 3.1.
 
-1. Make a vector elsewhere. [repeng](https://github.com/vgel/repeng) trains one from pairs of contrasting prompts and writes a file in llama.cpp's control-vector layout, which Clarity reads (repeng's own docs call its export work in progress). Install repeng from git in a separate environment: its PyPI release needs numpy below 2, which Clarity's dependencies don't allow. `tests/fixtures/steering/README.md` has a script that makes a small one for SmolLM2.
-2. Leave the model's last block out (pass `hidden_layers` that stop before it). repeng includes it by default, but it reads that block's output after the model's final normalization (Transformers' last `hidden_states` entry), which isn't what the vector gets added to.
+1. Make a vector with `clarity vector make` ([Make a steering vector](#make-a-steering-vector)), which writes it to `local/vectors/` and prints the lines for steps 4 and 5; then go on at step 6. Or make one elsewhere: [repeng](https://github.com/vgel/repeng) trains one from pairs of contrasting prompts and writes a file in llama.cpp's control-vector layout, which Clarity reads (repeng's own docs call its export work in progress). Install repeng from git in a separate environment: its PyPI release needs numpy below 2, which Clarity's dependencies don't allow. `tests/fixtures/steering/README.md` has a script that makes a small one for SmolLM2.
+2. With repeng, leave the model's last block out (pass `hidden_layers` that stop before it). repeng includes it by default, but it reads that block's output after the model's final normalization (Transformers' last `hidden_states` entry), which isn't what the vector gets added to.
 3. Copy the file into your project, for example to `local/vectors/calm.gguf`.
-4. Add a `[steering]` table to a Transformers profile, and set `steering_scale`:
+4. Add a `[steering]` table to a Transformers profile, and set `steering_scale` (`4.0` here is for a repeng vector):
 
    ```toml
    [steering]
@@ -390,7 +411,7 @@ A steering vector nudges a model's replies in a direction, such as calm rather t
    ```
 
 5. Start a chat with it. Clarity refuses the first time, because the vector isn't pinned yet, and gives the line to add to `[steering]`: `sha256 = "…"`. Add it. From then on, a changed file is refused by a new chat, a resumed one and a replay.
-6. Chat. The status line after each reply ends with `steered ×4.0`, and `/settings` shows the vector's file, hash and blocks. To compare with an unsteered reply, use a fixed seed or temperature 0, `/set steering_scale 0`, then `/edit` with the same message: the new reply is a branch next to the steered one. A negative scale steers the other way. No scale is recommended: it depends on the model and the vector, so try small values and compare.
+6. Chat. The status line after each reply ends with the scale, such as `steered ×4.0`, and `/settings` shows the vector's file, hash and blocks. To compare with an unsteered reply, use a fixed seed or temperature 0, `/set steering_scale 0`, then `/edit` with the same message: the new reply is a branch next to the steered one. A negative scale steers the other way. No scale is recommended: it depends on the model and the vector, so try small values and compare. A vector Clarity makes is the average difference itself, so steering_scale 1 adds that difference at each block in layers. Its length at each block is the gap in the readout. A repeng vector has length 1 at every block, so the same scale is a different push: scale 1 on a Clarity vector equals scale gap on a unit-length one.
 
 To steer only some of the vector's blocks, add `layers = [10, 11]` to the table. Block 0 can't be steered ([why](reference.md#steering-vectors)).
 

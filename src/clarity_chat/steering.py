@@ -1,8 +1,8 @@
-"""Steering: add a vector made elsewhere to chosen blocks' outputs on the Transformers backend.
+"""Steering: add a pinned vector to chosen blocks' outputs on the Transformers backend.
 
 A vector file is llama.cpp's control-vector GGUF, as repeng and llama.cpp write it: one F32
 tensor `direction.N` per block N, added to the output of zero-based block N at every
-position. Clarity applies a vector and never makes one.
+position. `encode` writes one in the same layout, for `clarity vector make` (maker.py).
 
 `load` reads a file and checks it against its pinned sha256, `check` checks it against a
 model's `config.json` before the model loads, and `applied` adds it to a loaded model for

@@ -5,21 +5,33 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import itertools
+import json
+import os
 import re
+import sys
+import time
 import tomllib
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
+from importlib.metadata import version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
+from clarity_chat import steering
 from clarity_chat.backends import BackendError
+from clarity_chat.files import write_bytes_atomic, write_text_atomic
+from clarity_chat.logs import client_git, now_utc
 from clarity_chat.profiles import ConfigError, Profile, load_profile, shown
-from clarity_chat.render import render_chat, tokenize
+from clarity_chat.render import library_versions, render_chat, tokenize
 
 if TYPE_CHECKING:
     from clarity_chat.session import Prepared, Session
 
-LEGEND = ""
+LEGEND = (  # teaching text (T11): docs/reference.md quotes it
+    "Activation size: the average length of the block's output. Gap: the length of this "
+    "vector, the average difference between the two sides. Agreement: the average cosine "
+    "similarity between each pair's difference and this vector, from -1 to 1."
+)
 MAX_BYTES = 4 * 1024 * 1024
 MIN_PAIRS, MAX_PAIRS = 2, 1024  # one pair has nothing to agree with; a crossed file multiplies
 STEM = re.compile(r"[A-Za-z0-9_-]+")  # the vector's file name starts with it
@@ -180,7 +192,7 @@ def prepare(session: Session, name: str) -> Prepared:
             )
 
     usable(load_profile(session.root, name, session.defaults))
-    prepared = session.prepare(name)
+    prepared = session.prepare(name, steered=False)
     usable(prepared.profile)  # read again by prepare: the file may have changed since
     return prepared
 
@@ -306,4 +318,119 @@ def read_blocks(
 
 
 def make(session: Session, path: Path, name: str) -> int:
+    """`clarity vector make`: everything a file or profile can refuse is checked before the
+    model loads; the record is written before the vector, so no vector lacks its record."""
+    prepared = prepare(session, name)
+    profile, pairs = prepared.profile, read_pairs(path)
+    vectors = session.root / "local" / "vectors"
+    gguf, json_path = (vectors / f"{pairs.stem}-{profile.name}{x}" for x in (".gguf", ".json"))
+    relative = gguf.relative_to(session.root).as_posix()  # as the snippet and record give it
+    file, record_file = shown(relative), shown(json_path.relative_to(session.root).as_posix())
+    if os.path.lexists(gguf):
+        raise ConfigError(
+            f"{file} already exists, and a profile may pin it by its sha256. Rename or delete "
+            "it, or rename the pairs file."
+        )
+    ctx_size = session.ctx_size_for(profile)
+    prompts = render_pairs(prepared, pairs, ctx_size.value)
+    model_name, n = prepared.model.name, len(pairs.pairs)
+    err(f"Reading {len(prompts)} prompts ({n} pairs) with {model_name} on {profile.device}…")
+    started = time.monotonic()
+    session.start_model(prepared, ctx_size)
+    model: Any = session.backend.model  # ty: ignore[unresolved-attribute]  # Transformers only
+    blocks = read_blocks(model, prompts, lambda k, total: err(f"{k} of {total}"))
+    data = steering.encode(
+        {b: block.direction for b, block in blocks.items()}, hint := model.config.model_type
+    )
+    digest = hashlib.sha256(data).hexdigest()
+    record = {
+        "clarity": {"version": version("clarity-chat"), **client_git()},
+        "time": now_utc(),
+        "vector": {
+            "file": relative,
+            "sha256": digest,
+            "blocks": sorted(blocks),
+            "model_hint": hint,
+            "method": "mean difference",
+            "sign": "positive minus negative",
+            "length": "not normalized",
+        },
+        "read": {"tensor": "block output", "position": "last token"},
+        "pairs": {
+            "file": str(path),
+            "sha256": pairs.sha256,
+            "text": pairs.text,
+            "form": pairs.form,
+            "counts": pairs.counts,
+            "description": pairs.description,
+            "author_self_reported": pairs.author,
+        },
+        "profile": profile.to_json(),
+        "backend": session.backend.server_record,
+        "libraries": library_versions(),
+        "readout": {
+            "blocks": [
+                {"block": b, "activation_size": x.size, "gap": x.gap, "agreement": x.agreement}
+                for b, x in sorted(blocks.items())
+            ]
+        },
+        "prompts": [dataclasses.asdict(p) for p in prompts],
+    }
+    write_text_atomic(
+        json_path, json.dumps(record, ensure_ascii=False, indent=1) + "\n", private=True
+    )
+    write_bytes_atomic(gguf, data)
+    counts = " × ".join(
+        plural(pairs.counts[k], w)
+        for k, w in (("systems", "system pair"), ("messages", "message"), ("openings", "opening"))
+    )
+    lines = [
+        f"Made {file} from {n} pairs in {round(time.monotonic() - started)} s; its record, "
+        f"{record_file}, holds the pairs file, every prompt as the model read it, and the "
+        "numbers below.",
+        f"Pairs: {counts}.",
+        f'"{shown(pairs.description)}" Written by {shown(pairs.author)}, as the pairs file says.',
+        *(
+            ["Read without steering: this profile's [steering] isn't applied while making."]
+            if profile.steering
+            else []
+        ),
+        "",
+        "The first pair, exactly as the model read it (each prompt is read at its last token):",
+        "--- positive ---",
+        escaped(prompts[0].text),
+        "--- negative ---",
+        escaped(prompts[1].text),
+        "",
+        "block  activation size    gap  agreement",
+        *(
+            f"{b:5}  {x.size:15.2f}  {x.gap:5.2f}  {x.agreement:+9.2f}"
+            for b, x in sorted(blocks.items())
+        ),
+        LEGEND,
+        "These are facts about the pairs, not a score.",
+        "",
+        f"To try it, add this to a Transformers profile of {model_name}, and steering_scale = "
+        "1.0 to its [settings]:",
+        "",
+        "[steering]",
+        f"file = {json.dumps(relative, ensure_ascii=False)}",  # a TOML string for any name
+        f'sha256 = "{digest}"',
+        f"layers = [{len(model.model.layers) // 2}]",
+    ]
+    print("\n".join(lines))
     return 0
+
+
+def err(line: str) -> None:
+    print(line, file=sys.stderr, flush=True)
+
+
+def plural(n: int, word: str) -> str:
+    return f"{n} {word}{'' if n == 1 else 's'}"
+
+
+def escaped(text: str) -> str:
+    """Rendered text as the readout prints it: newlines and tabs kept, any other control or
+    invisible character written as Python writes it (S7)."""
+    return "\n".join("\t".join(map(shown, line.split("\t"))) for line in text.split("\n"))

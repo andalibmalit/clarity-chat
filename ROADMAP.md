@@ -4,7 +4,7 @@ What the next releases hold. Each release has a written plan, so later entries c
 
 - **Next: v0.4.5, making steering vectors.** `clarity vector make` turns a file of contrasting prompt pairs into a steering vector for a Transformers profile.
 - **v0.4.6, setup tidy-up.**
-- **v0.4.7, steering on llama.cpp.** Steering through llama.cpp's control vectors, and comparing a steered reply across the two backends.
+- **v0.4.7, steering on llama.cpp.** Steering through llama.cpp's control vectors, and comparing a steered reply across the two backends. First, Gemma 4 on the Transformers backend, to make its vectors.
 - **v0.4.8, a page for writing pairs.** A page in the web interface for writing the pairs a steering vector is made from.
 - **v0.5.0, thinking models.** Reasoning stored with each reply, and the extra samplers these models use.
 - **v0.6.0, Linux.** CUDA, Vulkan and CPU builds, with the GPU driver and CUDA version logged. Check, on a real CUDA and Vulkan run, how the GPU placement check reads llama.cpp's `CUDA_Host` and `Vulkan_Host` buffers.

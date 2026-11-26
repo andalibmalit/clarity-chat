@@ -442,6 +442,110 @@ def test_steering_smollm2_with_repengs_vector(tmp_path, device):
     check_steering(root, tmp_path, zero, real, "Tell me about rivers.")
 
 
+# --- making a vector -------------------------------------------------------------------------
+
+
+def make_and_steer(root: Path, tmp_path: Path, capsys, base: str, message: str, **extra: str):
+    """`clarity vector make` on the made-up 8-pair file, twice, then the printed snippet
+    pasted into a copy of profiles/<base>.toml with steering_scale = 1.0. Checks both files;
+    that the read hook gives exactly Transformers' hidden_states at every block below the
+    last; that the snippet's profile steers (the steering check counts each pass) and
+    differs from unsteered at seed 42; and that the steered call replays identically. Prints
+    each make's time and the largest remake difference per block (run with -s); nothing
+    about that difference is asserted until it is known (decision 11)."""
+    import json
+    import time
+    from typing import Any
+
+    import numpy as np
+    import torch
+
+    from clarity_chat.maker import make, reading
+    from clarity_chat.steering import load
+    from tests.test_maker_render import PAIRS
+
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    plain = profile(folder, base, **extra)
+    vectors, made, said = root / "local" / "vectors", {}, []
+    session = Session(root, logs_dir=tmp_path / "make")
+    try:
+        for stem in ("brief", "again"):
+            (root / f"{stem}.toml").write_text(PAIRS, encoding="utf-8")
+            started = time.monotonic()
+            assert make(session, root / f"{stem}.toml", plain) == 0
+            said.append(f"{base} {extra}: made {stem} in {time.monotonic() - started:.1f} s")
+            out = capsys.readouterr().out
+            name = f"{stem}-{Path(plain).stem}"
+            record = json.loads((vectors / f"{name}.json").read_text(encoding="utf-8"))
+            vector = load(vectors / f"{name}.gguf", record["vector"]["sha256"])
+            made[stem] = (out[out.index("[steering]") :], record, vector)
+        model: Any = session.backend.model  # ty: ignore[unresolved-attribute]
+        ids = made["brief"][1]["prompts"][0]["ids"]
+        with reading(model) as rows, torch.no_grad():
+            out = model(
+                input_ids=torch.tensor([ids], device=model.device),
+                output_hidden_states=True,
+                use_cache=False,
+            )
+        n = len(model.model.layers)
+        assert sorted(rows) == list(range(1, n))
+        for b in range(1, n - 1):  # the last entry of hidden_states comes after the final norm
+            expected = out.hidden_states[b + 1][0, -1].to(device="cpu", dtype=torch.float32)
+            assert np.array_equal(rows[b], expected.numpy()), b
+    finally:
+        session.close()
+    snippet, record, vector = made["brief"]
+    again = made["again"][2]
+    largest = {
+        b: float(np.abs(vector.directions[b] - again.directions[b]).max())
+        for b in record["vector"]["blocks"]
+    }
+    said.append(f"{base} {extra}: the largest remake difference per block: {largest}")
+    steered_name = Path(profile(folder, base, **extra))
+    text = steered_name.read_text(encoding="utf-8")
+    text = text.replace("[settings]", "[settings]\nsteering_scale = 1.0", 1) + "\n" + snippet
+    steered_name.write_text(text, encoding="utf-8")
+    session = Session(root, logs_dir=tmp_path / "chat")
+    try:
+        session.new_conversation(str(steered_name))
+        steered_record = session.say(message).record
+        checks_ok(steered_record)
+        assert steered_record["checks"]["steering"]["ok"]
+        assert steered_record["request"]["steering"] == {
+            "file": record["vector"]["file"],
+            "sha256": record["vector"]["sha256"],
+            "scale": 1.0,
+            "layers": [n // 2],
+        }
+        assert session.conversation is not None
+        log = session.conversation.log.path
+        session.new_conversation(str(steered_name))
+        session.set_setting("steering_scale", "0")
+        unsteered = session.say(message).record
+        seeds = {r["settings"]["seed"]["value"] for r in (steered_record, unsteered)}
+        assert seeds == {42}
+        assert steered_record["output_ids"] != unsteered["output_ids"]
+    finally:
+        session.close()
+    other = Session(root, logs_dir=tmp_path / "replay")
+    try:
+        replayed = other.replay(log, steered_record["call_id"])
+    finally:
+        other.close()
+    assert replayed["identical"], replayed
+    with capsys.disabled():
+        print("\n" + "\n".join(said))
+
+
+@pytest.mark.parametrize("device", ["cpu", "mps"])
+def test_making_a_vector_on_smollm2(tmp_path, capsys, device):
+    root = project(tmp_path)
+    make_and_steer(
+        root, tmp_path, capsys, "smol-chat", "Tell me about rivers.", device=f'"{device}"'
+    )
+
+
 def test_the_recompute_check_on_a_steered_export(tmp_path):
     """C1, as a notebook would run it: under `applied` with the call's vector, scale and
     blocks, a gap of 0 and no changed top choices; without it, steering is listed and the

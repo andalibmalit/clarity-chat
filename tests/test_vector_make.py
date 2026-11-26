@@ -145,7 +145,8 @@ def test_the_readout_line_by_line(project, chat_tokenizer, capsys):
         "layers = [2]",
     ]
     assert re.sub(r" in \d+ s;", " in S s;", out).splitlines() == expected
-    assert err.splitlines() == [
+    # Transformers' own "Loading weights" bar shares stderr, as it does for a chat.
+    assert [line for line in err.split("\n") if line and "\r" not in line] == [
         "Reading 16 prompts (8 pairs) with tiny on cpu…",
         *(f"{k} of 16" for k in (2, 4, 5, 7, 8, 10, 12, 13, 15, 16)),
     ]
