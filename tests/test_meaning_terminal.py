@@ -23,9 +23,8 @@ from tests.test_meaning import ASKED, GLOSSARY, MEANING, profile, raised
 
 NOT_FETCHED = (  # state 5, the terminal's words
     "Meaning search needs bge-m3, which isn't fetched. In a new terminal window, in "
-    "Clarity's folder, run: uv run clarity fetch bge-m3. Then try again. Or set "
-    'search_method = "words" under [documents] in your own profile (copy a shipped one into '
-    "local/profiles/ first) and start a new chat."
+    "Clarity's folder, run: uv run clarity fetch bge-m3. Then try again. Or search by words: "
+    'set search_method to "words".'
 )
 
 
@@ -265,17 +264,20 @@ def test_an_embedder_failure_refuses_with_the_reason_and_the_way_to_turn_search_
     )
 
 
-def test_a_chat_whose_embedder_is_over_metal_s_limit_is_told_to_start_a_new_chat(
+def test_a_chat_whose_embedder_is_over_metal_s_limit_is_told_to_search_by_words(
     fetched_root, chat_tokenizer
 ):
     """The chat side of the run's sentence (the whole-branch fix review's N1): in a chat,
-    the memory refusal's way out by words keeps "and start a new chat." Guards, green now."""
+    the memory refusal's way out by words names the setting, as a run's does (v0.4.4,
+    advisor D6; it said "and start a new chat." before)."""
     from clarity_chat.backends.llama_cpp import memory_problem
     from clarity_chat.profiles import ConfigError
     from tests.test_meaning_runs import metal
 
     too_big = memory_problem(8192, [metal(1800, 1500)], embedder=True)
-    assert too_big is not None and too_big.endswith("and start a new chat.")
+    assert too_big is not None and too_big.endswith(
+        'Search by words: set search_method to "words".'
+    )
 
     class OverTheLimit(FakeEmbedder):
         def start(self) -> dict[str, Any]:
@@ -293,7 +295,7 @@ def test_a_chat_whose_embedder_is_over_metal_s_limit_is_told_to_start_a_new_chat
         {"state": "embedder", "why": f"The embedder didn't start: {too_big}"}
     ]
     assert refused.terminal.endswith(
-        "and start a new chat. `/search none` turns search off for this chat."
+        'set search_method to "words". `/search none` turns search off for this chat.'
     ), refused.terminal
 
 

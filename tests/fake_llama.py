@@ -135,7 +135,8 @@ def fake_llama(
     seen: dict[str, Any] = {"procs": [], "requests": [], "replies": queue}
 
     def launch(self, argv: list[str], env: dict[str, str]) -> None:
-        self.output = [startups[self.gguf.parent.name]]
+        printed = startups[self.gguf.parent.name]  # or a function of the size (v0.4.4 B3a)
+        self.output = [printed(self.config.ctx_size) if callable(printed) else printed]
         self.proc = Running()
         seen["procs"].append(self.proc)
         return None

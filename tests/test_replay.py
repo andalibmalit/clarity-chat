@@ -275,7 +275,9 @@ def test_replay_uses_the_calls_logged_context_size(make_session, fetched_root, t
 
     in_chat, _ = make_session()  # a chat at server.toml's 8192 can't replay a 16384 call
     in_chat.new_conversation("text")
-    with pytest.raises(ConfigError, match="context of 16384 tokens, but this conversation"):
+    with pytest.raises(
+        ConfigError, match="context of 16,384 tokens, but this chat uses 8,192. Set ctx_size"
+    ):
         in_chat.replay(conversation.log.path, call_id)
 
     alone, backend = make_session([" Hello!"])  # `clarity replay`: no conversation running

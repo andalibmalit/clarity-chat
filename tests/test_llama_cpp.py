@@ -797,9 +797,8 @@ def two_servers(monkeypatch, root):  # conftest's no_running_servers empties RUN
 BOTH = (
     "Meaning search's embedder needs 1,800 MiB of GPU memory and the chat model 9,000 MiB at "
     "ctx_size {ctx}: together 10,800 MiB, more than Metal's recommended limit for this GPU, "
-    "10,700 MiB. Use a smaller chat model or a lower ctx_size, or set search_method = "
-    '"words" under [documents] in your own profile (copy a shipped one into local/profiles/ '
-    "first) and start a new chat."
+    "10,700 MiB. Use a smaller chat model or a lower ctx_size. Or search by words: set "
+    'search_method to "words".'
 )
 
 
@@ -845,9 +844,7 @@ def test_a_stopped_server_isn_t_counted(two_servers):
 
 EMBEDDER_ALONE = (
     "Meaning search's embedder needs 1,800 MiB of GPU memory, more than Metal's "
-    'recommended limit for this GPU, 1,500 MiB. Set search_method = "words" under '
-    "[documents] in your own profile (copy a shipped one into local/profiles/ first) and "
-    "start a new chat."
+    'recommended limit for this GPU, 1,500 MiB. Search by words: set search_method to "words".'
 )
 
 

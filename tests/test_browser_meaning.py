@@ -20,8 +20,7 @@ pytestmark = pytest.mark.browser
 
 NO_EMBEDDER = (
     "Meaning search needs bge-m3, which isn't fetched. Getting started shows how to fetch it. "
-    'Or set search_method = "words" under [documents] in your own profile (copy a shipped one '
-    "into local/profiles/ first) and start a new chat."
+    'Or search by words: set search_method to "words".'
 )
 
 

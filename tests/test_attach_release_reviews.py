@@ -56,9 +56,9 @@ NEW = {
     "highlight_added": "Highlighted: the framing line, documents and parts Clarity put in your "
     "messages.",  # T20
     "too_long": "It's {over} tokens too long.",
-    "stop_advice": "Shorten your message, start a new chat, or lower max_tokens.",
+    "stop_advice": "Shorten your message, start a new chat, lower max_tokens, or raise ctx_size.",
     "remove_waiting": "Shorten your message, remove an attachment and attach a shorter part, "
-    "start a new chat, or lower max_tokens.",
+    "start a new chat, lower max_tokens, or raise ctx_size.",
     "slow_read": "A long file can take a minute to read. Clarity stops reading at {seconds} "
     "seconds.",
     "too_slow": "{name} took longer than {seconds} seconds to read. Use a smaller file, or "
@@ -104,7 +104,7 @@ def test_the_stop_says_by_how_much_and_what_to_do(chat):
     assert f"Nothing was sent. It's {n + 1024 + 1 - 4000:,} tokens too long." in said
     assert said.endswith(
         "Shorten your message, remove an attachment and attach a shorter part, start a new "
-        "chat, or lower max_tokens."
+        "chat, lower max_tokens, or raise ctx_size."
     )
 
 
@@ -116,7 +116,9 @@ def test_the_stop_without_this_message_s_attachments_names_the_other_steps(chat)
     backend._n_ctx = 4000
     with pytest.raises(ContextError) as e:
         session.say("b")
-    assert str(e.value).endswith("Shorten your message, start a new chat, or lower max_tokens.")
+    assert str(e.value).endswith(
+        "Shorten your message, start a new chat, lower max_tokens, or raise ctx_size."
+    )
 
 
 # --- the docs: the fact-check's FIX 2 to 6 and its three unsourced claims

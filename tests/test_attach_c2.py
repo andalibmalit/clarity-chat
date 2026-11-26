@@ -26,7 +26,7 @@ KEEPS = "Keeps: {names}. An edit can't add attachments."  # Q2's × (v0.3.2, N73
 HIGHLIGHT = "Highlighted: the framing line, documents and parts Clarity put in your messages."
 REMOVE = (
     "Shorten your message, remove an attachment and attach a shorter part, start a new chat, "
-    "or lower max_tokens."
+    "lower max_tokens, or raise ctx_size."
 )
 
 
@@ -185,7 +185,9 @@ def test_the_stop_without_this_message_s_chips_doesn_t_offer_removing_one(big):
     backend._n_ctx = 1200
     with pytest.raises(ContextError) as e:
         session.say("b")
-    assert str(e.value).endswith("Shorten your message, start a new chat, or lower max_tokens.")
+    assert str(e.value).endswith(
+        "Shorten your message, start a new chat, lower max_tokens, or raise ctx_size."
+    )
     assert "Remove an attachment" not in str(e.value)
 
 

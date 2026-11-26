@@ -151,10 +151,7 @@ def test_a_run_without_bge_m3_isn_t_told_to_start_a_new_chat(fetched_root, chat_
     assert refused is not None, "the run started without bge-m3"
     assert refused.problems == [{"state": "no_embedder"}]
     assert "new chat" not in refused.terminal, refused.terminal
-    assert refused.terminal.endswith(
-        'Or set search_method = "words" under [documents] in your own profile (copy a shipped '
-        "one into local/profiles/ first) and run the command again."
-    ), refused.terminal
+    assert refused.terminal.endswith("Or " + WORDS_IN_A_RUN), refused.terminal
     assert fake.made == 0
 
 
@@ -185,10 +182,7 @@ def unfetched_run(root: Path, chat_tokenizer: Any, embedder: Any, backend: Any) 
     raise AssertionError("the run wasn't refused")
 
 
-WORDS_IN_A_RUN = (
-    'set search_method = "words" under [documents] in your own profile (copy a shipped '
-    "one into local/profiles/ first) and run the command again."
-)
+WORDS_IN_A_RUN = 'search by words: set search_method to "words".'  # D6: a chat's too (v0.4.4)
 
 
 def test_a_run_whose_embedder_is_over_metal_s_limit_isn_t_told_to_start_a_new_chat(
@@ -199,7 +193,7 @@ def test_a_run_whose_embedder_is_over_metal_s_limit_isn_t_told_to_start_a_new_ch
     from clarity_chat.backends.llama_cpp import memory_problem
 
     too_big = memory_problem(8192, [metal(1800, 1500)], embedder=True)
-    assert too_big is not None and too_big.endswith("and start a new chat.")  # a chat's
+    assert too_big is not None and too_big.endswith("S" + WORDS_IN_A_RUN[1:])
 
     class OverTheLimit(FakeEmbedder):
         def start(self) -> dict[str, Any]:
@@ -220,7 +214,7 @@ def test_a_run_whose_chat_model_is_over_metal_s_limit_beside_the_embedder_says_r
     from clarity_chat.backends.llama_cpp import memory_problem
 
     both = memory_problem(4096, [metal(9000, 10700)], beside=(8192, [metal(1800, 10700)]))
-    assert both is not None and both.endswith("and start a new chat.")  # a chat's
+    assert both is not None and both.endswith("Or " + WORDS_IN_A_RUN)
     backend = FakeBackend([" R."], tokenizer=chat_tokenizer)
 
     def refuse(*args: Any, **kwargs: Any) -> Any:
@@ -230,7 +224,7 @@ def test_a_run_whose_chat_model_is_over_metal_s_limit_beside_the_embedder_says_r
     refused = unfetched_run(fetched_root, chat_tokenizer, FakeEmbedder(), backend)
     assert isinstance(refused, RunError), repr(refused)
     assert "new chat" not in str(refused), str(refused)
-    assert str(refused).endswith("or " + WORDS_IN_A_RUN), str(refused)
+    assert str(refused).endswith("Or " + WORDS_IN_A_RUN), str(refused)
 
 
 def test_the_closest_is_shown_rounded_down_so_it_never_reads_as_the_minimum():

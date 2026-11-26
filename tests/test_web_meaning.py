@@ -195,8 +195,7 @@ def test_search_it_carries_the_warning_for_bge_m3_not_fetched(meaning):
     assert words, "no warning words on Search it"
     assert text_of(words.group(1)) == (
         "Meaning search needs bge-m3, which isn't fetched. Getting started shows how to fetch "
-        'it. Or set search_method = "words" under [documents] in your own profile (copy a '
-        "shipped one into local/profiles/ first) and start a new chat."
+        'it. Or search by words: set search_method to "words".'
     )
 
 
@@ -217,8 +216,7 @@ def test_send_refused_for_bge_m3_not_fetched_names_getting_started(meaning):
     assert command(client, "say", ASKED).json()["type"] == "SearchRefused"
     assert refusal(client) == (
         "! Nothing was sent. Meaning search needs bge-m3, which isn't fetched. Getting started "
-        'shows how to fetch it. Or set search_method = "words" under [documents] in your own '
-        "profile (copy a shipped one into local/profiles/ first) and start a new chat."
+        'shows how to fetch it. Or search by words: set search_method to "words".'
     )
 
 
