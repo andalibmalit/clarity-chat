@@ -212,7 +212,12 @@ class Setup:
         shown = lines.rstrip("\n")
         path = self.desktop / "Clarity.command"
         try:  # Desktop access revoked after the first run makes a launcher unreadable
-            text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+            # newline="": compared byte for byte, so CRLF line ends aren't setup's own
+            text = (
+                path.read_text(encoding="utf-8", errors="replace", newline="")
+                if path.is_file()
+                else ""
+            )
             ours = text == lines
             earlier = text == f"{run} clarity ui\n" and not path.is_symlink()
             other = (path.exists() or path.is_symlink()) and not earlier
@@ -234,7 +239,7 @@ class Setup:
             )
             return
         try:
-            path.write_text(lines, encoding="utf-8")
+            path.write_text(lines, encoding="utf-8", newline="")
             path.chmod(0o755)
         except OSError as e:  # "Don't Allow" at the Desktop prompt, or a managed Mac
             self.say(
