@@ -69,7 +69,7 @@ def settings_table() -> dict[str, dict[str, str]]:
 def test_every_setting_has_one_line_of_help_and_the_docs_show_the_same():
     """AGENTS.md: each explanation lives in one place, the settings table, which the UI and
     the docs reuse. profiles.SETTING_HELP is that place; the docs' column repeats it."""
-    names = {*SETTING_NAMES, *CHAT_KEYS}  # v0.4.4 B1: the search keys /set takes
+    names = {*SETTING_NAMES, *CHAT_KEYS, "ctx_size"}  # v0.4.4: what /set takes (B1, B3b)
     assert names <= set(SETTING_HELP), "a setting has no help"
     table = settings_table()
     assert set(table) == names

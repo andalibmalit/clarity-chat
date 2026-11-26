@@ -371,7 +371,11 @@ def test_settings_carry_the_memory_measured_at_the_start(llama):
     assert memory is not None, "no memory on /settings"
     assert memory["text"] == MEMORY_16384
     assert memory["device"] == "MTL0" and memory["kv_mib"] == 1152
-    assert settings_view(session)["ctx_size"] == {"value": 16384, "origin": "chat"}
+    assert settings_view(session)["ctx_size"] == {
+        "value": 16384,
+        "origin": "chat",
+        "base": {"value": 8192, "origin": "server.toml"},  # B3b: the row's Back to
+    }
 
 
 def test_settings_carry_no_memory_without_metal_s_figure(fake):
