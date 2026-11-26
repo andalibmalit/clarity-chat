@@ -510,11 +510,12 @@ def test_a_chats_ids_hash_its_conversation_id_not_its_file_name(make):
 # --- X2 (v0.4.4): the template's own text before the first message -------------------------
 
 
-def bare_chat(make, root: Path, tokenizer) -> tuple[Session, Path]:
-    """A chat on a profile with no system message, its tokenizer's template, one message."""
+def bare_chat(make, root: Path, tokenizer, system: bool = False) -> tuple[Session, Path]:
+    """A chat on a profile with no system message (unless `system`: "Be brief."), its
+    tokenizer's template, one message."""
     from tests.conftest import CHAT_PROFILE
 
-    text = CHAT_PROFILE.replace('system = "Be brief."\n', "")
+    text = CHAT_PROFILE if system else CHAT_PROFILE.replace('system = "Be brief."\n', "")
     (root / "profiles" / "bare.toml").write_text(text, encoding="utf-8", newline="\n")
     session = Session(
         root,
@@ -599,15 +600,63 @@ def test_only_the_template_s_own_text_gets_a_system_message(
         assert system.text == box
         assert system.metadata["clarity"]["kind"] == "template"
     assert sample.messages[-2].text == "The kettle sang twice."
+    assert "template_own_text" not in sample.metadata  # rendered, not given up on
 
 
-def test_a_call_with_its_own_system_message_gets_no_other(make):
-    session = make()
-    log = two_messages_regens_and_an_edit(session)
+# SmolLM2's: a default system turn, no {{ bos_token }}, and a BOS token that is its role marker.
+SMOL = (
+    "{% for m in messages %}{% if loop.first and messages[0].role != 'system' %}"
+    "<|im_start|>system\nYou are a helpful AI assistant.<|im_end|>\n{% endif %}"
+    "<|im_start|>{{ m.role }}\n{{ m.content }}<|im_end|>\n{% endfor %}"
+    "{% if add_generation_prompt %}<|im_start|>assistant\n{% endif %}"
+)
+
+
+def test_a_bos_the_template_doesn_t_write_stays_in_the_box(make, fetched_root, tmp_path):
+    """SmolLM2's BOS text is "<|im_start|>", its role marker: only a BOS the template writes
+    is taken off the front (checkpoint 1, M1)."""
+    from tests.conftest import build_tokenizer
+
+    tokenizer = build_tokenizer(tmp_path / "tok", False, False, SMOL)
+    tokenizer.tok.bos_token = "<|im_start|>"
+    session, log = bare_chat(make, fetched_root, tokenizer)
     export_chat(session, log)
-    for sample in read(session.logs_dir / "exports" / f"{log.stem}.eval").samples:
-        roles = [m.role for m in sample.messages]
-        assert roles.count("system") == 1 and sample.messages[0].text == "Be brief."
+    [sample] = read(session.logs_dir / "exports" / f"{log.stem}.eval").samples
+    assert [m.role for m in sample.messages] == ["system", "user", "assistant"]
+    assert sample.messages[0].text == "<|im_start|>system\nYou are a helpful AI assistant."
+
+
+def test_a_call_with_only_template_text_gets_no_system_message(make, fetched_root, tmp_path):
+    """A hand-edited log whose spans hold no message: exported, with no box (checkpoint 1,
+    S2), not a bare StopIteration."""
+    from clarity_chat.files import write_text_atomic
+    from tests.conftest import build_tokenizer
+
+    tokenizer = build_tokenizer(tmp_path / "tok", False, False, LLAMA)
+    session, log = bare_chat(make, fetched_root, tokenizer)
+    records = records_of(log)
+    for record in records:
+        if record["type"] == "call":
+            record["message_spans"] = record["message_spans"][:1]
+    write_text_atomic(log, "".join(json.dumps(r) + "\n" for r in records))
+    try:
+        export_chat(session, log)
+    except StopIteration:
+        pytest.fail("the export ended in a bare StopIteration")
+    [sample] = read(session.logs_dir / "exports" / f"{log.stem}.eval").samples
+    assert [m.role for m in sample.messages] == ["assistant"]
+
+
+def test_a_call_with_its_own_system_message_gets_no_other(make, fetched_root, tmp_path):
+    """Llama 3.1's dated header comes before the profile's system message: still one box."""
+    from tests.conftest import build_tokenizer
+
+    tokenizer = build_tokenizer(tmp_path / "tok", False, False, LLAMA)
+    session, log = bare_chat(make, fetched_root, tokenizer, system=True)
+    export_chat(session, log)
+    [sample] = read(session.logs_dir / "exports" / f"{log.stem}.eval").samples
+    assert [m.role for m in sample.messages] == ["system", "user", "assistant"]
+    assert sample.messages[0].text == "Be brief."
 
 
 def test_a_template_that_can_t_be_rendered_gets_no_system_message_and_says_why(
