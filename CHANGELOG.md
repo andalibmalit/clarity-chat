@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Added
+- The pairs file that `clarity vector make` reads, a TOML file: `description` and `author`, then `messages`, optional `openings` and one `[[systems]]` table per system pair, each with a `positive` and a `negative` system message. Every system pair × message × opening is one pair, from 2 to 1,024, and the file is at most 4 MB. Each refusal names the entry as the file writes it.
+
 ## [0.4.4] - 2026-11-26
 
 Live tests on an M2 Max (macOS), 2026-11-26, every tier at commit `7bdc7d3` (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 35 passed, `-m browser` 192 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m embed` 10 passed (bge-m3 on Metal), `-m hf` 21 passed, `-m setup` 1 passed (setup fetching llama.cpp at the pin and building `llama-server` in a new folder), `-m olmo` 12 passed and `-m llama` 3 passed.
