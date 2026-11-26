@@ -511,13 +511,17 @@ def test_converting_twice_gives_the_same_file(tmp_path, capsys):
     Whether they also equal models.lock's hash is printed, not asserted: the converter's
     environment may have changed since the model was fetched. The sha256 and the converter's
     Python are printed too, for v0.4.6's A1 (a Python uv installed, against conda-forge's)."""
-    from clarity_chat.models import fetch_convert
+    from clarity_chat.files import sha256_file
+    from clarity_chat.models import CONVERTER_REQUIREMENTS, fetch_convert
 
     model = load_models(REPO)[MODEL]
     config = load_server_config(REPO)
     entries = [fetch_convert(tmp_path / run, model, config) for run in ("a", "b")]
     first, second = (entry["gguf"]["sha256"] for entry in entries)
     assert first == second
+    # v0.4.6 S4: the entry names the requirements file the converter's environment came from
+    shipped = sha256_file(CONVERTER_REQUIREMENTS)
+    assert [entry["converter"].get("requirements_sha256") for entry in entries] == [shipped] * 2
     with capsys.disabled():
         same = first == lock_entry(REPO, model)["gguf"]["sha256"]
         print(f"\nconverted file equals models.lock's: {same}")

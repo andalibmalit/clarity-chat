@@ -177,6 +177,20 @@ def test_unfetched_model_is_an_error(root, tiny_tokenizer):
         session.new_conversation("text")
 
 
+def test_a_call_carries_the_converter_s_requirements_sha256(make_session, fetched_root):
+    """v0.4.6 S4: the call's model.converted_with.converter holds the lock entry's
+    requirements_sha256 with the rest of the converter's facts, and still not its packages."""
+    from clarity_chat.models import read_lock, write_lock_entry
+
+    entry = read_lock(fetched_root)["models"]["tiny"]
+    converter = {**entry["converter"], "requirements_sha256": "a" * 64}
+    write_lock_entry(fetched_root, "tiny", {**entry, "converter": converter})
+    session, _ = make_session()
+    seen = session.say("Hi").record["model"]["converted_with"]["converter"]
+    assert seen.get("requirements_sha256") == "a" * 64, seen
+    assert "packages" not in seen, seen
+
+
 def test_changed_weights_file_is_an_error(fetched_root, tiny_tokenizer):
     weights = fetched_root / "models" / "tiny" / "tiny-bf16.gguf"
     weights.write_bytes(b"GGUF changed weights!")

@@ -531,6 +531,26 @@ def test_the_converter_s_environment_is_made_from_the_hashed_requirements(tmp_pa
     assert recorded[0][-1] == "models/.converter", recorded
 
 
+def test_the_lock_records_the_sha256_of_the_requirements_the_converter_ran_with(
+    tmp_path, monkeypatch
+):
+    """v0.4.6 S4 (decision 5): the converter's lock entry holds the sha256 of the
+    converter-requirements.txt its environment was installed from, so a conversion says
+    which pins made it; a changed file changes it."""
+
+    def recorded() -> str | None:
+        lock = json.loads((tmp_path / "local" / "models.lock").read_text("utf-8"))
+        return lock["models"]["smollm2-135m-instruct"]["converter"].get("requirements_sha256")
+
+    requirements = made_up_requirements(tmp_path)
+    converting(tmp_path, monkeypatch)
+    first = hashlib.sha256(requirements.read_bytes()).hexdigest()
+    assert recorded() == first
+    requirements.write_text(MADE_UP_REQUIREMENTS.replace("1.0", "1.1"), "utf-8")
+    converting(tmp_path, monkeypatch)
+    assert recorded() == hashlib.sha256(requirements.read_bytes()).hexdigest() != first
+
+
 def test_the_converter_runs_the_uv_that_runs_clarity(tmp_path, monkeypatch):
     """install.sh runs Clarity under `env -i` with a PATH that doesn't hold ~/.local/bin,
     where uv's installer puts uv; uv sets UV to itself for what it runs, so the converter
