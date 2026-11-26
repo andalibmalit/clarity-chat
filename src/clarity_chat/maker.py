@@ -15,7 +15,7 @@ from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import Any, NoReturn
 
 from clarity_chat import steering
 from clarity_chat.backends import BackendError
@@ -23,9 +23,7 @@ from clarity_chat.files import write_bytes_atomic, write_text_atomic
 from clarity_chat.logs import client_git, now_utc
 from clarity_chat.profiles import ConfigError, Profile, load_profile, shown
 from clarity_chat.render import library_versions, render_chat, tokenize
-
-if TYPE_CHECKING:
-    from clarity_chat.session import Prepared, Session
+from clarity_chat.session import Prepared, Session, model_config
 
 LEGEND = (  # teaching text (T11): docs/reference.md quotes it
     "Activation size: the average length of the block's output. Gap: the length of this "
@@ -59,12 +57,10 @@ class Pair:
 @dataclasses.dataclass(frozen=True)
 class Pairs:
     path: Path  # as given
-    stem: str
     sha256: str  # of the bytes read
     text: str
     description: str
     author: str
-    form: str
     counts: dict[str, int]
     pairs: list[Pair]
 
@@ -156,12 +152,10 @@ def read_pairs(path: Path) -> Pairs:
     ]
     return Pairs(
         path,
-        path.stem,
         hashlib.sha256(data).hexdigest(),
         text,
         description,
         author,
-        "crossed",
         {"systems": len(systems), "messages": len(messages), "openings": len(openings)},
         pairs,
     )
@@ -193,9 +187,6 @@ def prepare(session: Session, name: str) -> Prepared:
 
     usable(load_profile(session.root, name, session.defaults))
     prepared = session.prepare(name, steered=False)
-    usable(prepared.profile)  # read again by prepare: the file may have changed since
-    from clarity_chat.session import model_config
-
     steering.check_type(model_config(prepared.weights))  # a pinned vector's check, made here
     return prepared
 
@@ -326,7 +317,7 @@ def make(session: Session, path: Path, name: str) -> int:
     prepared = prepare(session, name)
     profile, pairs = prepared.profile, read_pairs(path)
     vectors = session.root / "local" / "vectors"
-    gguf, json_path = (vectors / f"{pairs.stem}-{profile.name}{x}" for x in (".gguf", ".json"))
+    gguf, json_path = (vectors / f"{path.stem}-{profile.name}{x}" for x in (".gguf", ".json"))
     relative = gguf.relative_to(session.root).as_posix()  # as the snippet and record give it
     file, record_file = shown(relative), shown(json_path.relative_to(session.root).as_posix())
     if os.path.lexists(gguf):
@@ -365,7 +356,7 @@ def make(session: Session, path: Path, name: str) -> int:
             "file": str(path),
             "sha256": pairs.sha256,
             "text": pairs.text,
-            "form": pairs.form,
+            "form": "crossed",
             "counts": pairs.counts,
             "description": pairs.description,
             "author_self_reported": pairs.author,
@@ -386,7 +377,7 @@ def make(session: Session, path: Path, name: str) -> int:
     )
     write_bytes_atomic(gguf, data)
     counts = " × ".join(
-        plural(pairs.counts[k], w)
+        f"{pairs.counts[k]} {w}{'' if pairs.counts[k] == 1 else 's'}"
         for k, w in (("systems", "system pair"), ("messages", "message"), ("openings", "opening"))
     )
     lines = [
@@ -444,10 +435,6 @@ def toml_string(text: str) -> str:
 
 def err(line: str) -> None:
     print(line, file=sys.stderr, flush=True)
-
-
-def plural(n: int, word: str) -> str:
-    return f"{n} {word}{'' if n == 1 else 's'}"
 
 
 def escaped(text: str) -> str:

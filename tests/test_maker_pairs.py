@@ -53,9 +53,9 @@ def test_the_crossed_form_expands_system_pair_first_then_message_then_opening(tm
         for o, opening in enumerate(["", "Well,"], 1)
     ]
     assert pairs.pairs == expected
-    assert (pairs.form, pairs.counts) == ("crossed", {"systems": 2, "messages": 2, "openings": 2})
+    assert pairs.counts == {"systems": 2, "messages": 2, "openings": 2}
     assert (pairs.description, pairs.author) == ("Plain replies against ornate ones.", "me")
-    assert (pairs.path, pairs.stem) == (tmp_path / "brief.toml", "brief")
+    assert pairs.path == tmp_path / "brief.toml"
 
 
 def test_openings_left_out_mean_one_empty_opening(tmp_path):

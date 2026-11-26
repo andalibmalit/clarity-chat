@@ -32,7 +32,8 @@ reads (v0.3.2: `clarity document add FILE`, `/documents add PATH [NAME]` typed, 
 message or in `--json`) are judged by the same rule; `/documents add` is judged both whole
 and with its last word taken as the name, as Clarity may read it. A batch run's openings
 (`clarity run --openings FILE`) and a vector's pairs file (v0.4.5: `clarity vector make
-PAIRS`, which prints its text) are judged by the same rule, and `--profiles` must be names.
+PAIRS`, which prints the first pair, the description and the author) are judged by the
+same rule, and `--profiles` must be names.
 A mark's label and a note's text may hold no control character, as a step may not: they go
 into the log and the transcript's first line. Each step is checked again, and the root
 scanned for links and your own model entries again, just before it's typed; a step over
@@ -255,7 +256,7 @@ def check_clarity_args(root: Path, argv: list[str]) -> argparse.Namespace:
         openings = str(args.openings)
         if problem := path_problem(root, openings, {openings}):
             raise Refused(f"run --openings {problem}")
-    if args.command == "vector":  # make reads PAIRS and prints its text (v0.4.5)
+    if args.command == "vector":  # make reads PAIRS and prints parts of it (v0.4.5)
         pairs = str(args.pairs)
         if problem := path_problem(root, pairs, {pairs}):
             raise Refused(f"vector make {problem}")
