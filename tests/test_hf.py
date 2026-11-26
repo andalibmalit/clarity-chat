@@ -471,7 +471,7 @@ def make_and_steer(root: Path, tmp_path: Path, capsys, base: str, message: str, 
     session = Session(root, logs_dir=tmp_path / "make")
     try:
         for stem in ("brief", "again"):
-            (root / f"{stem}.toml").write_text(PAIRS, encoding="utf-8")
+            (root / f"{stem}.toml").write_text(PAIRS, encoding="utf-8", newline="\n")
             started = time.monotonic()
             assert make(session, root / f"{stem}.toml", plain) == 0
             said.append(f"{base} {extra}: made {stem} in {time.monotonic() - started:.1f} s")

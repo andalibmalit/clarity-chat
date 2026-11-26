@@ -46,7 +46,7 @@ def project(root, chat_tokenizer):
     transformers.LlamaForCausalLM(config).save_pretrained(weights)
     chat_tokenizer.tok.save_pretrained(weights)
     profile(root, extra="ctx_size = 256")
-    (root / "brief.toml").write_text(PAIRS, encoding="utf-8")
+    (root / "brief.toml").write_text(PAIRS, encoding="utf-8", newline="\n")
     return root
 
 
@@ -162,7 +162,7 @@ def test_untrusted_text_prints_escaped_and_the_record_keeps_it(project, chat_tok
     text = PAIRS.replace('"Plain replies', '"Plain \\u001b[31m replies')
     text = text.replace('author = "me"', 'author = "me\\u001b]0;x\\u0007"')
     text = text.replace('"Reply plainly."', '"Reply \\u001b[2J plainly."')
-    (project / "brief.toml").write_text(text, encoding="utf-8")
+    (project / "brief.toml").write_text(text, encoding="utf-8", newline="\n")
     record = made(project, chat_tokenizer)
     out = capsys.readouterr().out
     assert "\x1b" not in out and "\x07" not in out
@@ -245,7 +245,7 @@ def test_a_steered_profile_is_read_unsteered_even_with_its_vector_gone(
     snippet = capsys.readouterr().out.split("[settings]:\n\n")[1]
     text = HF_CHAT.replace("[settings]", "[settings]\nsteering_scale = 1.0") + "\n" + snippet
     profile(project, "hf-steered", extra="ctx_size = 256", text=text)
-    (project / "other.toml").write_text(PAIRS, encoding="utf-8")
+    (project / "other.toml").write_text(PAIRS, encoding="utf-8", newline="\n")
     profile(project, "hf-chat-twin", extra="ctx_size = 256")  # the same profile, unsteered
     made(project, chat_tokenizer, "other.toml", "hf-chat-twin")
     made(project, chat_tokenizer, "other.toml", "hf-steered")
@@ -307,7 +307,7 @@ def unstarted(root, chat_tokenizer, config=None):
     hf_root(root)
     if config is not None:
         (root / "models" / "tiny-hf" / "config.json").write_text(json.dumps(config), "utf-8")
-    (root / "brief.toml").write_text(PAIRS, encoding="utf-8")
+    (root / "brief.toml").write_text(PAIRS, encoding="utf-8", newline="\n")
     session = session_for(root, chat_tokenizer)
 
     def start_model(prepared, ctx_size):
@@ -506,7 +506,7 @@ def test_olmo3s_vector_names_olmo3(root, chat_tokenizer):
     transformers.Olmo3ForCausalLM(config).save_pretrained(weights)
     chat_tokenizer.tok.save_pretrained(weights)
     profile(root, extra="ctx_size = 256")
-    (root / "brief.toml").write_text(PAIRS, encoding="utf-8")
+    (root / "brief.toml").write_text(PAIRS, encoding="utf-8", newline="\n")
     record = made(root, chat_tokenizer)
     assert record["vector"]["model_hint"] == "olmo3"
     assert steering.load(root / GGUF, record["vector"]["sha256"]).model_hint == "olmo3"

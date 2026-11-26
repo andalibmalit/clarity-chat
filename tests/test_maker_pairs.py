@@ -105,7 +105,8 @@ def test_a_file_over_4_mb(tmp_path):
 def test_a_control_character_in_the_files_path_prints_escaped(tmp_path):
     """Checkpoint 1's mutation 20: refusals name the file as shown() gives it."""
     message = refusal(tmp_path / "a\x1b[2Jb" / "brief.toml")
-    assert message.startswith("The pairs file ") and message.endswith(" doesn't exist.")
+    # macOS and Linux: it doesn't exist; Windows refuses the name itself, so it can't be read
+    assert message.startswith(("The pairs file ", "Can't read the pairs file ")), message
     assert "a\\x1b[2Jb" in message and "\x1b" not in message
 
 

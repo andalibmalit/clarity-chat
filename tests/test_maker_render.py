@@ -70,7 +70,7 @@ def session_for(root: Path, tokenizer):
 
 def pairs_file(tmp_path: Path, text: str = PAIRS):
     path = tmp_path / "brief.toml"
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="\n")
     return read_pairs(path)
 
 

@@ -189,8 +189,12 @@ def test_a_view_opened_in_the_panel_starts_at_its_top(clarity, page):  # noqa: F
     _, redirect, _ = clarity
     page.set_viewport_size({"width": 1280, "height": 480})  # both views scroll
     chat_on(page, redirect)
-    for text in ("Hi", "Again"):
+    for n, text in enumerate(("Hi", "Again"), 1):
         say(page, text)
+        # .reply.last .tb alone is already there from the first reply: wait for this one's row
+        page.wait_for_function(
+            f"document.querySelectorAll('#thread .reply[data-call]').length === {n}"
+        )
         page.wait_for_selector(".reply.last .tb")
         settled(page)
     first, last = page.locator("#thread .reply[data-call]").evaluate_all(
