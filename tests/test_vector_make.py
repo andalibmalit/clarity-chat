@@ -174,6 +174,26 @@ def test_untrusted_text_prints_escaped_and_the_record_keeps_it(project, chat_tok
     assert "Reply \x1b[2J plainly." in record["prompts"][0]["text"]
 
 
+def test_the_first_pair_prints_tabs_and_newlines_as_they_are_and_both_sides_escaped(
+    project, chat_tokenizer, capsys
+):
+    text = PAIRS.replace('"Reply plainly."', '"Reply\\tplainly,\\nin short."')
+    text = text.replace('"Reply ornately."', '"Reply \\u001b[1m ornately."')
+    (project / "brief.toml").write_text(text, encoding="utf-8", newline="\n")
+    made(project, chat_tokenizer)
+    out = capsys.readouterr().out
+    assert "\x1b" not in out
+    assert "<system>Reply\tplainly,\nin short.</s>" in out
+    assert "<system>Reply \\x1b[1m ornately.</s>" in out
+
+
+def test_one_opening_is_counted_in_the_singular(project, chat_tokenizer, capsys):
+    text = PAIRS.replace('openings = ["", "Well,"]\n', "")
+    (project / "brief.toml").write_text(text, encoding="utf-8", newline="\n")
+    made(project, chat_tokenizer)
+    assert "Pairs: 2 system pairs × 2 messages × 1 opening.\n" in capsys.readouterr().out
+
+
 def test_the_snippet_steers_a_chat_that_replays(project, chat_tokenizer, capsys):
     made(project, chat_tokenizer)
     out = capsys.readouterr().out
@@ -259,8 +279,9 @@ def test_a_steered_profile_is_read_unsteered_even_with_its_vector_gone(
     (project / GGUF).unlink()  # the pinned vector deleted, to make it again
     (project / RECORD).unlink()
     (vectors / "other-hf-steered.gguf").unlink()
-    made(project, chat_tokenizer, "other.toml", "hf-steered")
+    record = made(project, chat_tokenizer, "other.toml", "hf-steered")
     assert (vectors / "other-hf-steered.gguf").is_file()
+    assert "[steering]" in record["profile"]["toml"]  # the profile as written
 
 
 def test_a_held_lock_refuses_the_make(project, capsys):
@@ -545,6 +566,15 @@ def test_a_config_json_nested_too_deeply_is_refused(tmp_path):
         got = e
     assert isinstance(got, ConfigError), f"not refused: {got!r}"
     assert str(got).startswith(f"Can't read {tmp_path / 'config.json'}: ")
+
+
+def test_a_config_json_that_isnt_an_object_is_refused(tmp_path):
+    from clarity_chat.session import model_config
+
+    (tmp_path / "config.json").write_text("[]", encoding="utf-8")
+    with pytest.raises(ConfigError) as e:
+        model_config(tmp_path)
+    assert str(e.value) == f"{tmp_path / 'config.json'} isn't a JSON object."
 
 
 def test_olmo3s_vector_names_olmo3(root, chat_tokenizer):

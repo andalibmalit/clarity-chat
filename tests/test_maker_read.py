@@ -126,13 +126,14 @@ def test_two_pairs_that_swap_sides_are_refused(model):
     )
 
 
-def test_an_activation_that_isnt_finite_is_refused(model):
+@pytest.mark.parametrize("value", ["nan", "inf"])
+def test_an_activation_that_isnt_finite_is_refused(model, value):
     model, torch = model
     seen = []
 
-    def nan(module, args, output):  # the fourth prompt, pair 2's negative, gives a NaN
+    def nan(module, args, output):  # the fourth prompt, pair 2's negative, gives a NaN or inf
         seen.append(1)
-        return output * float("nan") if len(seen) == 4 else output
+        return output + float(value) if len(seen) == 4 else output
 
     handle = model.model.layers[3].register_forward_hook(nan)
     try:
