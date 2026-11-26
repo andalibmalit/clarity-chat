@@ -830,6 +830,8 @@ class ChatLoop:
             self.write(f"{gap}— reply {event['k']} of {event['n']}, seed {event['seed']} —\n")
         elif event["event"] == "building" and event["done"] == 0:  # state 4, said once
             self.write(preparing_line(event["name"], event["total"]) + "\n")
+        elif event["event"] == "notice":  # the embedder's A5 line (v0.4.4)
+            self.write(event["text"] + "\n")
         elif event["event"] == "reading":
             self.write(f"Reading {shown(event['name'])}…\n")
         elif event["event"] == "writing":

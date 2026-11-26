@@ -24,7 +24,7 @@ import httpx
 from clarity_chat.backends import BackendError
 from clarity_chat.backends.llama_cpp import LlamaServer
 from clarity_chat.logs import machine
-from clarity_chat.models import check_weights_quick, lock_entry, weights_path
+from clarity_chat.models import lock_entry, recheck_weights, weights_path
 from clarity_chat.profiles import ConfigError, ModelEntry, ServerConfig, load_models
 
 MODEL = "bge-m3"
@@ -131,6 +131,7 @@ class Embedder:
     ) -> None:
         self.root = root
         self.on_change = on_change  # told its port, PID and key on start, None on stop (D4)
+        self.on_notice: Callable[[str], None] | None = None  # its start's A5 line (v0.4.4)
         self.config = dataclasses.replace(server_config, flags=dict(FLAGS))
         self.logs_dir = logs_dir
         self.load_tokenizer = load_tokenizer
@@ -175,7 +176,9 @@ class Embedder:
             return self.engine
         model = self.entry()
         entry = lock_entry(self.root, model)
-        gguf = check_weights_quick(self.root, entry)
+        gguf, rechecked = recheck_weights(self.root, entry, "The embedding model's file's")
+        if rechecked is not None and self.on_notice is not None:
+            self.on_notice(rechecked)
         self.server = LlamaServer(self.config, gguf, self.logs_dir, self.on_change)
         try:
             record = self.server.start()

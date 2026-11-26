@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Changed
+- A model file whose modified time changed, with its size the same, no longer stops a new chat, a resume or a meaning search with a hint to run `clarity verify`. Clarity hashes it there: if its bytes match, it records the new time in `local/models.lock` and says so in one line (among the start warnings; for the embedder, in the terminal and a run's output, and as a `notice` event in `--json`). Other bytes, or another size, are refused with the fetch hint. Replay and a batch run refuse as before. The profile listing and setup count a file of the fetched size as fetched and never hash it.
+
 ### Fixed
 - `clarity export`'s line in `clarity --help` says a conversation, not only a run, can be exported for Inspect, and its argument's help says a run is named by its folder or its `calls.jsonl`. The README's Features list now mentions export for Inspect.
 

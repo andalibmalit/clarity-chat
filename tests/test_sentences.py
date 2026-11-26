@@ -49,13 +49,13 @@ def test_the_control_token_warning(make):
 
 
 def test_the_unread_template_kwargs_warning():
-    prepared = SimpleNamespace(unread_kwargs=["greting"], writes_date=False)
+    prepared = SimpleNamespace(unread_kwargs=["greting"], writes_date=False, rechecked=None)
     (warning,) = Session._profile_warnings(prepared)  # ty: ignore[invalid-argument-type]
     assert "greting" in warning and names_no_command(warning)
 
 
 def test_the_dated_template_warning():
-    prepared = SimpleNamespace(unread_kwargs=[], writes_date=True)
+    prepared = SimpleNamespace(unread_kwargs=[], writes_date=True, rechecked=None)
     (warning,) = Session._profile_warnings(prepared)  # ty: ignore[invalid-argument-type]
     assert "can write today's date" in warning and names_no_command(warning)
 

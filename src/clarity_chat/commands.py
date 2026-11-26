@@ -159,6 +159,7 @@ class Commands:
         self.session.on_building = lambda name, done, total: tracked(
             {"event": "building", "name": name, "done": done, "total": total}
         )
+        self.session.on_notice = lambda text: tracked({"event": "notice", "text": text})
         try:
             return self._call(name, args, tracked)
         except (BackendError, ConfigError) as e:
@@ -171,6 +172,7 @@ class Commands:
         finally:
             self.session.on_record = None
             self.session.on_building = None
+            self.session.on_notice = None
             self.cancel_event = None
             with self.progress:  # done, or failed: /state reads what runs now
                 self.streamed, self.streamed_end, self.running = [], 0, None

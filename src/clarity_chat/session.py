@@ -71,7 +71,13 @@ from clarity_chat.documents import (
     with_text,
 )
 from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records, unreadable
-from clarity_chat.models import check_weights_quick, lock_entry, read_lock, source_weights
+from clarity_chat.models import (
+    check_weights_quick,
+    lock_entry,
+    read_lock,
+    recheck_weights,
+    source_weights,
+)
 from clarity_chat.profiles import (
     BUDGET,
     MIN_SIMILARITY,
@@ -228,6 +234,7 @@ class Prepared:
     template: dict[str, Any] | None
     unread_kwargs: list[str] = field(default_factory=list)  # template_kwargs it never reads
     writes_date: bool = False  # the chat template can write today's date
+    rechecked: str | None = None  # the weights' changed time, checked again (A5)
 
 
 @dataclass
@@ -501,6 +508,7 @@ class Session:
         self._tokenizers: dict[tuple[str, str], Tokenizer] = {}
         self._embedder = embedder
         self.on_building: Callable[[str, int, int], None] | None = None
+        self.on_notice: Callable[[str], None] | None = None  # the embedder's start's A5 line
         self.last_closest: float | None = None  # the last meaning search's best similarity
 
     # --- setup ----------------------------------------------------------------------------
@@ -608,12 +616,19 @@ class Session:
             )
         return profile, model, entry
 
-    def prepare(self, profile_name: str, logged: dict[str, Any] | None = None) -> Prepared:
+    def prepare(
+        self, profile_name: str, logged: dict[str, Any] | None = None, recheck: bool = False
+    ) -> Prepared:
         """Load a profile and everything it needs short of starting the model: its model
         entry and lock, the weights (size and time only), tokenizers and chat template.
-        `logged`: a log's `profile` field, to use the profile as it was logged."""
+        `logged`: a log's `profile` field, to use the profile as it was logged. `recheck`
+        (a new chat, a resume): a GGUF whose time alone changed is hashed (decision 15)."""
         profile, model, entry = self.profile_for(profile_name, logged)
-        weights = self.weights_for(profile.backend, entry)
+        rechecked = None
+        if recheck and profile.backend != "transformers":
+            weights, rechecked = recheck_weights(self.root, entry, "The model file's")
+        else:
+            weights = self.weights_for(profile.backend, entry)
         if profile.steering is not None:
             profile.vector, profile.layers = self.load_vector(
                 profile.steering.file, profile.steering.sha256, profile.steering.layers, weights
@@ -632,7 +647,16 @@ class Session:
         else:
             template, unread, dated = None, [], False
         return Prepared(
-            profile, model, entry, weights, tokenizer, template_tokenizer, template, unread, dated
+            profile,
+            model,
+            entry,
+            weights,
+            tokenizer,
+            template_tokenizer,
+            template,
+            unread,
+            dated,
+            rechecked,
         )
 
     def load_vector(
@@ -724,7 +748,7 @@ class Session:
         the conversation's records and calls."""
         # Everything that can fail on the profile alone is checked before the server or the
         # session changes, so a bad /new leaves the current conversation usable.
-        prepared = profile if isinstance(profile, Prepared) else self.prepare(profile)
+        prepared = profile if isinstance(profile, Prepared) else self.prepare(profile, recheck=True)
         self._profile_documents(prepared.profile)
         model = prepared.model
         ctx_size = self.ctx_size_for(prepared.profile)
@@ -765,7 +789,7 @@ class Session:
     @staticmethod
     def _profile_warnings(prepared: Prepared) -> list[str]:
         """Warnings shown when a conversation starts or resumes, and logged."""
-        warnings = []
+        warnings = [prepared.rechecked] if prepared.rechecked else []
         if prepared.unread_kwargs:
             warnings.append(
                 f"The chat template never reads template_kwargs {prepared.unread_kwargs}, so "
@@ -977,6 +1001,7 @@ class Session:
         embedder = self.embedder()
         if not embedder.fetched():  # state 5, a file check: before any process
             raise refused({"state": "no_embedder"})
+        embedder.on_notice = self.on_notice
         try:
             engine = embedder.start()
             ids = embedder.ids(text)
@@ -2241,7 +2266,7 @@ class Session:
         records = list(read_records(path))
         state = rebuild(records, str(path))
         start = state.start
-        prepared = self.prepare(start["profile"]["name"], logged=start["profile"])
+        prepared = self.prepare(start["profile"]["name"], logged=start["profile"], recheck=True)
         profile_file, now = self._profile_now(start["profile"])
         today = {k: s.to_json() for k, s in (now or prepared).profile.settings.items()}
         # A setting the log doesn't have (one added since) comes from the logged profile

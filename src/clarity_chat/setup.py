@@ -25,8 +25,8 @@ from typing import Any
 
 from clarity_chat.backends.llama_cpp import server_binary
 from clarity_chat.logs import NOT_OWN_CHECKOUT, git_state
-from clarity_chat.models import check_weights_quick, lock_entry
 from clarity_chat.models import fetch as fetch_model
+from clarity_chat.models import fetched_size, lock_entry
 from clarity_chat.profiles import (
     ConfigError,
     ModelEntry,
@@ -245,12 +245,12 @@ class Setup:
         self.say("Made Clarity.command on your Desktop: double-click it to start Clarity.")
 
     def fetched(self, model: ModelEntry) -> bool:
-        """Its lock entry, and its weights' size and time against it (state 13)."""
+        """Its lock entry, and its weights' size against it (state 13): never hashed here; a
+        changed time is checked again at the start (v0.4.4 decision 15)."""
         try:
-            check_weights_quick(self.root, lock_entry(self.root, model))
+            return fetched_size(self.root, lock_entry(self.root, model))
         except ConfigError:
             return False
-        return True
 
     def built(self) -> bool:
         """Whether llama-server is there and reports the pin (state 13); one from another

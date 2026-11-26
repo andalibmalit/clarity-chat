@@ -330,7 +330,7 @@ def test_a_touched_gguf_is_checked_again_at_its_start_and_said(m3_root, fake):
     touched(hashed(m3_root, "bge-m3"))
     said: list[str] = []
     embedder = made(m3_root)
-    embedder.on_notice = said.append  # ty: ignore[unresolved-attribute]  (until A5's code)
+    embedder.on_notice = said.append
     refused = raised(embedder.start)
     assert refused is None, refused
     assert said == [

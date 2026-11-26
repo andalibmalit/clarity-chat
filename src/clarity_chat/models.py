@@ -214,9 +214,9 @@ def list_profiles(root: Path) -> list[dict[str, Any]]:
                 locked = lock_entry(root, model)
                 if profile.backend == "transformers":
                     source_weights(root, locked)
-                else:
-                    check_weights_quick(root, locked)
-                fetched = True
+                    fetched = True
+                else:  # never hashed here (v0.4.4 decision 15)
+                    fetched = fetched_size(root, locked)
             except ConfigError:
                 fetched = False
             out.append(
@@ -266,6 +266,40 @@ def check_weights_quick(root: Path, entry: dict[str, Any]) -> Path:
             f"{model_files(root, entry['name'])[1]}). {run_hint('verify ' + entry['name'])}"
         )
     return path
+
+
+def fetched_size(root: Path, entry: dict[str, Any]) -> bool:
+    """The listing's and setup's check: the GGUF is there at its fetched size. A changed
+    time alone still counts as fetched; a start checks it again (v0.4.4 decision 15)."""
+    path = weights_path(root, entry)
+    return path.is_file() and path.stat().st_size == entry["gguf"]["size"]
+
+
+def recheck_weights(root: Path, entry: dict[str, Any], whose: str) -> tuple[Path, str | None]:
+    """check_weights_quick for a start (v0.4.4 decision 15): a file of the fetched size whose
+    modified time changed is hashed, as `clarity verify` does, and if its bytes match, the
+    new time is recorded. Returns the GGUF and the line that says so, or None."""
+    path, name = weights_path(root, entry), entry["name"]
+    if not path.is_file():
+        raise ConfigError(f"{path} is missing. {fetch_hint(name)}")
+    lock = model_files(root, name)[1]
+    size = path.stat().st_size
+    if size != entry["gguf"]["size"]:
+        raise ConfigError(
+            f"{path} changed since it was fetched: it has {size:,} bytes, and {lock} says "
+            f"{entry['gguf']['size']:,}. {fetch_hint(name)}"
+        )
+    if path.stat().st_mtime_ns == entry["gguf"]["mtime_ns"]:
+        return path, None
+    if not verify(root, name)[0]:
+        raise ConfigError(
+            f"{path} changed since it was fetched: its sha256 isn't the one in {lock}. "
+            f"{fetch_hint(name)}"
+        )
+    return path, (
+        f"{whose} modified time changed since it was fetched; its bytes still match, so the "
+        "new time is recorded in local/models.lock."
+    )
 
 
 def verify(root: Path, name: str) -> tuple[bool, str]:

@@ -210,6 +210,7 @@ def run_batch(
             write(preparing_line(name, total) + "\n")
 
     session.on_building = building  # the pre-check builds before any chat model loads
+    session.on_notice = lambda text: write(text + "\n")  # the embedder's A5 line
     checked = check_run(session, profile_names, openings, n_seeds)
     prepared = dict(zip(profile_names, checked, strict=True))
     # Each searched document's build before the run: the run stops if one changes.
