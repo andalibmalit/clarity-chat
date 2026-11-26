@@ -353,6 +353,7 @@ def sample(
     call_id, text, spans = row["call_id"], row["prompt_text"], row["message_spans"]
     chat = tomllib.loads(call["profile"]["toml"])["mode"] == "chat"
     messages: list[Any] = []
+    own_failed: dict[str, str] | None = None
     if chat and isinstance(spans, list):
         # A call with no system message of its own: what the template wrote of its own before
         # the first message is a system message, exact, markers included (X2, the owner's yes
@@ -362,18 +363,18 @@ def sample(
             at = first["chars"][0]
             before = text[at : first["chars"][1]]
             opening = next(s for s in spans if s["kind"] == "message")
-            entry: dict[str, Any] = {"kind": "template"}
             try:
                 mine = own(call, before, opening["role"])
-            except Exception as e:  # a tokenizer not in the cache: the whole text, said so
-                mine, entry["unavailable"] = slice(0, len(before)), f"{type(e).__name__}: {e}"
-            if before[mine]:
-                entry["chars"] = [at + mine.start, at + mine.stop]
-                messages.append(
-                    ChatMessageSystem(
-                        id=f"{call_id}-0", content=before[mine], metadata={"clarity": entry}
+            except Exception as e:  # a tokenizer not in the cache: no box, and why
+                own_failed = {"unavailable": f"{type(e).__name__}: {e}"}
+            else:
+                if before[mine]:
+                    entry = {"kind": "template", "chars": [at + mine.start, at + mine.stop]}
+                    messages.append(
+                        ChatMessageSystem(
+                            id=f"{call_id}-0", content=before[mine], metadata={"clarity": entry}
+                        )
                     )
-                )
         for span in (s for s in spans if s["kind"] == "message"):
             start, end = span["chars"]
             kind = roles[span["role"]]
@@ -425,7 +426,7 @@ def sample(
                 metadata={"marks": row["marks"], "notes": row["notes"]},
             )
         },
-        metadata=row,
+        metadata=row if own_failed is None else {**row, "template_own_text": own_failed},
         uuid=call_id,
     )
 
