@@ -18,6 +18,7 @@ the three facts `check` needs on llama.cpp.
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import struct
 from collections.abc import Generator
@@ -67,6 +68,7 @@ class Vector:
     sha256: str
     directions: dict[int, np.ndarray]  # block number: float32 values, all the same length
     model_hint: str | None  # the model type the vector was made for, if the file says
+    identity: tuple[int, int] = (0, 0)  # size and mtime_ns when read: llama.cpp's start check
 
     @property
     def width(self) -> int:
@@ -98,6 +100,7 @@ def load(path: Path, sha256: str | None) -> Vector:
     try:
         with path.open("rb") as f:
             data = f.read(MAX_BYTES + 1)
+            st = os.fstat(f.fileno())
     except FileNotFoundError:
         raise ConfigError(f"The vector file {path} doesn't exist.") from None
     except (OSError, ValueError) as e:  # ValueError: a NUL in the path
@@ -118,7 +121,7 @@ def load(path: Path, sha256: str | None) -> Vector:
         raise ConfigError(f"{path} isn't a control-vector GGUF: {e}.") from None
     except (struct.error, IndexError, ValueError, UnicodeDecodeError, OverflowError) as e:
         raise ConfigError(f"{path} isn't a control-vector GGUF ({e}).") from None
-    return Vector(path, actual, directions, model_hint)
+    return Vector(path, actual, directions, model_hint, (st.st_size, st.st_mtime_ns))
 
 
 class ModelFile(NamedTuple):

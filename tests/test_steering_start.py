@@ -244,7 +244,7 @@ def test_a_steered_llama_cpp_call_logs_its_steering_and_sends_none(chat):
     said = raised(lambda: session.say("Hi"))
     assert said is None, f"the steered call was refused: {said!r}"
     assert session.conversation is not None
-    rows = read_records(session.conversation.log.path)
+    rows = list(read_records(session.conversation.log.path))
     (start,) = [r for r in rows if r["type"] == "server_start"]
     (call,) = [r for r in rows if r["type"] == "call"]
     assert start["steering"] == logged

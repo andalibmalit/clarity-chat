@@ -18,10 +18,11 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import httpx
 
+from clarity_chat import steering as vectors
 from clarity_chat.backends import BackendError, Result
 from clarity_chat.logs import git_state, machine, new_id
 from clarity_chat.profiles import (
@@ -32,9 +33,6 @@ from clarity_chat.profiles import (
     ServerConfig,
     fetch_hint,
 )
-
-if TYPE_CHECKING:
-    from clarity_chat.steering import Steering
 
 NAME = "llama.cpp"
 
@@ -115,6 +113,28 @@ FLOAT_FIELDS = {
 
 def to_float32(value: float) -> float:
     return struct.unpack("f", struct.pack("f", value))[0]
+
+
+def steering_argv(steering: vectors.Steering | None) -> list[str]:
+    """llama-server's two control-vector flags (decision 4). The scale is written as the
+    float32 Transformers multiplies by, in text std::stof reads back as that float32; the
+    range runs from the first steered block to the last, both included."""
+    if steering is None:
+        return []
+    return [
+        "--control-vector-scaled",
+        f"{steering.vector.path.absolute()}:{to_float32(steering.scale)!r}",
+        "--control-vector-layer-range",
+        str(min(steering.layers)),
+        str(max(steering.layers)),
+    ]
+
+
+def steering_key(steering: vectors.Steering | None) -> tuple | None:
+    """What a running server must have been started with to answer a call (decision 5)."""
+    if steering is None:
+        return None
+    return (steering.vector.sha256, steering.scale, tuple(steering.layers))
 
 
 def same_value(name: str, sent: Any, got: Any) -> bool:
@@ -299,10 +319,59 @@ def graph_splits(startup_output: str) -> dict[str, int] | None:
     """How many pieces llama.cpp cut the compute graph into, for prompt processing and for
     generation. On Metal, 2 is normal with the whole model on the GPU (measured: M2); what
     matters is a change between a call and its replay."""
-    m = SPLITS_RE.search(startup_output)
-    if m is None:
+    found = list(SPLITS_RE.finditer(startup_output))
+    if not found:
         return None
+    m = found[-1]  # a steered start reserves the graph again with the vector added
     return {"prompt": int(m[1]), "reply": int(m[2] or m[1])}
+
+
+# "graph: nodes = 939, …"; a loaded vector adds one node per block in its range.
+NODES_RE = re.compile(r"graph(?: \(.*?\))?: nodes = (\d+)")
+# llama.cpp's loader says "control vector …" or "direction tensor …" when it fails
+# (common/common.cpp, src/llama-adapter.cpp); quoted without the time and level.
+VECTOR_ERROR = ("control vector", "direction tensor")
+LOG_PREFIX_RE = re.compile(r"^[\d.]+ \S ")
+
+
+def check_vector_start(startup_output: str, steering: vectors.Steering) -> None:
+    """Decision 6's checks once a steered server is up. The file is the one hashed just
+    before the start (its size and time are unchanged), and the log shows the vector added:
+    llama.cpp reserves the graph again with one more node per block in the range. A failed
+    load leaves a healthy server that answers unsteered, so this is the only sign."""
+    vector = steering.vector
+    try:
+        st = vector.path.stat()
+        unchanged = (st.st_size, st.st_mtime_ns) == vector.identity
+    except OSError:
+        unchanged = False
+    if not unchanged:
+        raise ConfigError(
+            f"{vector.path} changed while the model was starting, so Clarity stopped the model "
+            "rather than answer with a vector it hadn't hashed."
+        )
+    nodes = [int(m[1]) for m in NODES_RE.finditer(startup_output)]
+    first, last = min(steering.layers), max(steering.layers)
+    if len(nodes) < 2 or nodes[-1] - nodes[0] != last - first + 1:
+        said = [
+            LOG_PREFIX_RE.sub("", line)
+            for line in startup_output.splitlines()
+            if any(words in line for words in VECTOR_ERROR)
+        ]
+        raise BackendError(
+            "llama-server started without the vector: its start log doesn't show "
+            f"{steering.file} added at blocks {first} to {last}. Clarity stopped it. "
+            f"llama.cpp said: {'; '.join(said) or 'nothing'}."
+        )
+
+
+def last_reservation(startup_output: str) -> str:
+    """The log from the last graph reservation's compute buffers on. A loaded control
+    vector makes llama.cpp reserve the graph a second time (`sched_reserve`, which prints
+    each compute buffer and then the graph line); the second one's buffers replace the
+    first's (G13: the same sizes, so summing both would double them)."""
+    graphs = list(SPLITS_RE.finditer(startup_output))
+    return startup_output[graphs[-2].end() :] if len(graphs) >= 2 else startup_output
 
 
 def device_placement(startup_output: str) -> dict[str, Any]:
@@ -327,7 +396,7 @@ def memory_use(startup_output: str, placement: dict[str, Any]) -> list[dict[str,
     isn't counted (measured: 25,558 of 25,559 MiB "free" with other apps open)."""
     model = [(b["buffer"], b["mib"]) for b in placement["model_buffers"]]
     kv = [(m[1], float(m[2])) for m in KV_RE.finditer(startup_output)]
-    compute = [(m[1], float(m[2])) for m in COMPUTE_RE.finditer(startup_output)]
+    compute = [(m[1], float(m[2])) for m in COMPUTE_RE.finditer(last_reservation(startup_output))]
 
     def on(device: str, buffers: list[tuple[str, float]]) -> float:
         return round(sum(mib for name, mib in buffers if name.startswith(device)), 2)
@@ -554,8 +623,10 @@ class LlamaServer:
         gguf: Path,
         logs_dir: Path,
         on_change: Callable[[dict[str, Any] | None], None] | None = None,
+        steering: vectors.Steering | None = None,
     ) -> None:
         self.config = config
+        self.steering = steering  # the vector the server is started with (llama.cpp's flags)
         self.on_change = on_change  # told the port, PID and key on start, None on stop
         # Not resolved: a Hugging Face cache symlink keeps the GGUF's file name for the server.
         self.gguf = gguf.absolute()
@@ -628,6 +699,7 @@ class LlamaServer:
                 "--model",
                 str(self.gguf),
                 *self.config.flag_argv(),
+                *steering_argv(self.steering),
                 "--host",
                 "127.0.0.1",
                 "--port",
@@ -648,6 +720,12 @@ class LlamaServer:
         if "using config file:" in startup:
             self.stop()
             raise ConfigError("llama-server loaded a config file (see its startup output).")
+        if self.steering is not None:
+            try:
+                check_vector_start(startup, self.steering)
+            except (ConfigError, BackendError):
+                self.stop()
+                raise
         placement = device_placement(startup)
         problem = placement_problem(self.config.flags, placement)
         memory = memory_use(startup, placement)
@@ -695,6 +773,7 @@ class LlamaServer:
             "backend": NAME,
             "argv": argv,
             "flags": self.config.flags,
+            "steering": self.steering.to_json() if self.steering is not None else None,
             "port_attempts": attempts,
             "api_key": "random per start; value not logged",
             "env_removed": removed,
@@ -834,11 +913,18 @@ class LlamaCppBackend:
         proc = self.server.proc
         return proc is None or proc.poll() is not None
 
-    def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
-        """Start llama-server with `weights` and a context of `ctx_size`. The old server stops
-        first, so two chat models never share memory (meaning search's embedder, a second
-        LlamaServer, can run beside it; the memory check counts both). Returns the new
-        server_start record, or None if the same GGUF already runs at that size."""
+    def start(
+        self,
+        model: ModelEntry,
+        weights: Path,
+        ctx_size: int,
+        steering: vectors.Steering | None = None,
+    ) -> dict[str, Any] | None:
+        """Start llama-server with `weights`, a context of `ctx_size` and `steering`'s vector.
+        The old server stops first, so two chat models never share memory (meaning search's
+        embedder, a second LlamaServer, can run beside it; the memory check counts both).
+        Returns the new server_start record, or None if the same GGUF already runs at that
+        size with the same steering."""
         # `fetch` replaces a file by rename: same path, new bytes, while the server still has
         # the old ones open. Its inode, size and modification time tell the two apart without
         # hashing (fetch and verify hash). An overwrite in place isn't covered.
@@ -855,15 +941,23 @@ class LlamaCppBackend:
             and server.gguf == weights.absolute()
             and server.config.ctx_size == ctx_size
             and self.weights_identity == identity
+            and steering_key(server.steering) == steering_key(steering)
             and server.proc
             and server.proc.poll() is None
         ):
             return None
+        if steering is not None:
+            # Hashed again before every start: the server reads the path, maybe hours after
+            # the chat checked it. On a mismatch nothing stops, and the old server runs on.
+            vector = steering.vector
+            steering = dataclasses.replace(
+                steering, vector=vectors.load(vector.path, vector.sha256)
+            )
         self.close()
         self.model = model
         # The size goes into the flags, so argv, the /props check and the log all agree.
         config = dataclasses.replace(self.config, flags={**self.config.flags, "ctx-size": ctx_size})
-        self.server = LlamaServer(config, weights, self.logs_dir, self.on_server)
+        self.server = LlamaServer(config, weights, self.logs_dir, self.on_server, steering)
         record = self.server.start()
         self.weights_identity = identity
         return record
@@ -885,7 +979,7 @@ class LlamaCppBackend:
         on_text: Callable[[str], None] | None = None,
         request: dict[str, Any] | None = None,
         cancel: threading.Event | None = None,
-        steering: Steering | None = None,
+        steering: vectors.Steering | None = None,
     ) -> Result:
         """`request`: a logged request body (prompt left out) to send exactly as it was,
         for replay; otherwise it is built from `settings` and `stop`. `cancel` is checked
@@ -893,10 +987,18 @@ class LlamaCppBackend:
         reads the prompt (sse_ping_interval), so this returns within about a second even
         then. The server stops once it finishes its current batch of prompt tokens
         (measured: M1)."""
-        if steering is not None:  # a replay routed here would otherwise run unsteered
-            raise BackendError("Steering runs on the Transformers backend for now.")
         if self.server is None:
             raise BackendError("No model loaded.")
+        if steering_key(self.server.steering) != steering_key(steering):
+            raise BackendError("This server wasn't started with the call's steering.")
+        logged_steering = steering.to_json() if steering is not None else None
+        # A replay sends the logged request exactly: its steering must be the one applied.
+        # A request logged before v0.4.7 has no steering key: unsteered.
+        if request is not None and request.get("steering") != logged_steering:
+            raise BackendError(
+                f"The logged request's steering {request.get('steering')!r} isn't the "
+                f"steering given ({logged_steering!r})."
+            )
         proc = self.server.proc
         if self.stopped:
             what = (
@@ -910,9 +1012,12 @@ class LlamaCppBackend:
             )
         if request is None:
             request = build_request(token_ids, settings, stop)
+            logged_request = {k: v for k, v in request.items() if k != "prompt"}
+            logged_request["steering"] = logged_steering  # logged, never sent (the flags)
         else:
-            request = {**request, "prompt": list(token_ids)}
-        logged_request = {k: v for k, v in request.items() if k != "prompt"}
+            logged_request = dict(request)  # as logged: an old one has no steering key
+            request = {k: v for k, v in request.items() if k != "steering"}
+            request["prompt"] = list(token_ids)
         # What was actually sent: on replay, the logged values, not today's table.
         backend_settings = {
             k: {"value": request[k], "origin": "backend"} for k in NEUTRAL_REQUEST if k in request
@@ -1019,6 +1124,8 @@ class LlamaCppBackend:
             checks["server_running"]["exit_code"] = exit_code
         if banned:  # the reply and the list are in the same record, so only ok is logged
             checks["suppress_tokens"] = {"ok": not set(ids) & set(banned)}
+        if steering is not None:  # the server's start passed check_vector_start
+            checks["steering_start"] = {"ok": True, "server_id": self.server.server_id}
 
         flags = []
         if final.get("truncated"):

@@ -325,7 +325,13 @@ class TransformersBackend:
     def stopped(self) -> bool:
         return False  # in-process: there's no server to stop
 
-    def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
+    def start(
+        self,
+        model: ModelEntry,
+        weights: Path,
+        ctx_size: int,
+        steering: vectors.Steering | None = None,
+    ) -> dict[str, Any] | None:
         # The context size is a limit Clarity enforces, not a property of the loaded model,
         # so a new size needs no reload, only the positions check again.
         self._n_ctx = ctx_size

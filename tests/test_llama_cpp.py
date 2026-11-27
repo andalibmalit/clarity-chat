@@ -258,6 +258,7 @@ class ExitedServer:
 
     url = "http://127.0.0.1:1"
     headers = {"Authorization": "Bearer test-key"}
+    steering = None  # started unsteered (v0.4.7)
 
     def __init__(self) -> None:
         self.proc = ExitsAfterSending()

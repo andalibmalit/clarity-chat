@@ -30,7 +30,7 @@ def test_llama_cpp_says_its_server_stopped_and_sends_nothing(root):
     backend = llama_cpp.LlamaCppBackend(load_server_config(root), root / "logs")
     exited = SimpleNamespace(poll=lambda: -9)
     # Port 9 (discard): nothing listens, so a request would fail as a connection error.
-    server = SimpleNamespace(proc=exited, url="http://127.0.0.1:9", headers={})
+    server = SimpleNamespace(proc=exited, url="http://127.0.0.1:9", headers={}, steering=None)
     backend.server = server  # ty: ignore[invalid-assignment]
     settings = {**load_defaults(root), "seed": 42, "max_tokens": 4}
     with pytest.raises(BackendError, match="llama-server has stopped") as caught:

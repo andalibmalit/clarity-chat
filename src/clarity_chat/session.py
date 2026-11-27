@@ -856,7 +856,16 @@ class Session:
         previous = self.backend
         try:
             backend = self.use_backend(prepared.profile.backend, prepared.profile.device)
-            started = backend.start(prepared.model, prepared.weights, ctx_size.value)
+            profile = prepared.profile
+            values = {name: s.value for name, s in profile.settings.items()}
+            steer = self.steering_for(profile, values) if profile.vector is not None else None
+            # Passed only when steered, so an unsteered start is the call it always was.
+            started = backend.start(
+                prepared.model,
+                prepared.weights,
+                ctx_size.value,
+                **({"steering": steer} if steer else {}),
+            )
         except (ConfigError, BackendError) as e:
             self._restore(previous, e, (prepared.model, prepared.weights, ctx_size.value))
             raise

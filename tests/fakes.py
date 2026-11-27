@@ -69,7 +69,9 @@ class FakeBackend:
     def server_record(self) -> dict[str, Any] | None:
         return self.record
 
-    def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
+    def start(
+        self, model: ModelEntry, weights: Path, ctx_size: int, steering: Any = None
+    ) -> dict[str, Any] | None:
         same = self.started and (self.started[-1], self.ctx_sizes[-1]) == (model.name, ctx_size)
         if same and not self.stopped:
             return None
@@ -128,14 +130,17 @@ class FakeBackend:
         if self.on_call:
             self.on_call()
         # The request llama-server would get, or on a replay the logged one, sent as it is.
-        sent = (
-            build_request(token_ids, settings, stop)
-            if request is None
-            else {**request, "prompt": list(token_ids)}
-        )
-        if steering is not None and request is None:
-            sent["steering"] = steering.to_json()  # the fake stands in for Transformers here
-        logged = {k: v for k, v in sent.items() if k != "prompt"}
+        # As on llama.cpp (v0.4.7), the steering is logged with the request and not sent.
+        if request is None:
+            sent = build_request(token_ids, settings, stop)
+            logged = {k: v for k, v in sent.items() if k != "prompt"}
+            logged["steering"] = steering.to_json() if steering is not None else None
+        else:
+            logged = dict(request)
+            sent = {
+                **{k: v for k, v in request.items() if k != "steering"},
+                "prompt": list(token_ids),
+            }
         backend_settings = {
             k: {"value": sent[k], "origin": "backend"} for k in NEUTRAL_REQUEST if k in sent
         }
@@ -183,7 +188,11 @@ class FakeBackend:
         if stop_type == "eos" and end is not None and not self.before_v0_2_3:
             ids.append(end)  # the end token is in the output IDs, as on both real backends
         timings = {name: 0.0 for name in TIMINGS} | {"cache_n": 0, "prompt_n": len(token_ids)}
-        echo = {k: v for k, v in logged.items() if k not in PROTOCOL_REQUEST or k == "stream"}
+        echo = {
+            k: v
+            for k, v in sent.items()
+            if k != "prompt" and (k not in PROTOCOL_REQUEST or k == "stream")
+        }
         checks = check_generation_settings(sent, echo)
         checks["tokens_evaluated"] = {
             "ok": True,

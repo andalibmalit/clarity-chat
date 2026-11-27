@@ -132,8 +132,8 @@ class Tagged(FakeBackend):
         self.tag, self.chip = tag, machine or tag
         self.extra: dict = {}  # other server_start fields
 
-    def start(self, model, weights, ctx_size):
-        record = super().start(model, weights, ctx_size)
+    def start(self, model, weights, ctx_size, steering=None):
+        record = super().start(model, weights, ctx_size, steering)
         if record is not None:
             record["server_id"] += f"-{self.tag}"
             record["machine"] = {"chip": self.chip}

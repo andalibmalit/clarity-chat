@@ -197,7 +197,7 @@ def conditions(call: dict[str, Any], server: dict[str, Any] | None) -> dict[str,
 
 def logged_steering(call: dict[str, Any]) -> dict[str, Any] | str:
     """A call's steering as logged, or "none": a value, not null, which readers take as "not
-    recorded". A call logged before v0.2.2, or on llama.cpp, wasn't steered."""
+    recorded". A call logged before v0.2.2, or on llama.cpp before v0.4.7, wasn't steered."""
     request = call.get("request")
     steering = request.get("steering") if isinstance(request, dict) else None
     if steering is None:

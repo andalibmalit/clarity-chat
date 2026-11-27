@@ -931,17 +931,6 @@ def test_a_check_that_fails_is_flagged(hf, monkeypatch):
     assert "check_failed:steering" in result.flags
 
 
-def test_the_llama_cpp_backend_refuses_steering(root, hf):
-    from clarity_chat.backends import BackendError
-    from clarity_chat.backends.llama_cpp import LlamaCppBackend
-    from clarity_chat.profiles import load_server_config
-
-    _, steer = hf
-    backend = LlamaCppBackend(load_server_config(root), root / "logs")
-    with pytest.raises(BackendError, match="Transformers backend"):
-        backend.complete(PROMPT, SETTINGS, [], steering=steer)
-
-
 def test_the_session_sends_the_profiles_steering_and_logs_it(session):
     backend = session.backend
     session.new_conversation(steered(session.root))

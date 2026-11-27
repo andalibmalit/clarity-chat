@@ -85,6 +85,14 @@ CHECK_HELP: dict[str, tuple[str, str]] = {
             " no pass."
         ),
     ),
+    "steering_start": (
+        (
+            "llama.cpp only, on a steered call: the server that answered was started with this "
+            "call’s vector, scale and block range, and its start log showed the vector’s blocks"
+            " in the graph."
+        ),
+        "The server wasn’t started with this call’s vector, scale or block range.",
+    ),
 }
 
 
@@ -122,9 +130,12 @@ class Result:
 class Backend(Protocol):
     name: str
 
-    def start(self, model: ModelEntry, weights: Path, ctx_size: int) -> dict[str, Any] | None:
+    def start(
+        self, model: ModelEntry, weights: Path, ctx_size: int, steering: Steering | None = None
+    ) -> dict[str, Any] | None:
         """Load `model` with a context of `ctx_size` tokens (restarting if another model or
-        size is loaded). Returns a server_start record, if any."""
+        size is loaded). Returns a server_start record, if any. `steering`: llama.cpp starts
+        its server with it; Transformers steers each call instead and ignores it."""
         ...
 
     @property
