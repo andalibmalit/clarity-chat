@@ -109,6 +109,7 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 - Cost: a per-start key sits on disk while the server runs, readable only by you.
 
 **Logs are append-only JSONL,** one file per chat conversation and one `calls.jsonl` per batch run, with a schema version. Every call writes a record, including failed and cancelled ones. Readers ignore keys they don't know, so later additions need no format change. A line cut off by a crash or a full disk stays as it was: the next write ends it and adds a `torn_line` record naming it, and Clarity says so. Until then, readers treat a last line with no line end as not yet written, so reading a log never writes to it. A line a `torn_line` names is never a record, even if it parses, so a log reads the same before and after it's mended; any other damage still stops them. `logs/` and `runs/` are private and gitignored.
+- Every read command answers for any reply in a log this version of Clarity wrote: the current one, or any by its call ID.
 - Cost: a chat keeps every call record in memory, about 4 to 5 times its size in the log. Each prompt is capped at the context size, so this grows with the number of calls: 400 calls at an 8,192-token context hold about 200 MB. A 32k context with `logprobs` on comes nearer 1 GB, and on Transformers that's in the same process as the model.
 
 **Failure policy.** Configuration problems are errors before anything is sent. A failed check after a call is a flag on the record and a warning in the terminal; in a batch run, it stops the run.
@@ -157,7 +158,9 @@ After each call, Clarity checks that the server echoed what was sent and reporte
 
 **Resume continues a conversation as it was logged.** `clarity chat --resume LOG` uses the profile's logged text and files, its resolved settings, its `/set` values and its logged context size (a `/set ctx_size`, else the conversation's size, else, for an older log, its last call's), not today's files. Then it says what differs: a changed profile file, settings today's files would resolve differently, the facts replay compares (server build, flags, machine, libraries), and whether the current reply's prompt still renders to the same token IDs with today's template and libraries. `/switch` runs that last check again for the reply it goes to. Some things can only be today's: the model's `models.toml` entry, `server.toml`'s flags other than the context size, the llama.cpp build and the libraries. Each is compared with the log and listed when it differs.
 - The conversation continues where the latest `turn` or `head` record says; a message whose call never finished means the turn before it. v0.1.0 logged neither `/undo` nor a failed call's move back, so for its logs that place is a guess, and Clarity says so.
+- Every turn but a chat's first has a parent that is an earlier turn in the same log, and a chat's current turn is always one its log holds.
 - Cost: a resumed chat keeps old values even when you'd rather use today's. `/set` or a new conversation changes them, visibly.
+- A new chat takes its settings from its profile, not from the chat before it.
 - A batch run's `calls.jsonl` can't be resumed: each of its calls is a conversation of its own.
 
 **Batch runs are blind, checked first and kept apart.**
