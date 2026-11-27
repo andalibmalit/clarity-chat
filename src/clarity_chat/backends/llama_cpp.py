@@ -298,9 +298,14 @@ def suppress_tokens(startup_output: str) -> list[int]:
     )
 
 
-# "graph: nodes = 1131, splits = 2, …", or "graph (pp bs=512, tg bs=1): … splits = 2 / 3, …"
-# when prompt processing and generation differ (src/llama-context.cpp).
-SPLITS_RE = re.compile(r"graph(?: \(.*?\))?: nodes = [^,]+, splits = (\d+)(?: / (\d+))?")
+# Each line llama-server logs starts with its time and level: common_init turns both on,
+# and the start removes the LLAMA_ARG_ variables that could turn them off.
+LOG_PREFIX = r"[\d.]+ \S "
+LOG_PREFIX_RE = re.compile(f"^{LOG_PREFIX}")
+# sched_reserve's "graph: nodes = 1131, splits = 2, …", or "graph (pp bs=512, tg bs=1): …
+# splits = 2 / 3, …" when prompt processing and generation differ (src/llama-context.cpp).
+GRAPH = rf"^{LOG_PREFIX}sched_reserve: graph(?: \(.*?\))?: nodes = "
+SPLITS_RE = re.compile(GRAPH + r"[^,]+, splits = (\d+)(?: / (\d+))?", re.M)
 
 
 # llama-server caps the context at the model's training context, with only this warning
@@ -320,11 +325,26 @@ def graph_splits(startup_output: str) -> dict[str, int] | None:
 
 
 # "graph: nodes = 939, …"; a loaded vector adds one node per block in its range.
-NODES_RE = re.compile(r"graph(?: \(.*?\))?: nodes = (\d+)")
+NODES_RE = re.compile(GRAPH + r"(\d+)", re.M)
 # llama.cpp's loader says "control vector …" or "direction tensor …" when it fails
 # (common/common.cpp, src/llama-adapter.cpp); quoted without the time and level.
 VECTOR_ERROR = ("control vector", "direction tensor")
-LOG_PREFIX_RE = re.compile(r"^[\d.]+ \S ")
+# The lines either side of the model's load: src/llama-context.cpp:180, and
+# tools/server/server-context.cpp:1485 in load_model, once common_init_from_params has
+# applied the vector and its warmup has reserved the graph again.
+CONTEXT_RE = re.compile(rf"^{LOG_PREFIX}llama_context: constructing llama_context$", re.M)
+SLOTS_RE = re.compile(rf"^{LOG_PREFIX}srv +load_model: initializing, n_slots = ", re.M)
+
+
+def model_load(startup_output: str) -> str:
+    """The start log from the last context's construction to the server's slots line,
+    which holds every graph reservation. A model file's own text can print lines before
+    it (the key dump, a token's text) and after it (the chat template's example), so a
+    graph line there doesn't count. A spoofed marker can only make this shorter, which
+    refuses a steered start; with either marker missing it's empty."""
+    contexts = list(CONTEXT_RE.finditer(startup_output))
+    end = SLOTS_RE.search(startup_output, contexts[-1].end()) if contexts else None
+    return startup_output[contexts[-1].end() : end.start()] if end else ""
 
 
 def check_vector_start(startup_output: str, steering: vectors.Steering) -> None:
@@ -343,7 +363,7 @@ def check_vector_start(startup_output: str, steering: vectors.Steering) -> None:
             f"{vector.path} changed while the model was starting, so Clarity stopped the model "
             "rather than answer with a vector it hadn't hashed."
         )
-    nodes = [int(m[1]) for m in NODES_RE.finditer(startup_output)]
+    nodes = [int(m[1]) for m in NODES_RE.finditer(model_load(startup_output))]
     first, last = min(steering.layers), max(steering.layers)
     if len(nodes) < 2 or nodes[-1] - nodes[0] != last - first + 1:
         said = [
@@ -776,7 +796,7 @@ class LlamaServer:
             "placement": placement,
             "memory": memory,
             "model_file": {"eog_tokens": eog_tokens(startup), "suppress_tokens": banned},
-            "graph_splits": graph_splits(startup),
+            "graph_splits": graph_splits(model_load(startup)),
             "props": props,
             "startup_output": startup,
             "warnings": warnings,

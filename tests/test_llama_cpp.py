@@ -423,11 +423,14 @@ def started_server(monkeypatch, root, startup, props_ok=True, on_change=None, bu
 
 
 def test_graph_splits_are_read_from_startup_output():
-    same = "llama_context: graph: nodes = 1131, splits = 2, input objects = 3, input tensors = 4"
+    same = (
+        "0.00.062.265 I sched_reserve: graph: nodes = 1131, splits = 2, input objects = 3, "
+        "input tensors = 4"
+    )
     assert graph_splits(same) == {"prompt": 2, "reply": 2}
     differ = (
-        "llama_context: graph (pp bs=512, tg bs=1): nodes = 1131 / 1100, splits = 2 / 3, "
-        "input objects = 3, input tensors = 4"
+        "0.00.062.265 I sched_reserve: graph (pp bs=512, tg bs=1): nodes = 1131 / 1100, "
+        "splits = 2 / 3, input objects = 3, input tensors = 4"
     )
     assert graph_splits(differ) == {"prompt": 2, "reply": 3}
     assert graph_splits("no such line") is None
