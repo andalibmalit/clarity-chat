@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from clarity_chat.backends import BackendError
-from clarity_chat.backends.llama_cpp import LlamaCppBackend, server_binary
+from clarity_chat.backends.llama_cpp import LlamaCppBackend, free_port, server_binary
 from clarity_chat.logs import read_records
 from clarity_chat.models import check_weights_quick, lock_entry
 from clarity_chat.profiles import ConfigError, Setting, load_models, load_server_config
@@ -910,3 +910,73 @@ def test_gate_g3_the_restart_and_restore_path_today(tmp_path):
             if r["type"] == "call" and r["call_id"] == call["call_id"]
         )
         assert records.index(start) < at, f"{label}: its server's start is logged after the call"
+
+
+# --- v0.4.7 G13, B3's first commit: a steered start on Metal (notes/plans/v0.4.7.md, B3).
+# Tests only. The main session runs it on its own line and records the printed lines:
+# uv run pytest -m live -v -s -k steered_start
+
+REPENG = REPO / "tests" / "fixtures" / "steering" / "smollm2-repeng.gguf"  # blocks 10, 15, 20
+NODES_RE = re.compile(r"graph(?: \(.*?\))?: nodes = (\d+)")
+
+
+def started_log(extra: list[str], logs_dir: Path) -> str:
+    """Start the pinned llama-server on SmolLM2 with server.toml's flags and `extra`, wait for
+    /health, and return its start log. Clarity's own launch and drain, but not its checks: the
+    log is what's read here."""
+    import dataclasses
+
+    from clarity_chat.backends.llama_cpp import LlamaServer, server_env
+
+    config = load_server_config(REPO)
+    config = dataclasses.replace(config, flags={**config.flags, "ctx-size": 8192})
+    gguf = check_weights_quick(REPO, lock_entry(REPO, load_models(REPO)[MODEL]))
+    server = LlamaServer(config, gguf, logs_dir)
+    env = {**server_env()[0], "LLAMA_API_KEY": server.api_key}
+    server.port = free_port()
+    argv = [str(server_binary(config.llama_cpp_dir)), "--model", str(server.gguf)]
+    argv += [*config.flag_argv(), *extra, "--host", "127.0.0.1", "--port", str(server.port)]
+    try:
+        error = server._launch([*argv, "--no-slots", "--no-webui"], env)
+        assert error is None, error
+        return server.output_text()
+    finally:
+        server.stop()
+
+
+def reservation_lines(log: str) -> list[str]:
+    keep = ("nodes = ", "compute buffer size", "KV buffer size", "control", "cvec")
+    return [line for line in log.splitlines() if any(k in line for k in keep)]
+
+
+def figures(log: str) -> dict:
+    """What Clarity's readers make of a start log: each device's memory less its limit, the
+    graph splits, and how many nodes the last graph has over the first."""
+    from clarity_chat.backends.llama_cpp import device_placement, graph_splits, memory_use
+
+    memory = memory_use(log, device_placement(log))
+    nodes = [int(n) for n in NODES_RE.findall(log)]
+    return {
+        "memory": [{k: v for k, v in m.items() if k != "limit_mib"} for m in memory],
+        "graph splits": graph_splits(log),
+        "nodes, last less first": nodes[-1] - nodes[0] if nodes else None,
+    }
+
+
+def test_a_steered_start_logs_the_same_memory_as_an_unsteered_one(tmp_path):
+    """llama.cpp reserves the graph a second time after loading a control vector, so its
+    compute-buffer lines come twice, and the second graph has one node more per block in the
+    range (probe 1, CPU). Clarity's readers must give a steered start the unsteered figures
+    (must 2). Each device's limit is left out: it's the free memory at that start.
+
+    Not marked gpu: only the checks of where the model went are (test_ci_live.py). G13's
+    question is Metal's log, answered on the Mac. On CI's CPU build no GPU is in use, so the
+    memory lists are empty and the splits and the node count are what's compared."""
+    plain = started_log([], tmp_path / "plain")
+    flags = ["--control-vector-scaled", f"{REPENG}:4.0", "--control-vector-layer-range"]
+    steered = started_log([*flags, "10", "20"], tmp_path / "steered")
+    for name, log in (("unsteered", plain), ("steered, 10 to 20", steered)):
+        print(f"\n{name}:\n" + "\n".join(reservation_lines(log)))
+
+    assert figures(plain)["nodes, last less first"] == 0, reservation_lines(plain)
+    assert figures(steered) == {**figures(plain), "nodes, last less first": 20 - 10 + 1}
