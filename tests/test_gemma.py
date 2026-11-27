@@ -9,6 +9,7 @@ that no other model is loaded and that about 16 GB is free before running them.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -16,6 +17,9 @@ from clarity_chat.models import lock_entry, source_weights
 from clarity_chat.profiles import ConfigError, load_models
 from clarity_chat.session import Session
 from tests.test_hf import checks_ok, make_and_steer, profile, project
+
+if TYPE_CHECKING:
+    from clarity_chat.steering import Vector
 
 pytestmark = pytest.mark.hf
 
@@ -106,9 +110,15 @@ def test_making_a_vector_on_gemma_and_steering_with_its_snippet(tmp_path, capsys
     """`clarity vector make` on the made-up 8-pair file writes blocks 1 to 41 of Gemma's 42
     and a snippet at block 21; the snippet's profile steers, with the steering check
     counting each steered block once per pass (Gemma shares its key-value cache across its
-    last blocks), and replays Identical. With -s it prints the vector's path, for G14."""
+    last blocks), and replays Identical. With -s it prints the vector's path, for G14.
+    On the make's load, it also runs first_tokens, A3's fourth test, for G14 and X2."""
     root = project(tmp_path)
-    record = make_and_steer(root, tmp_path, capsys, Q4_0, "Tell me about rivers.", **ON_OFFICIAL)
+
+    def then(session: Session, model: Any, vector: Vector, plain: str) -> None:
+        first_tokens(session, model, vector, plain, tmp_path, capsys)
+
+    message = "Tell me about rivers."
+    record = make_and_steer(root, tmp_path, capsys, Q4_0, message, then, **ON_OFFICIAL)
     assert record["vector"]["model_hint"] == "gemma4"
     assert record["vector"]["blocks"] == list(range(1, 42))
 
@@ -136,3 +146,64 @@ def test_gemma_s_two_entries_give_the_same_prompt_ids(tmp_path):
     llama, hf = records["llama.cpp"], records["transformers"]
     assert llama["model"]["name"] == Q4_0 and hf["model"]["name"] == OFFICIAL
     assert llama["prompt_ids"] == hf["prompt_ids"]
+
+
+FIRST_TOKEN_MESSAGES = (  # made-up
+    "Tell me about rivers.",
+    "Suggest a name for a small boat.",
+    "What should I pack for a day in the hills?",
+)
+
+
+def first_tokens(
+    session: Session, model: Any, vector: Vector, plain: str, folder: Path, capsys
+) -> None:
+    """A3's fourth test, G14's reference (run A): for each made-up message, the prompt IDs
+    the profile's chat sends and the first token's top 50 log-probabilities, unsteered and
+    steered with the vector at block 21 and scale 1.0. Clarity's logprobs stop at 20, so
+    the scores come from the loaded model, steered through steering.applied. Printed, and
+    written as JSON to the test's folder; asserted only that steering moves them."""
+    import json
+
+    import torch
+
+    from clarity_chat import steering
+    from clarity_chat.render import build_prompt
+
+    prepared = session.prepare(plain, steered=False)
+    block = len(steering.model_blocks(model)) // 2
+
+    def top(ids: list[int]) -> list[list[float]]:
+        with torch.no_grad():
+            out = model(input_ids=torch.tensor([ids], device=model.device), use_cache=False)
+        scores = torch.log_softmax(out.logits[0, -1].float(), dim=-1).topk(50)
+        return [[int(i), float(v)] for v, i in zip(scores.values, scores.indices, strict=True)]
+
+    runs = []
+    for message in FIRST_TOKEN_MESSAGES:
+        turns = [("user", message)]
+        ids = build_prompt(
+            prepared.tokenizer, prepared.profile, turns, prepared.template_tokenizer
+        ).ids
+        unsteered = top(ids)
+        with steering.applied(model, vector, 1.0, [block]) as count:
+            steered = top(ids)
+        assert count == {block: 1}, count
+        runs.append(
+            {"message": message, "prompt_ids": ids, "unsteered": unsteered, "steered": steered}
+        )
+    path = folder / "first-tokens.json"
+    found = {"vector": str(vector.path), "sha256": vector.sha256, "block": block, "scale": 1.0}
+    path.write_text(json.dumps({**found, "runs": runs}, indent=1), encoding="utf-8")
+    with capsys.disabled():
+        print(
+            "\nThe first token's top 50, read through steering.applied (Clarity's logprobs "
+            f"stop at 20): {path}"
+        )
+        for run in runs:
+            print(
+                f"{run['message']!r}: unsteered {run['unsteered'][:5]}, "
+                f"steered {run['steered'][:5]}"
+            )
+    for run in runs:
+        assert run["steered"] != run["unsteered"], run["message"]

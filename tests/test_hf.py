@@ -445,7 +445,9 @@ def test_steering_smollm2_with_repengs_vector(tmp_path, device):
 # --- making a vector -------------------------------------------------------------------------
 
 
-def make_and_steer(root: Path, tmp_path: Path, capsys, base: str, message: str, **extra: str):
+def make_and_steer(
+    root: Path, tmp_path: Path, capsys, base: str, message: str, then=None, **extra: str
+):
     """`clarity vector make` on the made-up 8-pair file, twice, then the printed snippet
     pasted into a copy of profiles/<base>.toml with steering_scale = 1.0. Checks both files;
     that the read hook gives exactly Transformers' hidden_states at every block below the
@@ -453,6 +455,7 @@ def make_and_steer(root: Path, tmp_path: Path, capsys, base: str, message: str, 
     differs from unsteered at seed 42; and that the steered call replays identically. Prints
     each make's time, the vector's path and the largest remake difference per block (run
     with -s); nothing about that difference is asserted until it is known (decision 11).
+    `then(session, model, vector, profile)`, if given, runs on the make's loaded model.
     Returns the first make's record."""
     import json
     import time
@@ -495,6 +498,8 @@ def make_and_steer(root: Path, tmp_path: Path, capsys, base: str, message: str, 
         for b in range(1, n - 1):  # the last entry of hidden_states comes after the final norm
             expected = out.hidden_states[b + 1][0, -1].to(device="cpu", dtype=torch.float32)
             assert np.array_equal(rows[b], expected.numpy()), b
+        if then is not None:
+            then(session, model, made["brief"][2], plain)
     finally:
         session.close()
     snippet, record, vector = made["brief"]
