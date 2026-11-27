@@ -6,6 +6,7 @@ Run with `uv run pytest -m hf -v` (needs `uv sync --extra hf` and SmolLM2 fetche
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -459,7 +460,6 @@ def make_and_steer(
     Returns the first make's record."""
     import json
     import time
-    from typing import Any
 
     import numpy as np
     import torch
@@ -553,6 +553,121 @@ def test_making_a_vector_on_smollm2(tmp_path, capsys, device):
     make_and_steer(
         root, tmp_path, capsys, "smol-chat", "Tell me about rivers.", device=f'"{device}"'
     )
+
+
+NUMBERING_PAIRS = {1: (2,), 15: (14, 16), 29: (28,)}  # block 0 can't be steered; 30 isn't
+
+
+def gap(top: dict[int, float], reference: Any) -> float:
+    """The largest difference in log-probability over `top`'s tokens, the measure of
+    "nearer" in X1. `reference` gives a log-probability for every token in the vocabulary."""
+    return max(abs(logprob - float(reference[token])) for token, logprob in top.items())
+
+
+def test_block_numbering_matches_on_both_backends(tmp_path, capsys):
+    """X1: llama.cpp's direction.N steers the block that Transformers' direction.N steers.
+    repeng's block 15 direction is written alone at block b and added at scale 64. llama.cpp's
+    first-token top 10 must be nearer to Transformers' at b than at each neighbour, and nearer
+    than to llama.cpp's own unsteered numbers. Transformers runs in float32 on the CPU, where
+    the two backends differ least unsteered (probe 2: 0.032; in bf16, 0.114)."""
+    import httpx
+    import torch
+    from transformers import AutoModelForCausalLM
+
+    from clarity_chat.backends.llama_cpp import LlamaCppBackend
+    from clarity_chat.steering import Vector, applied, load
+
+    root = project(tmp_path)
+    for name in ("models", "vendor"):
+        (root / name).symlink_to(REPO / name, target_is_directory=True)
+    direction = load(REPENG, REPENG_SHA256).directions[15]
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    settings = {"backend": "llama.cpp", "temperature": "0.0", "max_tokens": "1"}
+    message = "Tell me about rivers."
+    weights = source_weights(REPO, lock_entry(REPO, load_models(REPO)[MODEL]))
+    model = AutoModelForCausalLM.from_pretrained(
+        weights, dtype=torch.float32, attn_implementation="sdpa"
+    )
+    vocabulary = model.config.vocab_size
+    session = Session(root, logs_dir=tmp_path / "logs")
+
+    def llama_cpp(profile_path: str, n_probs: int) -> tuple[list[int], dict[int, float]]:
+        """Start llama-server through Clarity, then ask it directly for the first token's
+        top `n_probs` log-probabilities, before sampling."""
+        session.new_conversation(profile_path)
+        record = session.say(message).record
+        checks_ok(record)
+        backend = session.backends["llama.cpp", None]
+        assert isinstance(backend, LlamaCppBackend) and backend.server is not None
+        server = backend.server
+        body = {
+            "prompt": record["prompt_ids"],
+            "n_predict": 1,
+            "n_probs": n_probs,
+            "post_sampling_probs": False,
+            "cache_prompt": False,
+            "stream": False,
+        }
+        response = httpx.post(
+            f"{server.url}/completion",
+            headers=server.headers,
+            json=body,
+            timeout=120,
+            trust_env=False,
+        )
+        response.raise_for_status()
+        top = response.json()["completion_probabilities"][0]["top_logprobs"]
+        return record["prompt_ids"], {item["id"]: item["logprob"] for item in top}
+
+    def transformers(ids: list[int], block: int | None) -> torch.Tensor:
+        """Transformers' log-probabilities for the first token, steered at `block`."""
+        inputs = torch.tensor([ids])
+        if block is None:
+            with torch.no_grad():
+                return torch.log_softmax(model(inputs).logits[0, -1].float(), dim=-1)
+        vector = Vector(REPENG, REPENG_SHA256, {block: direction}, "llama")
+        with applied(model, vector, 64.0, [block]) as runs, torch.no_grad():
+            logprobs = torch.log_softmax(model(inputs).logits[0, -1].float(), dim=-1)
+        assert runs == {block: 1}
+        return logprobs
+
+    said = []
+    try:
+        plain_path = profile(folder, "smol-chat", **settings)
+        ids, plain_top = llama_cpp(plain_path, 10)
+        _, plain_all = llama_cpp(plain_path, vocabulary)  # every token, for gap() to read
+        hf_plain = transformers(ids, None)
+        unsteered = gap(plain_top, hf_plain)
+        said.append(f"unsteered, llama.cpp against Transformers (float32, CPU): {unsteered:.4f}")
+        for b, neighbours in NUMBERING_PAIRS.items():
+            at = b  # where llama.cpp's file puts the direction; b + 1 is the seen-failing run
+            file = f"local/vectors/at-{at}.gguf"
+            sha256 = write_vector(root / file, {at: direction}, "llama")
+            path = Path(steered(folder, "smol-chat", file, sha256, "64.0", **settings))
+            path.write_text(path.read_text(encoding="utf-8") + f"layers = [{at}]\n", "utf-8")
+            steered_ids, top = llama_cpp(str(path), 10)
+            assert steered_ids == ids
+            hf = {n: transformers(ids, n) for n in (b, *neighbours)}
+            at_b = gap(top, hf[b])
+            at_neighbours = {n: gap(top, hf[n]) for n in neighbours}
+            own = gap(top, plain_all)
+            moved = max(abs(float(hf[b][t]) - float(hf_plain[t])) for t in top)
+            said.append(
+                f"block {b}: llama.cpp against Transformers at {b}: {at_b:.4f}; "
+                + "; ".join(f"at {n}: {g:.4f}" for n, g in at_neighbours.items())
+                + f"; against its own unsteered: {own:.4f}; "
+                f"Transformers steered against unsteered: {moved:.4f} "
+                f"({moved / unsteered if unsteered else float('inf'):.1f} times the unsteered gap)"
+            )
+            for n, g in at_neighbours.items():
+                assert at_b < g, f"block {b}: nearer at {n} ({g:.4f}) than at {b} ({at_b:.4f})"
+            assert at_b < own, f"block {b}: nearer its own unsteered numbers ({own:.4f})"
+            assert moved >= 10 * unsteered, f"block {b}: steering moved Transformers too little"
+    finally:
+        session.close()
+        with capsys.disabled():
+            print("\n" + "\n".join(said))
 
 
 def test_the_recompute_check_on_a_steered_export(tmp_path):
