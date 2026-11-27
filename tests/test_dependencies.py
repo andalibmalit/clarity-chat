@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -99,6 +100,28 @@ def _locked_closure(packages: dict[str, dict], start: list[dict]) -> set[str]:
         for extra in entry.get("extra", []):
             todo += package.get("optional-dependencies", {}).get(extra, [])
     return seen
+
+
+def test_the_closure_ends_on_extras_that_name_each_other_and_reads_every_entry_of_a_name():
+    """Made up, since today's uv.lock has neither case: a's extra x needs b[y] and b's extra
+    y needs a[x]; c has two entries (one per Python, say), each with its own dependency."""
+    packages: dict[str, Any] = {
+        "a": [{"name": "a", "optional-dependencies": {"x": [{"name": "b", "extra": ["y"]}]}}],
+        "b": [{"name": "b", "optional-dependencies": {"y": [{"name": "a", "extra": ["x"]}]}}],
+        "c": [
+            {"name": "c", "version": "1", "dependencies": [{"name": "d"}]},
+            {"name": "c", "version": "2", "dependencies": [{"name": "e"}]},
+        ],
+        "d": [{"name": "d"}],
+        "e": [{"name": "e"}],
+    }
+    start = [{"name": "a", "extra": ["x"]}, {"name": "c"}]
+    got = None
+    try:
+        got = _locked_closure(packages, start)
+    except Exception as e:
+        got = e
+    assert got == {"a", "b", "c", "d", "e"}
 
 
 def test_nothing_clarity_runs_imports_a_dev_group_package():
