@@ -37,6 +37,9 @@ NAME = "transformers"
 # Set, not left to the library: with None Transformers picks sdpa but falls back to eager
 # without saying so. Analysis tools that reload a call need to know which one ran.
 ATTN_IMPLEMENTATION = "sdpa"
+# Gemma 4's audio and vision towers, which Clarity's text prompts never reach. Its audio tower
+# has no sdpa attention, so it can't load as the rest does.
+TOWERS = ["model.audio_tower", "model.embed_audio", "model.embed_vision", "model.vision_tower"]
 FIXED_ORDER = ["penalties", "temperature", "top_k", "top_p", "min_p"]
 
 # Fields Clarity sets to a fixed value on every call (logged with origin "backend").
@@ -299,6 +302,11 @@ class Cancelled(Exception):
     """Raised from the streamer to stop generate() when the call's cancel event is set."""
 
 
+def first_five(names: list[str]) -> str:
+    more = f" and {len(names) - 5} more" if len(names) > 5 else ""
+    return f"{', '.join(names[:5])}{more}."
+
+
 class TransformersBackend:
     name = NAME
 
@@ -363,9 +371,14 @@ class TransformersBackend:
         self.eos_ids, self.eos_from = end_tokens(weights)
         tokenizer: Any = from_pretrained(AutoTokenizer, weights)
         self.tokenizer = tokenizer
+        config = from_pretrained(transformers.AutoConfig, weights)
+        towers = TOWERS if getattr(config, "model_type", None) == "gemma4" else []
+        if towers:  # Clarity sends text only: the towers' configs go, and their weights stay
+            config.audio_config = config.vision_config = None
         loaded, info = from_pretrained(
             AutoModelForCausalLM,
             weights,
+            config=config,
             dtype=torch.bfloat16,
             attn_implementation=ATTN_IMPLEMENTATION,
             # Never a pytorch_model.bin found beside them, unlisted and unhashed (v0.4.7 M1).
@@ -375,8 +388,15 @@ class TransformersBackend:
         if missing := sorted(info["missing_keys"]):  # Transformers fills these at random
             raise ConfigError(
                 f"{model.name}'s weights lack {len(missing)} tensors the model needs, so "
-                f"Transformers would fill them at random: {', '.join(missing[:5])}"
-                + (f" and {len(missing) - 5} more." if len(missing) > 5 else ".")
+                f"Transformers would fill them at random: {first_five(missing)}"
+            )
+        not_loaded = sorted(
+            {next((t for t in towers if k.startswith(f"{t}.")), k) for k in info["unexpected_keys"]}
+        )
+        if towers and (stray := [k for k in not_loaded if k not in towers]):
+            raise ConfigError(
+                f"{model.name}'s weights have {len(stray)} tensor"
+                f"{'s' * (len(stray) > 1)} the model doesn't use: {first_five(stray)}"
             )
         attention = getattr(loaded.config, "_attn_implementation", None)
         if attention != ATTN_IMPLEMENTATION:
@@ -423,6 +443,7 @@ class TransformersBackend:
             "eos_token_id": self.eos_ids,
             "eos_token_id_from": self.eos_from,
             "max_position_embeddings": vectors.positions(loaded.config),
+            "weights_not_loaded": not_loaded,
             "env_torch_kept": env,
             "deterministic_algorithms": deterministic,
             "warnings": warnings,
