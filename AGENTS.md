@@ -31,7 +31,7 @@ Clarity writes files only visibly. Shipped files stay read-only; the user's own 
 - State your assumptions in each step report, and ask before decisions that are hard to undo. Run the checks above before every commit, the failing-test commit included, and quote their output in the report.
 - For behaviour the plan fixes (record fields, refusals, command results and events, replay, resume, reading old logs), write the test first and see it fail on its own assertion; the report quotes the failure. For tests written with their code, stash the source change, run the new tests, and quote the ones that fail. A bug fix starts with a failing test, committed before the fix; a fix commit that changes a test from that commit says what changed and why.
 - An offline test never skips in CI. A test that needs a model or torch goes on a live tier.
-- Before `-m olmo` or `-m llama` (each loads 15–16 GB), check that no model is loaded and about 16 GB is free; otherwise ask.
+- Before `-m olmo`, `-m llama` or `-m hf` (each loads 15 to 16 GB), check that no model is loaded and about 18 GB is free; otherwise ask.
 - A change to the llama.cpp commit, `tokenizers`, `transformers` or `jinja2` can change output: give it its own commit and a changelog line, and ask the owner to run the live tests.
 - One commit does one plan item, with its tests, its docs and its `CHANGELOG.md` line under Unreleased.
 - Everything a person reads (docs, commit messages, notes, reports, questions for me) is in Google developer-docs style: lead with the point, use short sentences and plain words, and use lists only for parallel items. Say each thing once. Keep caveats and sources; cut padding. Explain an internal label or leave it out.
