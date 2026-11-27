@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import struct
 from pathlib import Path
 
@@ -11,7 +12,7 @@ import pytest
 
 from clarity_chat.backends import BackendError
 from clarity_chat.profiles import ConfigError
-from clarity_chat.steering import applied, check, load
+from clarity_chat.steering import applied, check, file_identity, load
 
 FIXTURE = Path(__file__).parent / "fixtures" / "steering" / "smollm2-repeng.gguf"
 FIXTURE_SHA256 = "ed3236f9f64dc4714b402b9a32f7e209471d3108033eff28dc4ad9230d1724f2"
@@ -1407,3 +1408,40 @@ def test_load_refuses_a_path_open_cant_take():
     """A notebook calls load directly, without the project's path check."""
     with pytest.raises(ConfigError, match="Can't read the vector file"):
         load(Path("local/vectors/a\0b.gguf"), "0" * 64)
+
+
+def test_a_write_just_after_load_s_read_changes_the_identity_it_returns(monkeypatch, tmp_path):
+    """Checkpoint 1, finding 8: the identity is taken before the read, so a write to the
+    same file between the read and that check shows as a change, and the start check
+    refuses a server that may have read other bytes than the hashed ones."""
+    path = write(tmp_path / "v.gguf", directions(2, 3))
+    pinned = sha(path.read_bytes())
+    opened = Path.open
+
+    class Writes:  # the file, whose read is followed at once by another process's write
+        def __init__(self, f):
+            self.f = f
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.f.close()
+
+        def fileno(self):
+            return self.f.fileno()
+
+        def read(self, n):
+            data = self.f.read(n)
+            with opened(path, "r+b") as other:
+                other.seek(len(data) - 1)
+                other.write(bytes([data[-1] ^ 0xFF]))  # the same inode and size
+            st = path.stat()  # a later time, should the clock not have moved
+            os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
+            return data
+
+    monkeypatch.setattr(Path, "open", lambda self, *a, **k: Writes(opened(self, *a, **k)))
+    vector = load(path, pinned)
+    monkeypatch.undo()
+    assert vector.sha256 == pinned  # the bytes read before the write
+    assert file_identity(path.stat()) != vector.identity, "the write wasn't seen"
