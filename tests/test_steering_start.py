@@ -196,6 +196,31 @@ def test_a_vector_that_changes_during_the_start_stops_the_server(server):
     assert seen["procs"][-1].terminated, "the server was left running"
 
 
+def test_a_vector_swapped_in_with_its_old_time_during_the_start_stops_the_server(server):
+    """State 9b, review finding F1: another file of the same size renamed into place with
+    the old file's modified time (as `rsync -a` or `cp -p` leave it) is caught too."""
+    backend, seen, model, weights = server
+    root = weights.parents[2]
+    path = root / CALM
+
+    def swap() -> None:
+        old = path.stat()
+        data = bytearray(path.read_bytes())
+        data[-1] ^= 0xFF  # other bytes, the same size
+        other = path.with_name("other.gguf")
+        other.write_bytes(bytes(data))
+        os.utime(other, ns=(old.st_atime_ns, old.st_mtime_ns))
+        os.replace(other, path)
+        new = path.stat()
+        assert (new.st_size, new.st_mtime_ns) == (old.st_size, old.st_mtime_ns)
+
+    seen["during_start"] = swap
+    refused = started(backend, model, weights, steer(root))
+    assert isinstance(refused, ConfigError), f"not refused as state 9b: {refused!r}"
+    assert str(refused).startswith(f"{path} changed while the model was starting")
+    assert seen["procs"][-1].terminated, "the server was left running"
+
+
 # --- the readers take the last reservation (decision 7, must 2) ---------------------------
 
 KV = "0.00.062.265 I llama_kv_cache:       MTL0 KV buffer size =   180.00 MiB\n"
