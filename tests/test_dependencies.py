@@ -7,7 +7,6 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -86,26 +85,30 @@ def test_starting_clarity_does_not_import_inspect_ai():
     assert result.stdout.strip() == "[]"
 
 
-def _locked_closure(packages: dict[str, dict], start: list[dict]) -> set[str]:
+def _locked_closure(packages: dict[str, list[dict]], start: list[dict]) -> set[str]:
     """Every package uv.lock reaches from `start`, its dependency entries, following the
-    extras an entry names. Markers are ignored, so a package any platform needs counts."""
-    seen: set[str] = set()
+    extras an entry names. `packages` holds every lock entry of each name, and all of them
+    are read. Markers are ignored, so a package any platform needs counts."""
+    seen: set[tuple[str, str | None]] = set()  # each name, and each extra of it, once
     todo = list(start)
     while todo:
         entry = todo.pop()
-        package = packages[entry["name"]]
-        if entry["name"] not in seen:
-            seen.add(entry["name"])
-            todo += package.get("dependencies", [])
-        for extra in entry.get("extra", []):
-            todo += package.get("optional-dependencies", {}).get(extra, [])
-    return seen
+        for part in [None, *entry.get("extra", [])]:
+            if (entry["name"], part) in seen:
+                continue
+            seen.add((entry["name"], part))
+            for package in packages[entry["name"]]:
+                if part is None:
+                    todo += package.get("dependencies", [])
+                else:
+                    todo += package.get("optional-dependencies", {}).get(part, [])
+    return {name for name, _ in seen}
 
 
 def test_the_closure_ends_on_extras_that_name_each_other_and_reads_every_entry_of_a_name():
     """Made up, since today's uv.lock has neither case: a's extra x needs b[y] and b's extra
     y needs a[x]; c has two entries (one per Python, say), each with its own dependency."""
-    packages: dict[str, Any] = {
+    packages: dict[str, list[dict]] = {
         "a": [{"name": "a", "optional-dependencies": {"x": [{"name": "b", "extra": ["y"]}]}}],
         "b": [{"name": "b", "optional-dependencies": {"y": [{"name": "a", "extra": ["x"]}]}}],
         "c": [
@@ -137,8 +140,10 @@ def test_nothing_clarity_runs_imports_a_dev_group_package():
         return re.sub(r"[-_.]+", "-", name).lower()
 
     lock = tomllib.loads((REPO / "uv.lock").read_text(encoding="utf-8"))
-    packages = {package["name"]: package for package in lock["package"]}
-    root = packages["clarity-chat"]
+    packages: dict[str, list[dict]] = {}
+    for package in lock["package"]:
+        packages.setdefault(package["name"], []).append(package)
+    (root,) = packages["clarity-chat"]
     dev = _locked_closure(packages, root["dev-dependencies"]["dev"]) - _locked_closure(
         packages, root["dependencies"]
     )
