@@ -552,6 +552,11 @@ function showMenu(button, which = "first") {
   const menu = button && $(button.getAttribute("aria-controls"));
   if (!menu) return;
   menu.hidden = false;
+  if (menu.matches(".pickmenu, .searchmenu")) {
+    // It opens up from the message box, whose height varies, so it fits the room above (C7).
+    const room = menu.offsetParent.getBoundingClientRect().top - 8;
+    menu.style.maxHeight = `${Math.max(room, 120)}px`;
+  }
   button.setAttribute("aria-expanded", "true");
   openMenu = { button, menu };
   const items = itemsOf(menu);

@@ -75,7 +75,7 @@ ol.thread:empty { display: none; }
 .ctx.hot { color: var(--warn); }
 
 /* The picker: one list, grouped by model, above the message box */
-.menu.pickmenu { left: 72px; bottom: calc(100% - 2px); width: 440px; max-width: calc(100% - 104px); max-height: calc(100vh - 150px); overflow-y: auto; }
+.menu.pickmenu { left: 72px; bottom: calc(100% - 2px); width: 440px; max-width: calc(100% - 104px); overflow-y: auto; }
 .mhead.big { font-size: 14px; color: var(--ink); font-weight: 500; padding: 8px 10px 4px; }
 .pnote { font-size: 12.5px; color: var(--ink); padding: 2px 10px 6px; max-width: 400px; }
 .grp { font-size: 12px; font-weight: 600; color: var(--muted); padding: 10px 10px 2px; font-family: var(--mono); }
@@ -537,7 +537,7 @@ dialog.sheet.attach { width: min(620px, calc(100vw - 32px)); max-height: calc(10
 /* "Search it" and the Searching chooser (v0.3.2 C2, the board's ①) */
 .srchbtn { font-variant-numeric: tabular-nums; }
 .srchbtn.hot { color: var(--warn); }
-.menu.searchmenu { left: 72px; bottom: calc(100% - 2px); width: 400px; max-width: calc(100% - 104px); max-height: calc(100vh - 150px); overflow-y: auto; }
+.menu.searchmenu { left: 72px; bottom: calc(100% - 2px); width: 400px; max-width: calc(100% - 104px); overflow-y: auto; }
 .searchmenu .pnote { padding: 0 10px 6px; font-size: 12.5px; color: var(--muted); margin: 0; }
 .searchmenu .grp { padding: 8px 10px 2px; font-size: 12.5px; color: var(--muted); }
 .searchmenu .srow { display: flex; flex-direction: column; gap: 2px; padding: 0 0 2px; }
