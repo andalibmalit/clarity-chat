@@ -286,3 +286,66 @@ def test_each_sampling_setting_reaches_its_own_generation_field():
             assert values[field] == settings[name], (name, field)
 
     check()
+
+
+# --- what a load leaves out, on tiny models saved in bf16 -----------------------------------
+
+
+def saved(folder, model, tokenizer, drop=(), add=()):
+    """`model` saved in `folder` with `tokenizer`, its weights file without the tensors named
+    in `drop` and with a made-up tensor for each name in `add`."""
+    import torch
+    from safetensors.torch import load_file, save_file
+
+    model.to(torch.bfloat16).save_pretrained(folder)
+    tokenizer.tok.save_pretrained(folder)
+    file = folder / "model.safetensors"
+    tensors = {k: v for k, v in load_file(file).items() if k not in drop}
+    assert len(tensors) == len(load_file(file)) - len(drop)  # each name in drop was there
+    tensors |= {name: torch.zeros(2, dtype=torch.bfloat16) for name in add}
+    save_file(tensors, file, metadata={"format": "pt"})
+    return folder
+
+
+def tiny_llama():
+    torch = pytest.importorskip("torch")
+    import transformers
+
+    config = transformers.LlamaConfig(
+        vocab_size=258,
+        eos_token_id=257,
+        bos_token_id=256,
+        hidden_size=8,
+        intermediate_size=32,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        num_key_value_heads=2,
+        max_position_embeddings=64,
+    )
+    torch.manual_seed(0)
+    return transformers.LlamaForCausalLM(config)
+
+
+def started(folder):
+    from clarity_chat.backends.transformers_hf import TransformersBackend
+    from clarity_chat.profiles import ModelEntry
+
+    model = ModelEntry("tiny", "safetensors", "test/tiny", "0" * 40, "t/t", "0" * 40)
+    backend = TransformersBackend("cpu", 64)
+    try:
+        return backend, backend.start(model, folder, 64)
+    except BaseException:
+        backend.close()
+        raise
+
+
+def test_a_checkpoint_without_a_weight_the_model_needs_is_refused(tmp_path, chat_tokenizer):
+    """Transformers fills a weight the checkpoint lacks at random and loads on: a reply from
+    it isn't the model's, and its replay matches only by the seed."""
+    gone = ["model.layers.1.mlp.down_proj.weight", "model.norm.weight"]
+    folder = saved(tmp_path / "m", tiny_llama(), chat_tokenizer, drop=gone)
+    with pytest.raises(ConfigError) as refused:
+        started(folder)
+    message = str(refused.value)
+    assert message.startswith("tiny's weights lack 2 tensors the model needs"), message
+    assert all(name in message for name in gone), message
