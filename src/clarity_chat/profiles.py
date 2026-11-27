@@ -888,6 +888,9 @@ def load_profile(
 
 LOCAL_MODELS = Path("local") / "models.toml"  # your own entries; the same keys
 LOCAL_LOCK = Path("local") / "models.lock"  # every fetch's lock entries (v0.4.2 A10)
+# The route that fetches official weights and converts nothing (v0.4.7 decision 9): the one
+# place its name is written.
+SAFETENSORS_ROUTE = "safetensors"
 
 
 def check_commit(value: object, where: str) -> str:
@@ -899,7 +902,7 @@ def check_commit(value: object, where: str) -> str:
 @dataclass(frozen=True)
 class ModelEntry:
     name: str
-    route: str  # convert | gguf
+    route: str  # convert | gguf | safetensors
     repo: str
     revision: str
     tokenizer_repo: str
@@ -966,9 +969,12 @@ def read_models(path: Path, yours: bool = False) -> dict[str, ModelEntry]:
         keys = {"route", "repo", "revision", "tokenizer_repo", "tokenizer_revision"}
         if route == "gguf":
             keys |= {"file", "sha256"}
-        elif route != "convert":
-            raise ConfigError(f'{where}: route must be "convert" or "gguf", got {route!r}.')
-        elif "weights" in entry and not yours:  # the one pickle; never a pattern or a path
+        elif route not in ("convert", SAFETENSORS_ROUTE):
+            raise ConfigError(
+                f'{where}: route must be "convert", "gguf" or "{SAFETENSORS_ROUTE}", got {route!r}.'
+            )
+        elif route == "convert" and "weights" in entry and not yours:
+            # The one pickle, never a pattern or a path, and on the convert route alone.
             keys |= {"weights", "weights_sha256"}  # the file's reviewed hash (S1)
             if entry["weights"] != "pytorch_model.bin":
                 raise ConfigError(

@@ -88,13 +88,24 @@ To find a repo's current commit:
 uv run python -c "from huggingface_hub import HfApi; print(HfApi().model_info('ORG/REPO').sha)"
 ```
 
-Clarity can get a model in two ways.
+Clarity can get a model in three ways.
 
 **Convert the official weights** (`route = "convert"`). Clarity downloads the repo and converts it to a bf16 GGUF with the llama.cpp checkout's own converter. Use this when no official GGUF exists. The Transformers backend can then run the same weights.
 
 ```toml
 [my-model]
 route = "convert"
+repo = "ORG/REPO"
+revision = "<40-character commit>"
+tokenizer_repo = "ORG/REPO"
+tokenizer_revision = "<the same commit>"
+```
+
+**Download the official weights alone** (`route = "safetensors"`). Clarity downloads the repo's safetensors, config and tokenizer, no pickle, and makes no GGUF. It records each file's sha256, which `clarity verify` checks. Use this for a model the converter can't convert, or one you only run on the Transformers backend or make vectors on. A llama.cpp profile on it is refused.
+
+```toml
+[my-model-official]
+route = "safetensors"
 repo = "ORG/REPO"
 revision = "<40-character commit>"
 tokenizer_repo = "ORG/REPO"
@@ -363,7 +374,7 @@ Each command's `result` carries its `id`. Every record written to the log also a
 The Transformers backend runs the official weights in-process with PyTorch. It is given the same prompt token IDs as llama-server, but its output can still differ, because the arithmetic and the sampler code differ.
 
 1. Install the extra: `uv sync --extra hf`.
-2. Fetch the model with the `convert` route; a ready-made GGUF has no official weights.
+2. Fetch the model with the `convert` or `safetensors` route; a ready-made GGUF has no official weights.
 3. Set `backend = "transformers"` in a profile. It runs on MPS by default; add `device = "cpu"` or `device = "cuda"` to change it.
 
 In the web interface, the new profile is in the picker once you save it under `local/profiles/`: open the picker under the message box and choose it. To see how likely each word was, open **Settings**, set `logprobs` to 5 under Probabilities, send a message, then open **Details** under the reply and open **Probabilities**: the reply is shaded token by token, and picking a token shows its chance and the likeliest others.
@@ -475,7 +486,7 @@ jq -c 'select(.type == "mark" or .type == "unmark" or .type == "note")' logs/CON
 Clarity doesn't read activations itself, but a logged call holds everything you need to read them in PyTorch.
 
 1. Pick the call. A call made on the Transformers backend gives the closest match.
-2. Load the weights named by `model.repo` and `model.revision`. These are the official weights only for a model fetched with the `convert` route; a `gguf`-route model's source is usually `model.tokenizer_repo`.
+2. Load the weights named by `model.repo` and `model.revision`. These are the official weights only for a model fetched with the `convert` or `safetensors` route; a `gguf`-route model's source is usually `model.tokenizer_repo`.
 3. For a Transformers call, match its `backend.dtype`, `backend.device` and `backend.attn_implementation`, and the `backend.torch` and `backend.transformers` versions.
 4. Run one forward pass over `prompt_ids` followed by `output_ids`, so nothing is re-tokenized.
 5. Check the reading, as below.

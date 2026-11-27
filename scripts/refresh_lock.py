@@ -28,8 +28,13 @@ def paths(entry: dict[str, Any]) -> list[str]:
     into anyone's folder, so it isn't one of them."""
     command = entry.get("converter", {}).get("command") or []
     words = [word for argv in command for word in argv[1:]]
-    fields = [entry.get("source_dir"), entry.get("tokenizer_dir"), entry["gguf"].get("path")]
-    return [text for text in [*fields, *words] if isinstance(text, str)]
+    fields = [
+        entry.get("source_dir"),
+        entry.get("tokenizer_dir"),
+        entry.get("gguf", {}).get("path"),
+    ]
+    files = [item.get("file") for item in entry.get("source_files", [])]  # v0.4.7 R
+    return [text for text in [*fields, *files, *words] if isinstance(text, str)]
 
 
 def absolute(text: str) -> bool:

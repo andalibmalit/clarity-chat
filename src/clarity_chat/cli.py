@@ -1131,6 +1131,12 @@ def cmd_fetch(root: Path, name: str) -> int:
             f"{name!r} isn't in models.toml or local/models.toml. Known: {sorted(models)}."
         )
     entry = fetch(root, models[name], load_server_config(root))
+    if "gguf" not in entry:  # the safetensors route (v0.4.7 R)
+        print(
+            f"Fetched {name}: the official weights, {len(entry['source_files'])} files in "
+            f"{entry['source_dir']}. No GGUF: it runs on the Transformers backend only."
+        )
+        return 0
     print(f"Fetched {name}: {entry['gguf']['path']} (sha256 {entry['gguf']['sha256'][:16]}…)")
     return 0
 

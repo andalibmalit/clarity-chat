@@ -706,7 +706,7 @@ def test_a_chat_on_it_logs_no_gguf_and_replays_resumes_and_exports(
     session = session_at(root)
     try:
         resumed = session.resume(log)
-        assert (resumed["model_entry"], resumed["differences"]) == ([], [])
+        assert (resumed["model_entry"], resumed["differences"]) == ([], {})
         export_log(session, log, tmp_path / "export.jsonl")
     finally:
         session.close()

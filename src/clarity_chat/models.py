@@ -12,6 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any, TextIO
@@ -21,6 +22,7 @@ from clarity_chat.logs import git_state, now_utc
 from clarity_chat.profiles import (
     LOCAL_LOCK,
     LOCAL_MODELS,
+    SAFETENSORS_ROUTE,
     ConfigError,
     ModelEntry,
     ServerConfig,
@@ -48,7 +50,12 @@ LOCK_FILE = "models.lock"
 LOCK_SCHEMA_VERSION = 1
 # What a conversion needs from the source repo: config, tokenizer and weights. No pickle
 # (`.bin`, `.pt`): an entry's `weights` key adds the one file it names (v0.4.1 decision 2).
+# The safetensors route hashes what these match, so a narrower list would leave a file each
+# shipped entry lists unhashed, and every such fetch would stop (v0.4.7 R, state 18).
 SOURCE_PATTERNS = ["*.json", "*.safetensors", "*.txt", "*.jinja", "*.model"]
+# The two files the Transformers load looks for, now that it takes safetensors only.
+LOADED_WEIGHTS = {"model.safetensors", "model.safetensors.index.json"}
+SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 CONVERTER_PYTHON = "3.13"
 # Shipped with the code that uses it, as convert_shim.py is: a root holds only what fetch
 # writes, so any root converts (A9's fix: -m live's scratch root had no copy).
@@ -207,6 +214,8 @@ def list_profiles(root: Path) -> list[dict[str, Any]]:
                         f"{path}: model {profile.model!r} isn't in models.toml or "
                         "local/models.toml."
                     )
+                if model.route == SAFETENSORS_ROUTE and profile.backend != "transformers":
+                    raise ConfigError(no_llama_cpp(path.stem, model.name))
             except (ConfigError, OSError, UnicodeDecodeError) as e:  # as list_chats does
                 out.append({**entry, "error": str(e)})
                 continue
@@ -233,22 +242,86 @@ def list_profiles(root: Path) -> list[dict[str, Any]]:
     return out
 
 
-def weights_path(root: Path, entry: dict[str, Any]) -> Path:
-    """The GGUF: under the repo (converted), or in the Hugging Face cache (downloaded),
-    which models.lock writes as `~/...` or as an absolute path outside the home folder."""
-    path = Path(entry["gguf"]["path"]).expanduser()
+def official_only(name: str) -> str:
+    """State 20: a safetensors-route model has no GGUF."""
+    return (
+        f'{name} is fetched as official weights only (route = "{SAFETENSORS_ROUTE}"), and '
+        "llama.cpp needs a GGUF."
+    )
+
+
+def no_llama_cpp(profile: str, name: str) -> str:
+    """State 19: a llama.cpp profile on a safetensors-route model."""
+    return (
+        f'Profile {profile}: {official_only(name)} Set backend = "transformers" in the '
+        "profile, or use a model that has a GGUF."
+    )
+
+
+def _in_root(root: Path, text: str) -> Path:
+    path = Path(text).expanduser()
     return path if path.is_absolute() else root / path
 
 
+def weights_path(root: Path, entry: dict[str, Any]) -> Path:
+    """The GGUF: under the repo (converted), or in the Hugging Face cache (downloaded),
+    which models.lock writes as `~/...` or as an absolute path outside the home folder."""
+    if "gguf" not in entry:
+        raise ConfigError(official_only(entry["name"]))
+    return _in_root(root, entry["gguf"]["path"])
+
+
+def source_files(entry: dict[str, Any], lock: str) -> list[dict[str, Any]]:
+    """A safetensors-route entry's `source_files`, each {file, size, sha256}: the one reader,
+    so an empty or hand-broken list can't pass a check as "0 files" (state 26)."""
+    files = entry.get("source_files")
+    usable = (
+        "source_dir" in entry
+        and isinstance(files, list)
+        and all(
+            isinstance(item, dict)
+            and isinstance(item.get("file"), str)
+            and isinstance(item.get("size"), int)
+            and isinstance(item.get("sha256"), str)
+            and SHA256_RE.match(item["sha256"])
+            for item in files
+        )
+        and LOADED_WEIGHTS & {item["file"] for item in files}
+    )
+    if not usable:
+        raise ConfigError(
+            f"{lock}'s entry for {entry['name']} has no usable list of its files "
+            f"(source_files). {fetch_hint(entry['name'])}"
+        )
+    assert isinstance(files, list)
+    return files
+
+
 def source_weights(root: Path, entry: dict[str, Any]) -> Path:
-    """The official weights a converted GGUF came from, for the Transformers backend."""
+    """The official weights, for the Transformers backend: the folder a converted GGUF came
+    from, or the safetensors route's download, where each listed file must be there at its
+    recorded size. Nothing is hashed here; `clarity verify` re-hashes (v0.4.7 decision 9)."""
+    name = entry["name"]
+    if entry.get("route") == SAFETENSORS_ROUTE:
+        lock = model_files(root, name)[1]
+        files = source_files(entry, lock)
+        path = _in_root(root, entry["source_dir"])
+        for item in files:
+            file = path / item["file"]
+            if not file.is_file():
+                raise ConfigError(f"{file} is missing. {fetch_hint(name)}")
+            if (size := file.stat().st_size) != item["size"]:
+                raise ConfigError(
+                    f"{file} changed since it was fetched: it has {size:,} bytes, and {lock} "
+                    f"says {item['size']:,}. {fetch_hint(name)}"
+                )
+        return path
     if entry.get("route") != "convert" or "source_dir" not in entry:
         raise ConfigError(
-            f"{entry['name']} was fetched as a ready-made GGUF; the Transformers backend needs "
-            'the official weights (route = "convert").'
+            f"{name} was fetched as a ready-made GGUF; the Transformers backend needs the "
+            f'official weights (route = "convert" or "{SAFETENSORS_ROUTE}").'
         )
-    path = Path(entry["source_dir"]).expanduser()
-    path = path if path.is_absolute() else root / path
+    path = _in_root(root, entry["source_dir"])
     if not (path / "config.json").is_file():
         raise ConfigError(f"{path} has no config.json. {fetch_hint(entry['name'])}")
     return path
@@ -307,6 +380,8 @@ def verify(root: Path, name: str) -> tuple[bool, str]:
     lock = model_files(root, name)[1]
     if entry is None:
         return False, f"{name}: not in {lock}"
+    if entry.get("route") == SAFETENSORS_ROUTE:
+        return verify_files(root, entry, lock)
     path = weights_path(root, entry)
     if not path.is_file():
         return False, f"{name}: {path} is missing"
@@ -321,6 +396,23 @@ def verify(root: Path, name: str) -> tuple[bool, str]:
         write_lock_entry(root, name, entry)
         return True, f"{name}: sha256 matches ({digest[:16]}…); size and time updated"
     return True, f"{name}: sha256 matches ({digest[:16]}…)"
+
+
+def verify_files(root: Path, entry: dict[str, Any], lock: str) -> tuple[bool, str]:
+    """`verify` of a safetensors-route entry: each listed file re-hashed (state 21)."""
+    name = entry["name"]
+    try:
+        files = source_files(entry, lock)
+    except ConfigError as e:
+        return False, f"{name}: {e}"
+    folder = _in_root(root, entry["source_dir"])
+    for item in files:
+        path = folder / item["file"]
+        if not path.is_file():
+            return False, f"{name}: {path} is missing"
+        if (digest := sha256_file(path)) != item["sha256"]:
+            return False, f"{name}: {item['file']} sha256 {digest} != {lock} {item['sha256']}"
+    return True, f"{name}: sha256 matches for {len(files)} files in {folder}"
 
 
 def gated_refusal(repo: str) -> str:
@@ -347,6 +439,8 @@ def _download(repo: str, revision: str, patterns: list[str]) -> Path:
 def fetch(root: Path, model: ModelEntry, server: ServerConfig) -> dict[str, Any]:
     if model.route == "convert":
         return fetch_convert(root, model, server)
+    if model.route == SAFETENSORS_ROUTE:
+        return fetch_safetensors(root, model)
     return fetch_gguf(root, model)
 
 
@@ -402,6 +496,65 @@ def fetch_gguf(root: Path, model: ModelEntry) -> dict[str, Any]:
         "recommended": recommended_settings(
             tokenizer, model.tokenizer_repo, model.tokenizer_revision
         ),
+        "fetched_at": now_utc(),
+    }
+    write_lock_entry(root, model.name, entry)
+    return entry
+
+
+def _download_tokenizer(model: ModelEntry, source: Path) -> Path:
+    """The tokenizer's folder: `source`, unless it's from another repo or commit."""
+    if (model.tokenizer_repo, model.tokenizer_revision) == (model.repo, model.revision):
+        return source
+    print(f"Downloading tokenizer {model.tokenizer_repo}@{model.tokenizer_revision[:12]} …")
+    return _download(model.tokenizer_repo, model.tokenizer_revision, TOKENIZER_FILES)
+
+
+def fetch_safetensors(root: Path, model: ModelEntry) -> dict[str, Any]:
+    """Download `repo` at `revision` as it is, for the Transformers backend: no GGUF, no
+    pickle. Each file it downloads from `repo` is hashed and recorded, and checked against
+    the shipped models.lock's entry for the same route, repo and commit (v0.4.7 R)."""
+    print(f"Downloading {model.repo}@{model.revision[:12]} …", flush=True)
+    source = _download(model.repo, model.revision, SOURCE_PATTERNS)
+    from huggingface_hub.utils import filter_repo_objects
+
+    found = sorted(p.relative_to(source).as_posix() for p in source.rglob("*") if p.is_file())
+    names = list(filter_repo_objects(found, allow_patterns=SOURCE_PATTERNS))
+    if not LOADED_WEIGHTS & set(names):
+        raise ConfigError(
+            f"{model.repo} at {model.revision[:12]} has no model.safetensors or "
+            "model.safetensors.index.json, which the Transformers backend loads; the "
+            f"{SAFETENSORS_ROUTE} route fetches no pickle (.bin or .pt). Not recorded in "
+            "local/models.lock."
+        )
+    print(f"Hashing {len(names)} files …", flush=True)
+    files = [
+        {"file": n, "size": (source / n).stat().st_size, "sha256": sha256_file(source / n)}
+        for n in names
+    ]
+    shipped = read_lock_file(root / LOCK_FILE)["models"].get(model.name)
+    pins = (model.route, model.repo, model.revision)
+    if shipped and (shipped.get("route"), shipped.get("repo"), shipped.get("revision")) == pins:
+        ours = {item["file"]: item["sha256"] for item in files}
+        for item in source_files(shipped, LOCK_FILE):
+            if (digest := ours.get(item["file"])) != item["sha256"]:
+                found_as = "is missing" if digest is None else f"has sha256 {digest}"
+                raise ConfigError(  # a fetch writes local/models.lock alone (A10, C20)
+                    f"{model.repo}/{item['file']} at {model.revision[:12]} {found_as}, but "
+                    f"{LOCK_FILE} says {item['sha256']}. Not recorded in local/models.lock."
+                )
+    tokenizer = _download_tokenizer(model, source)
+    entry = {
+        "name": model.name,
+        "route": model.route,
+        "repo": model.repo,
+        "revision": model.revision,
+        "tokenizer_repo": model.tokenizer_repo,
+        "tokenizer_revision": model.tokenizer_revision,
+        "source_dir": portable_path(str(source), root),
+        "tokenizer_dir": portable_path(str(tokenizer), root),
+        "source_files": files,
+        "recommended": recommended_settings(source, model.repo, model.revision),
         "fetched_at": now_utc(),
     }
     write_lock_entry(root, model.name, entry)
@@ -542,10 +695,7 @@ def fetch_convert(root: Path, model: ModelEntry, server: ServerConfig) -> dict[s
                 f"but {model_files(root, model.name)[0]} says {model.weights_sha256}. "
                 "Not converted or recorded in local/models.lock."
             )
-    tokenizer = source
-    if (model.tokenizer_repo, model.tokenizer_revision) != (model.repo, model.revision):
-        print(f"Downloading tokenizer {model.tokenizer_repo}@{model.tokenizer_revision[:12]} …")
-        tokenizer = _download(model.tokenizer_repo, model.tokenizer_revision, TOKENIZER_FILES)
+    tokenizer = _download_tokenizer(model, source)
 
     out_dir = root / "models" / model.name
     out_dir.mkdir(parents=True, exist_ok=True)

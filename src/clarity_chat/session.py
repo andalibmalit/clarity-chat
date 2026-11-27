@@ -73,6 +73,7 @@ from clarity_chat.logs import LogFile, client_git, machine, new_id, read_records
 from clarity_chat.models import (
     check_weights_quick,
     lock_entry,
+    no_llama_cpp,
     read_lock,
     recheck_weights,
     source_weights,
@@ -81,6 +82,7 @@ from clarity_chat.profiles import (
     BUDGET,
     CHAT_KEYS,
     MIN_SIMILARITY,
+    SAFETENSORS_ROUTE,
     SEARCH_METHOD,
     SEED_MAX,
     SETTING_NAMES,
@@ -633,6 +635,8 @@ class Session:
         if profile.model == EMBEDDER_MODEL:  # its pickle would load unhashed (fix review M1)
             raise ConfigError("bge-m3 is meaning search's model; a profile can't chat with it.")
         model = self.models[profile.model]
+        if model.route == SAFETENSORS_ROUTE and profile.backend != "transformers":
+            raise ConfigError(no_llama_cpp(profile.name, model.name))  # before "not fetched"
         entry = lock_entry(self.root, model)
         if profile.use_recommended:
             recommended = entry.get("recommended")
@@ -774,7 +778,7 @@ class Session:
         return Setting(self.server_config.ctx_size, "server.toml")
 
     def weights_for(self, backend: str, entry: dict[str, Any]) -> Path:
-        """llama.cpp loads the GGUF; Transformers loads the official weights it came from."""
+        """llama.cpp loads the GGUF; Transformers loads the official weights (v0.4.7 R)."""
         if backend == "transformers":
             return source_weights(self.root, entry)
         return check_weights_quick(self.root, entry)
@@ -1989,8 +1993,15 @@ class Session:
             "backend": self.backend.describe(),
             "model": {
                 **self.model.to_json(),
-                "gguf_sha256": self.model_lock["gguf"]["sha256"],
-                "gguf_path": self.model_lock["gguf"]["path"],
+                # a safetensors-route model has none (v0.4.7 decision 9)
+                **(
+                    {
+                        "gguf_sha256": self.model_lock["gguf"]["sha256"],
+                        "gguf_path": self.model_lock["gguf"]["path"],
+                    }
+                    if "gguf" in self.model_lock
+                    else {}
+                ),
                 "converted_with": {
                     "llama_cpp": self.model_lock.get("llama_cpp"),
                     "converter": {
@@ -2314,7 +2325,7 @@ class Session:
         return facts_from_call(
             {
                 "model": {
-                    "gguf_sha256": entry["gguf"]["sha256"],
+                    **({"gguf_sha256": entry["gguf"]["sha256"]} if "gguf" in entry else {}),
                     "repo": model.repo,
                     "revision": model.revision,
                 },

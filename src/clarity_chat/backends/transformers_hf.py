@@ -1,8 +1,8 @@
 """The Transformers backend: the model in-process, on MPS (default), CPU or CUDA, in bf16.
 
 Install with `uv sync --extra hf`. It loads the official weights that `fetch` downloaded
-for the convert route (the same repo and commit the GGUF came from) and feeds them the
-same token IDs as llama-server.
+(on the convert route, the same repo and commit the GGUF came from), safetensors only, and
+feeds them the same token IDs as llama-server.
 
 Every `GenerationConfig` field that can change the output is set explicitly; Transformers
 otherwise fills unset fields from the model's `generation_config.json` and then from its
@@ -368,6 +368,8 @@ class TransformersBackend:
             weights,
             dtype=torch.bfloat16,
             attn_implementation=ATTN_IMPLEMENTATION,
+            # Never a pytorch_model.bin found beside them, unlisted and unhashed (v0.4.7 M1).
+            use_safetensors=True,
         )
         attention = getattr(loaded.config, "_attn_implementation", None)
         if attention != ATTN_IMPLEMENTATION:

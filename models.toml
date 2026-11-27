@@ -4,6 +4,9 @@
 # route = "convert": download `repo` at `revision` and convert it to a bf16 GGUF with
 #                    the llama.cpp checkout's convert_hf_to_gguf.py.
 # route = "gguf":    download `file` from `repo` at `revision` and check its `sha256`.
+# route = "safetensors": download `repo` at `revision` as it is, with no pickle, and record
+#                    each file's sha256. No GGUF is made, so only the Transformers backend
+#                    runs it.
 # tokenizer_repo / tokenizer_revision: the Hugging Face tokenizer the client renders and
 # tokenizes with (for a converted model, its source repo and commit).
 # weights = "pytorch_model.bin" (convert route, optional; the only value it accepts): also
@@ -68,12 +71,12 @@ tokenizer_repo = "google/gemma-4-E4B-it"
 tokenizer_revision = "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c"
 
 [gemma-4-e4b-official]
-# Google's own Gemma 4 E4B weights (Apache 2.0, not gated), converted to a bf16 GGUF.
-# `clarity vector make` reads these weights with the Transformers backend, and llama.cpp
-# runs the GGUF. The tokenizer revision is gemma-4-e4b's, so a chat on either entry renders the
-# same prompt. The download is 16.0 GB and stays in the Hugging Face cache; the GGUF in
-# models/gemma-4-e4b-official is kept beside it.
-route = "convert"
+# Google's own Gemma 4 E4B weights (Apache 2.0, not gated), fetched as they are. They
+# aren't converted: llama.cpp's converter pins transformers 4.57.6, which can't read
+# Gemma 4's tokenizer config. So only the Transformers backend runs them, and `clarity
+# vector make` reads them. The tokenizer revision is gemma-4-e4b's, so a chat on either
+# entry renders the same prompt. The download is 16.0 GB and stays in the Hugging Face cache.
+route = "safetensors"
 repo = "google/gemma-4-E4B-it"
 revision = "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c"
 tokenizer_repo = "google/gemma-4-E4B-it"

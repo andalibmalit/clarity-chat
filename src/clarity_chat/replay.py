@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from clarity_chat.logs import read_records
-from clarity_chat.profiles import ConfigError
+from clarity_chat.profiles import SAFETENSORS_ROUTE, ConfigError
 
 # Differences that can't change a replay's output: it sends the logged IDs and request.
 CANNOT_CHANGE_OUTPUT = {"client", "libraries"}
@@ -275,16 +275,18 @@ def model_for_call(
     own name if its lock entry has the call's file; else the first name, in sorted order,
     whose entry has it (equal pins mean the same bytes, so the choice can't change the
     output); else the call's name if it's still there (replay then lists the file as a
-    difference); else None. The file is the GGUF's sha256 on llama.cpp, and the source
-    weights' repo and revision on Transformers, which loads those. Tokenizer pins aren't
-    compared: replay loads the call's own. `lock`: each models.toml name's lock entry, {}
-    if it isn't fetched."""
-    if backend == "transformers":  # the source weights, which only a converted entry has
-        wanted = ("convert", call_model.get("repo"), call_model.get("revision"))
+    difference); else None. The file is the GGUF's sha256 on llama.cpp, and the official
+    weights' repo and revision on Transformers, which loads those: a convert-route and a
+    safetensors-route entry download the same folder for them (v0.4.7 R). Tokenizer pins
+    aren't compared: replay loads the call's own. `lock`: each models.toml name's lock entry,
+    {} if it isn't fetched."""
+    if backend == "transformers":
+        wanted = (call_model.get("repo"), call_model.get("revision"))
         found = [
             n
             for n, e in lock.items()
-            if (e.get("route"), e.get("repo"), e.get("revision")) == wanted
+            if e.get("route") in ("convert", SAFETENSORS_ROUTE)
+            and (e.get("repo"), e.get("revision")) == wanted
         ]
     else:
         sha = call_model.get("gguf_sha256")  # another program's log may lack it: by name

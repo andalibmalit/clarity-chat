@@ -8,8 +8,14 @@ import shutil
 
 import pytest
 
-from clarity_chat.models import lock_entry, read_lock_file
-from clarity_chat.profiles import load_defaults, load_profile, load_server_config, read_models
+from clarity_chat.models import lock_entry, read_lock_file, source_files
+from clarity_chat.profiles import (
+    SAFETENSORS_ROUTE,
+    load_defaults,
+    load_profile,
+    load_server_config,
+    read_models,
+)
 from tests.conftest import REPO
 
 PROFILES = sorted((REPO / "profiles").glob("*.toml"))
@@ -42,7 +48,9 @@ def test_each_locked_model_matches_its_entry_in_models_toml(tmp_path, name):
     copies of the two shipped files (never local/). Guards, green now."""
     for file in ("models.toml", "models.lock"):
         shutil.copy(REPO / file, tmp_path / file)
-    lock_entry(tmp_path, read_models(REPO / "models.toml")[name])
+    entry = lock_entry(tmp_path, read_models(REPO / "models.toml")[name])
+    if entry["route"] == SAFETENSORS_ROUTE:  # v0.4.7 R: its list of files is usable
+        source_files(entry, "models.lock")
 
 
 @pytest.mark.parametrize("path", PROFILES, ids=lambda p: p.stem)
