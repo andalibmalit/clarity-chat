@@ -986,8 +986,7 @@ def test_a_steered_start_logs_the_same_memory_as_an_unsteered_one(tmp_path):
 
 
 # --- v0.4.7 B3: steering on llama.cpp (notes/plans/v0.4.7.md, B3's live checks)
-# A replay of a steered llama.cpp call comes with B4, which lets a log's steering reach
-# llama.cpp; its live check is B4's.
+# A replay of a steered llama.cpp call is B4's live check, at the end of this file.
 
 
 def steering_project(tmp_path: Path) -> Path:
@@ -1103,3 +1102,51 @@ def test_a_vector_llama_cpp_cant_load_stops_the_server(tmp_path):
         assert backend.stopped
     finally:
         backend.close()
+
+
+# --- v0.4.7 B4: a new strength in a chat (notes/plans/v0.4.7.md, B4's live check)
+# uv run pytest -m live -v -s -k new_strength
+
+
+def test_a_new_strength_starts_smollm2_again_and_both_calls_replay_outside_the_chat(tmp_path):
+    """/set steering_scale starts the model again at the new strength, said as a start;
+    /regen same answers on that server; and both calls replay Identical from a session with
+    no chat, as `clarity replay` runs them, each on a server started at its own strength."""
+    import shutil
+
+    from clarity_chat.commands import Commands
+    from clarity_chat.steering import load
+
+    root = steering_project(tmp_path)
+    shutil.copy(REPENG, root / "local" / "vectors" / "repeng.gguf")
+    repeng = load(REPENG, REPENG_SHA256)
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    profile = steered_profile(folder, "local/vectors/repeng.gguf", repeng.sha256, "4.0", "0.8")
+    events: list[dict] = []
+    session = Session(root, logs_dir=tmp_path / "logs")
+    try:
+        c = Commands(session)
+        c.run("profile", profile, lambda e: None)
+        first = c.run("say", "Tell me about rivers.", lambda e: None)["call"]
+        c.run("set", "steering_scale 2.0", events.append)
+        (again,) = [r["call"] for r in c.run("regen", "same", lambda e: None)["replies"]]
+        assert session.conversation is not None
+        path = session.conversation.log.path
+    finally:
+        session.close()
+    assert [e["status"] for e in events if e["event"] == "status"] == ["starting", "ready"]
+    for call, scale in ((first, 4.0), (again, 2.0)):
+        all_checks_ok(call)
+        assert call["request"]["steering"]["scale"] == scale
+        assert call["checks"]["steering_start"]["ok"]
+    assert again["settings"]["seed"]["value"] == first["settings"]["seed"]["value"]
+    assert again["backend"]["server_id"] != first["backend"]["server_id"]
+    outside = Session(root, logs_dir=tmp_path / "logs")
+    try:
+        for call in (first, again):
+            replay = outside.replay(path, call["call_id"])
+            print(f"\n{call['call_id']} at ×{call['request']['steering']['scale']}: {replay}")
+            assert replay["identical"], call["call_id"]
+    finally:
+        outside.close()
