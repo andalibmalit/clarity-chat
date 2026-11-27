@@ -18,6 +18,7 @@ from clarity_chat.backends import llama_cpp
 
 SUPPRESS_KEY = "tokenizer.ggml.suppress_tokens"
 PREFIX = "0.00.062.265 I "  # minutes.seconds.milliseconds.microseconds, then I for INFO
+ERROR = "0.00.062.265 E "  # E for ERROR
 
 # The device and buffer lines a start on a Mac's GPU prints (the placement check needs them).
 DEVICE_LINES = """\
@@ -78,6 +79,47 @@ def startup(*keys: tuple[str, str, str]) -> str:
     return DEVICE_LINES + dump(*keys) + BUFFER_LINES
 
 
+def reservation(nodes: int, splits: int = 2) -> str:
+    """One graph reservation as `sched_reserve` prints it (`src/llama-context.cpp:926` and
+    `:940`): each device's compute buffer, then the graph. The buffers and the node count
+    are G13's for SmolLM2 on Metal; the input counts are made up, since Clarity reads none."""
+    buffers = "".join(
+        f"{PREFIX}sched_reserve: {device:>10} compute buffer size = {mib:8.2f} MiB\n"
+        for device, mib in (("MTL0", 22.17), ("CPU", 12.52))
+    )
+    return buffers + (
+        f"{PREFIX}sched_reserve: graph: nodes = {nodes}, splits = {splits}, input objects = 4, "
+        "input tensors = 4\n"
+    )
+
+
+NODES = 939  # SmolLM2's graph (G13)
+
+
+def vector_lines(argv: list[str], mode: str) -> str:
+    """What a start with a control vector adds to the log, by `mode`: "loads" (llama.cpp
+    reserves the graph again, one node more per block in the range), "fails" (its loader's
+    two error lines and no second reservation: the server runs on unsteered), "silent" (no
+    second reservation and no line), or "wrong" (a second reservation one node off). The
+    error lines are `common/common.cpp:2008` and `:2114`, through `COM_ERR`'s format."""
+    path = argv[argv.index("--control-vector-scaled") + 1].rpartition(":")[0]
+    i = argv.index("--control-vector-layer-range")
+    blocks = int(argv[i + 2]) - int(argv[i + 1]) + 1
+    first = reservation(NODES)
+    if mode == "loads":
+        return first + reservation(NODES + blocks)
+    if mode == "wrong":
+        return first + reservation(NODES + blocks + 1)
+    if mode == "fails":
+        return (
+            first
+            + f"{ERROR}cmn  common_contr: failed to load control vector file from {path}\n"
+            + f"{ERROR}cmn  common_contr: no valid control vector files passed\n"
+        )
+    assert mode == "silent", mode
+    return first
+
+
 class Running:
     """llama-server's process: running until stopped."""
 
@@ -123,7 +165,11 @@ def fake_llama(
     """Fake llama-server for every LlamaServer: `startups` maps a model's name (its folder
     under models/) to the startup log its start prints. Replies are `replies` in turn
     (" ok" after), as the tokenizer's IDs plus its end token. Returns what happened: the
-    processes started, each request, and the queue of replies (`replies`), to add to."""
+    processes started, each request, and the queue of replies (`replies`), to add to.
+
+    A start whose argv has a control vector adds `vector_lines` in `seen["cvec"]`'s mode
+    ("loads" unless set), and calls `seen["during_start"]` if a test set it. Each start's
+    argv is in `seen["argv"]`."""
     import json
 
     from clarity_chat.profiles import load_server_config
@@ -132,11 +178,17 @@ def fake_llama(
     pinned = load_server_config(root).llama_cpp_commit
 
     queue = list(replies or [])
-    seen: dict[str, Any] = {"procs": [], "requests": [], "replies": queue}
+    seen: dict[str, Any] = {"procs": [], "requests": [], "replies": queue, "argv": []}
 
     def launch(self, argv: list[str], env: dict[str, str]) -> None:
         printed = startups[self.gguf.parent.name]  # or a function of the size (v0.4.4 B3a)
-        self.output = [printed(self.config.ctx_size) if callable(printed) else printed]
+        text = str(printed(self.config.ctx_size) if callable(printed) else printed)
+        seen["argv"].append(argv)
+        if "--control-vector-scaled" in argv:
+            text += vector_lines(argv, seen.get("cvec", "loads"))
+            if seen.get("during_start"):
+                seen["during_start"]()
+        self.output = [text]
         self.proc = Running()
         seen["procs"].append(self.proc)
         return None
