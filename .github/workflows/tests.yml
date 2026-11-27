@@ -1,5 +1,6 @@
-# Lint, type-check and test on Linux, Windows and macOS: the real test of the
-# cross-platform and UTF-8 rules. The `test` and `browser` jobs need no network, no model
+# Lint, type-check and test on Linux and macOS. Windows is off the roadmap for now
+# (2026-11-26), so its job is gone; `ty check --python-platform win32` stays in
+# notes' check.sh. The `test` and `browser` jobs need no network, no model
 # and no llama-server; `live-cpu` builds llama-server and runs the SmolLM2 live tier.
 name: tests
 
@@ -15,7 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     env:
       HF_HUB_OFFLINE: "1"
@@ -32,22 +33,9 @@ jobs:
       - run: uv run ruff check
       - run: uv run ruff format --check
       - run: uv run ty check
-      # Which CPU this runner has, and what PyTorch thinks it supports: some Windows
-      # runners crash with an illegal instruction in the first bf16 matmul on the CPU.
+      # Which CPU this runner has, and what PyTorch thinks it supports.
       - run: uv run python scripts/cpu_info.py
       - run: uv run pytest
-        if: matrix.os != 'windows-latest'
-      # Windows only: some GitHub Windows VMs (Xeon Platinum 8573C, model 207, with AMX)
-      # crash with an illegal instruction (0xc000001d) in oneDNN's AMX bf16 kernel, a
-      # PyTorch/oneDNN bug reported by several projects but not upstream (our two crashes
-      # were in that kernel; their hosts' CPU wasn't captured). Capping oneDNN below AMX
-      # avoids it; on the AMD hosts we've seen, PyTorch uses AVX2 anyway, so the
-      # cap changes nothing there. No test is skipped. Clarity's own handling of such hosts
-      # (logging ONEDNN_*, refusing instead of crashing) is planned for v0.7.0.
-      - run: uv run pytest
-        if: matrix.os == 'windows-latest'
-        env:
-          ONEDNN_MAX_CPU_ISA: AVX512_CORE_BF16
 
   # The web interface in a real browser (Playwright's Chromium), on Linux only: the page,
   # its secret, a page on another port, and a reply joined after a reload mid-reply.

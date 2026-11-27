@@ -55,7 +55,7 @@ You need:
 - About 2 GB of disk for llama.cpp, SmolLM2 and the converter's own Python environment. The OLMo 3 models used later take about 58 GB more, and the Llama 3.1 8B models about 64 GB. Gemma 4 E4B's official weights, which `clarity vector make` reads, take a 16.0 GB download, kept beside the GGUF converted from it.
 - A GPU that llama.cpp supports. `server.toml` puts every layer on the GPU, and Clarity stops if the model lands on the CPU instead. To run on the CPU, set `n-gpu-layers = 0` in `server.toml`.
 
-Clarity's live tests have run on Apple Silicon (Metal), and CI runs the SmolLM2 live tests on a Linux CPU build. Its offline tests run on macOS, Linux and Windows.
+Clarity's live tests have run on Apple Silicon (Metal), and CI runs the SmolLM2 live tests on a Linux CPU build. Its offline tests run on macOS and Linux. Windows is off the roadmap for now.
 
 ## Install Clarity and build llama.cpp
 
