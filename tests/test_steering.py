@@ -17,6 +17,11 @@ FIXTURE = Path(__file__).parent / "fixtures" / "steering" / "smollm2-repeng.gguf
 FIXTURE_SHA256 = "ed3236f9f64dc4714b402b9a32f7e209471d3108033eff28dc4ad9230d1724f2"
 WIDTH = 32
 CONFIG = {"model_type": "llama", "hidden_size": WIDTH, "num_hidden_layers": 4}
+# Gemma 4's config.json keeps its sizes under text_config, and its top level has none.
+GEMMA = {
+    "model_type": "gemma4",
+    "text_config": {"model_type": "gemma4_text", "hidden_size": WIDTH, "num_hidden_layers": 4},
+}
 
 
 def directions(*blocks, width=WIDTH, seed=0):
@@ -331,6 +336,30 @@ def test_check_refuses(tmp_path, config, kwargs, layers, message):
     assert message in str(error.value)
 
 
+def test_check_reads_gemmas_sizes_from_its_text_config(tmp_path):
+    assert check(vector(tmp_path, blocks=(3, 1), model_hint="gemma4"), GEMMA) == [1, 3]
+
+
+@pytest.mark.parametrize(
+    ("config", "kwargs", "layers", "message"),
+    [
+        (GEMMA, {"width": 16}, None, "has width 16; this model's hidden size is 32"),
+        (GEMMA, {}, [99], "Block 99 doesn't exist: this model has 4 blocks, and blocks 1 to 3"),
+        (
+            {"model_type": "gemma4", "hidden_size": WIDTH, "num_hidden_layers": 4},
+            {},
+            None,
+            "The model's config.json has no text_config.",
+        ),
+    ],
+)
+def test_check_refuses_on_gemma(tmp_path, config, kwargs, layers, message):
+    v = vector(tmp_path, model_hint="gemma4", **kwargs)
+    with pytest.raises(ConfigError) as error:
+        check(v, config, layers)
+    assert message in str(error.value)
+
+
 def test_a_file_with_direction_0_is_refused_by_default(tmp_path):
     with pytest.raises(ConfigError, match="Block 0 can't be steered"):
         check(vector(tmp_path, blocks=(0, 1)), CONFIG)
@@ -339,10 +368,14 @@ def test_a_file_with_direction_0_is_refused_by_default(tmp_path):
 # --- the hook, on tiny models in bf16 on the CPU -----------------------------------------
 
 
-def tiny(model_type):
+def tiny(model_type, vocab_size=64):
     torch = pytest.importorskip("torch")
     import transformers
 
+    if model_type == "gemma4":
+        torch.manual_seed(0)
+        model = transformers.Gemma4ForConditionalGeneration(gemma_config(vocab_size))
+        return model.to(torch.bfloat16).eval(), torch
     names = {"llama": "Llama", "olmo3": "Olmo3"}[model_type]
     config = getattr(transformers, f"{names}Config")(
         vocab_size=64,
@@ -358,6 +391,30 @@ def tiny(model_type):
     return model.to(torch.bfloat16).eval(), torch
 
 
+def gemma_config(vocab_size=64, positions=64):
+    """Gemma 4's text model, four blocks wide WIDTH, the last two sharing the earlier
+    blocks' key-value cache as E4B's last 18 do, with no vision or audio tower."""
+    import transformers
+
+    text = {
+        "vocab_size": vocab_size,
+        "vocab_size_per_layer_input": vocab_size,
+        "hidden_size_per_layer_input": 8,
+        "hidden_size": WIDTH,
+        "intermediate_size": 64,
+        "num_hidden_layers": 4,
+        "num_attention_heads": 4,
+        "num_key_value_heads": 2,
+        "head_dim": 8,
+        "global_head_dim": 8,
+        "num_kv_shared_layers": 2,
+        "max_position_embeddings": positions,
+        "layer_types": ["sliding_attention", "full_attention"] * 2,
+        "sliding_window": 8,
+    }
+    return transformers.Gemma4Config(text_config=text, vision_config=None, audio_config=None)
+
+
 IDS = [[1, 5, 9, 13, 2]]
 
 
@@ -366,7 +423,7 @@ def forward(model, torch, **kwargs):
         return model(torch.tensor(IDS), **kwargs)
 
 
-@pytest.fixture(params=["llama", "olmo3"])
+@pytest.fixture(params=["llama", "olmo3", "gemma4"])
 def model(request):
     return tiny(request.param)
 
@@ -428,9 +485,9 @@ def test_entering_twice_is_refused(tmp_path):
             pass
 
 
-def test_scale_0_adds_nothing(tmp_path):
-    model, torch = tiny("llama")
-    v = vector(tmp_path)
+def test_scale_0_adds_nothing(tmp_path, model):
+    model, torch = model
+    v = vector(tmp_path, model_hint=model.config.model_type)
     plain = forward(model, torch).logits
     with applied(model, v, 0.0) as runs:
         assert torch.equal(forward(model, torch).logits, plain)
@@ -780,6 +837,31 @@ def test_a_steered_call_records_its_steering_and_the_check(hf):
     assert not hasattr(backend.model, "clarity_steering")
     again = backend.complete(PROMPT, SETTINGS, [], request=result.request, steering=steer)
     assert again.token_ids == result.token_ids and again.request == result.request
+
+
+def test_a_steered_call_on_gemma4_runs_each_block_once_per_pass(tmp_path, tiny_tokenizer):
+    """Gemma 4's blocks sit under model.model.language_model, and its last blocks reuse
+    earlier blocks' cache: each steered block still runs once per pass, and replay holds."""
+    from clarity_chat.backends.transformers_hf import TransformersBackend
+    from clarity_chat.steering import Steering
+
+    backend = TransformersBackend("cpu", 64)
+    backend.model, _ = tiny("gemma4", vocab_size=258)
+    backend.tokenizer = tiny_tokenizer.tok
+    backend.eos_ids, backend.eos_from = [257], "generation_config.json"
+    steer = Steering("local/vectors/v.gguf", vector(tmp_path, (1, 3), "gemma4"), 40.0, [1, 3])
+    plain = backend.complete(PROMPT, SETTINGS, [])
+    result = backend.complete(PROMPT, {**SETTINGS, "steering_scale": 40.0}, [], steering=steer)
+    n = len(result.token_ids)
+    assert result.checks["steering"] == {
+        "ok": True,
+        "model_passes": n,
+        "forward_passes": {"1": n, "3": n},
+    }
+    assert result.token_ids != plain.token_ids
+    assert not hasattr(backend.model, "clarity_steering")
+    again = backend.complete(PROMPT, SETTINGS, [], request=result.request, steering=steer)
+    assert again.token_ids == result.token_ids
 
 
 def test_a_cancelled_call_leaves_the_model_unsteered_and_records_no_check(hf):

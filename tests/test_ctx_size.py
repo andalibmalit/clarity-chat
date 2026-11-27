@@ -199,6 +199,25 @@ def test_the_transformers_backend_takes_a_new_size_and_puts_a_refused_one_back(t
     assert backend.n_ctx == 8192
 
 
+def test_the_transformers_backend_reads_gemmas_positions_from_its_text_config(tmp_path):
+    """Gemma 4's config has no max_position_embeddings at its top level: the check reads
+    text_config's, so a size past it is refused, not passed as if there were no limit."""
+    from types import SimpleNamespace
+
+    pytest.importorskip("torch")
+    from clarity_chat.backends.transformers_hf import TransformersBackend
+    from tests.test_steering import gemma_config
+
+    backend = TransformersBackend("cpu", 8192)
+    backend.model = SimpleNamespace(config=gemma_config(positions=16384))
+    backend.weights = tmp_path
+    model: Any = SimpleNamespace(name="tiny")
+    assert backend.start(model, tmp_path, 16384) is None
+    refused = raised(lambda: backend.start(model, tmp_path, 32768))
+    assert isinstance(refused, ConfigError), f"not refused: {refused!r}"
+    assert str(refused) == "tiny handles 16384 positions, less than ctx_size 32768."
+
+
 def test_a_failed_restore_says_so_and_no_chat_runs(fake):
     """State 31: the new size fails, and so does the old one."""
     session, backend = fake

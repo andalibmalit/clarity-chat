@@ -632,3 +632,35 @@ def test_olmo3s_vector_names_olmo3(root, chat_tokenizer):
     record = made(root, chat_tokenizer)
     assert record["vector"]["model_hint"] == "olmo3"
     assert steering.load(root / GGUF, record["vector"]["sha256"]).model_hint == "olmo3"
+
+
+def test_make_on_gemma4_reads_its_blocks_and_logs_its_positions(root, chat_tokenizer, capsys):
+    """Gemma 4 keeps its blocks under model.model.language_model and its sizes under
+    text_config: the vector names gemma4 and holds blocks 1 to n-1, the snippet steers the
+    middle block, and the start record logs text_config's positions."""
+    pytest.importorskip("torch")
+    from clarity_chat import steering
+    from tests.test_steering import gemma_config
+
+    hf_root(root)
+    weights = root / "models" / "tiny-hf"
+    config = gemma_config(vocab_size=258, positions=256)
+    config.text_config.hidden_size = 8
+    config.text_config.eos_token_id, config.text_config.bos_token_id = 257, 256
+    config.text_config.pad_token_id = 257
+    import torch
+    import transformers
+
+    torch.manual_seed(0)
+    transformers.Gemma4ForConditionalGeneration(config).save_pretrained(weights)
+    chat_tokenizer.tok.save_pretrained(weights)
+    profile(root, extra="ctx_size = 256")
+    (root / "brief.toml").write_text(PAIRS, encoding="utf-8", newline="\n")
+    record = made(root, chat_tokenizer)
+    assert record["vector"]["model_hint"] == "gemma4"
+    assert record["vector"]["blocks"] == [1, 2, 3]
+    assert record["backend"]["max_position_embeddings"] == 256
+    vector = steering.load(root / GGUF, record["vector"]["sha256"])
+    assert sorted(vector.directions) == [1, 2, 3]
+    assert {len(d) for d in vector.directions.values()} == {8}
+    assert capsys.readouterr().out.splitlines()[-1] == "layers = [2]"
