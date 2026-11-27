@@ -349,3 +349,70 @@ def test_a_checkpoint_without_a_weight_the_model_needs_is_refused(tmp_path, chat
     message = str(refused.value)
     assert message.startswith("tiny's weights lack 2 tensors the model needs"), message
     assert all(name in message for name in gone), message
+
+
+def test_a_full_checkpoint_loads_with_nothing_left_unloaded(tmp_path, chat_tokenizer):
+    backend, record = started(saved(tmp_path / "m", tiny_llama(), chat_tokenizer))
+    backend.close()
+    assert record is not None and record.get("weights_not_loaded") == []
+
+
+def test_a_tensor_the_model_doesnt_use_is_logged_not_refused(tmp_path, chat_tokenizer):
+    """Older checkpoints can carry harmless extras, which Transformers leaves unloaded."""
+    folder = saved(tmp_path / "m", tiny_llama(), chat_tokenizer, add=["made_up.weight"])
+    backend, record = started(folder)
+    backend.close()
+    assert record is not None and record.get("weights_not_loaded") == ["made_up.weight"]
+
+
+def tiny_gemma4_with_towers():
+    """Gemma 4 as Google ships it: the text model of tests/test_steering.py's gemma_config,
+    with an audio and a vision tower. Gemma 4's audio tower has no `sdpa` attention."""
+    torch = pytest.importorskip("torch")
+    import transformers
+
+    from tests.test_steering import gemma_config
+
+    text = gemma_config(vocab_size=258).text_config
+    text.eos_token_id, text.bos_token_id, text.pad_token_id = 257, 256, 257
+    audio = dict(hidden_size=32, num_hidden_layers=1, num_attention_heads=2, output_proj_dims=32)
+    vision = dict(
+        hidden_size=32,
+        intermediate_size=64,
+        num_hidden_layers=1,
+        num_attention_heads=2,
+        num_key_value_heads=2,
+        head_dim=16,
+    )
+    config = transformers.Gemma4Config(
+        text_config=text.to_dict(), vision_config=vision, audio_config=audio
+    )
+    torch.manual_seed(0)
+    return transformers.Gemma4ForConditionalGeneration(config)
+
+
+TOWERS = ["model.audio_tower", "model.embed_audio", "model.embed_vision", "model.vision_tower"]
+
+
+def test_gemma4_loads_its_text_model_only_and_logs_the_towers_left_out(tmp_path, chat_tokenizer):
+    """Clarity sends text only, and the audio tower can't load with sdpa attention."""
+    backend, record = started(saved(tmp_path / "m", tiny_gemma4_with_towers(), chat_tokenizer))
+    try:
+        assert record is not None and record.get("weights_not_loaded") == TOWERS
+        assert backend.model.model.audio_tower is None
+        assert backend.model.model.vision_tower is None
+        assert record["attn_implementation"] == "sdpa"
+    finally:
+        backend.close()
+
+
+def test_gemma4_refuses_a_tensor_outside_its_towers_it_doesnt_use(tmp_path, chat_tokenizer):
+    """The towers are the only tensors left out on purpose: another means a checkpoint that
+    doesn't match the model Transformers built."""
+    extra = "model.language_model.made_up.weight"
+    folder = saved(tmp_path / "m", tiny_gemma4_with_towers(), chat_tokenizer, add=[extra])
+    with pytest.raises(ConfigError) as refused:
+        started(folder)
+    message = str(refused.value)
+    assert message.startswith("tiny's weights have 1 tensor the model doesn't use"), message
+    assert extra in message, message
