@@ -135,6 +135,76 @@
       },
       "fetched_at": "2026-11-23T02:15:53.281+00:00"
     },
+    "gemma-4-e4b-official": {
+      "name": "gemma-4-e4b-official",
+      "route": "safetensors",
+      "repo": "google/gemma-4-E4B-it",
+      "revision": "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c",
+      "tokenizer_repo": "google/gemma-4-E4B-it",
+      "tokenizer_revision": "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c",
+      "source_dir": "~/.cache/huggingface/hub/models--google--gemma-4-E4B-it/snapshots/4ecc2ba63bcac23ba4a767fc87025b1450f84c9c",
+      "tokenizer_dir": "~/.cache/huggingface/hub/models--google--gemma-4-E4B-it/snapshots/4ecc2ba63bcac23ba4a767fc87025b1450f84c9c",
+      "source_files": [
+        {
+          "file": "chat_template.jinja",
+          "size": 18569,
+          "sha256": "0a2c8073c878ab1da004bee933a998606537bbb62016310352c7285c3f01c5b5"
+        },
+        {
+          "file": "config.json",
+          "size": 5145,
+          "sha256": "33b10c02df3c2e8536cf323d29d53262aaa2f4d11dbe19bc729373fbe90295d4"
+        },
+        {
+          "file": "generation_config.json",
+          "size": 208,
+          "sha256": "d4226bbe3117d2d253ba4609720ba82c6c4ce4627a9a6ae05387c78983ac03de"
+        },
+        {
+          "file": "model.safetensors",
+          "size": 15992595884,
+          "sha256": "cfbd3d2f1cd71bd471c37fe2bf8546d5028d41e5736f64e1ca6c6b8893125503"
+        },
+        {
+          "file": "processor_config.json",
+          "size": 1689,
+          "sha256": "32bdf45d2ad4cc29a0822ddd157a182de76644f0419a6228d151495256e9813c"
+        },
+        {
+          "file": "tokenizer.json",
+          "size": 32156428,
+          "sha256": "91d9cf86906f78e197021fda88214d448e5c120665d0243a8e776e046986c6bc"
+        },
+        {
+          "file": "tokenizer_config.json",
+          "size": 3082,
+          "sha256": "9f4fec4b1dc6ecddf8f4a92e9caea5971c0e67d81309f3f9066a2bee8c362633"
+        }
+      ],
+      "recommended": {
+        "source": {
+          "file": "generation_config.json",
+          "repo": "google/gemma-4-E4B-it",
+          "revision": "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c"
+        },
+        "values": {
+          "temperature": 1.0,
+          "top_k": 64,
+          "top_p": 0.95
+        },
+        "not_applied": {
+          "bos_token_id": 2,
+          "eos_token_id": [
+            1,
+            106,
+            50
+          ],
+          "pad_token_id": 0
+        },
+        "notes": []
+      },
+      "fetched_at": "2026-11-27T02:52:14.086+00:00"
+    },
     "llama-3.1-8b-base": {
       "name": "llama-3.1-8b-base",
       "route": "convert",
