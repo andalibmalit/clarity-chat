@@ -380,3 +380,92 @@ def test_a_chat_at_two_strengths_resumes_exports_and_opens_each_call(chat):
     assert export_chat(c.session, path)["path"]
     for call in [r for r in read_records(path) if r["type"] == "call"]:
         assert c.run("prompt", call["call_id"], quiet)
+
+
+# --- the strength in float32 (Checkpoint 1, finding 1) ---------------------------------
+# llama-server reads the scale as a float32. 1e-46 is 0.0 there and 1e39 is inf, so the
+# record would say a strength the server didn't run. 3e38 is a float32, but times a
+# direction it overflows; only the start, which every path reaches, sees the product.
+ROUNDS_AWAY = ["1e-46", "1e39"]
+OVERFLOWS = "3e38"
+
+
+def edit_records(path, change) -> None:
+    """Rewrite a log in place, `change` called on each record: a hand-edited log."""
+    import json
+
+    rows = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+    for row in rows:
+        change(row)
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+
+@pytest.mark.parametrize("scale", [*ROUNDS_AWAY, OVERFLOWS])
+def test_a_strength_float32_cant_hold_is_refused_and_the_old_one_runs_on(chat, scale):
+    c, seen = chat
+    c.run("profile", "steered", quiet)
+    say(c)
+    refused = raised(lambda: c.run("set", f"steering_scale {scale}", quiet))
+    assert isinstance(refused, ConfigError), f"not refused: {refused!r}"
+    assert scales(seen) == [4.0], "a server was started"
+    assert not seen["procs"][-1].terminated, "the old server was stopped"
+    assert say(c, "Again")["request"]["steering"]["scale"] == 4.0
+
+
+@pytest.mark.parametrize("scale", [*ROUNDS_AWAY, OVERFLOWS])
+def test_clarity_replay_refuses_a_logged_strength_float32_cant_hold(
+    monkeypatch, root, tiny_tokenizer, scale
+):
+    steer_root(root)
+    model_like(root)
+    seen = fake_llama(monkeypatch, root, {"tiny": startup()}, tiny_tokenizer)
+    session = session_on(root, tiny_tokenizer)
+    try:
+        session.new_conversation(steered(root, backend="llama.cpp"))
+        call = session.say("Hi").record
+        assert session.conversation is not None
+        path = session.conversation.log.path
+    finally:
+        session.close()
+
+    def change(row):
+        if row["type"] == "call":
+            row["request"]["steering"]["scale"] = float(scale)
+            row["settings"]["steering_scale"]["value"] = float(scale)
+
+    edit_records(path, change)
+    replaying = session_on(root, tiny_tokenizer)
+    try:
+        refused = raised(lambda: replaying.replay(path, call["call_id"]))
+    finally:
+        replaying.close()
+    assert isinstance(refused, ConfigError), f"not refused: {refused!r}"
+    assert scales(seen) == [4.0], "a server was started"
+
+
+@pytest.mark.parametrize("scale", [*ROUNDS_AWAY, OVERFLOWS, "abc"])
+def test_a_resume_of_a_logged_strength_float32_cant_hold_is_refused(chat, scale):
+    """The conversation record's own settings are checked like a profile's before anything
+    starts or stops: the running chat stays."""
+    c, seen = chat
+    c.run("profile", "steered", quiet)
+    say(c)
+    conversation = c.session.conversation
+    assert conversation is not None
+    path = conversation.log.path
+    value: Any = scale if scale == "abc" else float(scale)
+
+    def change(row):
+        if row["type"] == "conversation":
+            row["settings"]["steering_scale"]["value"] = value
+
+    edit_records(path, change)
+    c.run("profile", "steered", quiet)
+    running = c.session.conversation
+    started = len(seen["argv"])
+    refused = raised(lambda: c.run("resume", conversation.conversation_id, quiet))
+    assert isinstance(refused, ConfigError), f"not refused: {refused!r}"
+    assert len(seen["argv"]) == started, "a server was started"
+    assert not seen["procs"][-1].terminated, "the running server was stopped"
+    assert c.session.conversation is running, "the running chat was stopped"
+    assert say(c, "Again")["request"]["steering"]["scale"] == 4.0
