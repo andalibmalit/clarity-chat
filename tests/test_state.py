@@ -275,6 +275,25 @@ def test_a_failed_edit_after_a_failed_message_leaves_nothing_unanswered(commands
     assert live == state(c)["unanswered"] is None
 
 
+def test_a_failed_regen_of_an_edit_keeps_the_message_offered_back(commands):
+    """M3's long run: a failed /regen sends no message, so it doesn't take back the one the
+    failed /say offered, even when the reply it regenerates answers an edit."""
+    c, backend = commands
+    c.run("profile", "text", lambda e: None)
+    c.run("say", "Hi", lambda e: None)
+    c.run("edit", "Hello instead", lambda e: None)
+    backend.fail_with = "made-up failure"
+    with pytest.raises(BackendError):
+        c.run("say", "Lost one", lambda e: None)
+    with pytest.raises(BackendError):
+        c.run("regen", "", lambda e: None)
+    backend.fail_with = None
+    live = state(c)["unanswered"]
+    c.run("resume", c.session.conversation.conversation_id, lambda e: None)
+    assert (live or {}).get("text") == "Lost one"
+    assert live == state(c)["unanswered"]
+
+
 # --- A1 (v0.3.0): text events carry their position, so a page joins /state and the stream
 
 
