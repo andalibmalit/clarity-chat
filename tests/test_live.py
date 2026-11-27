@@ -931,6 +931,7 @@ def started_log(extra: list[str], logs_dir: Path) -> str:
     config = load_server_config(REPO)
     config = dataclasses.replace(config, flags={**config.flags, "ctx-size": 8192})
     gguf = check_weights_quick(REPO, lock_entry(REPO, load_models(REPO)[MODEL]))
+    logs_dir.mkdir(parents=True)  # LlamaServer.start makes it; _launch's drain doesn't
     server = LlamaServer(config, gguf, logs_dir)
     env = {**server_env()[0], "LLAMA_API_KEY": server.api_key}
     server.port = free_port()
@@ -954,12 +955,13 @@ def figures(log: str) -> dict:
     graph splits, and how many nodes the last graph has over the first."""
     from clarity_chat.backends.llama_cpp import device_placement, graph_splits, memory_use
 
-    memory = memory_use(log, device_placement(log))
     nodes = [int(n) for n in NODES_RE.findall(log)]
+    assert nodes, f"no graph line in a start log of {len(log)} characters: {log[-2000:]!r}"
+    memory = memory_use(log, device_placement(log))
     return {
         "memory": [{k: v for k, v in m.items() if k != "limit_mib"} for m in memory],
         "graph splits": graph_splits(log),
-        "nodes, last less first": nodes[-1] - nodes[0] if nodes else None,
+        "nodes, last less first": nodes[-1] - nodes[0],
     }
 
 
