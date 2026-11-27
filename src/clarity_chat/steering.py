@@ -400,6 +400,54 @@ def check(vector: Vector, config: dict[str, Any], layers: object = None) -> list
     return sorted(layers)
 
 
+def file_config(facts: ModelFile, model_hint: str | None) -> dict[str, Any]:
+    """The config.json `check` reads, built from a model file's three facts, so a vector is
+    checked alike on both backends. Its type is the vector's hint when the hint has the
+    file's architecture; `check` refuses a hint of any other type."""
+    types = [name for name, kind in MODEL_TYPES.items() if kind.arch == facts.arch]
+    if not types:
+        *others, last = dict.fromkeys(kind.arch for kind in MODEL_TYPES.values())
+        raise ConfigError(
+            f"Steering hasn't been checked on llama.cpp architecture {facts.arch!r}; it runs "
+            f"on {', '.join(others)} and {last}. Ask for it to be added."
+        )
+    model_type = model_hint if model_hint in types else types[0]
+    sizes = {"hidden_size": facts.width, "num_hidden_layers": facts.blocks}
+    section = MODEL_TYPES[model_type].sizes
+    return {"model_type": model_type, **({section: sizes} if section else sizes)}
+
+
+def check_for_llama_server(vector: Vector, file: str, layers: list[int]) -> None:
+    """What llama-server's flags can say: the vector's absolute path, with none of the
+    characters its argument parser splits on, and one unbroken range of the file's blocks."""
+    path = str(vector.path.absolute())
+    if any(c in path for c in ':,"'):
+        raise ConfigError(
+            "llama-server can't take a vector whose path has a colon, a comma or a double "
+            f"quote: {path}. Rename the file, or move the Clarity folder."
+        )
+    left_out = [n for n in sorted(vector.directions) if layers[0] < n < layers[-1]]
+    left_out = [n for n in left_out if n not in layers]
+    if left_out:
+        raise ConfigError(
+            f"On llama.cpp, layers must take in every block of {file} between its first and "
+            "last: llama-server adds a vector to one unbroken range. layers is "
+            f"{layers}, and the file also has {left_out}."
+        )
+
+
+def check_float32(vector: Vector, layers: list[int], scale: float) -> None:
+    """Refuse a scale whose product with a direction isn't finite in float32, the type
+    llama.cpp adds it in. Transformers checks in the model's dtype, in `applied`."""
+    import numpy as np
+
+    for n in layers:
+        with np.errstate(over="ignore"):
+            scaled = np.float32(scale) * vector.directions[n]
+        if not np.isfinite(scaled).all():
+            raise ConfigError(f"{scale} x direction.{n} isn't finite in float32.")
+
+
 def encode(directions: dict[int, Any], model_hint: str) -> bytes:
     """A control vector as repeng writes one, byte for byte what gguf's GGUFWriter gives:
     GGUF version 3, three keys, then one F32 `direction.N` per block, each padded to 32."""

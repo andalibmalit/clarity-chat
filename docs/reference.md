@@ -211,7 +211,7 @@ All profiles:
 | `use_recommended` | no | `true` fills unset settings from the model's `generation_config.json` before `defaults.toml`. Default `false`. |
 | `device` | no | Transformers backend only: `"mps"` (default), `"cpu"` or `"cuda"`. |
 | `ctx_size` | no | The context size in tokens, explained in [Settings](#settings). Default: `ctx-size` in `server.toml`. |
-| `steering` | no | Transformers backend only: a table naming a [steering vector](#steering-vectors). `file` is its path relative to the project folder, with `/` between folders on every system, and must be inside it. `sha256` is its hash; without it, Clarity refuses the profile and gives the hash to add. `layers`, optional, lists the blocks to steer; the default is every block in the file. A profile with `[steering]` must set `steering_scale` in `settings`. |
+| `steering` | no | A table naming a [steering vector](#steering-vectors). `file` is its path relative to the project folder, with `/` between folders on every system, and must be inside it. `sha256` is its hash; without it, Clarity refuses the profile and gives the hash to add. `layers`, optional, lists the blocks to steer; the default is every block in the file. A profile with `[steering]` must set `steering_scale` in `settings`. |
 
 Chat mode, all optional:
 
@@ -657,7 +657,9 @@ steering_scale = 4.0               # required with [steering]; negative steers t
 
 The `4.0` is for a repeng vector from its default method, which has length 1 at every block. For a vector `make` writes, start at `1.0` ([why](#making-a-vector)). A vector `make` writes holds every block that can be steered, so keep the `layers` line the snippet gives: without it, every block is steered.
 
-When a conversation starts, resumes or switches profile, and before a batch run, Clarity loads the file, checks its sha256, and checks it against the model's `config.json`: the model type, the width, and that each block exists and is in the file. The width and the block count are read where the table above says. A vector that changed since the profile pinned it is refused. `/set steering_scale` changes the scale for one conversation without reloading the model.
+When a conversation starts, resumes or switches profile, and before a batch run, Clarity loads the file, checks its sha256, and checks it against the model: the model type, the width, and that each block exists and is in the file. On Transformers these come from the model's `config.json`, where the table above says. On llama.cpp they come from the model file's own header (`general.architecture`, then that architecture's `embedding_length` and `block_count`), and the type is the one the table gives that architecture, or the vector's `model_hint` when it names a type with that architecture. A vector that changed since the profile pinned it is refused.
+
+On llama.cpp three more rules hold, since llama-server adds the vector to one unbroken range of blocks and takes its path in a start-up flag. `layers` must take in every block the file has between its first and last; a list with gaps is fine when the file has no block in them. The file's absolute path can't hold a colon, a comma or a double quote. And the scale times each direction must be finite in float32, the type llama.cpp adds it in. `/set steering_scale` changes the scale for one conversation without reloading the model.
 
 In a notebook, `clarity_chat.steering` applies a vector exactly as Clarity does:
 - `load(path, sha256)` reads the file, checks its sha256, and returns a `Vector` with `sha256`, `directions` (block number to a float32 array) and `model_hint`.

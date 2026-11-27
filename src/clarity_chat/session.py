@@ -667,8 +667,15 @@ class Session:
             weights = self.weights_for(profile.backend, entry)
         if steered and profile.steering is not None:
             profile.vector, profile.layers = self.load_vector(
-                profile.steering.file, profile.steering.sha256, profile.steering.layers, weights
+                profile.steering.file,
+                profile.steering.sha256,
+                profile.steering.layers,
+                weights,
+                profile.backend,
             )
+            if profile.backend == "llama.cpp":
+                scale = profile.settings["steering_scale"].value
+                steering.check_float32(profile.vector, profile.layers, scale)
         tokenizer, template_tokenizer = self.tokenizers_for(profile, model)
         if profile.mode == "chat":
             template = chat_template_source(template_tokenizer, profile)
@@ -696,12 +703,18 @@ class Session:
         )
 
     def load_vector(
-        self, file: str, sha256: str | None, layers: object, weights: Path
+        self, file: str, sha256: str | None, layers: object, weights: Path, backend: str
     ) -> tuple[steering.Vector, list[int]]:
-        """Load a steering vector and check it against the model's config.json. Returns it
-        and the blocks it steers. The caller has checked `file` is inside the project."""
+        """Load a steering vector and check it against the model: its config.json on
+        Transformers, the GGUF's three facts and llama-server's rules on llama.cpp. Returns
+        it and the blocks it steers. The caller has checked `file` is inside the project."""
         vector = steering.load(self.root / file, sha256)
-        return vector, steering.check(vector, model_config(weights), layers)
+        if backend == "transformers":
+            return vector, steering.check(vector, model_config(weights), layers)
+        config = steering.file_config(steering.model_file(weights), vector.model_hint)
+        blocks = steering.check(vector, config, layers)
+        steering.check_for_llama_server(vector, file, blocks)
+        return vector, blocks
 
     @staticmethod
     def steering_for(profile: Profile, values: dict[str, Any]) -> steering.Steering | None:
@@ -744,7 +757,9 @@ class Session:
         file = logged["file"]
         steering_path(self.root, file, where)
         try:
-            vector, layers = self.load_vector(file, logged["sha256"], logged["layers"], weights)
+            vector, layers = self.load_vector(
+                file, logged["sha256"], logged["layers"], weights, backend
+            )
         except ConfigError as e:
             raise ConfigError(
                 f"Call {call['call_id']} was steered with {file} (sha256 {logged['sha256']}), "

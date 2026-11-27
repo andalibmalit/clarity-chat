@@ -785,11 +785,6 @@ def load_profile(
         raise ConfigError(f'{where}: device applies only to backend = "transformers".')
     steering = data.get("steering")
     if steering is not None:
-        if data["backend"] != "transformers":
-            raise ConfigError(
-                f"{where}: steering runs on the Transformers backend for now; llama.cpp's "
-                "control vectors aren't supported yet."
-            )
         steering = _steering(steering, root, where)
 
     documents_table = _documents(data.get("documents"), mode, where)
