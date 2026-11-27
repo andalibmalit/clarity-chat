@@ -204,7 +204,7 @@ def test_a_resume_starts_at_the_chat_s_last_strength(chat):
     assert conversation is not None
     path, settings = conversation.log.path, conversation.settings
     c.run("profile", steered(root, "plain", steering="", scale=None, backend="llama.cpp"), quiet)
-    refused = raised(lambda: c.run("resume", str(path), quiet))
+    refused = raised(lambda: c.run("resume", conversation.conversation_id, quiet))
     assert refused is None, f"the resume was refused: {refused!r}"
     assert scales(seen)[-1] == 2.0
     resumed = c.session.conversation
@@ -269,9 +269,8 @@ def test_a_replay_with_other_steering_than_the_chat_can_run_is_sent_to_the_termi
     }
     expected = (
         f"Call {call['call_id']} was steered with {CALM}, blocks [1, 2], which this chat's "
-        "model can't run. Replay it with `clarity replay` from the terminal, or resume its "
-        "conversation."
-    )
+        "model can't run. Resume its conversation to replay it there."
+    )  # the page shows it too, so it names no terminal command (tests/test_class.py's T2)
     for name, table in tables.items():
         scale = None if table == "" else "4.0"
         c.run(
@@ -337,3 +336,47 @@ def test_a_batch_of_two_strengths_starts_two_servers(monkeypatch, root, tiny_tok
     assert scales(seen) == [4.0, 2.0]
     (log,) = out.glob("*.jsonl")
     assert each_call_ran_on_its_server(log) == 4
+
+
+def test_a_new_strength_for_a_changed_vector_starts_nothing_and_the_old_one_runs_on(chat):
+    """State 9a's `/set steering_scale` form (moved from B3): the re-hash before the start
+    refuses with steering.load's sentence; the server at ×4 answers the next reply."""
+    c, seen = chat
+    c.run("profile", "steered", quiet)
+    say(c)
+    root = c.session.root
+    pinned = sha((root / CALM).read_bytes())
+    write(root / CALM, directions(1, 2, width=8, seed=7))
+    now = sha((root / CALM).read_bytes())
+    refused = raised(lambda: c.run("set", "steering_scale 2.0", quiet))
+    assert str(refused) == f"{root / CALM} has sha256 {now}, not the pinned {pinned}."
+    assert scales(seen) == [4.0]
+    assert not seen["procs"][-1].terminated, "the old server was stopped"
+    conversation = c.session.conversation
+    assert conversation is not None
+    assert conversation.settings["steering_scale"].value == 4.0
+    assert say(c, "Again")["request"]["steering"]["scale"] == 4.0
+    assert each_call_ran_on_its_server(conversation.log.path) == 2
+
+
+def test_a_chat_at_two_strengths_resumes_exports_and_opens_each_call(chat):
+    """The class tests' T3 (tests/test_class.py), its steered llama.cpp row (moved from B3):
+    accepted and logged means resumable, exportable and readable in Details."""
+    from clarity_chat.export import export_log
+    from clarity_chat.export_inspect import export_chat
+
+    c, seen = chat
+    c.run("profile", "steered", quiet)
+    say(c)
+    c.run("set", "steering_scale 2.0", quiet)
+    say(c, "Again")
+    conversation = c.session.conversation
+    assert conversation is not None
+    path = conversation.log.path
+    c.run("profile", "steered", quiet)
+    record = c.session.resume(path)
+    assert record["render"] is None or record["render"]["identical"], record["render"]
+    assert export_log(c.session, path)["path"]
+    assert export_chat(c.session, path)["path"]
+    for call in [r for r in read_records(path) if r["type"] == "call"]:
+        assert c.run("prompt", call["call_id"], quiet)

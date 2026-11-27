@@ -94,6 +94,13 @@ class Steering:
         }
 
 
+def start_key(steering: Steering | None) -> tuple | None:
+    """What a llama.cpp server must have been started with to answer a call (decision 5)."""
+    if steering is None:
+        return None
+    return (steering.vector.sha256, steering.scale, tuple(steering.layers))
+
+
 def file_identity(st: os.stat_result) -> tuple[int, ...]:
     """What tells a file read before a start from the one there after it. The size and
     modified time alone miss a file of the same size renamed into place with the old time

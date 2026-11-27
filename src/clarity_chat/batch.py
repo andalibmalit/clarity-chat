@@ -40,6 +40,7 @@ from clarity_chat.session import (
     preparing_line,
     room_left,
 )
+from clarity_chat.steering import start_key
 
 FIRST_SEED = 42  # a run's seeds are 42, 43, …, starting from the default seed
 SPLIT_RULE = (
@@ -231,11 +232,14 @@ def run_batch(
     log = LogFile(run_dir / "calls.jsonl")
     log.append({"type": "run", **facts, "client": client_git(), "machine": machine()})
 
-    # Group the calls by backend, model and context size, so each server starts once.
-    def loaded(name: str) -> tuple[str, str | None, str, int]:
+    # Group the calls by backend, model, context size and, on llama.cpp, steering (decision
+    # 5 of v0.4.7), so each server starts once.
+    def loaded(name: str) -> tuple[str, str | None, str, int, tuple | None]:
         profile = prepared[name].profile
         ctx_size = session.ctx_size_for(profile).value
-        return profile.backend, profile.device, prepared[name].model.name, ctx_size
+        steer = session.start_steering(profile, profile.settings)
+        key = start_key(steer) if profile.backend == "llama.cpp" else None
+        return profile.backend, profile.device, prepared[name].model.name, ctx_size, key
 
     groups = list(dict.fromkeys(loaded(name) for name in profile_names))
     order = sorted(profile_names, key=lambda name: groups.index(loaded(name)))
@@ -244,7 +248,7 @@ def run_batch(
     # Searched once per opening and profile, and the same block sent with every seed.
     blocks: dict[tuple[int, str], dict[str, Any]] = {}
     shown: set[str] = set()
-    started: set[tuple[str, str | None, str, int]] = set()  # what this run has loaded
+    started: set[tuple[str, str | None, str, int, tuple | None]] = set()  # what this run has loaded
 
     def warn(message: str) -> None:
         if message not in shown:  # each warning once; they never contain reply text

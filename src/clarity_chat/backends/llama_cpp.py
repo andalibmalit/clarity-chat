@@ -130,11 +130,7 @@ def steering_argv(steering: vectors.Steering | None) -> list[str]:
     ]
 
 
-def steering_key(steering: vectors.Steering | None) -> tuple | None:
-    """What a running server must have been started with to answer a call (decision 5)."""
-    if steering is None:
-        return None
-    return (steering.vector.sha256, steering.scale, tuple(steering.layers))
+steering_key = vectors.start_key
 
 
 def same_value(name: str, sent: Any, got: Any) -> bool:

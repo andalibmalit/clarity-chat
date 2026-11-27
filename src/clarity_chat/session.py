@@ -733,6 +733,16 @@ class Session:
             profile.steering.file, profile.vector, values["steering_scale"], profile.layers
         )
 
+    @classmethod
+    def start_steering(
+        cls, profile: Profile, settings: dict[str, Setting]
+    ) -> steering.Steering | None:
+        """What a model starts with for these settings (decision 5): none without a vector
+        or at scale 0. Transformers takes it per call; llama.cpp only at its start."""
+        if profile.vector is None:
+            return None
+        return cls.steering_for(profile, {name: s.value for name, s in settings.items()})
+
     def logged_steering(
         self, call: dict[str, Any], backend: str, weights: Path
     ) -> steering.Steering | None:
@@ -751,10 +761,6 @@ class Session:
             or not isinstance(logged["sha256"], str)
         ):
             raise ConfigError(f"{where} isn't one Clarity writes: {logged!r}.")
-        if backend != "transformers":
-            raise ConfigError(
-                f"{where} is on a {backend} call; steering runs on the Transformers backend."
-            )
         scale = check_setting("steering_scale", logged["scale"], where)
         if scale == 0:  # Clarity logs no steering at scale 0
             raise ConfigError(f"{where} isn't one Clarity writes: its scale is 0.")
@@ -853,16 +859,17 @@ class Session:
             )
         return warnings
 
-    def start_model(self, prepared: Prepared, ctx_size: Setting) -> dict[str, Any] | None:
-        """Start (or keep) the model a prepared profile needs, at `ctx_size`. Returns the
+    def start_model(
+        self, prepared: Prepared, ctx_size: Setting, settings: dict[str, Setting] | None = None
+    ) -> dict[str, Any] | None:
+        """Start (or keep) the model a prepared profile needs, at `ctx_size`, steered as
+        `settings` say (by default the profile's; a chat's own after its /set). Returns the
         server_start record if a server started. On failure the current conversation's
         model is restarted, so it stays usable (see _restore)."""
         previous = self.backend
+        steer = self.start_steering(prepared.profile, settings or prepared.profile.settings)
         try:
             backend = self.use_backend(prepared.profile.backend, prepared.profile.device)
-            profile = prepared.profile
-            values = {name: s.value for name, s in profile.settings.items()}
-            steer = self.steering_for(profile, values) if profile.vector is not None else None
             # Passed only when steered, so an unsteered start is the call it always was.
             started = backend.start(
                 prepared.model,
@@ -871,7 +878,8 @@ class Session:
                 **({"steering": steer} if steer else {}),
             )
         except (ConfigError, BackendError) as e:
-            self._restore(previous, e, (prepared.model, prepared.weights, ctx_size.value))
+            tried = (prepared.model, prepared.weights, ctx_size.value, steering.start_key(steer))
+            self._restore(previous, e, tried)
             raise
         self.model, self.model_lock, self.weights = prepared.model, prepared.lock, prepared.weights
         self.tokenizer = prepared.tokenizer
@@ -883,19 +891,24 @@ class Session:
         """After a failed switch, restart the current conversation's model, so a bad /new or
         /profile leaves that conversation usable. If that fails too, no conversation runs.
         If the start that failed was the current conversation's own (`tried`: model,
-        weights and context size, on the same backend), as "Start the model again", a
-        Replay or /new on the same profile after a crash make, the same start would fail
-        the same way: the conversation stays, its model stopped, to be tried again."""
-        if self.conversation is None or self.model is None or self.weights is None:
+        weights, context size and steering, on the same backend), as "Start the model
+        again", a Replay or /new on the same profile after a crash make, the same start
+        would fail the same way: the conversation stays, its model stopped, to be tried
+        again. A new strength that fails is another start: the old one runs again."""
+        conversation = self.conversation
+        if conversation is None or self.model is None or self.weights is None:
             return
-        own = (self.model, self.weights, self.conversation.ctx_size.value)
-        if self.backend is previous and tried == own:
+        steer = self.start_steering(conversation.profile, conversation.settings)
+        size = conversation.ctx_size.value
+        if self.backend is previous and tried == (
+            self.model, self.weights, size, steering.start_key(steer)
+        ):  # fmt: skip
             return
         if self.backend is not previous:
             self.backend.close()
             self.backend = previous
         try:
-            previous.start(self.model, self.weights, self.conversation.ctx_size.value)
+            previous.start(self.model, self.weights, size, **({"steering": steer} if steer else {}))
         except (ConfigError, BackendError) as again:
             self.conversation = None
             raise BackendError(
@@ -1768,12 +1781,15 @@ class Session:
         if (refused := self._parts_checked[key]) is not None:
             raise refused
 
-    def set_setting(self, name: str, text: str) -> dict[str, Any]:
+    def set_setting(
+        self, name: str, text: str, on_start: Callable[[], None] | None = None
+    ) -> dict[str, Any]:
         """Change a setting for this conversation (`text` empty: back to its base). Checked
         like a profile, and logged as a `settings` record with every /set value. A search key
         (v0.4.4 B1) applies from the next message; words stops the embedder (state 13). A new
         ctx_size starts the model again, and is the chat's only once that start worked (G3):
-        a refused one leaves the old size running (decision 6)."""
+        a refused one leaves the old size running (decision 6). So does a new strength on
+        llama.cpp (v0.4.7 decision 5), calling `on_start` first."""
         conversation = self._require_conversation()
         if name not in (*SETTING_NAMES, *CHAT_KEYS, "ctx_size"):
             known = [*SETTING_NAMES, *CHAT_KEYS, "ctx_size"]
@@ -1796,6 +1812,10 @@ class Session:
         check_backend_settings(trial, conversation.profile.backend, "/set", steered)
         if name == "ctx_size":
             self._resize(conversation, Setting(chat[name], "chat") if text else None)
+        elif name == "steering_scale" and self.restarts_for(conversation, trial):
+            if on_start:
+                on_start()
+            self._restart(conversation, conversation.ctx_size, trial)
         conversation.chat_settings = chat
         if name == "search_method":
             self._free_embedder(conversation.search_method)
@@ -1809,11 +1829,26 @@ class Session:
             }
         )
 
+    def restarts_for(self, conversation: Conversation, settings: dict[str, Setting]) -> bool:
+        """Whether `settings` need the chat's model started again: on llama.cpp, a strength
+        that isn't the one in force (decision 5). Transformers steers each call."""
+        return conversation.profile.backend == "llama.cpp" and steering.start_key(
+            self.start_steering(conversation.profile, settings)
+        ) != steering.start_key(self.start_steering(conversation.profile, conversation.settings))
+
     def _resize(self, conversation: Conversation, size: Setting | None) -> None:
         """Run the chat's model at `size` (None: the base), starting it again if the size
         is new. `conversation.ctx_size` changes only after the start worked: on a failure
         start_model's restore runs the old size again, or says it couldn't (state 31)."""
         size = size or conversation.ctx_base
+        self._restart(conversation, size, conversation.settings)
+        conversation.ctx_size = size
+
+    def _restart(
+        self, conversation: Conversation, size: Setting, settings: dict[str, Setting]
+    ) -> None:
+        """Run the chat's model at `size`, steered as `settings` say, starting it again if
+        either is new."""
         model, weights = self.model, self.weights
         tokenizer, template_tokenizer = self.tokenizer, self.template_tokenizer
         assert model and weights and tokenizer and template_tokenizer  # a chat runs
@@ -1822,9 +1857,8 @@ class Session:
             tokenizer, template_tokenizer, self.template,
         )  # fmt: skip
         # None at the same size: the server runs on, and so do its warnings (S5).
-        started = self.start_model(running, size)
+        started = self.start_model(running, size, settings)
         conversation.started_server = started or conversation.started_server
-        conversation.ctx_size = size
 
     def history(self, conversation: Conversation | None = None) -> list[dict[str, Any]]:
         """The conversation from its start to `head`: each turn with its current marks and
@@ -2195,6 +2229,31 @@ class Session:
             call_id = call["call_id"]
         return self.replay(conversation.log.path, call_id, conversation.log, cancel=cancel)
 
+    def _check_chat_steering(
+        self, call_id: str, steer: steering.Steering | None, conversation: Conversation
+    ) -> None:
+        """Refuse a llama.cpp replay whose steering isn't the chat's server's (decision 5):
+        a strength the chat can set (state 10a), or a vector or blocks it can't (10b)."""
+        profile = conversation.profile
+        running = self.start_steering(profile, conversation.settings)
+        if steering.start_key(steer) == steering.start_key(running):
+            return
+        if steer is not None and (
+            profile.vector is None
+            or (steer.vector.sha256, steer.layers) != (profile.vector.sha256, profile.layers)
+        ):
+            raise ConfigError(
+                f"Call {call_id} was steered with {steer.file}, blocks {steer.layers}, which "
+                "this chat's model can't run. Resume its conversation to replay it there."
+            )
+        was = f"was steered ×{steer.scale}" if steer else "wasn't steered"
+        runs = f"runs at ×{running.scale}" if running else "runs unsteered"
+        raise ConfigError(
+            f"Call {call_id} {was}, but this chat's model {runs}: llama.cpp applies a vector "
+            f"when the model starts. Set steering_scale to {steer.scale if steer else 0} to "
+            "replay it here."
+        )
+
     def replay(
         self,
         log_path: Path,
@@ -2246,13 +2305,16 @@ class Session:
         device = described.get("device") if backend_name == "transformers" else None
         weights = self.weights_for(backend_name, entry)
         steer = self.logged_steering(call, backend_name, weights)
+        if self.conversation is not None and backend_name == "llama.cpp":
+            self._check_chat_steering(call_id, steer, self.conversation)
         previous = self.backend
         try:
             backend = self.use_backend(backend_name, device)
-            backend.start(model, weights, call["n_ctx"])  # the call's own size, as logged
+            # the call's own size and steering, as logged
+            backend.start(model, weights, call["n_ctx"], **({"steering": steer} if steer else {}))
         except (ConfigError, BackendError) as e:
             # as start_model does: the conversation stays usable
-            self._restore(previous, e, (model, weights, call["n_ctx"]))
+            self._restore(previous, e, (model, weights, call["n_ctx"], steering.start_key(steer)))
             raise
         self.model, self.model_lock, self.weights = model, entry, weights
         tokenizer = self.load_tokenizer(
@@ -2458,7 +2520,7 @@ class Session:
         if not os.access(path, os.W_OK):
             raise ConfigError(f"Clarity can't write to {path}, so it can't continue it there.")
         self._free_embedder(conversation.search_method)
-        conversation.started_server = self.start_model(prepared, ctx_size)
+        conversation.started_server = self.start_model(prepared, ctx_size, merged)
         environment = missing = None
         if last:
             server = state.servers.get((last.get("backend") or {}).get("server_id", ""))

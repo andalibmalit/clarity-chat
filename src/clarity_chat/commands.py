@@ -725,7 +725,20 @@ def _set(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     name, _, value = needs(args, "/set NAME [VALUE]").partition(" ")
     if name == "ctx_size":
         return _set_ctx_size(c, value.strip(), emit)
-    record = c.session.set_setting(name, value.strip())
+    running = c.session.conversation
+    assert running is not None
+    starting = []
+
+    def on_start() -> None:  # a new strength on llama.cpp starts the model, said as a start
+        starting.append(True)
+        emit({"event": "status", "status": "starting", "profile": running.profile.name})
+
+    try:
+        record = c.session.set_setting(name, value.strip(), on_start)
+    finally:
+        if starting and (conversation := c.session.conversation) is not None:
+            ready = {"status": "ready", "conversation_id": conversation.conversation_id}
+            emit({"event": "status", **ready})
     conversation = c.session.conversation
     assert conversation is not None
     values = conversation.search_values() if name in CHAT_KEYS else conversation.settings
