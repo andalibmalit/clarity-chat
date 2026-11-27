@@ -14,7 +14,7 @@ import json
 import os
 import re
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, TextIO
 
 from clarity_chat.files import read_text, sha256_file, write_text_atomic
@@ -281,6 +281,8 @@ def source_files(entry: dict[str, Any], lock: str) -> list[dict[str, Any]]:
         and all(
             isinstance(item, dict)
             and isinstance(item.get("file"), str)
+            and not PurePosixPath(item["file"]).is_absolute()  # a path in the snapshot
+            and ".." not in PurePosixPath(item["file"]).parts
             and isinstance(item.get("size"), int)
             and isinstance(item.get("sha256"), str)
             and SHA256_RE.match(item["sha256"])
