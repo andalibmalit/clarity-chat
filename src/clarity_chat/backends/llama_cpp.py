@@ -130,9 +130,6 @@ def steering_argv(steering: vectors.Steering | None) -> list[str]:
     ]
 
 
-steering_key = vectors.start_key
-
-
 def same_value(name: str, sent: Any, got: Any) -> bool:
     if name in FLOAT_FIELDS and isinstance(got, (int, float)) and isinstance(sent, (int, float)):
         return to_float32(float(sent)) == to_float32(float(got))
@@ -937,7 +934,7 @@ class LlamaCppBackend:
             and server.gguf == weights.absolute()
             and server.config.ctx_size == ctx_size
             and self.weights_identity == identity
-            and steering_key(server.steering) == steering_key(steering)
+            and vectors.start_key(server.steering) == vectors.start_key(steering)
             and server.proc
             and server.proc.poll() is None
         ):
@@ -987,7 +984,7 @@ class LlamaCppBackend:
         (measured: M1)."""
         if self.server is None:
             raise BackendError("No model loaded.")
-        if steering_key(self.server.steering) != steering_key(steering):
+        if vectors.start_key(self.server.steering) != vectors.start_key(steering):
             raise BackendError("This server wasn't started with the call's steering.")
         logged_steering = steering.to_json() if steering is not None else None
         # A replay sends the logged request exactly: its steering must be the one applied.

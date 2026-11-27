@@ -252,7 +252,7 @@ def test_the_strength_sentence_says_unsteered_at_0(chat):
     )
 
 
-def test_a_replay_with_other_steering_than_the_chat_can_run_is_sent_to_the_terminal(chat):
+def test_a_replay_with_other_steering_than_the_chat_can_run_says_to_resume_its_conversation(chat):
     c, seen = chat
     root = c.session.root
     c.run("profile", "steered", quiet)

@@ -1043,7 +1043,7 @@ def test_logged_steering_that_isnt_a_table_is_refused(session):
         session.replay(path, record["call_id"])
 
 
-def test_logged_steering_on_a_llama_cpp_call_is_checked_like_a_profile_s(session):
+def test_logged_steering_on_a_llama_cpp_call_reads_the_model_file_header(session):
     """v0.4.7 B4: a llama.cpp call's steering is read (B3 refused it), and checked as a
     llama.cpp profile's is, against the model file's header: this fixture's GGUF is a stub.
     tests/test_steering_chat.py replays such calls."""
