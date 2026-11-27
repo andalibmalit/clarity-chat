@@ -407,7 +407,7 @@ class TransformersBackend:
             "transformers": transformers.__version__,
             "eos_token_id": self.eos_ids,
             "eos_token_id_from": self.eos_from,
-            "max_position_embeddings": getattr(loaded.config, "max_position_embeddings", None),
+            "max_position_embeddings": vectors.positions(loaded.config),
             "env_torch_kept": env,
             "deterministic_algorithms": deterministic,
             "warnings": warnings,
@@ -621,7 +621,7 @@ class TransformersBackend:
         )
 
     def _check_positions(self, name: str, loaded: Any) -> None:
-        positions = getattr(loaded.config, "max_position_embeddings", None)
+        positions = vectors.positions(loaded.config)
         if positions is not None and positions < self._n_ctx:
             raise ConfigError(
                 f"{name} handles {positions} positions, less than ctx_size {self._n_ctx}."

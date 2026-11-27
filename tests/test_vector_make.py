@@ -353,8 +353,8 @@ def test_a_model_type_steering_hasnt_been_checked_on_is_refused_before_the_model
     except (ConfigError, Started) as e:
         outcome = e
     assert str(outcome) == (
-        "Steering hasn't been checked on model type 'qwen3'; it runs on llama and olmo3. Ask "
-        "for it to be added."
+        "Steering hasn't been checked on model type 'qwen3'; it runs on llama, olmo3 and "
+        "gemma4. Ask for it to be added."
     ), f"not refused: {outcome!r}"
     assert not (root / "local" / "vectors").exists()
 

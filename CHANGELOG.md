@@ -8,6 +8,9 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+### Added
+- Steering and `clarity vector make` run on Gemma 4 (model type `gemma4`) on the Transformers backend. The Transformers backend now checks Gemma 4's `max_position_embeddings`, under its `text_config`, against `ctx_size`, and logs it in the start record; before, it found none at the top level and checked nothing.
+
 ## [0.4.6] - 2026-11-26
 
 Live tests on an M2 Max (macOS), 2026-11-26, every tier at commit `ac19e0f` (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 39 passed, `-m setup` 1 passed (setup fetching llama.cpp at the pin and building `llama-server` in a new folder), `-m browser` 193 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m embed` 12 passed (bge-m3 on Metal), `-m hf` 25 passed, `-m olmo` 13 passed and `-m llama` 4 passed.

@@ -247,7 +247,7 @@ def reading(model: Any) -> Generator[dict[int, Any]]:
 
         return read
 
-    blocks = model.model.layers
+    blocks = steering.model_blocks(model)
     handles = []
     try:
         for b in range(1, len(blocks)):
@@ -419,7 +419,7 @@ def make(session: Session, path: Path, name: str) -> int:
         "[steering]",
         f"file = {toml_string(relative)}",
         f'sha256 = "{digest}"',
-        f"layers = [{len(model.model.layers) // 2}]",
+        f"layers = [{len(steering.model_blocks(model)) // 2}]",
     ]
     print("\n".join(lines))
     return 0

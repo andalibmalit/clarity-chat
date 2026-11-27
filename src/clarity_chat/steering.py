@@ -35,8 +35,23 @@ MAX_BYTES = 16 * 1024 * 1024  # a 7B model's 32 blocks x 4,096 x 4 bytes is 0.5 
 MAX_TENSORS = 1024
 MAX_KEYS = 1024
 MAX_WIDTH = 1024 * 1024
-# Checked on each: the layer list is model.model.layers, and a block returns a plain tensor.
-MODEL_TYPES = ("llama", "olmo3")
+
+
+@dataclass(frozen=True)
+class ModelType:
+    """Where a model type keeps its blocks and its sizes, and llama.cpp's name for it."""
+
+    blocks: tuple[str, ...]  # the attributes from a loaded model to its list of blocks
+    sizes: str | None  # the config section with hidden_size and the counts; None: the top
+    arch: str  # the GGUF's general.architecture after conversion
+
+
+# Checked on each: the blocks are where `blocks` says, and a block returns a plain tensor.
+MODEL_TYPES = {
+    "llama": ModelType(("model", "layers"), None, "llama"),
+    "olmo3": ModelType(("model", "layers"), None, "olmo2"),
+    "gemma4": ModelType(("model", "language_model", "layers"), "text_config", "gemma4"),
+}
 
 # GGUF value types with a fixed size; 8 is a string and 9 an array.
 _SIZES = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
@@ -238,11 +253,40 @@ def check_type(config: dict[str, Any]) -> str:
     vector checks it too, before the model loads."""
     model_type = config.get("model_type")
     if model_type not in MODEL_TYPES:
+        *others, last = MODEL_TYPES
         raise ConfigError(
             f"Steering hasn't been checked on model type {model_type!r}; it runs on "
-            f"{' and '.join(MODEL_TYPES)}. Ask for it to be added."
+            f"{', '.join(others)} and {last}. Ask for it to be added."
         )
     return model_type
+
+
+def size_section(config: dict[str, Any]) -> dict[str, Any]:
+    """The part of a checked type's config.json that holds its sizes (Gemma 4's
+    text_config), itself and not a copy."""
+    section = MODEL_TYPES[check_type(config)].sizes
+    if section is None:
+        return config
+    if not isinstance(config.get(section), dict):
+        raise ConfigError(f"The model's config.json has no {section}.")
+    return config[section]
+
+
+def model_blocks(model: Any) -> Any:
+    """A loaded Transformers model's list of blocks, found where its type keeps them."""
+    found = model
+    for name in MODEL_TYPES[check_type(model.config.to_dict())].blocks:
+        found = getattr(found, name)
+    return found
+
+
+def positions(config: Any) -> int | None:
+    """A loaded model's max_position_embeddings, read where its type keeps its sizes. Any
+    model runs unsteered, so a type not in MODEL_TYPES is read at the top level."""
+    kind = MODEL_TYPES.get(getattr(config, "model_type", None))
+    if kind is not None and kind.sizes is not None:
+        config = getattr(config, kind.sizes)
+    return getattr(config, "max_position_embeddings", None)
 
 
 def check(vector: Vector, config: dict[str, Any], layers: object = None) -> list[int]:
@@ -254,10 +298,11 @@ def check(vector: Vector, config: dict[str, Any], layers: object = None) -> list
         raise ConfigError(
             f"{vector.path} was made for model type {vector.model_hint!r}, not {model_type!r}."
         )
-    if vector.width != config.get("hidden_size"):
+    sizes = size_section(config)
+    if vector.width != sizes.get("hidden_size"):
         raise ConfigError(
             f"{vector.path} has width {vector.width}; this model's hidden size is "
-            f"{config.get('hidden_size')}."
+            f"{sizes.get('hidden_size')}."
         )
     if layers is None:
         layers = sorted(vector.directions)
@@ -267,7 +312,7 @@ def check(vector: Vector, config: dict[str, Any], layers: object = None) -> list
         or not all(isinstance(n, int) and not isinstance(n, bool) for n in layers)
     ):
         raise ConfigError("layers must be a list of block numbers, like [10, 11, 12].")
-    count = config.get("num_hidden_layers")
+    count = sizes.get("num_hidden_layers")
     if not isinstance(count, int):
         raise ConfigError("The model's config.json has no num_hidden_layers.")
     for n in layers:
@@ -330,8 +375,10 @@ def applied(model: Any, vector: Vector, scale: float, layers: object = None) -> 
 
     if getattr(model, "clarity_steering", None) is not None:
         raise BackendError("This model is already steered; exit the other `applied` first.")
-    blocks = model.model.layers  # the count from the model itself, not only its config
-    layers = check(vector, model.config.to_dict() | {"num_hidden_layers": len(blocks)}, layers)
+    blocks = model_blocks(model)
+    config = model.config.to_dict()
+    size_section(config)["num_hidden_layers"] = len(blocks)  # the model's own count wins
+    layers = check(vector, config, layers)
     runs = dict.fromkeys(layers, 0)
     if scale == 0:
         yield runs

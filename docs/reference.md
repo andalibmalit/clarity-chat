@@ -632,7 +632,15 @@ A steering vector is a file made by `clarity vector make` ([Making a vector](#ma
 
 Clarity reads the file with its own reader, which accepts only this format: GGUF version 3, little-endian, at most 16 MB, 1 to 1,024 tensors, every value finite. Anything else is refused with what was wrong.
 
-Steering runs on model types `llama` and `olmo3`, the two whose blocks Clarity has checked. Other types, including Qwen3 and Apertus, are refused until they are checked. `llama` admits every Llama-architecture model, such as Hermes 4, though only SmolLM2 and Llama 3.1 8B Instruct have live tests.
+Steering runs on three model types, the ones whose blocks Clarity has checked. Each keeps its blocks and its sizes (`hidden_size`, `num_hidden_layers`, `max_position_embeddings`) in its own place, and converts to a llama.cpp architecture of its own:
+
+| Model type | Blocks | Sizes in `config.json` | llama.cpp architecture |
+|---|---|---|---|
+| `llama` | `model.model.layers` | the top level | `llama` |
+| `olmo3` | `model.model.layers` | the top level | `olmo2` |
+| `gemma4` | `model.model.language_model.layers` | `text_config` | `gemma4` |
+
+Other types, including Qwen3 and Apertus, are refused until they are checked. `llama` admits every Llama-architecture model, such as Hermes 4, though only SmolLM2 and Llama 3.1 8B Instruct have live tests.
 
 A profile names its vector in a `[steering]` table and its scale in `settings`:
 
@@ -648,7 +656,7 @@ steering_scale = 4.0               # required with [steering]; negative steers t
 
 The `4.0` is for a repeng vector from its default method, which has length 1 at every block. For a vector `make` writes, start at `1.0` ([why](#making-a-vector)). A vector `make` writes holds every block that can be steered, so keep the `layers` line the snippet gives: without it, every block is steered.
 
-When a conversation starts, resumes or switches profile, and before a batch run, Clarity loads the file, checks its sha256, and checks it against the model's `config.json`: the model type, the width, and that each block exists and is in the file. A vector that changed since the profile pinned it is refused. `/set steering_scale` changes the scale for one conversation without reloading the model.
+When a conversation starts, resumes or switches profile, and before a batch run, Clarity loads the file, checks its sha256, and checks it against the model's `config.json`: the model type, the width, and that each block exists and is in the file. The width and the block count are read where the table above says. A vector that changed since the profile pinned it is refused. `/set steering_scale` changes the scale for one conversation without reloading the model.
 
 In a notebook, `clarity_chat.steering` applies a vector exactly as Clarity does:
 - `load(path, sha256)` reads the file, checks its sha256, and returns a `Vector` with `sha256`, `directions` (block number to a float32 array) and `model_hint`.
