@@ -410,6 +410,10 @@ class TransformersBackend:
         self._check_positions(model.name, loaded)
         self.model, self.model_entry, self.weights = loaded, model, weights
         warnings = []
+        if towers:
+            warnings.append(
+                "Gemma 4's audio and vision parts aren't loaded: Clarity runs its text model only."
+            )
         if self.eos_from == TOKENIZER_END:
             (eos,) = self.eos_ids
             warnings.append(
