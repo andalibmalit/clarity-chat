@@ -22,10 +22,8 @@ from clarity_chat.logs import read_records  # noqa: E402
 from tests import test_export_inspect, test_export_inspect_chat  # noqa: E402
 from tests.test_browser_inspect import (  # noqa: E402
     browser_type_launch_args,  # noqa: F401  the fixture: Chrome on the Mac
-    finding,
     only_local,
     page_text,
-    record,
     sample_route,
     serve,
     show,
@@ -47,7 +45,6 @@ def test_the_viewer_shows_a_runs_export(run, context):
     with serve(run_dir / "inspect", root, {}) as viewer:
         page = watched(viewer, context)
         text = show(page, viewer, "/logs/1-chat.eval", "not-run-by-inspect")
-        record(page, "I4-log")
         assert "clarity\nnot-run-by-inspect" in text  # V1
         assert "clarity/chat" in text and "error" not in text.lower()  # V8
         assert "ANSWER" in text and "SCORE" in text  # V4
@@ -55,20 +52,15 @@ def test_the_viewer_shows_a_runs_export(run, context):
         assert not [t for t in NO_TIME if t in text]  # V7: the run's times
         show(page, viewer, "/logs/1-chat.eval/info", "clarity-run")
         page.wait_for_timeout(2000)
-        record(page, "I4-log-info")
         text = page_text(page)
-        finding("I4 note shown unopened on Info:", "Clarity made these calls" in text)
         assert "Clarity made these calls, not Inspect." in text  # the I4 ruling: no click
         for tab, waits_for in (("task", "TASK INFO"), ("models", "clarity/chat")):
             text = show(page, viewer, f"/logs/1-chat.eval/{tab}", waits_for)
-            record(page, f"I4-{tab}-tab")
             assert not [t for t in NO_TIME if t in text], tab
         text = show(page, viewer, sample_route("1-chat.eval", 1, 1, "info"), "prompt_ids")
-        record(page, "I4-sample-metadata")
         for key in ("call_id", "prompt_text", "message_spans", "output_text", "settings"):
             assert key in text, key  # V2
         text = show(page, viewer, "/logs/2-text.eval", "clarity/text")
-        record(page, "I4-text-log")
         assert "error" not in text.lower() and text.count("unmarked") == 4
         only_local(viewer)
 
@@ -91,20 +83,15 @@ def test_the_viewer_shows_a_chats_export(make, context):
     with serve(session.logs_dir / "exports", session.root, {}) as viewer:
         page = watched(viewer, context)
         text = show(page, viewer, f"/logs/{name}", "Ask me about herons.")
-        record(page, "C1-chat-log")
         assert "5 Samples" in text and not re.search(r"\d+ / \d+ Samples", text)  # V5
         assert text.count("unmarked") == 5
         assert not [t for t in NO_TIME if t in text]
         route = sample_route(name, f"{first['turn_id']}-2", 1, "messages")
         text = show(page, viewer, route, replies[1].strip())
-        record(page, "C1-chat-sample")
         assert "The kettle sang twice." in text and "error" not in text.lower()
         for tab, waits_for in (("", "Ask me about herons."), ("/task", "TASK INFO")):
             text = show(page, viewer, f"/logs/{name}{tab}", waits_for)
-            record(page, f"C4-chat-title{tab.replace('/', '-')}")
             assert page.evaluate("window.gateRan") is None, tab
-            images = page.locator(f'img[src="{REMOTE_IMAGE}"]').count()
-            finding(f"C4 title{tab} shown as text:", "plain after" in text, "img:", images)
         assert not any(REMOTE_IMAGE in url for url in viewer.requests)
         only_local(viewer)
         assert path.endswith(name)
@@ -132,23 +119,11 @@ def test_the_viewer_shows_an_exports_text_as_written(make, chat_tokenizer, conte
         route = sample_route(name, f"{turn['turn_id']}-1", 1, "messages")
         show(page, viewer, route, "a starred line")
         page.wait_for_timeout(1500)
-        record(page, "I4-untrusted-messages")
         body = page.inner_text("body")
-        finding(
-            "I4 untrusted: three leading spaces kept:",
-            "   Indented by three spaces." in body,
-            "'* a starred line' count:",
-            body.count("* a starred line"),
-            "<think> count:",
-            body.count("<think>a thought</think>"),
-            "U+200B marker:",
-            "A hidden\u27e8U+200B\u27e9space." in body,
-        )
         # The message, line by line; the header's Answer has it too, on one line.
         assert f"\n{MARKDOWN_REPLY}\n" in body
         assert "A hidden\u27e8U+200B\u27e9space." in body
         show(page, viewer, f"/logs/{name}/info", "Clarity made these calls")
         page.wait_for_timeout(2000)
-        record(page, "I4-untrusted-info")
         assert "Clarity made these calls, not Inspect." in page_text(page)
         only_local(viewer)
