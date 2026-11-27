@@ -54,17 +54,23 @@ def steered_chat(monkeypatch, root, tiny_tokenizer):
 
 def open_settings(page) -> None:
     page.click("#composer-row [data-action=settings]")
-    page.wait_for_selector(f"#panel:not([hidden]) {ROW}")
+    page.wait_for_selector("#panel:not([hidden]) [data-setting=steering_scale]")
+
+
+def steering_fact(page) -> str:
+    """The last reply's facts line says its steering first, then any other fact (the fake's
+    replies stop at the token limit, which the line says too)."""
+    return (page.text_content(f"{FACTS} p") or "").split(" · ")[0]
 
 
 def reply(page, text: str = "Hi") -> str:
-    """Send `text` and return the new reply's facts line."""
+    """Send `text` and return what the new reply's facts line says of its steering."""
     count = page.locator(".reply").count()
     say(page, text)
     until(page, lambda: page.locator(".reply").count() > count, what="the new reply")
-    page.wait_for_selector(f"{FACTS}")
+    page.wait_for_selector(FACTS)
     settled(page)
-    return page.text_content(FACTS) or ""
+    return steering_fact(page)
 
 
 def strength(page, value: str) -> None:
@@ -111,7 +117,9 @@ def test_a_strength_that_cant_start_is_refused_under_the_row(steered_chat, page)
     page.wait_for_selector(f"{ROW} .refused:not([hidden])")
     settled(page)
     assert page.is_visible(f"{ROW} .refused")  # still there after the redraws
-    assert "control vector" in (page.text_content(f"{ROW} .refused") or "")
+    assert (page.text_content(f"{ROW} .refused") or "").startswith(
+        "llama-server started without the vector: its start log doesn't show"
+    )
     assert page.text_content(f"{ROW} .note") == (
         "Not applied: the next reply still uses 4.0 (profile)."
     )
@@ -167,14 +175,16 @@ def test_during_a_reply_strength_waits_and_a_change_applies_after_it(
         assert page.text_content("#panel .waits") == "Changes wait until this reply is done."
         assert page.get_attribute("#set-steering_scale", "aria-disabled") == "true"
         assert not page.is_editable("#set-steering_scale")
-        page.click(f"{ROW} [data-set='steering_scale 0']")  # waits: sends nothing
+        # Playwright won't click an aria-disabled button, so the click is forced, as a
+        # person's would land; the page sends nothing for a control that waits.
+        page.click(f"{ROW} [data-set='steering_scale 0']", force=True)
         assert scales(seen) == [4.0], "the model started again during the reply"
     finally:
         gate.set()
     page.wait_for_selector("#panel .waits", state="detached", timeout=20_000)
     page.wait_for_selector(FACTS)
     settled(page)
-    assert page.text_content(FACTS) == "steered ×4.0"
+    assert steering_fact(page) == "steered ×4.0"
     assert scales(seen) == [4.0]
     strength(page, "2.0")
     page.wait_for_selector(f"{ROW} .tag:has-text('chat')")
