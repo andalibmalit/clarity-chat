@@ -167,14 +167,16 @@ def new_records(path: Path, seen: set[str]) -> list[dict[str, Any]]:
 
 class Faulty(FakeBackend):
     """The fake backend, with the next `refusals` starts refused. A real failed start has
-    stopped the old server, so a refusal stops it."""
+    stopped the old server, so a refusal stops it. A start the fake wouldn't make (the
+    running model at its size) is never refused: a real backend makes none there either."""
 
     def __init__(self, tokenizer: Any) -> None:
         super().__init__([f" Reply {i}." for i in range(1000)], tokenizer=tokenizer)
         self.refusals = 0
 
     def start(self, model, weights, ctx_size, steering=None):
-        if self.refusals:
+        running = self.started and (self.started[-1], self.ctx_sizes[-1]) == (model.name, ctx_size)
+        if self.refusals and not (running and not self.stopped):
             self.refusals -= 1
             self.stopped = True
             raise BackendError(f"llama-server didn't start at ctx_size {ctx_size} (made up).")
