@@ -11,7 +11,8 @@ exactly as the call was.
 
 The reader is Clarity's own and reads only control vectors: it parses the bytes it hashed,
 checks every size against the bytes left before reading, and turns any failure into a
-`ConfigError` that names the file.
+`ConfigError` that names the file. `model_file` uses the same reader on a model GGUF, for
+the three facts `check` needs on llama.cpp.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 from clarity_chat.backends import BackendError
 from clarity_chat.profiles import ConfigError
@@ -35,6 +36,7 @@ MAX_BYTES = 16 * 1024 * 1024  # a 7B model's 32 blocks x 4,096 x 4 bytes is 0.5 
 MAX_TENSORS = 1024
 MAX_KEYS = 1024
 MAX_WIDTH = 1024 * 1024
+MODEL_HEADER = 1024 * 1024  # G7: the sizes are among the first 20 keys of every shipped model
 
 
 @dataclass(frozen=True)
@@ -119,6 +121,31 @@ def load(path: Path, sha256: str | None) -> Vector:
     return Vector(path, actual, directions, model_hint)
 
 
+class ModelFile(NamedTuple):
+    """What a model GGUF says of itself: llama.cpp's architecture and the two sizes."""
+
+    arch: str  # general.architecture
+    width: int  # ARCH.embedding_length
+    blocks: int  # ARCH.block_count
+
+
+def model_file(path: Path) -> ModelFile:
+    """Read a model GGUF's architecture, width and block count from its key-value section.
+    Reads at most the first 1 MB and stops at the block count; parses no tensor."""
+    try:
+        with path.open("rb") as f:
+            data = f.read(MODEL_HEADER + 1)
+        reader = _Reader(data[:MODEL_HEADER])
+        if len(data) > MODEL_HEADER:
+            reader.end = "the first 1 MB, where Clarity reads a model's architecture and sizes"
+        return reader.model_file()
+    except _Malformed as e:
+        reason = str(e)
+    except (OSError, ValueError, struct.error, IndexError, OverflowError) as e:
+        reason = str(e)  # ValueError: a NUL in the path, or a decode
+    raise ConfigError(f"{path} isn't a model file Clarity can read: {reason}.")
+
+
 class _Malformed(Exception):
     pass
 
@@ -127,11 +154,11 @@ class _Reader:
     """GGUF version 3, little-endian, holding only `direction.N` tensors."""
 
     def __init__(self, data: bytes) -> None:
-        self.data, self.pos = data, 0
+        self.data, self.pos, self.end = data, 0, "the end of the file"
 
     def take(self, n: int, what: str) -> bytes:
         if n > len(self.data) - self.pos:
-            raise _Malformed(f"{what} runs past the end of the file")
+            raise _Malformed(f"{what} runs past {self.end}")
         start, self.pos = self.pos, self.pos + n
         return self.data[start : self.pos]
 
@@ -168,9 +195,8 @@ class _Reader:
         else:
             raise _Malformed(f"{key!r} has unknown value type {kind}")
 
-    def read(self) -> tuple[dict[int, np.ndarray], str | None]:
-        import numpy as np  # here, not at the top: only steering needs it
-
+    def header(self) -> tuple[int, int]:
+        """The tensor and key counts."""
         if len(self.data) < 24:
             raise _Malformed("the file is too short")
         if self.take(4, "the header") != b"GGUF":
@@ -178,7 +204,45 @@ class _Reader:
         version = self.u32("the header")
         if version != 3:
             raise _Malformed(f"GGUF version {version}; Clarity reads version 3, little-endian")
-        tensors, keys = self.u64("the header"), self.u64("the header")
+        return self.u64("the header"), self.u64("the header")
+
+    def model_file(self) -> ModelFile:
+        """llama.cpp's converter writes general.architecture first, so the sizes' keys are
+        known when they come."""
+        _, keys = self.header()
+        arch, sizes, seen = "", {}, set()
+        names: list[str] = []  # the sizes' keys, once arch is known
+        for _ in range(keys):
+            key = self.string("a key")
+            if key in seen:
+                raise _Malformed(f"the key {key!r} appears twice")
+            seen.add(key)
+            kind = self.u32(f"the type of {key}")
+            if key == "general.architecture":
+                if kind != _STRING:
+                    raise _Malformed("general.architecture isn't a string")
+                arch = self.string(key)
+                if arch == "controlvector":
+                    raise _Malformed("it's a control vector, not a model")
+                names = [f"{arch}.embedding_length", f"{arch}.block_count"]
+            elif key in names:
+                if kind != _UINT32:
+                    raise _Malformed(f"{key} isn't a u32")
+                sizes[key] = self.u32(key)
+                if sizes[key] == 0:
+                    raise _Malformed(f"{key} is 0")
+                if len(sizes) == 2:
+                    return ModelFile(arch, sizes[names[0]], sizes[names[1]])
+            else:
+                self.skip(kind, key)
+        if not names:
+            raise _Malformed("it has no general.architecture")
+        raise _Malformed(f"it has no {next(k for k in names if k not in sizes)}")
+
+    def read(self) -> tuple[dict[int, np.ndarray], str | None]:
+        import numpy as np  # here, not at the top: only steering needs it
+
+        tensors, keys = self.header()
         if not 1 <= tensors <= MAX_TENSORS:
             raise _Malformed(f"it has {tensors} tensors; a control vector has 1 to 1,024")
         if keys > MAX_KEYS:
