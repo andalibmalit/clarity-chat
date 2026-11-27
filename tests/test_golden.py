@@ -353,3 +353,16 @@ def test_the_v0_4_5_golden_log_holds_a_call_steered_with_a_made_vector_and_regen
     assert calls[0]["settings"]["seed"] == {"value": 42, "origin": "profile"}
     assert calls[1]["settings"]["steering_scale"] == {"value": 0.0, "origin": "chat"}
     assert not calls[1]["request"].get("steering")
+
+
+def test_the_v0_4_6_golden_log_holds_the_converter_s_requirements_sha256():
+    """v0.4.6 S4: a call on a converted model carries the sha256 of the
+    converter-requirements.txt its converter's environment was installed from, in
+    model.converted_with.converter, beside the lock's other converter facts but packages."""
+    rows = list(read_records(GOLDEN / "v0.4.6.jsonl"))
+    call = next(r for r in rows if r["type"] == "call")
+    converter = call["model"]["converted_with"]["converter"]
+    assert converter["requirements_sha256"] == "0" * 64
+    assert "packages" not in converter
+    replay = next(r for r in rows if r["type"] == "replay")
+    assert replay["identical"] and replay["call_id"] == call["call_id"]

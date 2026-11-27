@@ -7,7 +7,7 @@ This tutorial takes you from nothing to a first chat. On a Mac with Apple silico
 On a Mac with Apple silicon and 16 GB of memory or more, paste this into Terminal:
 
 ```
-curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/andalibmalit/clarity-chat/v0.4.5/install.sh | sh
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/andalibmalit/clarity-chat/v0.4.6/install.sh | sh
 ```
 
 In order, it:
@@ -25,7 +25,7 @@ The models go in the Hugging Face cache (`~/.cache/huggingface`, unless your she
 To read the script before it runs, download it, read it, then run it:
 
 ```
-curl --proto '=https' --tlsv1.2 -fsSL -o install.sh https://raw.githubusercontent.com/andalibmalit/clarity-chat/v0.4.5/install.sh
+curl --proto '=https' --tlsv1.2 -fsSL -o install.sh https://raw.githubusercontent.com/andalibmalit/clarity-chat/v0.4.6/install.sh
 sh install.sh
 ```
 

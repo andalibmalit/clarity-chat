@@ -8,6 +8,10 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-11-26
+
+Live tests on an M2 Max (macOS), 2026-11-26, every tier at commit `ac19e0f` (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 39 passed, `-m setup` 1 passed (setup fetching llama.cpp at the pin and building `llama-server` in a new folder), `-m browser` 193 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m embed` 12 passed (bge-m3 on Metal), `-m hf` 25 passed, `-m olmo` 13 passed and `-m llama` 4 passed.
+
 ### Added
 - A conversion's lock entry records the sha256 of the `converter-requirements.txt` its environment was installed from, as `converter.requirements_sha256`, and each call's `model.converted_with.converter` carries it.
 
@@ -392,7 +396,8 @@ The first release.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - A llama-server that Clarity starts and checks itself, and a Transformers backend for the same weights.
 
-[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.6...HEAD
+[0.4.6]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.2...v0.4.3
