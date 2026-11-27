@@ -451,8 +451,9 @@ def make_and_steer(root: Path, tmp_path: Path, capsys, base: str, message: str, 
     that the read hook gives exactly Transformers' hidden_states at every block below the
     last; that the snippet's profile steers (the steering check counts each pass) and
     differs from unsteered at seed 42; and that the steered call replays identically. Prints
-    each make's time and the largest remake difference per block (run with -s); nothing
-    about that difference is asserted until it is known (decision 11)."""
+    each make's time, the vector's path and the largest remake difference per block (run
+    with -s); nothing about that difference is asserted until it is known (decision 11).
+    Returns the first make's record."""
     import json
     import time
     from typing import Any
@@ -460,6 +461,7 @@ def make_and_steer(root: Path, tmp_path: Path, capsys, base: str, message: str, 
     import numpy as np
     import torch
 
+    from clarity_chat import steering
     from clarity_chat.maker import make, reading
     from clarity_chat.steering import load
     from tests.test_maker_render import PAIRS
@@ -488,7 +490,7 @@ def make_and_steer(root: Path, tmp_path: Path, capsys, base: str, message: str, 
                 output_hidden_states=True,
                 use_cache=False,
             )
-        n = len(model.model.layers)
+        n = len(steering.model_blocks(model))
         assert sorted(rows) == list(range(1, n))
         for b in range(1, n - 1):  # the last entry of hidden_states comes after the final norm
             expected = out.hidden_states[b + 1][0, -1].to(device="cpu", dtype=torch.float32)
@@ -501,6 +503,7 @@ def make_and_steer(root: Path, tmp_path: Path, capsys, base: str, message: str, 
         b: float(np.abs(vector.directions[b] - again.directions[b]).max())
         for b in record["vector"]["blocks"]
     }
+    said.append(f"{base} {extra}: the vector: {root / record['vector']['file']}")
     said.append(f"{base} {extra}: the largest remake difference per block: {largest}")
     steered_name = Path(profile(folder, base, **extra))
     text = steered_name.read_text(encoding="utf-8")
@@ -536,6 +539,7 @@ def make_and_steer(root: Path, tmp_path: Path, capsys, base: str, message: str, 
     assert replayed["identical"], replayed
     with capsys.disabled():
         print("\n" + "\n".join(said))
+    return record
 
 
 @pytest.mark.parametrize("device", ["cpu", "mps"])
