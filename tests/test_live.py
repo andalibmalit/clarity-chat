@@ -1164,12 +1164,16 @@ def test_a_new_strength_starts_smollm2_again_and_both_calls_replay_outside_the_c
     repeng = load(REPENG, REPENG_SHA256)
     folder = tmp_path / "profiles"
     folder.mkdir()
-    profile = steered_profile(folder, "local/vectors/repeng.gguf", repeng.sha256, "4.0", "0.8")
+    profile = Path(
+        steered_profile(folder, "local/vectors/repeng.gguf", repeng.sha256, "4.0", "0.8")
+    )
+    (root / "local" / "profiles").mkdir()  # /profile takes a name, never a path
+    shutil.copy(profile, root / "local" / "profiles" / profile.name)
     events: list[dict] = []
     session = Session(root, logs_dir=tmp_path / "logs")
     try:
         c = Commands(session)
-        c.run("profile", profile, lambda e: None)
+        c.run("profile", profile.stem, lambda e: None)
         first = c.run("say", "Tell me about rivers.", lambda e: None)["call"]
         c.run("set", "steering_scale 2.0", events.append)
         (again,) = [r["call"] for r in c.run("regen", "same", lambda e: None)["replies"]]
