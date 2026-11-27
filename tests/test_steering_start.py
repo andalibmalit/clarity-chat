@@ -205,6 +205,18 @@ def test_a_graph_line_in_a_token_s_text_doesn_t_pass_a_failed_load(
     assert seen["procs"][-1].terminated, "the unsteered server was left running"
 
 
+def test_a_refusal_quotes_no_model_file_text(monkeypatch, server, tiny_tokenizer):
+    """Checkpoint 1, finding 12: a token's text can hold the words llama.cpp's loader
+    uses, but only the loader's own lines are quoted."""
+    backend, _, model, weights = server
+    root = weights.parents[2]
+    spoofed = token_text("x\nthe control vector loaded fine\n")
+    seen = fake_llama(monkeypatch, root, {"tiny": spoofed}, tiny_tokenizer)
+    seen["cvec"] = "silent"
+    refused = started(backend, model, weights, steer(root))
+    assert str(refused) == NOT_STEERED.format("nothing")
+
+
 def test_a_graph_line_in_the_chat_template_s_example_doesn_t_pass_a_failed_load(server):
     """Route 2: llama-server prints the template's example, newlines and all, after the
     model has loaded. Only the lines up to the server's slots line are read."""
