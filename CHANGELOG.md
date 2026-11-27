@@ -25,6 +25,7 @@ Two headings are Clarity's own, used when they apply:
 ### Fixed
 - Setup's last line said to double-click `Clarity.command` on your Desktop even when setup hadn't put it there: with no Desktop, a Desktop it can't write to, or a file of that name it didn't write or can't read. It now says to run the same command again.
 - In a short window, the top of a long profile picker or Searching list was cut off by the top of the window. Each list now fits the room above the message box and scrolls.
+- A message that failed or was cancelled before its reply was offered back, but a failed `/regen` of an edited message's reply took the offer back. A resume of the same log still offered it. Now the chat keeps offering it, as a resume does.
 
 ## [0.4.6] - 2026-11-26
 

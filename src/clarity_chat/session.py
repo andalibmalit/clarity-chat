@@ -2139,7 +2139,7 @@ class Session:
                 conversation.unanswered = {"turn_id": user_turn.turn_id, "text": user_turn.text}
                 conversation.pending = list(user_turn.attachments)  # waiting again
                 conversation.resume_differ = None  # it used the resumed one up
-            elif user_turn.origin == "edit":  # as a resume reads it: the edit is the last turn
+            elif regen_of is None:  # a failed edit: as a resume reads it, the last turn
                 conversation.unanswered = None
             raise
         fields, server_prompt = result_fields(result)
