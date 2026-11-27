@@ -20,6 +20,7 @@ Two headings are Clarity's own, used when they apply:
 - The Transformers backend loads safetensors only. A folder without `model.safetensors` or its index is an error; before, Transformers would have loaded a `pytorch_model.bin` there without saying so. No shipped model's output changes.
 - `steering_scale` is 0, or a number from about 1.2e-38 to 3.4e38 in size, on both backends: float32's normal range. llama-server reads the scale as a float32, where a smaller one is 0 and a larger one infinite, so a call would have recorded a strength the model didn't run.
 - Windows is off the roadmap for now: CI runs the offline tests on Linux and macOS only, and the docs say so.
+- `clarity vector make` ends with lines to paste into a profile of the model on either backend, or, for a model fetched on the `safetensors` route, a Transformers profile. A notebook export's note says to apply the vector before recomputing only when a Transformers call was steered: a llama.cpp call ran on a GGUF file, so it can't be recomputed under the same conditions, though its vector is still listed. The export result's new `steered_on_transformers` says which, and the page's Export sheet follows it. The docs no longer say steering runs on Transformers only.
 
 ### Fixed
 - Setup's last line said to double-click `Clarity.command` on your Desktop even when setup hadn't put it there: with no Desktop, a Desktop it can't write to, or a file of that name it didn't write or can't read. It now says to run the same command again.

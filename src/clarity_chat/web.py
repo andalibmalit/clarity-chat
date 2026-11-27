@@ -2094,6 +2094,7 @@ def export_sheet(answer: dict[str, Any]) -> dict[str, Any]:
             {**v, "file": shown(v["file"]), "can_copy": v["file"].isprintable()}
             for v in result["steered"]
         ],
+        "apply_vector": result["steered_on_transformers"],  # as the file's note says (B5)
     }
 
 

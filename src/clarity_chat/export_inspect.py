@@ -28,6 +28,7 @@ from clarity_chat.export import (
     logged_template,
     require_log,
     run_conversations,
+    steered_on_transformers,
 )
 from clarity_chat.logs import LOG_NAME, chat_summary, read_records, unreadable
 from clarity_chat.profiles import ConfigError
@@ -229,7 +230,7 @@ def run_log(
         dataset=("clarity-run", list(range(1, run["n_openings"] + 1))),
         model=model,
         epochs=len(seeds),
-        header=run_header(run, [c.header for c in group], rows),
+        header=run_header(run, [c.header for c in group]),
         samples=samples,
         times=(run["time"], calls[rows[-1]["call_id"]]["time"]),
     )
@@ -432,9 +433,7 @@ def sample(
     )
 
 
-def run_header(
-    run: dict[str, Any], headers: list[dict[str, Any]], rows: list[dict[str, Any]]
-) -> dict[str, Any]:
+def run_header(run: dict[str, Any], headers: list[dict[str, Any]]) -> dict[str, Any]:
     """The plain export's header for a profile's conversations together, with the run
     record in place of a conversation ID."""
     groups: dict[str, list[str]] = {}
@@ -450,7 +449,7 @@ def run_header(
         **{count: sum(h[count] for h in headers) for count in counts},
         "conditions": [{"conditions": json.loads(k), "call_ids": ids} for k, ids in groups.items()],
         "note": RECOMPUTE_NOTE
-        + (STEERED_NOTE if any(r["steering"] != "none" for r in rows) else ""),
+        + (STEERED_NOTE if steered_on_transformers(map(json.loads, groups)) else ""),
         "inspect_format_version": INSPECT_FORMAT_VERSION,
     }
 

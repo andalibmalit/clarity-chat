@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Iterable
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -27,8 +28,8 @@ RECOMPUTE_NOTE = (
     "`clarity_chat.recompute.check` with your loaded model first; it lists what differs."
 )
 STEERED_NOTE = (
-    " Some calls were steered; apply the same vector with `clarity_chat.steering.applied` "
-    "before recomputing them."
+    " Some Transformers calls were steered; apply the same vector with "
+    "`clarity_chat.steering.applied` before recomputing them."
 )
 # Copied from the call record as logged.
 CALL_FIELDS = (
@@ -102,6 +103,9 @@ def export_result(
         "failed_calls_left_out": header["failed_calls_left_out"],
         "calls_without_a_turn_left_out": header["calls_without_a_turn_left_out"],
         "steered": steered_by_vector(rows),
+        "steered_on_transformers": steered_on_transformers(
+            g["conditions"] for g in header["conditions"]
+        ),
         "attachments": any(row["attachments"] for row in rows),  # it holds documents' text
         "found": any(row["found"] for row in rows),  # and the text of parts search added
     }
@@ -148,9 +152,16 @@ def conversation_rows(
             {"conditions": json.loads(key), "call_ids": ids} for key, ids in groups.items()
         ],
         "note": RECOMPUTE_NOTE
-        + (STEERED_NOTE if any(row["steering"] != "none" for row in rows) else ""),
+        + (STEERED_NOTE if steered_on_transformers(map(json.loads, groups)) else ""),
     }
     return header, rows
+
+
+def steered_on_transformers(conditions: Iterable[dict[str, Any]]) -> bool:
+    """Whether a steered call ran on Transformers. Only those can be recomputed in a notebook
+    under the same conditions: a llama.cpp call ran on a GGUF file, so its vector is listed,
+    but `steering.applied` isn't said of it (v0.4.7 B5)."""
+    return any(c["backend"] == "transformers" and c["steering"] != "none" for c in conditions)
 
 
 def holds(result: dict[str, Any]) -> str | None:

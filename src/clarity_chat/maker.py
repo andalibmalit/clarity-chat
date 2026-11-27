@@ -21,7 +21,7 @@ from clarity_chat import steering
 from clarity_chat.backends import BackendError
 from clarity_chat.files import temp_path, write_bytes_atomic, write_text_atomic
 from clarity_chat.logs import client_git, now_utc
-from clarity_chat.profiles import ConfigError, Profile, load_profile, shown
+from clarity_chat.profiles import SAFETENSORS_ROUTE, ConfigError, Profile, load_profile, shown
 from clarity_chat.render import library_versions, render_chat, tokenize
 from clarity_chat.session import Prepared, Session, model_config
 
@@ -413,8 +413,12 @@ def make(session: Session, path: Path, name: str) -> int:
         LEGEND,
         "These are facts about the pairs, not a score.",
         "",
+        # States 14 and 24: a safetensors-route model has no GGUF, so only Transformers runs it.
         f"To try it, add this to a Transformers profile of {model_name}, and steering_scale = "
-        "1.0 to its [settings]:",
+        "1.0 to its [settings]:"
+        if prepared.model.route == SAFETENSORS_ROUTE
+        else f"To try it, add this to a profile of {model_name}, on either backend, and "
+        "steering_scale = 1.0 to its [settings]:",
         "",
         "[steering]",
         f"file = {toml_string(relative)}",

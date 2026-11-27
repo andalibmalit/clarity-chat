@@ -515,7 +515,7 @@ class Profile:
     use_recommended: bool = False  # fill unset settings from the model's generation_config.json
     device: str | None = None  # Transformers backend only: mps (default), cpu or cuda
     ctx_size: int | None = None  # None: server.toml's ctx-size
-    steering: SteeringTable | None = None  # the [steering] table, Transformers only
+    steering: SteeringTable | None = None  # the [steering] table, on either backend
     # [documents]: None means Clarity's default; "" means none (no framing or marker line)
     framing: str | None = None
     excerpt_marker: str | None = None
