@@ -95,6 +95,43 @@ def reservation(nodes: int, splits: int = 2) -> str:
 
 NODES = 939  # SmolLM2's graph (G13)
 
+# The lines either side of every graph reservation at the start: the context's
+# construction (`src/llama-context.cpp:180`), which reserves it once, and the server's
+# slots (`tools/server/server-context.cpp:1485`), printed after `common_init_from_params`
+# has applied the vector and run the warmup that reserves it again.
+CONTEXT_LINE = f"{PREFIX}llama_context: constructing llama_context\n"
+SLOTS_LINE = (
+    f"{PREFIX}srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = "
+    "'false'\n"
+)
+
+
+# --- start logs a model file has written into (Checkpoint 1, finding 7) ------------------
+
+
+def graph_line(nodes: int, splits: int = 2) -> str:
+    """A whole graph line, prefix and all, as a model file's text could print it."""
+    return reservation(nodes, splits).splitlines()[-1]
+
+
+def named(name: str) -> str:
+    """A start log whose model is called `name`: the key dump prints it as the file has
+    it, cut to 40 characters, with each newline as \\n (`src/llama-model-loader.cpp:902`)."""
+    return startup().replace("= Tiny\n", f"= {name}\n")
+
+
+def token_text(text: str) -> str:
+    """A start log whose end token's text is `text`, printed as it is, newlines and all
+    (`print_info` in `src/llama-vocab.cpp:4335-4346`), before the context exists."""
+    eog = "EOG token             = 2 '</s>'"
+    return startup().replace(eog, f"EOS token             = 2 '{text}'")
+
+
+def template_example(text: str) -> str:
+    """The chat template's example as llama-server prints it at log-verbosity 4, rendered
+    with its newlines (`tools/server/server-context.cpp:1703`), after the slots line."""
+    return f"{PREFIX}srv          init: init: chat template, example_format: '{text}'\n"
+
 
 def vector_lines(argv: list[str], mode: str) -> str:
     """What a start with a control vector adds to the log, by `mode`: "loads" (llama.cpp
@@ -105,19 +142,20 @@ def vector_lines(argv: list[str], mode: str) -> str:
     path = argv[argv.index("--control-vector-scaled") + 1].rpartition(":")[0]
     i = argv.index("--control-vector-layer-range")
     blocks = int(argv[i + 2]) - int(argv[i + 1]) + 1
-    first = reservation(NODES)
+    first = CONTEXT_LINE + reservation(NODES)
     if mode == "loads":
-        return first + reservation(NODES + blocks)
+        return first + reservation(NODES + blocks) + SLOTS_LINE
     if mode == "wrong":
-        return first + reservation(NODES + blocks + 1)
+        return first + reservation(NODES + blocks + 1) + SLOTS_LINE
     if mode == "fails":
         return (
             first
             + f"{ERROR}cmn  common_contr: failed to load control vector file from {path}\n"
             + f"{ERROR}cmn  common_contr: no valid control vector files passed\n"
+            + SLOTS_LINE
         )
     assert mode == "silent", mode
-    return first
+    return first + SLOTS_LINE
 
 
 class Running:
@@ -168,8 +206,8 @@ def fake_llama(
     processes started, each request, and the queue of replies (`replies`), to add to.
 
     A start whose argv has a control vector adds `vector_lines` in `seen["cvec"]`'s mode
-    ("loads" unless set), and calls `seen["during_start"]` if a test set it. Each start's
-    argv is in `seen["argv"]`."""
+    ("loads" unless set), then `seen["after"]` if a test set it, and calls
+    `seen["during_start"]` if a test set it. Each start's argv is in `seen["argv"]`."""
     import json
 
     from clarity_chat.profiles import load_server_config
@@ -185,7 +223,7 @@ def fake_llama(
         text = str(printed(self.config.ctx_size) if callable(printed) else printed)
         seen["argv"].append(argv)
         if "--control-vector-scaled" in argv:
-            text += vector_lines(argv, seen.get("cvec", "loads"))
+            text += vector_lines(argv, seen.get("cvec", "loads")) + seen.get("after", "")
             if seen.get("during_start"):
                 seen["during_start"]()
         self.output = [text]

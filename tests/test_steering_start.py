@@ -27,7 +27,18 @@ from clarity_chat.backends.llama_cpp import (
     memory_use,
 )
 from clarity_chat.profiles import ConfigError, load_models, load_server_config
-from tests.fake_llama import BUFFER_LINES, DEVICE_LINES, NODES, fake_llama, reservation, startup
+from tests.fake_llama import (
+    BUFFER_LINES,
+    CONTEXT_LINE,
+    DEVICE_LINES,
+    NODES,
+    fake_llama,
+    graph_line,
+    reservation,
+    startup,
+    template_example,
+    token_text,
+)
 from tests.test_ctx_size import flag
 from tests.test_llama_cpp import SETTINGS
 from tests.test_meaning import raised
@@ -175,6 +186,54 @@ def test_a_node_count_in_the_model_file_s_metadata_doesn_t_pass_a_failed_load(
     assert isinstance(refused, BackendError), f"not refused as state 11: {refused!r}"
     assert str(refused).startswith(NOT_STEERED.partition("{}")[0])
     assert seen["procs"][-1].terminated, "the unsteered server was left running"
+
+
+def test_a_graph_line_in_a_token_s_text_doesn_t_pass_a_failed_load(
+    monkeypatch, server, tiny_tokenizer
+):
+    """Checkpoint 1, finding 7, route 1: `print_info` prints a special token's text with its
+    newlines, before the context and its reservations, so the text can hold a whole graph
+    line. Only the lines from the context's construction on are read."""
+    backend, _, model, weights = server
+    root = weights.parents[2]
+    spoofed = token_text(f"x\n{graph_line(NODES - 2)}\n")
+    assert spoofed != startup()
+    seen = fake_llama(monkeypatch, root, {"tiny": spoofed}, tiny_tokenizer)
+    seen["cvec"] = "fails"
+    refused = started(backend, model, weights, steer(root))
+    assert isinstance(refused, BackendError), f"not refused as state 11: {refused!r}"
+    assert seen["procs"][-1].terminated, "the unsteered server was left running"
+
+
+def test_a_graph_line_in_the_chat_template_s_example_doesn_t_pass_a_failed_load(server):
+    """Route 2: llama-server prints the template's example, newlines and all, after the
+    model has loaded. Only the lines up to the server's slots line are read."""
+    backend, seen, model, weights = server
+    root = weights.parents[2]
+    seen["cvec"] = "fails"
+    seen["after"] = template_example(f"x\n{graph_line(NODES + 2)}\n")
+    refused = started(backend, model, weights, steer(root))
+    assert isinstance(refused, BackendError), f"not refused as state 11: {refused!r}"
+    assert seen["procs"][-1].terminated, "the unsteered server was left running"
+
+
+def test_the_splits_logged_are_llama_cpp_s_not_the_template_example_s(server):
+    backend, seen, model, weights = server
+    root = weights.parents[2]
+    seen["after"] = template_example(f"x\n{graph_line(NODES + 2, splits=9)}\n")
+    record = backend.start(model, weights, 8192, steering=steer(root))
+    assert record["graph_splits"] == {"prompt": 2, "reply": 2}
+
+
+def test_a_context_line_after_the_model_loads_refuses_a_good_start(server):
+    """A spoof can only move the window's start later, past the reservations; then the
+    log shows no vector added, and the start is refused rather than trusted."""
+    backend, seen, model, weights = server
+    root = weights.parents[2]
+    seen["after"] = template_example(f"x\n{CONTEXT_LINE}")
+    refused = started(backend, model, weights, steer(root))
+    assert isinstance(refused, BackendError), f"not refused as state 11: {refused!r}"
+    assert str(refused) == NOT_STEERED.format("nothing")
 
 
 def test_a_vector_changed_before_a_new_start_starts_nothing_and_the_old_server_runs_on(server):
