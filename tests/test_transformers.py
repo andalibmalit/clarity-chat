@@ -416,3 +416,13 @@ def test_gemma4_refuses_a_tensor_outside_its_towers_it_doesnt_use(tmp_path, chat
     message = str(refused.value)
     assert message.startswith("tiny's weights have 1 tensor the model doesn't use"), message
     assert extra in message, message
+
+
+GEMMA_LINE = "Gemma 4's audio and vision parts aren't loaded: Clarity runs its text model only."
+
+
+def test_gemma4s_start_says_its_towers_arent_loaded(tmp_path, chat_tokenizer):
+    """On screen and in the log, not only in weights_not_loaded."""
+    backend, record = started(saved(tmp_path / "m", tiny_gemma4_with_towers(), chat_tokenizer))
+    backend.close()
+    assert record is not None and GEMMA_LINE in record["warnings"], record["warnings"]
