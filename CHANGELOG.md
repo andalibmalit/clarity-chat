@@ -18,6 +18,7 @@ Two headings are Clarity's own, used when they apply:
 
 ### Changed
 - The Transformers backend loads safetensors only. A folder without `model.safetensors` or its index is an error; before, Transformers would have loaded a `pytorch_model.bin` there without saying so. No shipped model's output changes.
+- `steering_scale` is 0, or a number from about 1.2e-38 to 3.4e38 in size, on both backends: float32's normal range. llama-server reads the scale as a float32, where a smaller one is 0 and a larger one infinite, so a call would have recorded a strength the model didn't run.
 - Windows is off the roadmap for now: CI runs the offline tests on Linux and macOS only, and the docs say so.
 
 ### Fixed

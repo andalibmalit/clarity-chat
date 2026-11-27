@@ -949,6 +949,8 @@ class LlamaCppBackend:
             steering = dataclasses.replace(
                 steering, vector=vectors.load(vector.path, vector.sha256)
             )
+            # Every start passes here: a /set, a resume, a replay and a batch, not only a profile.
+            vectors.check_float32(steering.vector, steering.layers, steering.scale)
         self.close()
         self.model = model
         # The size goes into the flags, so argv, the /props check and the log all agree.

@@ -2429,6 +2429,8 @@ class Session:
         # resolved today, and is listed.
         filled = {k: s.to_json() for k, s in prepared.profile.settings.items()}
         filled = {k: v for k, v in filled.items() if k not in start["settings"]}
+        for name, setting in start["settings"].items():  # untrusted, checked as a profile's
+            check_setting(name, setting["value"], f"{path}: the conversation record's settings")
         logged = {**filled, **start["settings"]}
         prepared.profile.settings = {k: Setting(v["value"], v["origin"]) for k, v in logged.items()}
         last = state.last_call

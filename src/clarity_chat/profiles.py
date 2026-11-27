@@ -279,8 +279,11 @@ SETTING_RANGES: dict[str, tuple[str, float | None, float | None, str]] = {
     "max_tokens": ("integer", 1, None, "an integer >= 1"),
     "seed": ("integer", 0, SEED_MAX, f'"random" or an integer from 0 to {SEED_MAX}'),
     "logprobs": ("integer", 0, 20, "an integer from 0 (off) to 20"),
-    "steering_scale": ("number", None, None, "a finite number; 0 is off"),
+    "steering_scale": ("number", None, None, "a finite number, 0 or 1.2e-38 to 3.4e38 in size"),
 }
+# steering_scale's sizes, float32's normal range: llama-server reads the scale as a float32,
+# and below it reads 0 or a subnormal (which std::stof refuses), above it inf.
+FLOAT32_TINY, FLOAT32_MAX = 1.1754943508222875e-38, 3.4028234663852886e38
 
 # What each setting does, in one line: the one place for this text (AGENTS.md). The web
 # interface shows it under each row, and docs/reference.md's Settings table repeats it
@@ -368,6 +371,9 @@ def check_setting(name: str, value: object, where: str) -> Any:
         checked is None
         or (lowest is not None and checked < lowest)
         or (highest is not None and checked > highest)
+        or (
+            name == "steering_scale" and checked and not FLOAT32_TINY <= abs(checked) <= FLOAT32_MAX
+        )
     ):
         raise ConfigError(f"{where}: {name} must be {description}, got {value!r}.")
     return checked
