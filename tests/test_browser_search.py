@@ -11,7 +11,7 @@ import shutil
 import pytest
 
 from clarity_chat.documents import library_add, library_documents
-from tests.test_browser import open_clarity, settled, shot, until
+from tests.test_browser import open_clarity, settled, until
 from tests.test_browser_attach import browser_type_launch_args, choose, clarity  # noqa: F401
 
 pytestmark = pytest.mark.browser
@@ -32,7 +32,6 @@ def test_search_it_adds_the_file_and_searches_it(clarity, page, fetched_root):  
     page.wait_for_selector("#attach-search")
     page.click("#attach-search")
     assert page.inner_text("[data-action=attach-add]") == "Search it"
-    shot(page, "search-it", "v032-c2")
     page.click("[data-action=attach-add]")
     page.wait_for_selector("#notice:has-text('from your next message')")
     assert "This chat searches herons from your next message." in page.inner_text("#notice")
@@ -40,7 +39,6 @@ def test_search_it_adds_the_file_and_searches_it(clarity, page, fetched_root):  
     assert "Searching: 1 document" in page.inner_text("#search-button")
     page.click("#search-button")
     page.wait_for_selector("#search-menu:not([hidden])")
-    shot(page, "chooser", "v032-c2")
     assert page.get_attribute("#search-menu [data-name=herons]", "aria-checked") == "true"
 
 
@@ -123,11 +121,9 @@ def test_from_documents_opens_its_list_and_details(clarity, page, fetched_root):
     # A flex row: innerText puts its items on lines of their own.
     assert " ".join(line.inner_text().split()).startswith("From documents · 1 part · ")
     assert 'glossary · "Wren"' in page.inner_text("#thread .found .parts")
-    shot(page, "from-documents", "v032-c3")
     page.click("#thread .found [data-section=documents]")
     page.wait_for_selector("#panel details[data-key=documents][open]")
     assert "Words searched" in page.inner_text("#panel details[data-key=documents]")
-    shot(page, "details-documents", "v032-c3")
 
 
 def test_a_refused_send_s_stop_searching_it_lets_send_go(clarity, page, fetched_root):  # noqa: F811
@@ -138,7 +134,6 @@ def test_a_refused_send_s_stop_searching_it_lets_send_go(clarity, page, fetched_
     page.click("#send")
     page.wait_for_selector("#thread .problem.refused")
     assert page.inner_text("#thread .problem.refused").startswith("! Nothing was sent.")
-    shot(page, "refused", "v032-c3")
     page.click("#thread .problem.refused [data-action=refused-stop]")
     page.wait_for_selector("#thread .problem.refused", state="detached")
     page.fill("#message", "Tell me again")

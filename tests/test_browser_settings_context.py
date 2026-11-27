@@ -15,7 +15,7 @@ import time
 import pytest
 
 from clarity_chat.profiles import ConfigError
-from tests.test_browser import chat_on, clarity, say, settled, shot, until  # noqa: F401
+from tests.test_browser import chat_on, clarity, say, settled, until  # noqa: F401
 from tests.test_browser_attach import browser_type_launch_args  # noqa: F401
 from tests.test_web_settings_context import MEMORY
 
@@ -59,7 +59,6 @@ def test_a_preset_starts_the_model_again_then_says_its_memory(clarity, page):  #
     settled(page)
     open_settings(page)
     assert pressed(page) == ["8,192"]
-    shot(page, "B3b-context-row", "v044-b3b")
     starts(backend)
     page.click(f"{ROW} [data-set='ctx_size 16384']")
     # The start state (decision 6): the thread keeps the chat, Send and the panel wait.
@@ -68,7 +67,6 @@ def test_a_preset_starts_the_model_again_then_says_its_memory(clarity, page):  #
     assert page.text_content("#send-waits") == "Waits until the model has started."
     assert page.get_attribute(f"{ROW} [data-set='ctx_size 4096']", "aria-disabled") == "true"
     assert page.is_visible("#title")  # the same chat: its title stays
-    shot(page, "B3b-starting", "v044-b3b")
     page.wait_for_selector(f"{ROW} .choice[aria-pressed=true]:has-text('16,384')")
     settled(page)
     assert pressed(page) == ["16,384"]
@@ -76,7 +74,6 @@ def test_a_preset_starts_the_model_again_then_says_its_memory(clarity, page):  #
     assert page.is_visible(f"{ROW} p.gl:has-text('At 16,384 tokens, the model uses 6,012 MiB')")
     assert page.text_content(f"{ROW} .btn:not(.choice)") == "Back to 8,192 (server.toml)"
     assert page.locator("#panel [data-action=reset-all]").count() == 0  # ruling 9
-    shot(page, "B3b-memory", "v044-b3b")
     page.click(f"{ROW} .btn:not(.choice)")
     page.wait_for_selector(f"{ROW} .tag:has-text('server.toml')")
     assert pressed(page) == ["8,192"]
@@ -100,7 +97,6 @@ def test_a_refused_size_leaves_the_old_preset_chosen(clarity, page):  # noqa: F8
     )
     assert pressed(page) == ["8,192"]
     assert page.text_content(f"{ROW} .tag") == "server.toml"
-    shot(page, "B3b-refused", "v044-b3b")
 
 
 def test_a_refusal_answered_after_the_redraw_goes_under_the_new_row(clarity, page):  # noqa: F811
@@ -188,7 +184,6 @@ def test_details_and_replay_keep_a_call_s_own_size(clarity, page):  # noqa: F811
         f"Call {call} ran with a context of 8,192 tokens, but this chat uses 16,384. Set "
         "ctx_size to 8192 to replay it here."
     )
-    shot(page, "B3b-replay-other-size", "v044-b3b")
 
 
 def test_a_message_that_doesn_t_fit_says_to_raise_the_size(clarity, page):  # noqa: F811
@@ -221,7 +216,6 @@ def test_a_restart_that_fails_twice_ends_the_chat_on_the_first_screen(clarity, p
     )
     assert page.is_hidden("#panel")
     page.wait_for_selector("#picker-menu:not([hidden])")
-    shot(page, "B3b-state-31", "v044-b3b")
 
 
 def test_a_view_opened_in_the_panel_starts_at_its_top(clarity, page):  # noqa: F811
@@ -253,4 +247,3 @@ def test_a_view_opened_in_the_panel_starts_at_its_top(clarity, page):  # noqa: F
     page.click(f"#thread .reply[data-call='{first}'] [data-action=details]")
     page.wait_for_selector(f"#panel .body[data-call='{first}']")
     assert page.evaluate("document.getElementById('panel').scrollTop") == 0
-    shot(page, "Q-b-details-at-top", "v044-close")

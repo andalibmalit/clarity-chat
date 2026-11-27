@@ -12,7 +12,7 @@ import pytest
 from clarity_chat.documents import library_add, reading
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend, FakeEmbedder
-from tests.test_browser import open_clarity, served, settled, shot
+from tests.test_browser import open_clarity, served, settled
 from tests.test_browser_attach import browser_type_launch_args, choose  # noqa: F401
 from tests.test_meaning import ASKED, GLOSSARY, MEANING, profile
 
@@ -66,12 +66,10 @@ def test_from_documents_and_details_say_the_similarity(clarity, page):
         page.wait_for_selector(f"{reply} .found .parts:not([hidden])")
         assert 'notes · "Photosynthesis"' in page.inner_text(f"{reply} .found .parts")
         assert "similar in meaning: " in page.inner_text(f"{reply} .found .parts")
-    shot(page, "from-documents-meaning", "v041-c1")
     page.click("#thread .found [data-section=documents]")
     page.wait_for_selector("#panel details[data-key=documents][open]")
     said = page.inner_text("#panel details[data-key=documents]")
     assert "meaning, by bge-m3 (minimum similarity 0.2, this profile)" in said
-    shot(page, "details-meaning", "v041-c1")
 
 
 def test_search_it_warns_when_bge_m3_isn_t_fetched(clarity, page):
@@ -84,7 +82,6 @@ def test_search_it_warns_when_bge_m3_isn_t_fetched(clarity, page):
     page.click("[data-action=attach-add]")
     page.wait_for_selector("#notice:has-text('from your next message')")
     assert NO_EMBEDDER in page.inner_text("#notice")
-    shot(page, "search-it-no-embedder", "v041-c1")
 
 
 def test_send_refused_names_getting_started(clarity, page):
@@ -98,4 +95,3 @@ def test_send_refused_names_getting_started(clarity, page):
     page.wait_for_selector("#thread .problem.refused")
     settled(page)  # the refused say has ended and its redraw landed
     assert f"! Nothing was sent. {NO_EMBEDDER}" in " ".join(page.inner_text("#thread").split())
-    shot(page, "refused-no-embedder", "v041-c1")

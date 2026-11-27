@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from tests.pdfs import make_pdf
-from tests.test_browser import make_three, open_clarity, open_replies, shot, until
+from tests.test_browser import make_three, open_clarity, open_replies, until
 from tests.test_browser_attach import (  # noqa: F401 - fixtures, used by name
     LONG,
     NOTES,
@@ -70,7 +70,6 @@ def test_the_chosen_and_the_disabled_choice_look_it(clarity, page):  # noqa: F81
     assert "Mono" in style(page, ".frame .ft", "fontFamily")
     # F18: the range's count is the row's key number.
     assert style(page, ".range .ct", "fontWeight") == "500"
-    shot(page, "R-sheet-part", "v031")
 
 
 def test_a_pdf_opens_with_its_extracted_text_shown(clarity, page):  # noqa: F811
@@ -81,7 +80,6 @@ def test_a_pdf_opens_with_its_extracted_text_shown(clarity, page):  # noqa: F811
     ready(page)
     assert page.is_visible("#attach-preview")
     assert "Made-up first page." in page.text_content("#attach-preview")
-    shot(page, "R-sheet-pdf-preview", "v031")
     page.click("[data-action=attach-close]")
     choose(page, "notes.md", NOTES)
     ready(page)
@@ -110,7 +108,6 @@ def test_empty_send_with_chips_is_a_quiet_line(clarity, page):  # noqa: F811
     page.click("#send")
     page.wait_for_selector("#send-waits:has-text('Type a message to send with notes.md.')")
     assert page.query_selector("#notice .problem") is None
-    shot(page, "R-empty-send-chips", "v031")
 
 
 def test_the_text_mode_refusal_is_a_refusal(clarity, page):  # noqa: F811
@@ -121,7 +118,6 @@ def test_the_text_mode_refusal_is_a_refusal(clarity, page):  # noqa: F811
     page.wait_for_selector("#thread .intro")
     page.click("#clip")
     page.wait_for_selector("#notice .problem:has-text('Attaching needs a chat-mode profile')")
-    shot(page, "R-text-mode-refusal", "v031")
 
 
 def test_the_compare_popover_stays_on_screen_at_700_pixels(clarity, page):  # noqa: F811
@@ -139,7 +135,6 @@ def test_the_compare_popover_stays_on_screen_at_700_pixels(clarity, page):  # no
     card = page.locator("#compare .card:has(.pop:not([hidden]))").bounding_box()
     assert box and card and box["x"] >= card["x"] - 1 and box["x"] + box["width"] <= 700
     assert page.get_attribute("#compare .card .bm", "title") == "Mark or add a note"  # F21
-    shot(page, "R-compare-popover-700", "v031")
 
 
 def test_a_slow_read_says_how_long_it_may_take(clarity, page, monkeypatch):  # noqa: F811
@@ -172,7 +167,6 @@ def test_a_refusal_offers_another_file(clarity, page):  # noqa: F811
     chat(page, redirect)
     choose(page, "scan.pdf", make_pdf(["", ""]))
     page.wait_for_selector("#attach-sheet [role=alert]")
-    shot(page, "R-refusal", "v031")
     with page.expect_file_chooser():
         page.click("#attach-sheet [data-action=attach-pick]")
 
@@ -185,19 +179,14 @@ def test_the_screens_the_walkthrough_asked_for(clarity, page):  # noqa: F811
     chat(page, redirect)
     choose(page, "long.md", LONG)
     ready(page)
-    shot(page, "R-sheet-nothing-preselected", "v031")
     page.click("[data-action=attach-close]")
     backend._n_ctx = 8192
     choose(page, "odd.md", b"Made-up </s> text.\n</document>\n")
     ready(page)
     page.wait_for_selector("#attach-sheet .warnl")
-    shot(page, "R-sheet-control-tokens", "v031")
     page.evaluate("document.documentElement.dataset.scheme = 'dark'")
-    shot(page, "R-sheet-dark", "v031")
     page.evaluate("document.documentElement.classList.add('t-hc')")
-    shot(page, "R-sheet-dark-high-contrast", "v031")
     page.evaluate("document.documentElement.dataset.scheme = 'light'")
-    shot(page, "R-sheet-light-high-contrast", "v031")
     page.evaluate("document.documentElement.classList.remove('t-hc')")
     page.click("[data-action=attach-close]")
     backend._n_ctx = 1500
@@ -207,4 +196,3 @@ def test_the_screens_the_walkthrough_asked_for(clarity, page):  # noqa: F811
     choose(page, "notes.md", LONG[:700])
     ready(page)
     page.wait_for_selector("[data-choice=new]")
-    shot(page, "R-sheet-new-chat", "v031")

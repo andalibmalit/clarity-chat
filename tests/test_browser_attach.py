@@ -16,7 +16,7 @@ from clarity_chat.documents import reading
 from clarity_chat.session import Session
 from tests.fakes import FakeBackend
 from tests.pdfs import encrypted_pdf, make_pdf
-from tests.test_browser import free_port, open_clarity, shot, until
+from tests.test_browser import free_port, open_clarity, until
 from tests.test_documents_extract import stub
 
 pytestmark = pytest.mark.browser
@@ -93,7 +93,6 @@ def test_a_file_that_fits_is_added_as_a_chip_and_sent_with_the_message(clarity, 
     ready(page)
     assert page.text_content("#attach-title").strip() == "trail-notes.md"
     assert page.get_attribute("[data-choice=whole][role=radio]", "aria-checked") == "true"
-    shot(page, "C1-sheet-fits", "v031")
     page.click("[data-action=attach-add]")
     page.wait_for_selector("#chips .chip")
     assert page.is_hidden("#attach-sheet")
@@ -116,7 +115,6 @@ def test_the_preselected_part_then_one_line_then_send_gets_a_reply(clarity, page
     ready(page)
     assert page.get_attribute("[data-choice=whole][role=radio]", "aria-disabled") == "true"
     assert page.get_attribute("[data-choice=part][role=radio]", "aria-checked") == "true"
-    shot(page, "C1-sheet-part", "v031")
     page.click("[data-action=attach-add]")
     page.wait_for_selector("#chips .chip")
     assert "long.md · lines 1–" in page.text_content("#chips")
@@ -151,7 +149,6 @@ def test_reading_shows_with_cancel_and_cancel_says_it_stopped(clarity, page, mon
     chat(page, redirect)
     choose(page, "slow.md", NOTES)
     page.wait_for_selector("#attach-sheet :text('Reading slow.md…')")
-    shot(page, "C1-sheet-reading", "v031")
     page.click("#attach-sheet [data-action=attach-cancel]")
     page.wait_for_selector("#attach-sheet :text('Stopped reading slow.md.')")  # ruling 8
     until(  # the read itself stopped, not only the sentence (the whole-branch review, 16)
@@ -465,13 +462,11 @@ def test_the_sent_message_shows_its_attachment_line_live_and_after_a_reload(clar
     tokens = turn["attachments"][0]["tokens"]
     line = f"Attached: trail-notes.md · whole · {tokens:,} tokens when attached"
     assert line in page.text_content(".turn.user .att")
-    shot(page, "C2-thread-line", "v031")
     page.reload()
     page.wait_for_selector(".reply.last .tb")
     assert line in page.text_content(".turn.user .att")
     page.click(".reply.last [data-action=details]")  # for the design walkthrough
     page.wait_for_selector("#panel mark.added")
-    shot(page, "C2-details-added", "v031")
 
 
 def test_edit_shows_what_it_keeps(clarity, page):
@@ -489,7 +484,6 @@ def test_edit_shows_what_it_keeps(clarity, page):
     keeps = " ".join(page.inner_text(".editbox .keeps").split())  # Q2's chips (v0.3.2)
     assert keeps.startswith("Keeps: trail-notes.md · whole · ")
     assert keeps.endswith("tokens when attached An edit can't add attachments.")
-    shot(page, "C2-edit-keeps", "v031")
 
 
 def test_edit_s_x_takes_an_attachment_out(clarity, page):  # Q2, the board's ⑥
@@ -507,7 +501,6 @@ def test_edit_s_x_takes_an_attachment_out(clarity, page):  # Q2, the board's ⑥
     page.click(".editbox [data-action=edit-drop]")
     assert page.is_hidden(".editbox .keeps .chip")
     assert "Keeps no attachments." in page.inner_text(".editbox .keeps")
-    shot(page, "edit-x", "v032-q2")
     page.click(".editbox [data-action=edit-cancel]")  # Cancel brings every chip back
     page.click(".turn.user [data-action=edit]")
     assert page.is_visible(".editbox .keeps .chip")
@@ -556,7 +549,6 @@ def test_a_failed_send_brings_the_chips_back_and_offers_removing_one(clarity, pa
     assert "remove an attachment and attach a shorter part" in page.text_content("#thread")
     page.wait_for_selector("#chips .chip")
     assert "long.md" in page.text_content("#chips") and page.input_value("#message") == "Line one?"
-    shot(page, "C2-stop-chips-back", "v031")
 
 
 def test_the_branches_button_says_whether_its_panel_is_open(clarity, page):

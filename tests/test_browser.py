@@ -26,15 +26,6 @@ from tests.fakes import FakeBackend
 from tests.test_web_shell import OTHER_MODEL
 
 pytestmark = pytest.mark.browser
-SCREENS = Path(__file__).resolve().parent.parent / "notes" / "research" / "v030-screens"
-
-
-def shot(page, name: str, item: str = "c1", full_page: bool = True) -> None:
-    """A screenshot for the design review, kept in a local-only folder: notes/ is gitignored,
-    so CI, which has no such folder, saves none."""
-    if SCREENS.is_dir():
-        (SCREENS / item).mkdir(exist_ok=True)
-        page.screenshot(path=SCREENS / item / f"{name}.png", full_page=full_page)
 
 
 @pytest.fixture(scope="session")
@@ -136,7 +127,6 @@ def test_a_tab_without_the_secret_is_told_where_the_link_is(clarity, context):
     assert page.text_content("[data-for=no-key] p") == (
         "Open Clarity from the window where you started it: press Enter there."
     )
-    shot(page, "A3-no-secret")
 
 
 def test_a_secret_from_an_earlier_start_is_cleared(clarity, page):
@@ -263,7 +253,6 @@ def test_with_no_profile_chosen_a_pick_starts_the_model(clarity, page):
     assert page.text_content("#picker-menu .mhead") == "Choose a profile to start"
     assert focused(page) == "chat"
     assert page.is_disabled("#message") and page.is_disabled("#send")
-    shot(page, "B1-no-profile")
     hold_start(backend, 1.5)
     page.click("[data-profile=text]")
     # B2: starting, from the status events; you can type, and Send and the picker wait.
@@ -276,19 +265,16 @@ def test_with_no_profile_chosen_a_pick_starts_the_model(clarity, page):
     assert page.get_attribute("#send", "aria-disabled") == "true"
     assert page.get_attribute("#send", "disabled") is None
     assert page.text_content("#send-waits") == "Waits until the model has started."
-    shot(page, "B2-starting")
     # B5: ready.
     page.wait_for_selector("#thread .intro")
     assert page.text_content("#picker-button .nm") == "text · tiny"
     assert page.text_content("#title-text") == "New chat"
     assert page.is_enabled("#send") and focused(page) == "message"
-    shot(page, "B5-new-chat")
     # C3: in a chat the picker ticks the profile; Escape closes it and returns focus.
     page.click("#picker-button")
     page.wait_for_selector("#picker-menu:not([hidden])")  # it opens once its list is read
     assert page.get_attribute("[data-profile=text]", "aria-checked") == "true"
     assert focused(page) == "text"
-    shot(page, "C3-picker-in-a-chat")
     page.keyboard.press("Escape")
     assert page.is_hidden("#picker-menu") and focused(page) == "picker-button"
 
@@ -297,7 +283,6 @@ def test_a_refused_start_shows_the_backends_sentence(clarity, page, fetched_root
     _, redirect, _ = clarity
     open_clarity(page, redirect)
     assert page.text_content("[data-profile=far] .d2") == "runs on llama.cpp · not fetched"
-    shot(page, "C6-not-fetched")
     page.click("[data-profile=far]")
     page.wait_for_selector("#notice [role=alert]")
     folder = profiles.shell_folder(fetched_root)  # the hint names the folder (v0.4.2 A8)
@@ -307,7 +292,6 @@ def test_a_refused_start_shows_the_backends_sentence(clarity, page, fetched_root
     )
     assert page.text_content("#picker-button .nm") == "Choose a profile"
     assert page.is_disabled("#message")
-    shot(page, "B3-not-fetched")
 
 
 def test_with_nothing_fetched_the_first_screen_says_so(clarity, page, fetched_root):
@@ -315,7 +299,6 @@ def test_with_nothing_fetched_the_first_screen_says_so(clarity, page, fetched_ro
     (fetched_root / "models" / "tiny" / "tiny-bf16.gguf").unlink()
     open_clarity(page, redirect)
     assert page.text_content("#picker-none").startswith("No model is on this computer yet")
-    shot(page, "B1-nothing-fetched")
 
 
 def test_a_start_warning_shows_whole(clarity, page):
@@ -329,7 +312,6 @@ def test_a_start_warning_shows_whole(clarity, page):
     page.click("[data-profile=text]")
     page.wait_for_selector("#thread .intro")
     assert page.text_content("#thread .problem") == f"! {warning}"
-    shot(page, "B6-start-warning")
 
 
 def test_the_picker_waits_while_a_reply_is_written(clarity, page):
@@ -343,7 +325,6 @@ def test_the_picker_waits_while_a_reply_is_written(clarity, page):
     assert page.text_content("#picker-waits") == "Waits until the reply is done."
     page.click("#picker-button", force=True)  # Playwright won't click aria-disabled otherwise
     assert page.is_hidden("#picker-menu")  # it waits: it doesn't open
-    shot(page, "C5-picker-while-writing")
 
 
 def test_quit_shows_the_stopped_page(clarity, page):
@@ -352,12 +333,10 @@ def test_quit_shows_the_stopped_page(clarity, page):
     page.keyboard.press("Escape")  # the first screen's picker
     page.click("#clarity-button")
     assert focused(page) == "new-chat"
-    shot(page, "A6-clarity-menu")
     page.click("[data-action=quit]")
     page.wait_for_selector("body[data-page=stopped]")
     assert page.text_content("#stopped-plain") == "Clarity has stopped."
     assert page.is_hidden("#stopped-error")
-    shot(page, "A5-stopped")
 
 
 def test_an_unexpected_error_shows_it_whole(clarity, page):
@@ -373,7 +352,6 @@ def test_an_unexpected_error_shows_it_whole(clarity, page):
     page.wait_for_selector("body[data-page=stopped]")
     assert page.text_content("#stopped-crash") == "Clarity stopped after an unexpected error."
     assert page.text_content("#stopped-error") == "RuntimeError: made-up: out of memory"
-    shot(page, "A5-unexpected-error")
     # Fix review, batch 6, item 1: a reload keeps the error (load() took the stopped
     # /state for another start's and showed the plain page, which points at the terminal).
     page.reload()
@@ -395,7 +373,6 @@ def test_about_shows_the_version_and_help_opens_the_docs_at_this_commit(clarity,
     page.wait_for_selector("#about[open] dd")
     assert page.text_content("#about dd") == state["clarity"]["version"]
     assert commit in page.text_content("#about")
-    shot(page, "P2-about")
     page.keyboard.press("Escape")
     assert page.is_hidden("#about") and focused(page) == "clarity-button"
 
@@ -411,7 +388,6 @@ def test_a_second_tab_offers_use_it_here_and_takes_over(clarity, context):
     second.goto(link)
     second.wait_for_selector("body[data-page=not-live]")
     assert second.text_content("[data-for=not-live] h1") == "Clarity is open in another tab."
-    shot(second, "A4-another-tab")
     second.click("#use-here")
     second.wait_for_selector("body[data-page=ready]")
     first.wait_for_selector("body[data-page=not-live]")
@@ -446,7 +422,6 @@ def test_send_writes_and_stop_keeps_the_part_that_arrived(clarity, page):
     assert page.get_attribute("#picker-button", "aria-disabled") == "true"
     assert page.get_attribute("#writing", "aria-live") is None  # the reply isn't announced
     assert focused(page) == "message"  # sent from the box, focus stays there (V3Access O3)
-    shot(page, "E1-writing", "c2")
     page.click("#stop")
     # E3: the part that arrived is kept, and the facts line says who stopped it.
     page.wait_for_selector(".reply.last .facts")
@@ -458,7 +433,6 @@ def test_send_writes_and_stop_keeps_the_part_that_arrived(clarity, page):
     assert page.evaluate("document.activeElement.closest('.reply.last .tb') !== null")
     # The status region stays in the page, empty, so the next "Writing…" is announced.
     assert page.evaluate("document.getElementById('writing-status').closest('[hidden]')") is None
-    shot(page, "E3-stopped-by-you", "c2")
 
 
 def test_several_replies_say_which_is_being_written(clarity, page):
@@ -472,7 +446,6 @@ def test_several_replies_say_which_is_being_written(clarity, page):
     page.wait_for_selector("#writing-status:has-text('Writing reply 2 of 3')")
     assert page.text_content("#stop-label") == "Stop the rest"
     assert page.locator("#writing-dots span").count() == 3
-    shot(page, "E2-several-replies", "c2")
     page.wait_for_selector("#stop", state="hidden", timeout=20_000)  # done: the page knew
     assert page.text_content(".reply.last [data-action=replies]") == "Replies 4"
 
@@ -487,7 +460,6 @@ def test_a_failed_message_comes_back_to_the_box(clarity, page):
     assert page.is_visible("#thread [data-failed] [data-action=details]")
     assert page.input_value("#message") == "Hi there"
     assert page.locator("text=Try again").count() == 0
-    shot(page, "E5-failed-message", "c2")
 
 
 def test_a_failed_regenerate_offers_try_again(clarity, page):
@@ -503,7 +475,6 @@ def test_a_failed_regenerate_offers_try_again(clarity, page):
     record = page.evaluate(f"clarity.command('prompt', '{failed}')")["result"]["call"]
     assert record["error"] == "BackendError: A made-up failure."
     assert page.is_visible("#notice [data-action=details]")
-    shot(page, "E5-failed-regenerate", "c2")
     backend.fail_with = None
     page.click("#notice [data-action=regen]")
     page.wait_for_selector(".reply.last [data-action=replies]:has-text('Replies 2')")
@@ -518,13 +489,11 @@ def test_when_the_server_stopped_start_the_model_again(clarity, page):
     say(page, "Again")
     page.wait_for_selector("#thread [data-action=restart]")
     assert page.is_enabled("#send")  # no wait without a reason: Send fails with the sentence
-    shot(page, "E6-server-stopped", "c2")
     hold_start(backend, 1.5)
     page.click("#thread [data-action=restart]")
     page.wait_for_selector("#thread .starting")
     assert page.text_content("#thread .starting [role=status]") == "Starting text…"
     assert page.input_value("#message") == "Again"  # your text stays in the box
-    shot(page, "E6-starting-again", "c2")
     page.wait_for_selector("#thread .starting", state="detached")
     page.click("#send")
     page.wait_for_selector(".reply.last .msg:has-text('ok')")
@@ -539,7 +508,6 @@ def test_a_message_that_doesnt_fit_stays_in_the_box(clarity, page):
     sentence = page.text_content("#thread [data-failed] [role=alert]")
     assert sentence.startswith("! The prompt is ") and "Failed" not in sentence
     assert page.input_value("#message") == "x" * 200
-    shot(page, "E7-doesnt-fit", "c2")
 
 
 def test_stopped_before_any_text_says_so(clarity, page):
@@ -550,7 +518,6 @@ def test_stopped_before_any_text_says_so(clarity, page):
     page.wait_for_selector("#thread [data-failed][role=status]")
     assert page.text_content("#thread [data-failed]") == "Stopped before the reply started."
     assert page.input_value("#message") == "Hi"
-    shot(page, "E4-stopped-before-text", "c2")
 
 
 def test_edit_your_message_then_step_through_its_versions(clarity, page, context, browser_name):
@@ -561,7 +528,6 @@ def test_edit_your_message_then_step_through_its_versions(clarity, page, context
     say(page, "Hi")
     page.click(".turn.user [data-action=edit]")
     assert page.input_value("#edit-text") == "Hi" and focused(page) == "edit-text"
-    shot(page, "D2-editing", "c2")
     page.fill("#edit-text", "Hello")
     page.click("[data-edit] button[type=submit]")
     page.wait_for_selector(".msgbar .n")
@@ -575,7 +541,6 @@ def test_edit_your_message_then_step_through_its_versions(clarity, page, context
     if browser_name != "webkit":
         copied = page.evaluate("navigator.clipboard.readText()")
         assert copied == page.text_content(".reply.last .msg")
-    shot(page, "D1-D3-counter-and-toolbar", "c2")
     page.click("[aria-label='Previous version of your message']")
     page.wait_for_selector(".msgbar .n [aria-hidden]:has-text('1 / 2')")
     assert page.text_content(".turn.user .msg") == "Hi"
@@ -597,7 +562,6 @@ def test_marks_and_a_note_on_a_reply(clarity, page):
     turn = page.evaluate("clarity.command('state')")["result"]["turns"][-1]
     assert [m["label"] for m in turn["marks"]] == ["interesting"]
     assert turn["notes"][-1]["text"] == "Short and kind."
-    shot(page, "D6-marks-and-note", "c2")
     page.keyboard.press("Escape")
     assert page.is_hidden(".pop") and page.evaluate(
         "document.activeElement.classList.contains('bm')"
@@ -617,7 +581,6 @@ def test_the_facts_line_shows_a_failed_check(clarity, page):
         page.text_content(".reply.last .facts .warn")
         == "! 1 check failed: no_cache_reuse · Details"
     )
-    shot(page, "D5-facts-line", "c2")
 
 
 def test_after_a_reload_mid_reply_the_page_learns_the_reply_ended(clarity, page):
@@ -792,7 +755,6 @@ def test_more_replies_from_the_pop_out_of_one_reply(clarity, page):
     page.fill("#more-n", "2")
     assert page.text_content("#more-make") == "Make 2"  # "Make N", as Again's button
     page.fill("#more-n", "3")
-    shot(page, "F5-one-reply", "c3")
     page.keyboard.press("Escape")
     assert (
         page.is_hidden(".listpop")
@@ -829,7 +791,6 @@ def test_the_rows_and_showing_another_reply(clarity, page):
         assert rows.nth(i).locator(".n").text_content() == f"reply {reply['k']} of 3"
         assert rows.nth(i).locator(".df").text_content() == f"seed {reply['seed']}"
     assert page.text_content(".listpop .lrow.cur .act") == "You are here"
-    shot(page, "F2-three-replies", "c3")
     rows.nth(0).locator(".go").click()
     page.wait_for_selector(".reply.last .msg:has-text('ok')")  # reply 1's text
     assert page.is_hidden(".listpop")
@@ -846,21 +807,17 @@ def test_again_with_the_same_seeds_after_a_change_then_compare(clarity, page):
     assert page.text_content(".listpop .again span") == (
         "Again with the same 3 seeds, now at temperature 0.3"
     )
-    shot(page, "F3-again", "c3")
     backend.replies = [" ok, then more.", " Second one!", " Third one."]
     page.click(".listpop [data-action=again]")
     wait_for(page, ".reply.last [data-action=replies]:has-text('Replies 6')")
     open_replies(page)
     assert "You set temperature to 0.3" in page.text_content(".listpop .divider")
     assert page.locator(".listpop [data-action=again]").count() == 0
-    shot(page, "F1-six-replies", "c3")
     page.click(".listpop [data-action=compare]")
     page.wait_for_selector("#compare:not([hidden]) .cmp-grid")
     assert focused(page) == "compare-back" and page.is_hidden("#threadarea")
     assert page.locator("#compare .split").count() >= 1
-    shot(page, "K2-matched-seeds", "c3")
     page.set_viewport_size({"width": 400, "height": 800})
-    shot(page, "K4-narrow", "c3", full_page=False)
     page.set_viewport_size({"width": 1280, "height": 720})
     page.keyboard.press("Escape")
     assert page.is_hidden("#compare") and page.is_visible("#threadarea")
@@ -877,7 +834,6 @@ def test_compare_cards_when_only_the_seed_differs_and_when_both_do(clarity, page
     assert page.text_content("#compare .cmp-lead") == (
         "These replies differ only by seed, so where they part says nothing about a setting."
     )
-    shot(page, "K1-seed-only", "c3")
     page.click("#compare-back")
     page.evaluate("clarity.command('set', 'temperature 0.3')")
     page.evaluate("clarity.command('regen')")
@@ -888,7 +844,6 @@ def test_compare_cards_when_only_the_seed_differs_and_when_both_do(clarity, page
     page.wait_for_selector("#compare .cmp-cards")  # advice in the lead's style, not an error
     assert "differ in seed and in temperature" in page.text_content("#compare .cmp-lead")
     assert page.query_selector("#compare .problem") is None
-    shot(page, "K3-seed-and-setting", "c3")
 
 
 def test_an_earlier_reply_s_pop_out_lists_without_more_replies(clarity, page):
@@ -902,7 +857,6 @@ def test_an_earlier_reply_s_pop_out_lists_without_more_replies(clarity, page):
     assert page.locator(".listpop .lrow").count() == 3
     assert page.locator("#more-n").count() == 0
     assert "continued, 2 more turns" in page.text_content(".listpop .lrow.cur")
-    shot(page, "F1-earlier-fork", "c3")
 
 
 # --- Settings (C4a)
@@ -919,7 +873,6 @@ def test_settings_change_a_value_go_back_and_a_refusal(clarity, page):
     open_settings(page)
     assert focused(page) == "panel-title"
     assert page.input_value("#set-temperature") == "0.6"
-    shot(page, "I1-settings", "c4a")
     page.fill("#set-temperature", "0.3")
     page.press("#set-temperature", "Enter")
     page.wait_for_selector("[data-setting=temperature] .tag:has-text('chat')")
@@ -931,7 +884,6 @@ def test_settings_change_a_value_go_back_and_a_refusal(clarity, page):
     }
     page.wait_for_selector("#composer-row .ch:has-text('1 changed')")
     assert page.text_content("[data-setting=temperature] [data-set]") == "Back to 0.6 (profile)"
-    shot(page, "I3-changed", "c4a")
     # A refused value: the backend's sentence under the row; the box keeps what you typed.
     page.fill("#set-top_p", "1.5")
     page.press("#set-top_p", "Enter")
@@ -943,7 +895,6 @@ def test_settings_change_a_value_go_back_and_a_refusal(clarity, page):
         "Not applied: the next reply still uses 0.95 (profile)."
     )
     assert page.input_value("#set-top_p") == "1.5"
-    shot(page, "I7-refused", "c4a")
     page.click("[data-setting=temperature] [data-set]")
     page.wait_for_selector("[data-setting=temperature] .tag:has-text('profile')")
     assert page.locator("#panel [data-action=reset-all]").count() == 0
@@ -969,7 +920,6 @@ def test_settings_wait_while_a_reply_is_written(clarity, page):
     page.wait_for_selector("#panel .waits")
     assert page.text_content("#panel .waits") == "Changes wait until this reply is done."
     assert page.get_attribute("#set-temperature", "aria-disabled") == "true"
-    shot(page, "I8-waiting", "c4a")
     page.wait_for_selector("#panel .waits", state="detached", timeout=20_000)
     assert page.get_attribute("#set-temperature", "aria-disabled") is None
 
@@ -988,7 +938,6 @@ def test_details_on_a_reply_and_its_replay(clarity, page):
     assert page.text_content("#panel-title") == "Details · reply 1 of 1"
     assert focused(page) == "panel-title"
     assert page.is_visible("#panel pre[data-pane=text]")
-    shot(page, "G1-what-the-model-got", "c4b")
     page.click("#panel .seg [data-pane=ids]")
     assert page.is_hidden("#panel pre[data-pane=text]")
     assert page.text_content("#panel pre[data-pane=ids]") == " ".join(map(str, call["prompt_ids"]))
@@ -996,12 +945,10 @@ def test_details_on_a_reply_and_its_replay(clarity, page):
     page.click("#panel [data-action=replay]")
     page.wait_for_selector("#panel [role=status]:has-text('Replaying…')")
     assert focused(page) is None and page.evaluate("document.activeElement.textContent") == "Stop"
-    shot(page, "G4-replaying", "c4b")
     page.wait_for_selector("#panel .result", timeout=20_000)
     replays = page.evaluate(f"clarity.command('prompt', '{call['call_id']}')")["result"]["replays"]
     assert len(replays) == 1 and not replays[0]["identical"]
     assert "replayed 1×, different" in page.text_content("#panel")
-    shot(page, "G4-replayed", "c4b")
     # Stop: the replay is cancelled, and the backend's sentence says nothing was logged.
     backend.replies = [" Slowly," * 10]
     page.click("#panel [data-action=replay]")
@@ -1025,7 +972,6 @@ def test_details_on_a_failed_call(clarity, page):
     assert page.text_content("#panel-title") == "Details · failed call"
     assert "! Failed: A made-up failure." in page.text_content("#panel")
     assert page.locator("#panel [data-action=replay]").count() == 0
-    shot(page, "G8-failed-call", "c4b")
 
 
 # --- Probabilities (C4c)
@@ -1061,7 +1007,6 @@ def test_probabilities_shade_the_reply_and_a_token_shows_its_chance(clarity, pag
     assert "chance" in info and "The likeliest tokens here" in info
     page.keyboard.press("ArrowRight")
     assert page.get_attribute("#thread .msg.shaded .tok >> nth=3", "aria-pressed") == "true"
-    shot(page, "H1-shaded", "c4c")
     page.click("#panel [data-key=probs] summary")  # closing the section clears the shading
     page.wait_for_selector("#thread .msg.shaded", state="detached")
 
@@ -1089,7 +1034,6 @@ def test_tokens_that_cant_be_placed_are_listed_and_can_be_picked(clarity, page):
     page.keyboard.press("ArrowRight")
     assert page.get_attribute("#panel .toklist .tok >> nth=2", "aria-pressed") == "true"
     assert page.query_selector("#thread .msg.shaded") is None
-    shot(page, "H1-unplaced", "c4c")
 
 
 def test_shading_leaves_a_message_being_edited_hidden(clarity, page):
@@ -1137,7 +1081,6 @@ def test_probabilities_say_why_there_are_none(clarity, page, backend_name, headi
     if backend_name == "llama.cpp":
         href = page.get_attribute("#panel [data-key=probs] a[data-docs]", "href")
         assert href.endswith("/docs/guides.md#use-the-transformers-backend")
-    shot(page, name, "c4c")
 
 
 # --- Branches (C4d)
@@ -1164,14 +1107,12 @@ def test_branches_appear_with_the_second_and_take_you_to_one(clarity, page):
     page.wait_for_selector("#panel .bcard")
     ends = page.evaluate("clarity.command('branches', 'all')")["result"]["ends"]
     assert page.locator("#panel [data-list=ends] .bcard").count() == len(ends) == 2
-    shot(page, "J2-branch-ends", "c4d")
     shows_marked_only(page, False)
     page.click("#marked-only")
     shows_marked_only(page, True)
     assert "No marked replies in this chat yet." in page.text_content(
         "#panel div[data-list=marked]"
     )
-    shot(page, "J3-nothing-marked", "c4d")
     page.click("#marked-only")
     shows_marked_only(page, False)
     first = next(e for e in ends if not e["current"])
@@ -1201,7 +1142,6 @@ def test_a_marked_reply_picked_in_branches_is_outlined(clarity, page):
     page.wait_for_selector("#panel [data-list=marked] .bcard")
     shows_marked_only(page, True)
     assert page.text_content("#panel [data-list=marked] .lbl") == "Marked: landed"
-    shot(page, "J2-marked-only", "c4d")
     page.click("#panel [data-list=marked] [data-reveal]")
     page.wait_for_selector(f"li.revealed[data-turn='{first['turn_id']}']")
 
@@ -1274,20 +1214,17 @@ def test_a_chat_picked_in_the_drawer_reopens_and_says_what_differs(clarity, page
     assert page.get_attribute("#chats-handle", "aria-expanded") == "true"
     current = page.evaluate("clarity.command('state')")["result"]["log_id"]
     assert page.get_attribute('#drawer .crow[aria-current="true"]', "data-resume") == current
-    shot(page, "L1-drawer", "c5")
     page.click(f"#drawer [data-resume='{first}']")
     page.wait_for_selector("#drawer", state="hidden")
     page.wait_for_selector("#thread .resume")
     assert page.text_content(".turn.user .msg") == "Hi"
     assert "1 thing differs from when this chat was written" in page.text_content("#thread .resume")
     assert page.is_hidden("#differ")
-    shot(page, "L3-closed", "c5")
     page.click("#thread [data-action=differ]")
     assert page.is_visible("#differ") and "The profile's file has changed" in page.text_content(
         "#differ"
     )
     assert page.get_attribute("#thread [data-action=differ]", "aria-expanded") == "true"
-    shot(page, "L3-open", "c5")
     say(page, "Again")  # the line goes with the next reply
     page.wait_for_selector("#thread .resume", state="detached")
 
@@ -1308,7 +1245,6 @@ def test_a_refused_chat_says_so_under_its_row_and_the_open_one_stays(clarity, pa
     problem = page.text_content(f"{item} .problem")
     assert problem.startswith("! Didn’t open. ") and "20261028-101544-7c2e9d" in problem
     assert page.is_visible("#drawer") and page.text_content(".turn.user .msg") == "Hi"
-    shot(page, "L6-refused", "c5")
     page.keyboard.press("Escape")
     page.wait_for_selector("#drawer", state="hidden")
     say(page, "Still here")
@@ -1325,7 +1261,6 @@ def test_with_no_chats_the_drawer_says_so(clarity, page):
         "No chats yet. Each chat you start is listed here."
     )
     assert page.get_attribute("#drawer .newchat", "aria-disabled") == "true"
-    shot(page, "L2-no-chats", "c5")
 
 
 def test_rename_in_place_waits_on_an_empty_box_and_cancels(clarity, page):
@@ -1345,7 +1280,6 @@ def test_rename_in_place_waits_on_an_empty_box_and_cancels(clarity, page):
     page.click("#title")
     page.click("#title-menu [data-action=rename]")
     page.fill("#rename-text", "Field notes")
-    shot(page, "L8-rename", "c5")
     page.click("#rename-save")
     page.wait_for_selector("#title-text:has-text('Field notes')")
     assert page.evaluate("clarity.command('state')")["result"]["title"] == "Field notes"
@@ -1365,7 +1299,6 @@ def test_export_shows_the_sheet_and_downloads_the_file(clarity, page):
     page.wait_for_selector("#export-sheet[open] #export-title")
     assert page.text_content("#export-title") == "Not exported"
     assert "Can't write the export to" in page.text_content("#export-sheet .problem")
-    shot(page, "M2-not-exported", "c5")
     (root / "logs" / "exports").unlink()
     page.click("#export-sheet [data-action=export]")  # Try again
     page.wait_for_selector("#export-title:has-text('Exported for a Python notebook')")
@@ -1373,7 +1306,6 @@ def test_export_shows_the_sheet_and_downloads_the_file(clarity, page):
     assert Path(path).is_file()
     href = page.get_attribute("#export-sheet a[data-docs]", "href")
     assert href.endswith("/docs/guides.md#take-a-conversation-to-a-notebook")
-    shot(page, "M1-exported", "c5")
     with page.expect_download() as info:
         page.click("#export-sheet [data-action=download]")
     download = info.value
@@ -1410,7 +1342,6 @@ def test_a_refused_restart_shows_the_server_s_output(clarity, page):
     page.wait_for_selector("#thread [data-action=restart]")
     assert page.text_content(".turn.user .msg") == "Hi" and page.input_value("#message") == "Again"
     assert page.evaluate("clarity.command('state')")["result"]["model"] == "stopped"
-    shot(page, "C23-restart-refused", "c5")
     backend.start = real  # a retry that works
     page.click("#thread [data-action=restart]")
     page.wait_for_selector("#thread [data-action=restart]", state="detached")
@@ -1450,7 +1381,6 @@ def test_appearance_applies_at_once_is_kept_and_returns_focus(clarity, page):
     assert "t-sky" in classes(page) and "scenic" in classes(page)
     assert page.is_visible(".scene.sky") and page.is_visible("#motion-row")
     assert page.get_attribute("#motion", "aria-checked") == "true"
-    shot(page, "N1-sky", "c6")
     page.click("#motion")  # off: the scenery pauses where it is
     assert page.get_attribute("#motion", "aria-checked") == "false"
     assert "motion-off" in classes(page)
@@ -1470,7 +1400,6 @@ def test_appearance_applies_at_once_is_kept_and_returns_focus(clarity, page):
         "getComputedStyle(document.documentElement).getPropertyValue('--focus-width')"
     )  # noqa: E501
     assert width.strip() == "3px" and page.is_hidden("#motion-row")
-    shot(page, "N5-high-contrast", "c6")
 
 
 def test_motion_is_off_by_default_when_the_system_asks(clarity, page):
@@ -1483,7 +1412,6 @@ def test_motion_is_off_by_default_when_the_system_asks(clarity, page):
     assert page.text_content("#motion-why") == "Off because your system asks for reduced motion."
     assert page.is_visible("#motion-why")
     assert style(page, ".space .shoot", "animationPlayState") == "paused"
-    shot(page, "N4-reduced-motion", "c6")
     page.click("#motion")  # your choice stands over the default
     assert page.get_attribute("#motion", "aria-checked") == "true" and page.is_hidden("#motion-why")
 
@@ -1561,7 +1489,6 @@ def test_a_narrow_window_shows_branches_as_its_icon_and_count(clarity, page):
     page.click(".reply.last [data-action=details]")
     page.wait_for_selector("#panel:not([hidden])")
     assert style(page, "#panel", "position") == "absolute"
-    shot(page, "O5-720", "c6")
 
 
 def test_the_shipped_fonts_load_from_clarity_itself(clarity, page):
@@ -1639,7 +1566,6 @@ def test_a_dropped_connection_keeps_trying_and_reloads_when_clarity_answers(clar
     # Shows nothing happens: longer than the old 3 tries, the page is still trying.
     page.wait_for_timeout(6000)
     assert page.get_attribute("body", "data-page") == "lost"
-    shot(page, "A5-not-answering")
     page.unroute("**/events*")
     page.unroute("**/command")
     page.wait_for_selector("body[data-page=ready]", timeout=20000)
@@ -2092,4 +2018,3 @@ def test_a_compare_card_s_bookmark_marks_its_reply(clarity, page):
     marks = page.evaluate("clarity.command('compare')")["result"]["replies"][0]["marks"]
     assert [m["label"] for m in marks] == ["interesting"]
     assert page.is_visible("#compare")  # still comparing
-    shot(page, "K4-compare-bookmark", "v031")
