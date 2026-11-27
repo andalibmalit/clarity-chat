@@ -35,6 +35,50 @@ def test_the_entry_is_the_gate_s_pins():
     )
 
 
+OFFICIAL = "gemma-4-e4b-official"
+
+
+def test_the_official_entry_converts_the_revision_the_q4_0_entry_tokenizes_with():
+    """v0.4.7 A2: Google's own weights, converted to bf16, at the commit gemma-4-e4b already
+    renders with, so a chat on either entry gets the same prompt IDs."""
+    models = load_models(REPO)
+    assert OFFICIAL in models, f"no {OFFICIAL} in models.toml"
+    entry = models[OFFICIAL]
+    assert (entry.route, entry.repo, entry.revision) == (
+        "convert",
+        "google/gemma-4-E4B-it",
+        "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c",
+    )
+    assert (entry.tokenizer_repo, entry.tokenizer_revision) == (
+        "google/gemma-4-E4B-it",
+        "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c",
+    )
+
+
+def test_a_profile_on_each_gemma_entry_names_the_same_tokenizer(tmp_path):
+    """The shipped Q4_0 profile, and the same profile on the official entry on Transformers,
+    as the live Gemma tests run it."""
+    for name in ("defaults.toml", "models.toml", "server.toml"):
+        shutil.copy(REPO / name, tmp_path / name)
+    (tmp_path / "profiles").mkdir()
+    text = (REPO / "profiles" / f"{E4B}.toml").read_text(encoding="utf-8")
+    shipped = f'model = "{E4B}"\n'
+    assert text.count(shipped) == 1 and 'backend = "llama.cpp"\n' in text
+    official = text.replace(shipped, f'model = "{OFFICIAL}"\n').replace(
+        'backend = "llama.cpp"\n', 'backend = "transformers"\ndevice = "cpu"\n'
+    )
+    (tmp_path / "profiles" / "official.toml").write_text(official, encoding="utf-8")
+    shutil.copy(REPO / "profiles" / f"{E4B}.toml", tmp_path / "profiles" / f"{E4B}.toml")
+    models, defaults = load_models(tmp_path), load_defaults(tmp_path)
+    tokenizers = []
+    for name in (E4B, "official"):
+        profile = load_profile(tmp_path, name, defaults)
+        assert profile.model in models, f"{name}'s model {profile.model} isn't in models.toml"
+        entry = models[profile.model]
+        tokenizers.append((entry.tokenizer_repo, entry.tokenizer_revision))
+    assert tokenizers[0] == tokenizers[1]
+
+
 def test_its_profile_turns_thinking_off_with_the_model_s_settings():
     assert (REPO / "profiles" / f"{E4B}.toml").is_file(), "no profiles/gemma-4-e4b.toml"
     profile = load_profile(REPO, E4B, load_defaults(REPO))
