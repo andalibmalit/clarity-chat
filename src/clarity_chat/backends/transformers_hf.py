@@ -363,14 +363,21 @@ class TransformersBackend:
         self.eos_ids, self.eos_from = end_tokens(weights)
         tokenizer: Any = from_pretrained(AutoTokenizer, weights)
         self.tokenizer = tokenizer
-        loaded = from_pretrained(
+        loaded, info = from_pretrained(
             AutoModelForCausalLM,
             weights,
             dtype=torch.bfloat16,
             attn_implementation=ATTN_IMPLEMENTATION,
             # Never a pytorch_model.bin found beside them, unlisted and unhashed (v0.4.7 M1).
             use_safetensors=True,
+            output_loading_info=True,
         )
+        if missing := sorted(info["missing_keys"]):  # Transformers fills these at random
+            raise ConfigError(
+                f"{model.name}'s weights lack {len(missing)} tensors the model needs, so "
+                f"Transformers would fill them at random: {', '.join(missing[:5])}"
+                + (f" and {len(missing) - 5} more." if len(missing) > 5 else ".")
+            )
         attention = getattr(loaded.config, "_attn_implementation", None)
         if attention != ATTN_IMPLEMENTATION:
             raise ConfigError(
