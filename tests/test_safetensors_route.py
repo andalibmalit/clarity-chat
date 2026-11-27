@@ -336,7 +336,20 @@ def test_state_18_a_download_like_the_shipped_lock_s_is_recorded(official):
 
 
 # Each malformed shape of a lock entry's source_files (state 26), as a change to the entry.
+def outside(name: str):
+    """Checkpoint 1, finding 9: a `file` that names a path outside the snapshot, given to
+    an item other than the weights, so only the new rule can refuse it."""
+
+    def change(entry: dict) -> None:
+        item = next(f for f in entry["source_files"] if "safetensors" not in f["file"])
+        item["file"] = name
+
+    return change
+
+
 MALFORMED = {
+    "an absolute file": outside("/etc/hosts"),
+    "a file with a .. part": outside("../../x/config.json"),
     "no source_files": lambda e: e.pop("source_files"),
     "not a list": lambda e: e.update(source_files="model.safetensors"),
     "empty": lambda e: e.update(source_files=[]),
