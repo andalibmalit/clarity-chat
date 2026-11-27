@@ -159,6 +159,24 @@ def test_a_start_without_the_vector_is_stopped_with_llama_cpp_s_lines(server, mo
     assert seen["procs"][-1].terminated, "the unsteered server was left running"
 
 
+def test_a_node_count_in_the_model_file_s_metadata_doesn_t_pass_a_failed_load(
+    monkeypatch, server, tiny_tokenizer
+):
+    """Checkpoint 1, finding 7: the key dump prints `general.name` as the file has it, so a
+    name that reads like a graph line mustn't count as llama.cpp's reservation. Two nodes
+    under the real one is what a load at calm's blocks 1 and 2 would add."""
+    backend, _, model, weights = server
+    root = weights.parents[2]
+    spoofed = startup().replace("= Tiny\n", f"= graph: nodes = {NODES - 2}\n")
+    assert spoofed != startup()
+    seen = fake_llama(monkeypatch, root, {"tiny": spoofed}, tiny_tokenizer)
+    seen["cvec"] = "fails"
+    refused = started(backend, model, weights, steer(root))
+    assert isinstance(refused, BackendError), f"not refused as state 11: {refused!r}"
+    assert str(refused).startswith(NOT_STEERED.partition("{}")[0])
+    assert seen["procs"][-1].terminated, "the unsteered server was left running"
+
+
 def test_a_vector_changed_before_a_new_start_starts_nothing_and_the_old_server_runs_on(server):
     """State 9a: the re-hash before the start. `/set steering_scale`'s form waits for B4."""
     backend, seen, model, weights = server
@@ -233,6 +251,13 @@ def test_a_steered_start_s_memory_and_splits_are_the_last_reservation_s():
     assert figures == memory_use(plain, device_placement(plain))
     assert figures[0]["compute_mib"] == 22.17
     assert graph_splits(steered_log) == {"prompt": 3, "reply": 3}
+
+
+def test_a_graph_line_in_the_model_file_s_metadata_isn_t_read_as_the_splits():
+    """Checkpoint 1, finding 7: only `sched_reserve`'s own line gives the splits."""
+    spoofed = startup().replace("= Tiny\n", "= graph: nodes = 1, splits = 9\n")
+    assert graph_splits(spoofed) is None
+    assert graph_splits(spoofed + reservation(NODES)) == {"prompt": 2, "reply": 2}
 
 
 # --- the call record (decision 7; states 2, 12, 15) -------------------------------------
