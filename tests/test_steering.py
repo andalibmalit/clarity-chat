@@ -596,7 +596,6 @@ def test_layers_picks_blocks_from_the_file(session):
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
-        ({"backend": "llama.cpp"}, "steering runs on the Transformers backend for now"),
         ({"steering": 'sha256 = "00"'}, "[steering] needs file"),
         ({"steering": 'file = "local/vectors/calm.gguf"\nscale = 2'}, "unknown keys ['scale']"),
         ({"steering": "file = 3"}, "[steering] needs file"),
