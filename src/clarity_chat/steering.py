@@ -68,7 +68,7 @@ class Vector:
     sha256: str
     directions: dict[int, np.ndarray]  # block number: float32 values, all the same length
     model_hint: str | None  # the model type the vector was made for, if the file says
-    identity: tuple[int, int] = (0, 0)  # size and mtime_ns when read: llama.cpp's start check
+    identity: tuple[int, ...] = ()  # file_identity when read: llama.cpp's start check
 
     @property
     def width(self) -> int:
@@ -92,6 +92,14 @@ class Steering:
             "scale": self.scale,
             "layers": self.layers,
         }
+
+
+def file_identity(st: os.stat_result) -> tuple[int, ...]:
+    """What tells a file read before a start from the one there after it. The size and
+    modified time alone miss a file of the same size renamed into place with the old time
+    (`rsync -a`, `cp -p`); its inode and change time differ. A chmod changes the change
+    time too, which stops the start: the safe side."""
+    return (st.st_ino, st.st_size, st.st_mtime_ns, st.st_ctime_ns)
 
 
 def load(path: Path, sha256: str | None) -> Vector:
@@ -121,7 +129,7 @@ def load(path: Path, sha256: str | None) -> Vector:
         raise ConfigError(f"{path} isn't a control-vector GGUF: {e}.") from None
     except (struct.error, IndexError, ValueError, UnicodeDecodeError, OverflowError) as e:
         raise ConfigError(f"{path} isn't a control-vector GGUF ({e}).") from None
-    return Vector(path, actual, directions, model_hint, (st.st_size, st.st_mtime_ns))
+    return Vector(path, actual, directions, model_hint, file_identity(st))
 
 
 class ModelFile(NamedTuple):

@@ -336,13 +336,13 @@ LOG_PREFIX_RE = re.compile(r"^[\d.]+ \S ")
 
 def check_vector_start(startup_output: str, steering: vectors.Steering) -> None:
     """Decision 6's checks once a steered server is up. The file is the one hashed just
-    before the start (its size and time are unchanged), and the log shows the vector added:
+    before the start (its inode, size and times are unchanged), and the log shows the vector added:
     llama.cpp reserves the graph again with one more node per block in the range. A failed
     load leaves a healthy server that answers unsteered, so this is the only sign."""
     vector = steering.vector
     try:
         st = vector.path.stat()
-        unchanged = (st.st_size, st.st_mtime_ns) == vector.identity
+        unchanged = vectors.file_identity(st) == vector.identity
     except OSError:
         unchanged = False
     if not unchanged:
