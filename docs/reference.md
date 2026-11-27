@@ -566,7 +566,7 @@ A replay compares the output token IDs and stop type, or the text if the logged 
 - Transformers: the torch and Transformers versions, device, dtype, attention implementation, `PYTORCH_*` and `TORCH_*` variables, deterministic-mode state, and the weights' commit.
 - Both: the machine, the client's commit, and the rendering libraries.
 
-A replay of a steered call applies the logged vector at the logged scale and blocks. It checks the logged steering like a profile's: the file must be inside the project folder, have the logged sha256 and fit the model, or the replay is refused; it never replays a steered call unsteered. Clarity before v0.2.2 ignores `request.steering`, so it replays a steered call unsteered.
+A replay of a steered call applies the logged vector at the logged scale and blocks. It checks the logged steering like a profile's: the file must be inside the project folder, have the logged sha256 and fit the model, or the replay is refused; it never replays a steered call unsteered. On llama.cpp, each `clarity replay` starts llama-server with its call's vector, strength and blocks. Clarity before v0.2.2 ignores `request.steering`, so it replays a steered call unsteered.
 
 `unexplained_difference` is true when the output differs and nothing changed except, at most, the client's commit or the rendering libraries. Neither can change a replay, since it sends the logged IDs and request.
 
