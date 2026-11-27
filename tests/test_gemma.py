@@ -99,7 +99,7 @@ def test_gemma_loads_chats_repeats_and_replays(tmp_path, capsys):
     assert second["output_ids"] == first["output_ids"]
     other = Session(REPO, logs_dir=tmp_path / "replay")
     try:
-        replayed = other.replay(log, first["call_id"])
+        replayed = other.replay(log, second["call_id"])  # the call in the last log
     finally:
         other.close()
     assert replayed["identical"], replayed
