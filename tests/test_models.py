@@ -889,14 +889,17 @@ def test_the_converter_s_sentencepiece_is_pinned():
 def converter_python(tmp_path_factory) -> list[str]:
     """The converter's environment, made by fetch_convert's own setup commands from Clarity's
     folder (where uv would find Clarity's .venv) in a scratch folder; the command that runs
-    its python. One per module: it installs torch. Live only: it needs the pinned packages
-    (uv's cache, or the network)."""
+    its python. As fetch_convert does, the venv command runs without UV_PYTHON_PREFERENCE,
+    which uv refuses beside --managed-python. One per module: it installs torch. Live only:
+    it needs the pinned packages (uv's cache, or the network)."""
+    import os
     import subprocess
 
     repo = Path(__file__).resolve().parents[1]
     venv, install, python = models.converter_commands(tmp_path_factory.mktemp("converter"))
-    for command in (venv, install):
-        subprocess.run(command, cwd=repo, check=True, stdin=subprocess.DEVNULL)
+    env = {k: v for k, v in os.environ.items() if k != "UV_PYTHON_PREFERENCE"}
+    subprocess.run(venv, cwd=repo, check=True, stdin=subprocess.DEVNULL, env=env)
+    subprocess.run(install, cwd=repo, check=True, stdin=subprocess.DEVNULL)
     return python
 
 
