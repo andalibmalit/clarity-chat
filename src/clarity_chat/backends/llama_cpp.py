@@ -368,7 +368,7 @@ def check_vector_start(startup_output: str, steering: vectors.Steering) -> None:
     if len(nodes) < 2 or nodes[-1] - nodes[0] != last - first + 1:
         said = [
             LOG_PREFIX_RE.sub("", line)
-            for line in startup_output.splitlines()
+            for line in model_load(startup_output).splitlines()  # no model file text
             if any(words in line for words in VECTOR_ERROR)
         ]
         raise BackendError(
