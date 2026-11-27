@@ -6,12 +6,13 @@ Run with `uv run pytest -m browser`.
 
 from __future__ import annotations
 
+import json
 import shutil
 
 import pytest
 
 from clarity_chat.documents import library_add, library_documents
-from tests.test_browser import open_clarity, settled, until
+from tests.test_browser import fits_above, open_clarity, settled, until
 from tests.test_browser_attach import browser_type_launch_args, choose, clarity  # noqa: F401
 
 pytestmark = pytest.mark.browser
@@ -178,3 +179,18 @@ def test_new_chat_with_these_documents_starts_one_that_searches_them(clarity, pa
     settled(page)
     assert "Searching: 1 document" in page.inner_text("#search-button")
     assert "Not kept" not in page.inner_text("#notice")  # the list is kept (walkthrough M3)
+
+
+def test_a_long_searching_list_opens_inside_a_short_window(clarity, page, fetched_root):  # noqa: F811
+    """v0.4.7 C7: the Searching list opens up from the message box, as the picker does."""
+    names = [f"notes{n:02}" for n in range(14)]
+    for name in names:
+        library_add(fetched_root, GLOSSARY, f"{name}.md")
+    path = fetched_root / "profiles" / "chat.toml"
+    path.write_text(path.read_text(encoding="utf-8") + f"\nsearch = {json.dumps(names)}\n")
+    page.set_viewport_size({"width": 1280, "height": 420})
+    redirect, _ = clarity
+    chat(page, redirect)
+    page.click("#search-button")
+    page.wait_for_selector("#search-menu:not([hidden])")
+    fits_above(page, "#search-menu")

@@ -2018,3 +2018,29 @@ def test_a_compare_card_s_bookmark_marks_its_reply(clarity, page):
     marks = page.evaluate("clarity.command('compare')")["result"]["replies"][0]["marks"]
     assert [m["label"] for m in marks] == ["interesting"]
     assert page.is_visible("#compare")  # still comparing
+
+
+# --- v0.4.7 C7
+
+
+def fits_above(page, menu: str) -> None:
+    """A menu that opens up from the message box fits in the window: its top is inside it,
+    and a list too long for the room scrolls (the owner saw the picker's top cut off)."""
+    box = page.eval_on_selector(
+        menu,
+        "m => ({top: m.getBoundingClientRect().top, scrolls: m.scrollHeight > m.clientHeight})",
+    )
+    assert box["scrolls"], f"{menu}'s list doesn't fill the room, so this tests nothing"
+    assert box["top"] >= 0, f"{menu}'s top is {box['top']:.0f} px, above the window"
+
+
+def test_a_long_picker_opens_inside_a_short_window(clarity, page):
+    _, redirect, _ = clarity
+    root = redirect.parent.parent
+    for n in range(14):
+        (root / "profiles" / f"plain{n:02}.toml").write_text(TEXT_PROFILE, encoding="utf-8")
+    page.set_viewport_size({"width": 1280, "height": 420})
+    chat_on(page, redirect)
+    page.click("#picker-button")
+    page.wait_for_selector("#picker-menu:not([hidden])")
+    fits_above(page, "#picker-menu")
