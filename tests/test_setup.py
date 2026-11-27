@@ -614,6 +614,43 @@ def test_a_launcher_setup_can_t_read_is_said_and_setup_still_ends(root, monkeypa
     assert launcher.read_bytes() == b"echo mine\n"
 
 
+NO_LAUNCHER_END = "Setup is done. Run the same command again to check the setup."
+
+
+@pytest.mark.parametrize("case", ["no desktop", "another file", "can't read", "can't write"])
+def test_the_end_names_the_launcher_only_when_it_is_setup_s_own(root, monkeypatch, case):
+    """v0.4.7 C6, found by the owner's install into a home folder with no Desktop: setup
+    printed the three lines, then ended with "double-click Clarity.command on your Desktop",
+    a file that wasn't there. With no launcher of setup's own, the end doesn't name one."""
+    root, state = done_root(root)
+    desktop = desktop_of(root)
+    launcher = desktop / "Clarity.command"
+    if case == "no desktop":
+        desktop.rmdir()
+    elif case == "another file":
+        launcher.write_text("echo mine\n", encoding="utf-8")
+    elif case == "can't read":
+        launcher.write_text("echo mine\n", encoding="utf-8")
+        real_read_text = Path.read_text
+
+        def unreadable(self, *args, **kwargs):
+            if self.name == "Clarity.command":
+                raise PermissionError(1, "Operation not permitted", str(self))
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", unreadable)
+    else:
+
+        def refused(self, *args, **kwargs):
+            raise PermissionError(1, "Operation not permitted", str(self))
+
+        monkeypatch.setattr(Path, "write_text", refused)
+    says = Says()
+    made(root, says=says, state=state, desktop=desktop).go()
+    assert not any("double-click" in line for line in says.lines), says.lines
+    assert says.lines[-1] == NO_LAUNCHER_END
+
+
 # --- Checkpoint 1's fix batch
 
 
