@@ -38,14 +38,15 @@ def test_the_entry_is_the_gate_s_pins():
 OFFICIAL = "gemma-4-e4b-official"
 
 
-def test_the_official_entry_converts_the_revision_the_q4_0_entry_tokenizes_with():
-    """v0.4.7 A2: Google's own weights, converted to bf16, at the commit gemma-4-e4b already
-    renders with, so a chat on either entry gets the same prompt IDs."""
+def test_the_official_entry_fetches_the_revision_the_q4_0_entry_tokenizes_with():
+    """v0.4.7 A2: Google's own weights at the commit gemma-4-e4b already renders with, so a
+    chat on either entry gets the same prompt IDs. R: they're fetched as they are (route =
+    "safetensors"), not converted."""
     models = load_models(REPO)
     assert OFFICIAL in models, f"no {OFFICIAL} in models.toml"
     entry = models[OFFICIAL]
     assert (entry.route, entry.repo, entry.revision) == (
-        "convert",
+        "safetensors",
         "google/gemma-4-E4B-it",
         "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c",
     )
