@@ -447,6 +447,15 @@ def test_a_quantized_copy_repeats_and_replays(session, tmp_path):
         backend.close()
 
 
+def test_smollm2_s_file_gives_its_three_facts():
+    """The facts steering checks a vector against on llama.cpp, as G7 read them with gguf's
+    own reader."""
+    from tests.test_model_file import facts
+
+    path = check_weights_quick(REPO, lock_entry(REPO, load_models(REPO)[MODEL]))
+    assert facts(path) == ("llama", 576, 30)
+
+
 def test_shipped_smollm2_bans_no_tokens(session):
     """v0.4.0 A1: llama-server's key dump is read, and SmolLM2's file has no
     tokenizer.ggml.suppress_tokens. A llama.cpp update that changes the dump's lines
