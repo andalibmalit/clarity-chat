@@ -193,20 +193,23 @@ class Setup:
                 self.fetch(self.root, model, self.config)
             else:
                 self.say(f"{model.name}: already done.")
-        self.launcher()
-        self.say(
-            "Setup is done. Next time, double-click Clarity.command on your Desktop to start "
-            "Clarity, or run the same command again to check the setup."
-        )
+        if self.launcher():
+            self.say(
+                "Setup is done. Next time, double-click Clarity.command on your Desktop to "
+                "start Clarity, or run the same command again to check the setup."
+            )
+        else:  # no launcher of setup's own to name (v0.4.7 C6)
+            self.say("Setup is done. Run the same command again to check the setup.")
 
-    def launcher(self) -> None:
+    def launcher(self) -> bool:
         """~/Desktop/Clarity.command (state 15; decision 13): three lines, #!/bin/sh (so it
         runs under sh whatever the login shell: Checkpoint 1's C6), `cd` to this folder and
         `exec` uv's absolute path, so it needs no shell profile; `--locked --no-dev`, as the
         install runs it (v0.4.6 S1). The lines v0.4.2 to v0.4.5 wrote, for this folder and
         uv, are setup's own and replaced (v0.4.6 decision 2). A file of that name setup
         didn't write, or can't read, is left alone; a Desktop macOS won't let setup write to
-        is said. Either way the lines are printed, and setup still ends without an error."""
+        is said. Either way the lines are printed, and setup still ends without an error.
+        True when the Desktop's Clarity.command is setup's own, made or already there."""
         run = f"#!/bin/sh\ncd {shlex.quote(str(self.root))}\nexec {shlex.quote(self.uv)} run"
         lines = f"{run} --locked --no-dev clarity ui\n"
         shown = lines.rstrip("\n")
@@ -227,17 +230,17 @@ class Setup:
                 f"({e.strerror or e}), so it's left alone. To start Clarity from a file of your "
                 f"own, put these three lines in it:\n{shown}"
             )
-            return
+            return False
         if ours:
             self.say("Clarity.command on your Desktop: already done.")
-            return
+            return True
         if other:
             self.say(
                 "Your Desktop already has a Clarity.command that setup didn't write, so it's "
                 f"left alone. To start Clarity from a file of your own, put these three lines in "
                 f"it:\n{shown}"
             )
-            return
+            return False
         try:
             path.write_text(lines, encoding="utf-8", newline="")
             path.chmod(0o755)
@@ -247,8 +250,9 @@ class Setup:
                 f"({e.strerror or e}). To make the launcher yourself, put these three lines in "
                 f"a file named Clarity.command there:\n{shown}"
             )
-            return
+            return False
         self.say("Made Clarity.command on your Desktop: double-click it to start Clarity.")
+        return True
 
     def fetched(self, model: ModelEntry) -> bool:
         """Its lock entry, and its weights' size against it (state 13): never hashed here; a

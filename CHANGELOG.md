@@ -19,6 +19,9 @@ Two headings are Clarity's own, used when they apply:
 - The Transformers backend loads safetensors only. A folder without `model.safetensors` or its index is an error; before, Transformers would have loaded a `pytorch_model.bin` there without saying so. No shipped model's output changes.
 - Windows is off the roadmap for now: CI runs the offline tests on Linux and macOS only, and the docs say so.
 
+### Fixed
+- Setup's last line said to double-click `Clarity.command` on your Desktop even when setup hadn't put it there: with no Desktop, a Desktop it can't write to, or a file of that name it didn't write or can't read. It now says to run the same command again.
+
 ## [0.4.6] - 2026-11-26
 
 Live tests on an M2 Max (macOS), 2026-11-26, every tier at commit `ac19e0f` (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 39 passed, `-m setup` 1 passed (setup fetching llama.cpp at the pin and building `llama-server` in a new folder), `-m browser` 193 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m embed` 12 passed (bge-m3 on Metal), `-m hf` 25 passed, `-m olmo` 13 passed and `-m llama` 4 passed.
