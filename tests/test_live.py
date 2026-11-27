@@ -1104,6 +1104,48 @@ def test_a_vector_llama_cpp_cant_load_stops_the_server(tmp_path):
         backend.close()
 
 
+def check_steering_on_llama_cpp(root: Path, logs: Path, zero: str, real: str, message: str):
+    """B3's live checks for a model's own tier (v0.4.7 X3), as test_steering_smollm2_on_llama_cpp
+    runs them: a zero vector at a non-zero scale gives the reply `/set steering_scale 0`
+    gives, greedy and seeded, so the vector's path through llama.cpp adds nothing; the real
+    vector changes the reply on a server of its own; the same seed twice gives the same
+    reply; every check passes; and the steered call replays Identical from outside the chat,
+    after its server has stopped."""
+    session = Session(root, logs_dir=logs / "chat")
+    try:
+
+        def run(name: str, temperature: str, scale: str | None = None) -> tuple[dict, Path]:
+            session.new_conversation(name)
+            session.set_setting("temperature", temperature)
+            if scale is not None:  # a new strength starts the model again (B4)
+                session.set_setting("steering_scale", scale)
+            record = session.say(message).record
+            all_checks_ok(record)
+            assert session.conversation is not None
+            return record, session.conversation.log.path
+
+        for temperature in ("0", "0.8"):  # greedy, then sampled at the profile's seed
+            plain, _ = run(zero, temperature, scale="0")
+            zeroed, _ = run(zero, temperature)
+            assert plain["request"]["steering"] is None
+            assert zeroed["request"]["steering"]["scale"] == 8.0
+            assert zeroed["checks"]["steering_start"]["ok"]
+            assert zeroed["output_ids"] == plain["output_ids"], temperature
+        (first, log), (second, _) = run(real, "0.8"), run(real, "0.8")
+        assert first["checks"]["steering_start"]["ok"]
+        assert first["output_ids"] != plain["output_ids"]
+        assert second["output_ids"] == first["output_ids"]
+        assert first["backend"]["server_id"] != plain["backend"]["server_id"]
+    finally:
+        session.close()
+    replaying = Session(root, logs_dir=logs / "replay")
+    try:
+        replayed = replaying.replay(log, first["call_id"])
+    finally:
+        replaying.close()
+    assert replayed["identical"], replayed
+
+
 # --- v0.4.7 B4: a new strength in a chat (notes/plans/v0.4.7.md, B4's live check)
 # uv run pytest -m live -v -s -k new_strength
 

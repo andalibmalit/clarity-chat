@@ -231,3 +231,32 @@ def test_making_a_vector_on_olmo_3_instruct_on_mps(session, tmp_path, capsys):
         pytest.skip(str(e))
     message = "Describe a quiet harbour in two sentences."
     make_and_steer(project(tmp_path), tmp_path, capsys, "1a-stock", message, max_tokens="48")
+
+
+def test_steering_olmo_3_instruct_on_llama_cpp(session, tmp_path):
+    """X3 (v0.4.7): B3's live checks on OLMo 3 7B Instruct on llama.cpp, with the random
+    direction across blocks 10 to 20 that the Transformers test above writes. The module's
+    session closes first, so only one model is loaded."""
+    import numpy as np
+
+    from tests.test_hf import steered, write_vector
+    from tests.test_live import check_steering_on_llama_cpp, steering_project
+
+    session.close()  # a later test that needs it starts its model again
+    root = steering_project(tmp_path)
+    rng = np.random.default_rng(0)
+    blocks = {}
+    for n in range(10, 21):
+        v = rng.standard_normal(4096).astype(np.float32)
+        blocks[n] = v / np.linalg.norm(v)
+    vectors = root / "local" / "vectors"
+    zero_sha = write_vector(vectors / "zero.gguf", {n: v * 0 for n, v in blocks.items()}, "olmo3")
+    real_sha = write_vector(vectors / "random.gguf", blocks, "olmo3")
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    short = {"backend": "llama.cpp", "max_tokens": "48"}
+    base = "1a-stock"
+    zero = steered(folder, base, "local/vectors/zero.gguf", zero_sha, "8.0", **short)
+    real = steered(folder, base, "local/vectors/random.gguf", real_sha, "8.0", **short)
+    message = "Describe a quiet harbour in two sentences."
+    check_steering_on_llama_cpp(root, tmp_path / "logs", zero, real, message)

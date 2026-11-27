@@ -144,3 +144,33 @@ def test_steering_llama_3_1_instruct_on_mps(session, tmp_path):
     zero = steered(folder, base, "local/vectors/zero.gguf", zero_sha, "8.0", **short)
     real = steered(folder, base, "local/vectors/random.gguf", real_sha, "8.0", **short)
     check_steering(root, tmp_path, zero, real, "Describe a quiet harbour in two sentences.")
+
+
+def test_steering_llama_3_1_instruct_on_llama_cpp(session, tmp_path):
+    """X3 (v0.4.7): B3's live checks on Llama 3.1 8B Instruct on llama.cpp, with the random
+    direction across blocks 10 to 20 that the Transformers test above writes. The module's
+    session closes first, so only one model is loaded."""
+    import numpy as np
+
+    from tests.test_hf import steered, write_vector
+    from tests.test_live import check_steering_on_llama_cpp, steering_project
+
+    session.close()  # a later test that needs it starts its model again
+    need(INSTRUCT)
+    root = steering_project(tmp_path)
+    rng = np.random.default_rng(0)
+    blocks = {}
+    for n in range(10, 21):
+        v = rng.standard_normal(4096).astype(np.float32)
+        blocks[n] = v / np.linalg.norm(v)
+    vectors = root / "local" / "vectors"
+    zero_sha = write_vector(vectors / "zero.gguf", {n: v * 0 for n, v in blocks.items()}, "llama")
+    real_sha = write_vector(vectors / "random.gguf", blocks, "llama")
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    short = {"backend": "llama.cpp", "max_tokens": "48"}
+    base = "llama-3.1-8b-chat"
+    zero = steered(folder, base, "local/vectors/zero.gguf", zero_sha, "8.0", **short)
+    real = steered(folder, base, "local/vectors/random.gguf", real_sha, "8.0", **short)
+    message = "Describe a quiet harbour in two sentences."
+    check_steering_on_llama_cpp(root, tmp_path / "logs", zero, real, message)
