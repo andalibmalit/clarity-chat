@@ -114,8 +114,8 @@ def load(path: Path, sha256: str | None) -> Vector:
     where the file is: Clarity's callers check it's inside the project first."""
     try:
         with path.open("rb") as f:
+            st = os.fstat(f.fileno())  # before the read: a write during or after it shows
             data = f.read(MAX_BYTES + 1)
-            st = os.fstat(f.fileno())
     except FileNotFoundError:
         raise ConfigError(f"The vector file {path} doesn't exist.") from None
     except (OSError, ValueError) as e:  # ValueError: a NUL in the path
