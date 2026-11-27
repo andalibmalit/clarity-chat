@@ -171,6 +171,7 @@ def test_the_export_sheet_says_it_holds_the_attached_documents_text(attachments)
         "failed_calls_left_out": 0,
         "calls_without_a_turn_left_out": 0,
         "steered": [],
+        "steered_on_transformers": False,
         "attachments": attachments,
         "found": False,  # v0.3.2: the parts search added
     }

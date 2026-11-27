@@ -137,8 +137,9 @@ def test_the_readout_line_by_line(project, chat_tokenizer, capsys):
         LEGEND,
         "These are facts about the pairs, not a score.",
         "",
-        "To try it, add this to a Transformers profile of tiny, and steering_scale = 1.0 to its "
-        "[settings]:",
+        # State 14 (v0.4.7 B5): tiny has a GGUF, so either backend can run the vector.
+        "To try it, add this to a profile of tiny, on either backend, and steering_scale = 1.0 "
+        "to its [settings]:",
         "",
         "[steering]",
         f'file = "{GGUF}"',
@@ -156,6 +157,29 @@ def test_the_readout_line_by_line(project, chat_tokenizer, capsys):
         "the length of this "
         "vector, the average difference between the two sides. Agreement: the average cosine "
         "similarity between each pair's difference and this vector, from -1 to 1."
+    )
+
+
+def test_a_safetensors_route_model_names_only_transformers(
+    project, chat_tokenizer, capsys, monkeypatch
+):
+    """State 24 (v0.4.7 B5): a safetensors-route model has no GGUF, so only the Transformers
+    backend runs it, and the snippet line says so, as it did before v0.4.7."""
+    import dataclasses
+
+    from clarity_chat import maker
+
+    def safetensors(session, name):
+        prepared = prepare(session, name)
+        model = dataclasses.replace(prepared.model, route="safetensors")
+        return dataclasses.replace(prepared, model=model)
+
+    monkeypatch.setattr(maker, "prepare", safetensors)
+    made(project, chat_tokenizer)
+    out = capsys.readouterr().out.splitlines()
+    assert out[-6] == (
+        "To try it, add this to a Transformers profile of tiny, and steering_scale = 1.0 to its "
+        "[settings]:"
     )
 
 

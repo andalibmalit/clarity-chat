@@ -1089,8 +1089,41 @@ def test_the_export_carries_each_calls_steering_and_splits_the_conditions(sessio
         {**pinned, "scale": -4.0},
     ]
     assert [g["call_ids"] for g in header["conditions"]] == [[r["call_id"]] for r in rows]
-    assert "Some calls were steered; apply the same vector with" in header["note"]
+    assert "Some Transformers calls were steered; apply the same vector with" in header["note"]
     assert "`clarity_chat.steering.applied`" in header["note"]
+    assert result.get("steered_on_transformers") is True
+
+
+def test_a_steered_llama_cpp_export_lists_the_vector_and_says_nothing_of_applied(
+    root, tiny_tokenizer
+):
+    """v0.4.7 B5: a llama.cpp call's steering is exported and its vector listed, to send with
+    the file. The note about `steering.applied` is left out: a llama.cpp call ran on a GGUF
+    file, so a notebook never recomputes it under the same conditions."""
+    from clarity_chat.export import export_log
+    from clarity_chat.session import Session
+    from tests.fakes import FakeBackend
+    from tests.test_steering_llama_cpp import model_like
+
+    steer_root(root)
+    model_like(root)
+    backend = FakeBackend([" Hi."], tokenizer=tiny_tokenizer)
+    backend.name = "llama.cpp"
+    session = Session(root, backend=backend, tokenizer_loader=lambda r, v: tiny_tokenizer)
+    session.new_conversation(steered(root, backend="llama.cpp"))
+    first = session.say("Hi").record
+    assert session.conversation is not None
+    result = export_log(session, session.conversation.log.path)
+    header, rows = read_export(result["path"])
+    logged = first["request"]["steering"]
+    assert logged is not None, "the llama.cpp call logged no steering"
+    assert [row["steering"] for row in rows] == [logged]
+    assert result.get("steered") == [
+        {"file": logged["file"], "sha256": logged["sha256"], "call_ids": [rows[0]["call_id"]]}
+    ]
+    assert header["conditions"][0]["conditions"]["backend"] == "llama.cpp"
+    assert "steering.applied" not in header["note"], header["note"]
+    assert result.get("steered_on_transformers") is False
 
 
 def test_an_unsteered_export_says_none_and_no_steering_note(session):

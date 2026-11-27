@@ -235,6 +235,7 @@ def test_a_steered_export_names_the_vector_to_send():
                         "steered": [
                             {"file": "local/vectors/calm.gguf", "sha256": "a3", "call_ids": ["x"]}
                         ],
+                        "steered_on_transformers": True,
                         "attachments": False,
                         "found": False,
                     }
@@ -248,6 +249,30 @@ def test_a_steered_export_names_the_vector_to_send():
     )
     assert '<span class="path">local/vectors/calm.gguf</span>' in fragment
     assert "Left out: 2 calls that produced no reply." in fragment
+
+
+def test_a_steered_llama_cpp_export_names_the_vector_and_not_the_recompute_step():
+    """v0.4.7 B5: the sheet lists a llama.cpp chat's vector to send, but says to apply it
+    before recomputing only of Transformers replies, as the file's note does."""
+    answer = {
+        "result": {
+            "path": "/x/logs/exports/c.jsonl",
+            "replaced": False,
+            "calls": 1,
+            "failed_calls_left_out": 0,
+            "calls_without_a_turn_left_out": 0,
+            "steered": [{"file": "local/vectors/calm.gguf", "sha256": "a3", "call_ids": ["x"]}],
+            "steered_on_transformers": False,
+            "attachments": False,
+            "found": False,
+        }
+    }
+    fragment = html.unescape(
+        web.templates.get_template("export.html").render(**web.export_sheet(answer))
+    )
+    assert "send the vector too:" in fragment
+    assert '<span class="path">local/vectors/calm.gguf</span>' in fragment
+    assert "Some replies were steered" not in fragment
 
 
 def test_a_vector_path_with_control_characters_shows_them_escaped_with_no_copy():
@@ -268,6 +293,7 @@ def test_a_vector_path_with_control_characters_shows_them_escaped_with_no_copy()
             "failed_calls_left_out": 0,
             "calls_without_a_turn_left_out": 0,
             "steered": vectors,
+            "steered_on_transformers": True,
             "attachments": False,
             "found": False,
         }
