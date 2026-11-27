@@ -917,6 +917,7 @@ def test_gate_g3_the_restart_and_restore_path_today(tmp_path):
 # uv run pytest -m live -v -s -k steered_start
 
 REPENG = REPO / "tests" / "fixtures" / "steering" / "smollm2-repeng.gguf"  # blocks 10, 15, 20
+REPENG_SHA256 = "ed3236f9f64dc4714b402b9a32f7e209471d3108033eff28dc4ad9230d1724f2"
 NODES_RE = re.compile(r"graph(?: \(.*?\))?: nodes = (\d+)")
 
 
@@ -982,3 +983,123 @@ def test_a_steered_start_logs_the_same_memory_as_an_unsteered_one(tmp_path):
 
     assert figures(plain)["nodes, last less first"] == 0, reservation_lines(plain)
     assert figures(steered) == {**figures(plain), "nodes, last less first": 20 - 10 + 1}
+
+
+# --- v0.4.7 B3: steering on llama.cpp (notes/plans/v0.4.7.md, B3's live checks)
+# A replay of a steered llama.cpp call comes with B4, which lets a log's steering reach
+# llama.cpp; its live check is B4's.
+
+
+def steering_project(tmp_path: Path) -> Path:
+    """A scratch project folder that uses this checkout's config, models and llama.cpp, so
+    the test's vectors sit inside a project folder without touching your local/."""
+    import shutil
+
+    root = tmp_path / "project"
+    (root / "local" / "vectors").mkdir(parents=True)
+    for name in ("defaults.toml", "server.toml", "models.toml", "models.lock"):
+        shutil.copy(REPO / name, root / name)
+    for name in ("models", "vendor"):
+        (root / name).symlink_to(REPO / name, target_is_directory=True)
+    return root
+
+
+def write_vector(path: Path, blocks: dict) -> str:
+    """Write a SmolLM2 vector with gguf's reference writer; returns its sha256."""
+    import hashlib
+
+    import gguf
+
+    writer = gguf.GGUFWriter(path, "controlvector")
+    writer.add_string("controlvector.model_hint", "llama")
+    writer.add_uint32("controlvector.layer_count", len(blocks))
+    for n, values in blocks.items():
+        writer.add_tensor(f"direction.{n}", values)
+    writer.write_header_to_file()
+    writer.write_kv_data_to_file()
+    writer.write_tensors_to_file()
+    writer.close()
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def steered_profile(folder: Path, file: str | None, sha256: str, scale: str, temp: str) -> str:
+    """smol-chat at `temp` (its seed is 42), steered by `file` at `scale`, or not at all."""
+    text = (REPO / "profiles" / "smol-chat.toml").read_text(encoding="utf-8")
+    text = text.replace("temperature = 0.6", f"temperature = {temp}")
+    if file is not None:
+        text = text.replace("[settings]", f"[settings]\nsteering_scale = {scale}")
+        text += f'\n[steering]\nfile = "{file}"\nsha256 = "{sha256}"\n'
+    path = folder / f"smol-chat-{len(list(folder.iterdir()))}.toml"
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
+def test_steering_smollm2_on_llama_cpp(tmp_path):
+    """A zero vector at scale 8 gives the unsteered reply, greedy and seeded, so the vector's
+    path through llama.cpp adds nothing; repeng's vector changes the reply; the same seed
+    twice gives the same reply; and every check passes, where the model went included."""
+    import shutil
+
+    import numpy as np
+
+    from clarity_chat.steering import load
+
+    root = steering_project(tmp_path)
+    shutil.copy(REPENG, root / "local" / "vectors" / "repeng.gguf")
+    repeng = load(REPENG, REPENG_SHA256)
+    zeros = {n: np.zeros_like(v) for n, v in repeng.directions.items()}
+    zero_sha = write_vector(root / "local" / "vectors" / "zero.gguf", zeros)
+    folder = tmp_path / "profiles"
+    folder.mkdir()
+    message = "Tell me about rivers."
+
+    session = Session(root, logs_dir=tmp_path / "logs")
+    try:
+
+        def say(profile: str) -> dict:
+            session.new_conversation(profile)
+            record = session.say(message).record
+            all_checks_ok(record)
+            return record
+
+        for temp in ("0", "0.8"):  # greedy, then sampled at seed 42
+            plain = say(steered_profile(folder, None, "", "0", temp))
+            zero = steered_profile(folder, "local/vectors/zero.gguf", zero_sha, "8.0", temp)
+            zeroed = say(zero)
+            assert plain["request"]["steering"] is None
+            assert zeroed["request"]["steering"]["scale"] == 8.0
+            assert zeroed["checks"]["steering_start"]["ok"]
+            assert "steering" not in zeroed["checks"]  # Transformers' check, not llama.cpp's
+            assert zeroed["output_ids"] == plain["output_ids"], temp
+        real = steered_profile(folder, "local/vectors/repeng.gguf", repeng.sha256, "4.0", "0.8")
+        first, second = say(real), say(real)
+        assert first["output_ids"] != plain["output_ids"]
+        assert second["output_ids"] == first["output_ids"]
+        assert first["backend"]["server_id"] != plain["backend"]["server_id"]
+    finally:
+        session.close()
+
+
+def test_a_vector_llama_cpp_cant_load_stops_the_server(tmp_path):
+    """llama-server answers unsteered when a vector fails to load. Here the vector is 64
+    wide on SmolLM2's 576, given to the backend's start directly, around the profile's
+    checks (B2) on purpose: Clarity's start check must catch llama.cpp's silence."""
+    import numpy as np
+
+    from clarity_chat.steering import Steering, load
+
+    path = tmp_path / "narrow.gguf"
+    sha256 = write_vector(path, {15: np.ones(64, dtype=np.float32)})
+    steering = Steering("narrow.gguf", load(path, sha256), 4.0, [15])
+    config = load_server_config(REPO)
+    entry = lock_entry(REPO, load_models(REPO)[MODEL])
+    backend = LlamaCppBackend(config, tmp_path / "logs")
+    try:
+        with pytest.raises(BackendError, match="started without the vector") as raised:
+            backend.start(
+                load_models(REPO)[MODEL], check_weights_quick(REPO, entry), 2048, steering
+            )
+        print(f"\n{raised.value}")
+        assert backend.stopped
+    finally:
+        backend.close()
