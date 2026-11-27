@@ -53,15 +53,29 @@ tokenizer_repo = "meta-llama/Llama-3.1-8B"
 tokenizer_revision = "d04e592bb4f6aa9cfee91e2e20afa771667e1d4b"
 
 [gemma-4-e4b]
-# The first chat model `clarity setup` fetches (v0.4.2; Apache 2.0, not gated): Google's
-# Gemma 4 E4B, quantized to Q4_0 by llama.cpp's ggml-org, with Google's own tokenizer and
-# chat template. On a Mac it uses about 3.3 GB of GPU memory and keeps about 2.3 GB of
-# input embeddings in host memory (measured at the pin, 2026-11-22).
+# The first chat model `clarity setup` fetches (v0.4.2; Apache 2.0, not gated): llama.cpp's
+# ggml-org's Q4_0 file of Gemma 4 E4B, with Google's own tokenizer and chat template. Its
+# weights differ from the official ones by more than Q4_0's rounding (measured 2026-11-26),
+# so it isn't gemma-4-e4b-official quantised. On a Mac it uses about 3.3 GB of GPU memory
+# and keeps about 2.3 GB of input embeddings in host memory (measured at the pin,
+# 2026-11-22).
 route = "gguf"
 repo = "ggml-org/gemma-4-E4B-it-GGUF"
 revision = "8903cb408c7df39cde2ed15fac397e6d7be92951"
 file = "gemma-4-E4B-it-Q4_0.gguf"
 sha256 = "a555b900214b477d8880e7832e0b8925e139b0159640036b09fe472b6f2097f2"
+tokenizer_repo = "google/gemma-4-E4B-it"
+tokenizer_revision = "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c"
+
+[gemma-4-e4b-official]
+# Google's own Gemma 4 E4B weights (Apache 2.0, not gated), converted to a bf16 GGUF.
+# `clarity vector make` reads these weights with the Transformers backend, and llama.cpp
+# runs the GGUF. The tokenizer revision is gemma-4-e4b's, so a chat on either entry renders the
+# same prompt. The download is 16.0 GB and stays in the Hugging Face cache; the GGUF in
+# models/gemma-4-e4b-official is kept beside it.
+route = "convert"
+repo = "google/gemma-4-E4B-it"
+revision = "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c"
 tokenizer_repo = "google/gemma-4-E4B-it"
 tokenizer_revision = "4ecc2ba63bcac23ba4a767fc87025b1450f84c9c"
 

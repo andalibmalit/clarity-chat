@@ -10,6 +10,7 @@ Two headings are Clarity's own, used when they apply:
 
 ### Added
 - Steering and `clarity vector make` run on Gemma 4 (model type `gemma4`) on the Transformers backend. The Transformers backend now checks Gemma 4's `max_position_embeddings`, under its `text_config`, against `ctx_size`, and logs it in the start record; before, it found none at the top level and checked nothing.
+- A shipped model, `gemma-4-e4b-official`: Google's own Gemma 4 E4B weights, converted to bf16 (a 16.0 GB download), at the tokenizer revision `gemma-4-e4b` already uses. `gemma-4-e4b`'s comment and its row in the reference now say its weights aren't the official ones quantised: they differ by more than Q4_0's rounding.
 
 ## [0.4.6] - 2026-11-26
 
