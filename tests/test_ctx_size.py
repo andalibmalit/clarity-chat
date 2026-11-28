@@ -447,6 +447,28 @@ def test_set_ctx_size_sends_the_starting_status(fake):
     assert result["setting"] == {"value": 16384, "origin": "chat"}
 
 
+@pytest.mark.parametrize(
+    ("value", "sentence"),
+    [
+        ("abc", "/set: ctx_size must be a positive integer"),
+        ("0", "/set: ctx_size must be a positive integer"),
+        ("", "ctx_size isn't set in this chat."),
+    ],
+)
+def test_a_size_refused_before_any_start_says_no_start(fake, value, sentence):
+    """QA finding 1's sibling: a size the checks refuse starts nothing, so nothing is
+    said as a start."""
+    session, backend = fake
+    events: list[dict[str, Any]] = []
+    refused = raised(lambda: Commands(session).run("set", f"ctx_size {value}", events.append))
+    assert isinstance(refused, ConfigError), f"not refused: {refused!r}"
+    assert str(refused).startswith(sentence), str(refused)
+    statuses = [e["status"] for e in events if e["event"] == "status"]
+    assert statuses == [], "a start was said, though none ran"
+    assert backend.ctx_sizes == [8192]
+    assert session.say("Hi").record["n_ctx"] == 8192
+
+
 def test_a_new_size_s_server_warnings_are_the_chat_s(fake):
     """After /set ctx_size the screen shows the new server's start warnings, not the first
     one's (checkpoint 1, S5)."""
