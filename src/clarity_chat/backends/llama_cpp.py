@@ -7,7 +7,6 @@ Facts below were checked against the llama.cpp source at the commit in server.to
 from __future__ import annotations
 
 import dataclasses
-import itertools
 import json
 import os
 import re
@@ -404,9 +403,9 @@ def last_reservation(startup_output: str) -> str:
 
 # The devices' and the model buffers' lines (src/llama.cpp:306, src/llama-model.cpp:2139).
 # A model file's text reaches the start log around them as it is, newlines and all: in a
-# key's name in the dump (its value is escaped), the vocabulary's lines, an unused tensor's
-# name and the end tokens' logit biases. So each is read only on a line of llama.cpp's own,
-# in its window, and a window whose first line appears twice isn't read.
+# key's name in the dump (its value is escaped), the vocabulary's lines and the end tokens'
+# logit biases. So each is read only on a line of llama.cpp's own, in its window, and a
+# window whose first line appears twice isn't read.
 FILE_SIZE_RE = re.compile(rf"^{LOG_PREFIX}print_info: file size += ", re.M)
 VOCABULARY_RE = re.compile(rf"^{LOG_PREFIX}(?:load|print_info): ", re.M)
 DEVICE_RE = re.compile(
@@ -416,7 +415,6 @@ DEVICE_RE = re.compile(
 )
 TENSOR_LOAD_RE = re.compile(rf"^{LOG_PREFIX}load_tensors: loading model tensors, ", re.M)
 LOAD_END_RE = re.compile(rf"^{LOG_PREFIX}(?:cmn  common_init_|llama_context): ", re.M)
-TENSORS_LINE_RE = re.compile(rf"{LOG_PREFIX}load_tensors: ")
 BUFFER_RE = re.compile(rf"{LOG_PREFIX}load_tensors: +(\S+) model buffer size = +([\d.]+) MiB")
 
 
@@ -442,16 +440,16 @@ def tensor_load_log(startup_output: str) -> list[str]:
 
 def device_placement(startup_output: str) -> dict[str, Any]:
     """Which devices llama-server used and where the model's weights went (its startup log).
-    A buffer line counts after another `load_tensors` line: an unused tensor's name, under 64
-    characters (GGML_MAX_NAME), can print one line, but not two."""
+    Between the tensors' load and its end, llama.cpp prints no text from the file: an unused
+    tensor's name comes from its own table (src/llama-arch.cpp:1293-1305)."""
     devices = [
         {"name": m[1], "description": m[2], "free_mib": int(m[3])}
         for m in DEVICE_RE.finditer(devices_log(startup_output))
     ]
     buffers = [
         {"buffer": m[1], "mib": float(m[2])}
-        for before, line in itertools.pairwise(tensor_load_log(startup_output))
-        if TENSORS_LINE_RE.match(before) and (m := BUFFER_RE.fullmatch(line))
+        for line in tensor_load_log(startup_output)
+        if (m := BUFFER_RE.fullmatch(line))
     ]
     return {"devices": devices, "model_buffers": buffers}
 

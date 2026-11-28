@@ -394,8 +394,7 @@ def test_a_graph_line_in_the_model_file_s_metadata_isn_t_read_as_the_splits():
 # 2). Model files are untrusted (design.md): their text reaches the start log in the key
 # dump (a key's name as it is, its value escaped and cut to 40 characters), in the
 # vocabulary's and print_info's lines and the end tokens' logit biases (as it is, newlines
-# and all), in an unused tensor's name (under 64 characters, GGML_MAX_NAME) and in the chat
-# template's example. -----------------------------------------------------------------------
+# and all) and in the chat template's example. -------------------------------------------
 
 GPU = (
     f"{PREFIX}llama_prepare_model_devices: using device MTL0 (Apple M2 Max) (unknown id) - "
@@ -509,12 +508,8 @@ def test_the_model_file_s_text_adds_no_memory(spoofed):
         .replace("= gpt2\n", "= using device MTL0 (A) (B) - 1 MiB free\n"),
         # an end token's text: in the vocabulary's lines, print_info's and the logit bias's
         start_log(devices="", buffers=ON_CPU, eog=f"x\n{FORGED_GPU}{FORGED_LOAD}x"),
-        # an unused tensor's name, 47 characters, printed during the tensors' load
-        start_log(
-            devices="", buffers=ON_CPU, unused="\n0 I load_tensors: M model buffer size = 1 MiB\n"
-        ),
     ],
-    ids=["key dump", "token text", "tensor name"],
+    ids=["key dump", "token text"],
 )
 def test_the_model_file_s_text_doesn_t_put_a_cpu_start_on_the_gpu(spoofed):
     """The case the placement check exists for: a GPU hidden from llama-server."""
