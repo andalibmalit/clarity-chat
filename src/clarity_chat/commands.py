@@ -725,20 +725,7 @@ def _set(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     name, _, value = needs(args, "/set NAME [VALUE]").partition(" ")
     if name == "ctx_size":
         return _set_ctx_size(c, value.strip(), emit)
-    running = c.session.conversation
-    assert running is not None
-    starting = []
-
-    def on_start() -> None:  # a new strength on llama.cpp starts the model, said as a start
-        starting.append(True)
-        emit({"event": "status", "status": "starting", "profile": running.profile.name})
-
-    try:
-        record = c.session.set_setting(name, value.strip(), on_start)
-    finally:
-        if starting and (conversation := c.session.conversation) is not None:
-            ready = {"status": "ready", "conversation_id": conversation.conversation_id}
-            emit({"event": "status", **ready})
+    record = set_said_as_a_start(c, name, value.strip(), emit)
     conversation = c.session.conversation
     assert conversation is not None
     values = conversation.search_values() if name in CHAT_KEYS else conversation.settings
@@ -748,23 +735,30 @@ def _set(c: Commands, args: str, emit: Emit) -> dict[str, Any]:
     return result
 
 
-def _set_ctx_size(c: Commands, value: str, emit: Emit) -> dict[str, Any]:
-    """A new size starts the model again, said as a start is (decision 6). The chat is
-    ready again after a refusal too, at its old size, unless that couldn't start either."""
+def set_said_as_a_start(c: Commands, name: str, value: str, emit: Emit) -> dict[str, Any]:
+    """set_setting, with a start said as one: "starting" once the value's checks pass, and
+    "ready" after it, a refused start too, at the old value, unless that couldn't start
+    either. A value refused before any start says none (QA finding 1)."""
     running = c.session.conversation
     assert running is not None
-    emit({"event": "status", "status": "starting", "profile": running.profile.name})
+    starting = []
+
+    def on_start() -> None:
+        starting.append(True)
+        emit({"event": "status", "status": "starting", "profile": running.profile.name})
+
     try:
-        record = c.session.set_setting("ctx_size", value)
+        return c.session.set_setting(name, value, on_start)
     finally:
-        if (conversation := c.session.conversation) is not None:
-            emit(
-                {
-                    "event": "status",
-                    "status": "ready",
-                    "conversation_id": conversation.conversation_id,
-                }
-            )
+        if starting and (conversation := c.session.conversation) is not None:
+            ready = {"status": "ready", "conversation_id": conversation.conversation_id}
+            emit({"event": "status", **ready})
+
+
+def _set_ctx_size(c: Commands, value: str, emit: Emit) -> dict[str, Any]:
+    """A new size starts the model again, said as a start is (decision 6)."""
+    record = set_said_as_a_start(c, "ctx_size", value, emit)
+    conversation = c.session.conversation
     assert conversation is not None
     return {
         "record": record,

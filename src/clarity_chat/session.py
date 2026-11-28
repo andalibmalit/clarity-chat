@@ -1788,9 +1788,10 @@ class Session:
         like a profile, and logged as a `settings` record with every /set value. A search key
         (v0.4.4 B1) applies from the next message; words stops the embedder (state 13). A new
         ctx_size starts the model again, and is the chat's only once that start worked (G3):
-        a refused one leaves the old size running (decision 6). So does a new strength on
-        llama.cpp (v0.4.7 decision 5), calling `on_start` once the vector's checks pass, just
-        before the old server stops: a refused strength starts nothing (QA finding 1)."""
+        a refused one leaves the old size running (decision 6), and `on_start` is called once
+        the value's checks pass. So does a new strength on llama.cpp (v0.4.7 decision 5),
+        calling `on_start` once the vector's checks pass too, just before the old server
+        stops: a value refused before any start says none (QA finding 1)."""
         conversation = self._require_conversation()
         if name not in (*SETTING_NAMES, *CHAT_KEYS, "ctx_size"):
             known = [*SETTING_NAMES, *CHAT_KEYS, "ctx_size"]
@@ -1812,6 +1813,8 @@ class Session:
         steered = conversation.profile.steering is not None
         check_backend_settings(trial, conversation.profile.backend, "/set", steered)
         if name == "ctx_size":
+            if on_start:
+                on_start()
             self._resize(conversation, Setting(chat[name], "chat") if text else None)
         elif name == "steering_scale" and self.restarts_for(conversation, trial):
             self._restart(conversation, conversation.ctx_size, trial, on_start)
