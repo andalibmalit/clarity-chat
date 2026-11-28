@@ -392,9 +392,10 @@ def test_a_graph_line_in_the_model_file_s_metadata_isn_t_read_as_the_splits():
 
 # --- the model file's text in the placement and memory lines (whole-branch review, finding
 # 2). Model files are untrusted (design.md): their text reaches the start log in the key
-# dump (escaped, cut to 40 characters), in the vocabulary's and print_info's lines and the
-# end tokens' logit biases (as it is, newlines and all), in an unused tensor's name (under
-# 64 characters, GGML_MAX_NAME) and in the chat template's example. ------------------------
+# dump (a key's name as it is, its value escaped and cut to 40 characters), in the
+# vocabulary's and print_info's lines and the end tokens' logit biases (as it is, newlines
+# and all), in an unused tensor's name (under 64 characters, GGML_MAX_NAME) and in the chat
+# template's example. -----------------------------------------------------------------------
 
 GPU = (
     f"{PREFIX}llama_prepare_model_devices: using device MTL0 (Apple M2 Max) (unknown id) - "
@@ -516,6 +517,23 @@ def test_the_model_file_s_text_doesn_t_put_a_cpu_start_on_the_gpu(spoofed):
     plain = start_log(devices="", buffers=ON_CPU)
     assert device_placement(spoofed) == device_placement(plain)
     assert placement_problem({"n-gpu-layers": "all"}, device_placement(spoofed)) is not None
+
+
+def test_a_key_name_in_the_model_file_doesn_t_forge_the_gpu_s_limit():
+    """Fix review, finding 2: the key dump prints a key's name as it is (`%42s`,
+    src/llama-model-loader.cpp:904), so a name can print a file size, a device and a
+    vocabulary line before the real ones. With two file-size lines no device is read, so a
+    start asked to use the GPU is refused rather than checked against a made-up limit."""
+    name = (
+        f"x\n{PREFIX}print_info: file size   = 1 MiB\n"
+        f"{PREFIX}llama_prepare_model_devices: using device MTL0 (Apple M2 Max) (unknown id) - "
+        f"999999 MiB free\n{PREFIX}load: x"
+    )
+    spoofed = start_log().replace(dump(), dump((name, "str", "x")))
+    assert spoofed != start_log()
+    placement = device_placement(spoofed)
+    assert placement["devices"] == []
+    assert placement_problem({"n-gpu-layers": "all"}, placement) is not None
 
 
 def test_a_second_tensor_load_line_in_the_model_file_s_text_refuses_a_gpu_start():
