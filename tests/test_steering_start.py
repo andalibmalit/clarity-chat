@@ -15,7 +15,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from hypothesis import given
+from hypothesis import example, given
 from hypothesis import strategies as st
 
 from clarity_chat import steering
@@ -111,14 +111,16 @@ def normal_float32(x: float) -> bool:
 
 
 @given(st.floats(allow_nan=False, allow_infinity=False).filter(normal_float32))
+@example(1 + 2**-24)  # as a double's text, stof reads 1 + 2**-23 (review finding 1)
 def test_the_scale_s_text_reads_back_as_its_float32(scale):
-    """llama.cpp reads SCALE with std::stof: the text must name the same float32 that
-    Transformers multiplies by. A subnormal scale is left out: stof refuses it."""
+    """llama.cpp reads SCALE with std::stof, in one rounding: the text must name exactly the
+    float32 that Transformers multiplies by, so any reader that rounds correctly gets it.
+    A subnormal scale is left out: stof refuses it."""
     argv_for = getattr(llama_cpp, "steering_argv", None)
     assert argv_for is not None, "llama_cpp has no steering_argv"
     argv = argv_for(steering.Steering("v.gguf", REPENG, scale, [10, 15, 20]))
     text = argv[1].rpartition(":")[2]
-    assert np.float32(float(text)) == np.float32(scale), (scale, text)
+    assert float(text) == float(np.float32(scale)), (scale, text)
     assert argv[3:] == ["10", "20"]
 
 
