@@ -413,7 +413,7 @@ class TransformersBackend:
         self._check_positions(model.name, loaded)
         self.model, self.model_entry, self.weights = loaded, model, weights
         warnings = []
-        if towers:
+        if towers and not_loaded:  # a tower left out: any other tensor was refused above
             warnings.append(
                 "Gemma 4's audio and vision parts aren't loaded: Clarity runs its text model only."
             )
