@@ -45,5 +45,5 @@ Clarity writes files only visibly. Shipped files stay read-only; the user's own 
 ## Sandbox notes
 - `vendor/llama.cpp` can't be cloned or updated from inside the sandbox; the owner runs its git commands.
 - Delete files with Python's `shutil`; `rm -rf` is denied.
-- Run a live tier (`uv run pytest -m live -v`, `-m olmo`, `-m hf`) on its own: no pipe, `cd` or `&&`. Only then does its `excludedCommands` entry take it out of the sandbox, which hides the GPU.
+- Run a live tier as its command in CONTRIBUTING.md's Test table, on its own: no pipe, `cd` or `&&`. You may add `-k` to pick tests, but never drop a flag. Only then is it sure to leave the sandbox, which hides the GPU.
 - The browser tier leaves the sandbox only as `uv run pytest -m browser`, with `-v` or `-x` at most: a `-k` or a path puts it back inside, where Chrome can't start.
