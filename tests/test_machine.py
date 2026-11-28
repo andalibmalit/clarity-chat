@@ -394,10 +394,12 @@ class Chat(Machine):
         """The weights file written again between steps: the same bytes with a new time, other
         bytes of the same size, or the fetched bytes back."""
         path = self.root / "models" / "tiny" / "tiny-bf16.gguf"
-        path.write_bytes(OTHER_BYTES if kind == "changed" else BYTES)
+        old, new = path.read_bytes(), OTHER_BYTES if kind == "changed" else BYTES
+        path.write_bytes(new)
         self.weights_good = kind != "changed"
         self.step = {"rule": "replace_weights", "error": None}
-        fired["replace_weights"] += 1
+        if new != old:  # a new time alone changes nothing a check reads (review finding 10)
+            fired["replace_weights"] += 1
 
     # --- the guarantees, after every step ------------------------------------------------
 
@@ -556,8 +558,10 @@ class Steering(Machine):
         finally:
             self.seen.update(cvec="loads", during_start=None)
         self.step = {"rule": "steer", "error": error, "before": before}
-        if len(self.seen["argv"]) > starts:
+        if error is None and self.scale() != before:  # a refused start restores (finding 10)
             fired["steering.steer"] += 1
+        elif error is not None and len(self.seen["argv"]) > starts:
+            fired["steering.restore"] += 1
 
     @invariant()
     def guarantees(self) -> None:
@@ -600,7 +604,7 @@ def test_a_new_strength_keeps_its_guarantees(tmp_path_factory, tiny_tokenizer):
             super().__init__(tmp_path_factory.mktemp("machine"), tiny_tokenizer)
 
     run_state_machine_as_test(Run, settings=STEERING_RUNS)
-    never = [name for name in ("say", "steer") if not fired[f"steering.{name}"]]
+    never = [name for name in ("say", "steer", "restore") if not fired[f"steering.{name}"]]
     assert not never, f"rules that never changed anything: {never}"
 
 
