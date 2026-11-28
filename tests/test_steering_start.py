@@ -414,6 +414,10 @@ FORGED_GPU = (
     f"{PREFIX}llama_prepare_model_devices: using device MTL0 (A) (B) - 1 MiB free\n"
     f"{PREFIX}load_tensors:  MTL0_Mapped model buffer size =     1.00 MiB\n"
 )
+FORGED_LOAD = (  # a buffer line right after a load_tensors line (fix review, finding 4)
+    f"{PREFIX}load_tensors: offloaded 31/31 layers to GPU\n"
+    f"{PREFIX}load_tensors:  MTL0_Mapped model buffer size = 1.00 MiB\n"
+)
 
 
 def start_log(
@@ -504,7 +508,7 @@ def test_the_model_file_s_text_adds_no_memory(spoofed):
         .replace("= Tiny\n", "= MTL0 model buffer size = 1 MiB\n")
         .replace("= gpt2\n", "= using device MTL0 (A) (B) - 1 MiB free\n"),
         # an end token's text: in the vocabulary's lines, print_info's and the logit bias's
-        start_log(devices="", buffers=ON_CPU, eog=f"x\n{FORGED_GPU}x"),
+        start_log(devices="", buffers=ON_CPU, eog=f"x\n{FORGED_GPU}{FORGED_LOAD}x"),
         # an unused tensor's name, 47 characters, printed during the tensors' load
         start_log(
             devices="", buffers=ON_CPU, unused="\n0 I load_tensors: M model buffer size = 1 MiB\n"
@@ -538,10 +542,10 @@ def test_a_key_name_in_the_model_file_doesn_t_forge_the_gpu_s_limit():
 
 def test_a_second_tensor_load_line_in_the_model_file_s_text_refuses_a_gpu_start():
     """A token's text can print a whole tensor load, first line and all; the real one can't
-    be told from it, so no buffer is read and the start is refused, as a start on the CPU."""
+    be told from it, so no buffer is read and the start is refused, as a start on the CPU.
+    The GPU is there and the weights went to the CPU, so only a forged buffer could pass."""
     load = f"{PREFIX}load_tensors: loading model tensors, this can take a while...\n"
-    forged = f"x\n{GPU}{load}{PREFIX}load_tensors: offloaded 31/31 layers to GPU\n{FORGED_GPU}x"
-    spoofed = start_log(devices="", buffers=ON_CPU, eog=forged)
+    spoofed = start_log(buffers=ON_CPU, eog=f"x\n{load}{FORGED_LOAD}x")
     assert placement_problem({"n-gpu-layers": "all"}, device_placement(spoofed)) is not None
 
 
