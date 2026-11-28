@@ -25,6 +25,7 @@ from clarity_chat.backends.llama_cpp import (
     device_placement,
     graph_splits,
     memory_use,
+    placement_problem,
 )
 from clarity_chat.profiles import ConfigError, load_models, load_server_config
 from tests.fake_llama import (
@@ -32,6 +33,9 @@ from tests.fake_llama import (
     CONTEXT_LINE,
     DEVICE_LINES,
     NODES,
+    PREFIX,
+    SLOTS_LINE,
+    dump,
     fake_llama,
     graph_line,
     reservation,
@@ -329,6 +333,143 @@ def test_a_graph_line_in_the_model_file_s_metadata_isn_t_read_as_the_splits():
     spoofed = startup().replace("= Tiny\n", "= graph: nodes = 1, splits = 9\n")
     assert graph_splits(spoofed) is None
     assert graph_splits(spoofed + reservation(NODES)) == {"prompt": 2, "reply": 2}
+
+
+# --- the model file's text in the placement and memory lines (whole-branch review, finding
+# 2). Model files are untrusted (design.md): their text reaches the start log in the key
+# dump (escaped, cut to 40 characters), in the vocabulary's and print_info's lines and the
+# end tokens' logit biases (as it is, newlines and all), in an unused tensor's name (under
+# 64 characters, GGML_MAX_NAME) and in the chat template's example. ------------------------
+
+GPU = (
+    f"{PREFIX}llama_prepare_model_devices: using device MTL0 (Apple M2 Max) (unknown id) - "
+    "25558 MiB free\n"
+)
+ON_GPU = (
+    f"{PREFIX}load_tensors: offloaded 31/31 layers to GPU\n"
+    f"{PREFIX}load_tensors:   CPU_Mapped model buffer size =    56.25 MiB\n"
+    f"{PREFIX}load_tensors:  MTL0_Mapped model buffer size =   256.50 MiB\n"
+)
+ON_CPU = (  # the GPU hidden, as a sandbox can: no device line
+    f"{PREFIX}load_tensors: offloaded 0/31 layers to GPU\n"
+    f"{PREFIX}load_tensors:   CPU_Mapped model buffer size =   312.75 MiB\n"
+)
+FORGED_GPU = (
+    f"{PREFIX}llama_prepare_model_devices: using device MTL0 (A) (B) - 1 MiB free\n"
+    f"{PREFIX}load_tensors:  MTL0_Mapped model buffer size =     1.00 MiB\n"
+)
+
+
+def start_log(
+    devices: str = GPU, buffers: str = ON_GPU, eog: str = "</s>", unused: str = ""
+) -> str:
+    """A whole start log in the order llama-server prints it at the pin, read in its source
+    (src/llama-model-loader.cpp:1979, src/llama.cpp:306, src/llama-vocab.cpp,
+    src/llama-model.cpp:1728, :2133 and :2139, common/common.cpp:1360,
+    src/llama-context.cpp:180) and seen in a real start's log: the key dump, the file's
+    size, the devices, the vocabulary, the tensors' load and their buffers, the end token's
+    logit bias, then the context. `eog` is the end token's text and `unused` the name of a
+    tensor the file has and llama.cpp doesn't use."""
+    tensor = (
+        f"{PREFIX[:-2]}W model has unused tensor {unused} (size = 64 bytes) -- ignoring\n"
+        if unused
+        else ""
+    )
+    return (
+        dump()
+        + f"{PREFIX}print_info: file format = GGUF V3 (latest)\n"
+        + f"{PREFIX}print_info: file type   = BF16\n"
+        + f"{PREFIX}print_info: file size   = 256.63 MiB (16.00 BPW) \n"
+        + devices
+        + f"{PREFIX}load: printing all EOG tokens:\n"
+        + f"{PREFIX}load:   - 2 ('{eog}')\n"
+        + f"{PREFIX}print_info: arch                  = llama\n"
+        + f"{PREFIX}print_info: EOG token             = 2 '{eog}'\n"
+        + f"{PREFIX}load_tensors: loading model tensors, this can take a while... "
+        "(load_mode = mmap)\n"
+        + tensor
+        + buffers
+        + f"{PREFIX}cmn  common_init_: added {eog} logit bias = -inf\n"
+        + CONTEXT_LINE
+        + KV
+        + reservation(NODES)
+        + SLOTS_LINE
+    )
+
+
+def test_a_start_log_in_llama_cpp_s_order_reads_as_before():
+    log = start_log()
+    assert device_placement(log) == {
+        "devices": [{"name": "MTL0", "description": "Apple M2 Max", "free_mib": 25558}],
+        "model_buffers": [
+            {"buffer": "CPU_Mapped", "mib": 56.25},
+            {"buffer": "MTL0_Mapped", "mib": 256.5},
+        ],
+    }
+    assert memory_use(log, device_placement(log))[0] == {
+        "device": "MTL0",
+        "limit_mib": 25558,
+        "model_mib": 256.5,
+        "kv_mib": 180.0,
+        "compute_mib": 22.17,
+        "total_mib": 458.67,
+    }
+
+
+@pytest.mark.parametrize(
+    "spoofed",
+    [
+        # the review's probe: a 35-character name in the key dump
+        start_log().replace("= Tiny\n", "= MTL0 compute buffer size = 9999 MiB\n"),
+        # an end token's text, printed as it is before the context
+        start_log(eog=f"x\n{PREFIX}llama_kv_cache:       MTL0 KV buffer size =  9999.00 MiB\nx"),
+        start_log(
+            eog=f"x\n{PREFIX}sched_reserve:       MTL0 compute buffer size =  9999.00 MiB\nx"
+        ),
+        # the chat template's example, after the slots line
+        start_log()
+        + template_example(
+            f"x\n{PREFIX}sched_reserve:       MTL0 compute buffer size =  9999.00 MiB\nx"
+        ),
+    ],
+    ids=["key dump", "token text KV", "token text compute", "template example"],
+)
+def test_the_model_file_s_text_adds_no_memory(spoofed):
+    assert memory_use(spoofed, device_placement(spoofed)) == memory_use(
+        start_log(), device_placement(start_log())
+    )
+
+
+@pytest.mark.parametrize(
+    "spoofed",
+    [
+        # the review's probe: two metadata strings in the key dump (30 and 38 characters)
+        start_log(devices="", buffers=ON_CPU)
+        .replace("= Tiny\n", "= MTL0 model buffer size = 1 MiB\n")
+        .replace("= gpt2\n", "= using device MTL0 (A) (B) - 1 MiB free\n"),
+        # an end token's text: in the vocabulary's lines, print_info's and the logit bias's
+        start_log(devices="", buffers=ON_CPU, eog=f"x\n{FORGED_GPU}x"),
+        # an unused tensor's name, 47 characters, printed during the tensors' load
+        start_log(
+            devices="", buffers=ON_CPU, unused="\n0 I load_tensors: M model buffer size = 1 MiB\n"
+        ),
+    ],
+    ids=["key dump", "token text", "tensor name"],
+)
+def test_the_model_file_s_text_doesn_t_put_a_cpu_start_on_the_gpu(spoofed):
+    """The case the placement check exists for: a GPU hidden from llama-server."""
+    plain = start_log(devices="", buffers=ON_CPU)
+    assert device_placement(spoofed) == device_placement(plain)
+    assert placement_problem({"n-gpu-layers": "all"}, device_placement(spoofed)) is not None
+
+
+def test_a_second_tensor_load_line_in_the_model_file_s_text_refuses_a_gpu_start():
+    """A token's text can print a whole tensor load, first line and all; the real one can't
+    be told from it, so no buffer is read and the start is refused, as a start on the CPU."""
+    load = f"{PREFIX}load_tensors: loading model tensors, this can take a while...\n"
+    forged = f"x\n{GPU}{load}{PREFIX}load_tensors: offloaded 31/31 layers to GPU\n{FORGED_GPU}x"
+    spoofed = start_log(devices="", buffers=ON_CPU, eog=forged)
+    assert placement_problem({"n-gpu-layers": "all"}, device_placement(spoofed)) is not None
 
 
 # --- the call record (decision 7; states 2, 12, 15) -------------------------------------
