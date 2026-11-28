@@ -8,6 +8,10 @@ Two headings are Clarity's own, used when they apply:
 
 ## [Unreleased]
 
+## [0.4.7] - 2026-11-28
+
+Live tests on an M2 Max (macOS), 2026-11-27, every tier at commit `e1ee1a1` (built in the sprint to 1.0, so these were run by the build, not yet by the maintainer): `-m live` 44 passed, `-m embed` 12 passed (bge-m3 on Metal), `-m gate` 1 passed (a first model's gate), `-m setup` 1 passed (setup fetching llama.cpp at the pin and building `llama-server` in a new folder), `-m browser` 200 passed (the web interface in Chrome; CI also runs it in Firefox and WebKit), `-m hf` 30 passed (none skipped, the four Gemma 4 tests among them), `-m olmo` 14 passed and `-m llama` 5 passed.
+
 ### Added
 - A llama.cpp profile may have a `[steering]` table. Before the model starts, Clarity checks the vector against the model file's own header (its architecture, width and block count), as it checks `config.json` on Transformers, and refuses a vector llama-server can't take as configured: `layers` that leave out a block of the file inside their range, a path with a colon, a comma or a double quote, or a scale whose product with a direction isn't finite in float32.
 - A steered llama.cpp profile's model starts with its vector: llama-server gets `--control-vector-scaled` and `--control-vector-layer-range`. llama-server answers unsteered when a vector fails to load, so Clarity hashes the file again before each start, checks after it that the file hasn't changed, and reads the start log for the vector's blocks in the graph, in the lines llama.cpp prints while the model loads, where the model file's own text can't pass for them; a start that fails is stopped with llama.cpp's own lines. The call records `request.steering`, logged and never sent, and the check `steering_start`; `server_start` records `steering`. A call whose steering isn't its server's is refused.
@@ -419,7 +423,8 @@ The first release.
 - Models at a pinned commit: converted from the official weights, or a ready-made GGUF checked by sha256.
 - A llama-server that Clarity starts and checks itself, and a Transformers backend for the same weights.
 
-[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.6...HEAD
+[Unreleased]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.7...HEAD
+[0.4.7]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/andalibmalit/clarity-chat/compare/v0.4.3...v0.4.4

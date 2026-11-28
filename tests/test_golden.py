@@ -38,7 +38,12 @@ def steerable(fetched_root) -> Path:
     """The project v0.2.2's golden log was written in: the tiny model has Transformers weights
     (a config.json the repeng test vector fits) and the vector sits where the log says."""
     from clarity_chat.models import read_lock, write_lock_entry
+    from tests.test_steering_llama_cpp import model_like
 
+    # v0.4.7's log is steered on llama.cpp, which checks the vector against the GGUF: a
+    # made-up llama file of SmolLM2's shape, as the log's model was. Before `mine` copies
+    # tiny's lock entry.
+    model_like(fetched_root, width=576, blocks=30)
     weights = fetched_root / "models" / "tiny-hf"
     weights.mkdir(parents=True)
     config = {"model_type": "llama", "hidden_size": 576, "num_hidden_layers": 30}
@@ -107,8 +112,9 @@ def test_every_golden_log_resumes(golden, steerable, golden_tokenizer):
     assert record["render"] is None or record["render"]["identical"], record["render"]
     turn = session.say("One more made-up message.").turn
     assert turn is not None and turn.text == " More."
-    # v0.2.2's log ends after /set steering_scale 0: resume keeps it, so no steering.
-    assert backend.calls[-1]["steering"] is None
+    # Resume keeps the chat's last strength: v0.2.2's log ends at 0, v0.4.7's at 2.0.
+    sent = backend.calls[-1]["steering"]
+    assert (sent and sent.scale) == (2.0 if golden.stem == "v0.4.7" else None)
 
 
 def test_the_v0_2_0_golden_log_holds_every_new_record_type():
@@ -366,3 +372,40 @@ def test_the_v0_4_6_golden_log_holds_the_converter_s_requirements_sha256():
     assert "packages" not in converter
     replay = next(r for r in rows if r["type"] == "replay")
     assert replay["identical"] and replay["call_id"] == call["call_id"]
+
+
+def test_the_v0_4_7_golden_log_holds_steered_llama_cpp_starts_and_their_check():
+    """v0.4.7 steers llama.cpp: each start records the vector it was started with, each
+    steered call logs request.steering (never sent) and checks.steering_start for its
+    server, /set steering_scale 2.0 starts the model again, and a replay of the first call
+    from a new session started the server at that call's 4.0, identical."""
+    rows = list(read_records(GOLDEN / "v0.4.7.jsonl"))
+    steering = {
+        "file": "local/vectors/smollm2-repeng.gguf",
+        "sha256": hashlib.sha256(VECTOR.read_bytes()).hexdigest(),
+        "scale": 4.0,
+        "layers": [10, 15, 20],
+    }
+    starts = [r for r in rows if r["type"] == "server_start"]
+    assert [s["steering"] for s in starts] == [
+        steering,
+        {**steering, "scale": 2.0},
+        steering,
+    ]
+    for start in starts:
+        scaled = start["argv"][start["argv"].index("--control-vector-scaled") + 1]
+        assert scaled.endswith(f":{start['steering']['scale']}")
+        assert start["argv"][start["argv"].index("--control-vector-layer-range") + 1 :][:2] == [
+            "10",
+            "20",
+        ]
+    calls = [r for r in rows if r["type"] == "call"]
+    assert [c["request"]["steering"] for c in calls] == [steering, {**steering, "scale": 2.0}]
+    assert [c["checks"]["steering_start"] for c in calls] == [
+        {"ok": True, "server_id": starts[0]["server_id"]},
+        {"ok": True, "server_id": starts[1]["server_id"]},
+    ]
+    assert any(r["type"] == "settings" and r["name"] == "steering_scale" for r in rows)
+    replay = next(r for r in rows if r["type"] == "replay")
+    assert replay["identical"] and replay["call_id"] == calls[0]["call_id"]
+    assert replay["server_id"] == starts[2]["server_id"]
