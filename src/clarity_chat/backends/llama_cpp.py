@@ -402,10 +402,11 @@ def last_reservation(startup_output: str) -> str:
 
 
 # The devices' and the model buffers' lines (src/llama.cpp:306, src/llama-model.cpp:2139).
-# A model file's text reaches the start log around them as it is, newlines and all: in a
-# key's name in the dump (its value is escaped), the vocabulary's lines and the end tokens'
-# logit biases. So each is read only on a line of llama.cpp's own, in its window, and a
-# window whose first line appears twice isn't read.
+# A model file's text reaches the start log as it is, newlines and all: a key's name in the
+# dump (its value is escaped and cut), its tokens' text in the vocabulary's and print_info's
+# lines and in the end tokens' logit biases, and the chat template's example. So each is
+# read only in a window that holds none of that text, starting at a line of llama.cpp's own
+# that a real start prints once; a window whose first line appears twice isn't read.
 FILE_SIZE_RE = re.compile(rf"^{LOG_PREFIX}print_info: file size += ", re.M)
 VOCABULARY_RE = re.compile(rf"^{LOG_PREFIX}(?:load|print_info): ", re.M)
 DEVICE_RE = re.compile(
