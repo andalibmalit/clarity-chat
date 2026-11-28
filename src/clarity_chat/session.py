@@ -499,6 +499,12 @@ class Conversation:
         return turn
 
 
+def start_key(backend: str, steer: steering.Steering | None) -> tuple | None:
+    """The steering a start is made with: llama.cpp's start carries the vector and its
+    strength (decision 5); Transformers applies them per call, so its start has none."""
+    return steering.start_key(steer) if backend == "llama.cpp" else None
+
+
 class Session:
     """The client's state: config, the backend, and the current conversation."""
 
@@ -878,7 +884,8 @@ class Session:
                 prepared.model, prepared.weights, ctx_size.value, **start_args(steer, on_start)
             )
         except (ConfigError, BackendError) as e:
-            tried = (prepared.model, prepared.weights, ctx_size.value, steering.start_key(steer))
+            key = start_key(prepared.profile.backend, steer)
+            tried = (prepared.model, prepared.weights, ctx_size.value, key)
             self._restore(previous, e, tried)
             raise
         self.model, self.model_lock, self.weights = prepared.model, prepared.lock, prepared.weights
@@ -894,15 +901,15 @@ class Session:
         weights, context size and steering, on the same backend), as "Start the model
         again", a Replay or /new on the same profile after a crash make, the same start
         would fail the same way: the conversation stays, its model stopped, to be tried
-        again. A new strength that fails is another start: the old one runs again."""
+        again. A new strength that fails is another start on llama.cpp: the old one runs
+        again. On Transformers the strength isn't part of the start (review finding 7)."""
         conversation = self.conversation
         if conversation is None or self.model is None or self.weights is None:
             return
         steer = self.start_steering(conversation.profile, conversation.settings)
         size = conversation.ctx_size.value
-        if self.backend is previous and tried == (
-            self.model, self.weights, size, steering.start_key(steer)
-        ):  # fmt: skip
+        key = start_key(conversation.profile.backend, steer)
+        if self.backend is previous and tried == (self.model, self.weights, size, key):
             return
         if self.backend is not previous:
             self.backend.close()
@@ -2320,7 +2327,8 @@ class Session:
             backend.start(model, weights, call["n_ctx"], **start_args(steer))
         except (ConfigError, BackendError) as e:
             # as start_model does: the conversation stays usable
-            self._restore(previous, e, (model, weights, call["n_ctx"], steering.start_key(steer)))
+            tried = (model, weights, call["n_ctx"], start_key(backend_name, steer))
+            self._restore(previous, e, tried)
             raise
         self.model, self.model_lock, self.weights = model, entry, weights
         tokenizer = self.load_tokenizer(
