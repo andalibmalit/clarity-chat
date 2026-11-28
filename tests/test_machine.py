@@ -79,7 +79,8 @@ GUARANTEES: dict[int | str, str] = {
         '"prompt"`, and your message is offered back.'
     ),
     6: (
-        "Every read command answers for any reply in a log this version of Clarity wrote: "
+        "`/prompt`, `/probs` and `/compare` answer for any reply in a log this version of "
+        "Clarity wrote: "
         "the current one, or any by its call ID."
     ),
     7: (
