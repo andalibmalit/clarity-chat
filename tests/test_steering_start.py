@@ -244,15 +244,67 @@ def test_the_splits_logged_are_llama_cpp_s_not_the_template_example_s(server):
     assert record["graph_splits"] == {"prompt": 2, "reply": 2}
 
 
+# A real start prints the context's line and the slots line once each: `fit` is off and
+# there is no draft, MTP or mmproj model (fix review, finding 1).
+TWO_CONTEXTS = (
+    "llama-server's start log has 2 lines that look like llama.cpp's "
+    '"llama_context: constructing llama_context", where a real start prints one. Text from '
+    "the model file can print such lines, so Clarity can't read the start's figures, and "
+    "stopped the model."
+)
+
+
 def test_a_context_line_after_the_model_loads_refuses_a_good_start(server):
-    """A spoof can only move the window's start later, past the reservations; then the
-    log shows no vector added, and the start is refused rather than trusted."""
     backend, seen, model, weights = server
     root = weights.parents[2]
     seen["after"] = template_example(f"x\n{CONTEXT_LINE}")
     refused = started(backend, model, weights, steer(root))
-    assert isinstance(refused, BackendError), f"not refused as state 11: {refused!r}"
-    assert str(refused) == NOT_STEERED.format("nothing")
+    assert isinstance(refused, ConfigError), f"not refused: {refused!r}"
+    assert str(refused) == TWO_CONTEXTS
+    assert seen["procs"][-1].terminated, "the server was left running"
+
+
+def test_a_context_line_in_the_template_example_refuses_a_start_rather_than_read_no_memory(
+    monkeypatch, server, tiny_tokenizer
+):
+    """The fix review's first probe: with the window empty, the cache and compute read as 0
+    and a start too big for the GPU would go ahead."""
+    backend, _, model, weights = server
+    seen = fake_llama(
+        monkeypatch,
+        weights.parents[2],
+        {"tiny": startup() + template_example(f"x\n{CONTEXT_LINE}x")},
+        tiny_tokenizer,
+    )
+    refused = started(backend, model, weights, None)
+    assert isinstance(refused, ConfigError), f"not refused: {refused!r}"
+    assert str(refused) == TWO_CONTEXTS
+    assert seen["procs"][-1].terminated, "the server was left running"
+
+
+def test_a_forged_model_load_in_the_template_example_doesn_t_pass_a_failed_load(server):
+    """The fix review's second probe: a context line, two reservations a vector's blocks
+    apart and a slots line, after the real slots line of a start whose vector failed."""
+    backend, seen, model, weights = server
+    root = weights.parents[2]
+    seen["cvec"] = "fails"
+    forged = f"{CONTEXT_LINE}{graph_line(NODES)}\n{graph_line(NODES + 2)}\n{SLOTS_LINE}"
+    seen["after"] = template_example(f"x\n{forged}x")
+    refused = started(backend, model, weights, steer(root))
+    assert isinstance(refused, ConfigError), f"not refused: {refused!r}"
+    assert str(refused) == TWO_CONTEXTS
+    assert seen["procs"][-1].terminated, "the unsteered server was left running"
+
+
+def test_a_slots_line_in_a_token_s_text_refuses_a_start(monkeypatch, server, tiny_tokenizer):
+    backend, _, model, weights = server
+    seen = fake_llama(
+        monkeypatch, weights.parents[2], {"tiny": token_text(f"x\n{SLOTS_LINE}x")}, tiny_tokenizer
+    )
+    refused = started(backend, model, weights, None)
+    assert isinstance(refused, ConfigError), f"not refused: {refused!r}"
+    assert '2 lines that look like llama.cpp\'s "load_model: initializing, n_slots"' in str(refused)
+    assert seen["procs"][-1].terminated, "the server was left running"
 
 
 def test_a_vector_changed_before_a_new_start_starts_nothing_and_the_old_server_runs_on(server):
