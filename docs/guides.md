@@ -415,7 +415,7 @@ A steering vector nudges a model's replies in a direction, such as calm rather t
 1. Make a vector with `clarity vector make` ([Make a steering vector](#make-a-steering-vector)), which writes it to `local/vectors/` and prints the lines for steps 4 and 5; then go on at step 6. Or make one elsewhere: [repeng](https://github.com/vgel/repeng) trains one from pairs of contrasting prompts and writes a file in llama.cpp's control-vector layout, which Clarity reads (repeng's own docs call its export work in progress). Install repeng from git in a separate environment: its PyPI release needs numpy below 2, which Clarity's dependencies don't allow. `tests/fixtures/steering/README.md` has a script that makes a small one for SmolLM2.
 2. With repeng, leave the model's last block out (pass `hidden_layers` that stop before it). repeng includes it by default, but it reads that block's output after the model's final normalization (Transformers' last `hidden_states` entry), which isn't what the vector gets added to.
 3. Copy the file into your project, for example to `local/vectors/calm.gguf`.
-4. Add a `[steering]` table to a profile, on either backend, and set `steering_scale` (`4.0` here is for a repeng vector):
+4. Add a `[steering]` table to a profile of your own in `local/profiles/`, on either backend (to steer a shipped profile, copy it there first: [Write a profile](#write-a-profile)), and set `steering_scale` (`4.0` here is for a repeng vector):
 
    ```toml
    [steering]
