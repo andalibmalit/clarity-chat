@@ -81,6 +81,7 @@ KEY = re.compile(r"(Shift\+)?[A-Za-z0-9]+")
 LINK_S = 90  # `clarity ui` prints its link once it listens, in seconds on SmolLM2
 WAIT_MS = 120_000  # SmolLM2 starts and replies in seconds; a wrong selector fails in time
 SLEEP_MAX_S = 60
+IDLE_S = 15 * 60  # session mode (v0.4.8 Q0): a session with no step this long stops
 
 
 class Refused(Exception):
@@ -260,17 +261,29 @@ def copy_output(
     ready.set()
 
 
+def clarity_ui(root: Path, log: Transcript) -> None:  # v0.4.8 Q0, not built yet
+    raise NotImplementedError
+
+
+def chrome(log: Transcript) -> None:  # v0.4.8 Q0, not built yet
+    raise NotImplementedError
+
+
+def page_error() -> type[Exception]:  # v0.4.8 Q0, not built yet
+    raise NotImplementedError
+
+
 def stop(signum: int, frame: object) -> None:
     raise SystemExit(128 + signum)  # so the cleanup in `finally` runs and frees port 8765
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--steps", type=Path, required=True)
     parser.add_argument("--init", action="store_true")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     qa_dir = QA_DIR.resolve()
     root, out, steps_path = (path.resolve() for path in (args.root, args.out, args.steps))
     for given, path in ((args.root, root), (args.out, out), (args.steps, steps_path)):
