@@ -426,3 +426,22 @@ def test_gemma4s_start_says_its_towers_arent_loaded(tmp_path, chat_tokenizer):
     backend, record = started(saved(tmp_path / "m", tiny_gemma4_with_towers(), chat_tokenizer))
     backend.close()
     assert record is not None and GEMMA_LINE in record["warnings"], record["warnings"]
+
+
+def test_a_gemma4_checkpoint_without_towers_doesnt_say_they_arent_loaded(tmp_path, chat_tokenizer):
+    """Review finding 14: the line says there was something to leave out."""
+    pytest.importorskip("torch")
+    import transformers
+
+    from tests.test_steering import gemma_config
+
+    text = gemma_config(vocab_size=258).text_config
+    text.eos_token_id, text.bos_token_id, text.pad_token_id = 257, 256, 257
+    config = transformers.Gemma4Config(
+        text_config=text.to_dict(), vision_config=None, audio_config=None
+    )
+    textual = transformers.Gemma4ForConditionalGeneration(config)
+    backend, record = started(saved(tmp_path / "m", textual, chat_tokenizer))
+    backend.close()
+    assert record is not None and record.get("weights_not_loaded") == []
+    assert GEMMA_LINE not in record["warnings"], record["warnings"]
