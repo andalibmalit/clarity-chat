@@ -29,7 +29,7 @@ from clarity_chat.documents import embedder as embedder_module
 from clarity_chat.profiles import ConfigError, load_server_config
 from clarity_chat.render import Tokenizer
 from tests.conftest import fake_fetch
-from tests.fake_llama import DEVICE_LINES, Running, dump, startup
+from tests.fake_llama import LOADED, PREFIX, Running, loading, startup
 from tests.test_llama_cpp import running_server
 
 BGE_M3 = """
@@ -68,7 +68,7 @@ TABLE: dict[str, Any] = {
     "no-jinja": True,
     "chat-template": "chatml",
 }
-CPU_BUFFERS = "load_tensors:   CPU_Mapped model buffer size =   1100.00 MiB\n"
+CPU_BUFFERS = f"{PREFIX}load_tensors:   CPU_Mapped model buffer size =   1100.00 MiB\n"
 
 
 def vector_bytes(values: list[float]) -> bytes:
@@ -215,7 +215,7 @@ def test_bge_m3_not_fetched_is_refused_before_any_process(root, fake):
     [
         ({"props": {"total_slots": 2}}, "2 slots, not 1"),
         ({"n_ctx": 4096}, "n_ctx is 4096, expected 8192"),
-        ({"startup": DEVICE_LINES + dump() + CPU_BUFFERS}, "put the model on the CPU"),
+        ({"startup": loading(buffers=CPU_BUFFERS) + LOADED}, "put the model on the CPU"),
     ],
 )
 def test_a_start_that_fails_a_check_is_refused_and_stopped(m3_root, fake, change, reason):

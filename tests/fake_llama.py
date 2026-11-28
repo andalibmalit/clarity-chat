@@ -20,16 +20,33 @@ SUPPRESS_KEY = "tokenizer.ggml.suppress_tokens"
 PREFIX = "0.00.062.265 I "  # minutes.seconds.milliseconds.microseconds, then I for INFO
 ERROR = "0.00.062.265 E "  # E for ERROR
 
-# The device and buffer lines a start on a Mac's GPU prints (the placement check needs them).
-DEVICE_LINES = """\
-llama_model_load_from_file_impl: using device MTL0 (Apple M2 Max) (unknown id) - 25558 MiB free
-"""
-BUFFER_LINES = """\
-print_info: EOG token             = 2 '</s>'
-load_tensors: offloaded 31/31 layers to GPU
-load_tensors:   CPU_Mapped model buffer size =    56.25 MiB
-load_tensors:  MTL0_Mapped model buffer size =   256.50 MiB
-"""
+# The device and buffer lines a start on a Mac's GPU prints (the placement check needs them,
+# each on its own line between the file's size and the vocabulary, and after the tensors'
+# load line: src/llama.cpp:306, src/llama-model.cpp:2133 and :2139).
+DEVICE_LINES = (
+    f"{PREFIX}llama_prepare_model_devices: using device MTL0 (Apple M2 Max) (unknown id) - "
+    "25558 MiB free\n"
+)
+BUFFER_LINES = (
+    f"{PREFIX}load_tensors: offloaded 31/31 layers to GPU\n"
+    f"{PREFIX}load_tensors:   CPU_Mapped model buffer size =    56.25 MiB\n"
+    f"{PREFIX}load_tensors:  MTL0_Mapped model buffer size =   256.50 MiB\n"
+)
+FILE_LINES = (  # src/llama-model-loader.cpp:1979-1984
+    f"{PREFIX}print_info: file format = GGUF V3 (latest)\n"
+    f"{PREFIX}print_info: file type   = BF16\n"
+    f"{PREFIX}print_info: file size   = 256.63 MiB (16.00 BPW) \n"
+)
+VOCABULARY = (  # src/llama-vocab.cpp, then the model's print_info
+    f"{PREFIX}load: printing all EOG tokens:\n"
+    f"{PREFIX}load:   - 2 ('</s>')\n"
+    f"{PREFIX}print_info: arch                  = llama\n"
+    f"{PREFIX}print_info: EOG token             = 2 '</s>'\n"
+)
+TENSOR_LOAD_LINE = (  # src/llama-model.cpp:1728
+    f"{PREFIX}load_tensors: loading model tensors, this can take a while... (load_mode = mmap)\n"
+)
+EOG_BIAS = f"{PREFIX}cmn  common_init_: added </s> logit bias = -inf\n"  # common/common.cpp:1360
 
 
 def array_value(ids: list[int]) -> str:
@@ -74,18 +91,21 @@ def banning(ids: list[int]) -> tuple[str, str, str]:
     return (SUPPRESS_KEY, f"arr[i32,{len(ids)}]", array_value(ids))
 
 
-def startup(*keys: tuple[str, str, str]) -> str:
-    """A whole startup log: the device, the key dump, the end token and the buffers."""
-    return DEVICE_LINES + dump(*keys) + BUFFER_LINES
+def loading(
+    *keys: tuple[str, str, str], devices: str = DEVICE_LINES, buffers: str = BUFFER_LINES
+) -> str:
+    """The startup log up to the context, in llama.cpp's order: the key dump, the file's
+    size, the devices, the vocabulary, the tensors' load and buffers, the end token's bias."""
+    return dump(*keys) + FILE_LINES + devices + VOCABULARY + TENSOR_LOAD_LINE + buffers + EOG_BIAS
 
 
-def reservation(nodes: int, splits: int = 2) -> str:
+def reservation(nodes: int, splits: int = 2, mtl0: float = 22.17) -> str:
     """One graph reservation as `sched_reserve` prints it (`src/llama-context.cpp:926` and
     `:940`): each device's compute buffer, then the graph. The buffers and the node count
     are G13's for SmolLM2 on Metal; the input counts are made up, since Clarity reads none."""
     buffers = "".join(
         f"{PREFIX}sched_reserve: {device:>10} compute buffer size = {mib:8.2f} MiB\n"
-        for device, mib in (("MTL0", 22.17), ("CPU", 12.52))
+        for device, mib in (("MTL0", mtl0), ("CPU", 12.52))
     )
     return buffers + (
         f"{PREFIX}sched_reserve: graph: nodes = {nodes}, splits = {splits}, input objects = 4, "
@@ -104,6 +124,21 @@ SLOTS_LINE = (
     f"{PREFIX}srv    load_model: initializing, n_slots = 1, n_ctx_slot = 8192, kv_unified = "
     "'false'\n"
 )
+KV_LINE = f"{PREFIX}llama_kv_cache:       MTL0 KV buffer size =   180.00 MiB\n"  # G13's
+
+
+def loaded(*reservations: str, kv: str = KV_LINE) -> str:
+    """The model's load in the context, as `model_load` reads it: the context's line, its
+    cache's buffer (`src/llama-kv-cache.cpp:280`), the graph reservations, the slots."""
+    return CONTEXT_LINE + kv + "".join(reservations) + SLOTS_LINE
+
+
+LOADED = loaded(reservation(NODES))
+
+
+def startup(*keys: tuple[str, str, str]) -> str:
+    """A whole startup log, to the slots line: `loading`, then one reservation."""
+    return loading(*keys) + LOADED
 
 
 # --- start logs a model file has written into (Checkpoint 1, finding 7) ------------------
@@ -142,7 +177,7 @@ def vector_lines(argv: list[str], mode: str) -> str:
     path = argv[argv.index("--control-vector-scaled") + 1].rpartition(":")[0]
     i = argv.index("--control-vector-layer-range")
     blocks = int(argv[i + 2]) - int(argv[i + 1]) + 1
-    first = CONTEXT_LINE + reservation(NODES)
+    first = CONTEXT_LINE + KV_LINE + reservation(NODES)
     if mode == "loads":
         return first + reservation(NODES + blocks) + SLOTS_LINE
     if mode == "wrong":
@@ -205,8 +240,8 @@ def fake_llama(
     (" ok" after), as the tokenizer's IDs plus its end token. Returns what happened: the
     processes started, each request, and the queue of replies (`replies`), to add to.
 
-    A start whose argv has a control vector adds `vector_lines` in `seen["cvec"]`'s mode
-    ("loads" unless set), then `seen["after"]` if a test set it, and calls
+    A start whose argv has a control vector has `vector_lines` in `seen["cvec"]`'s mode
+    ("loads" unless set) in place of `LOADED`, then `seen["after"]` if a test set it, and calls
     `seen["during_start"]` if a test set it. Each start's argv is in `seen["argv"]`."""
     import json
 
@@ -222,7 +257,8 @@ def fake_llama(
         printed = startups[self.gguf.parent.name]  # or a function of the size (v0.4.4 B3a)
         text = str(printed(self.config.ctx_size) if callable(printed) else printed)
         seen["argv"].append(argv)
-        if "--control-vector-scaled" in argv:
+        if "--control-vector-scaled" in argv:  # its load takes the place of the plain one
+            text = text.replace(LOADED, "")
             text += vector_lines(argv, seen.get("cvec", "loads")) + seen.get("after", "")
             if seen.get("during_start"):
                 seen["during_start"]()

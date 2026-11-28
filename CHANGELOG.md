@@ -28,6 +28,7 @@ Two headings are Clarity's own, used when they apply:
 - Setup's last line said to double-click `Clarity.command` on your Desktop even when setup hadn't put it there: with no Desktop, a Desktop it can't write to, or a file of that name it didn't write or can't read. It now says to run the same command again.
 - In a short window, the top of a long profile picker or Searching list was cut off by the top of the window. Each list now fits the room above the message box and scrolls.
 - The Transformers backend loaded a checkpoint that lacked some of the model's tensors, with those tensors filled at random and only Transformers' warning to say so. It now refuses it, naming the model and the first few tensors.
+- The memory and placement checks on llama.cpp read figures from the start log, which also prints text from the model file. A model file's keys or tokens could add memory that wasn't used, or make a start on the CPU pass as one on the GPU. Each figure is now read only from the lines llama.cpp writes it in.
 - A message that failed or was cancelled before its reply was offered back, but a failed `/regen` of an edited message's reply took the offer back. A resume of the same log still offered it. Now the chat keeps offering it, as a resume does.
 
 ## [0.4.6] - 2026-11-26

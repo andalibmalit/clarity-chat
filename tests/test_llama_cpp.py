@@ -18,6 +18,7 @@ from clarity_chat.backends.llama_cpp import (
     server_env,
     start_warnings,
 )
+from tests.fake_llama import DEVICE_LINES, LOADED, PREFIX, loaded, loading, startup
 
 SETTINGS = {
     "temperature": 0.6,
@@ -181,20 +182,19 @@ def test_config_files_are_found(monkeypatch, tmp_path):
     assert tmp_path / "llama.cpp" / "config.ini" in llama_config_files()
 
 
-STARTUP_GPU = """\
-llama_model_load_from_file_impl: using device MTL0 (Apple M2 Max) (unknown id) - 25558 MiB free
-llama_model_loader: loaded meta data with 1 key-value pairs and 272 tensors from model.gguf
-llama_model_loader: - kv   0:                       general.architecture str              = llama
-print_info: EOG token             = 100257 '<|endoftext|>'
-print_info: EOG token             = 100265 '<|im_end|>'
-load_tensors: offloaded 31/31 layers to GPU
-load_tensors:   CPU_Mapped model buffer size =    56.25 MiB
-load_tensors:  MTL0_Mapped model buffer size =   256.50 MiB
-"""
-STARTUP_HIDDEN_GPU = """\
-load_tensors: offloaded 31/31 layers to GPU
-load_tensors:   CPU_Mapped model buffer size =   312.75 MiB
-"""
+STARTUP_GPU = startup().replace(
+    f"{PREFIX}print_info: EOG token             = 2 '</s>'\n",
+    f"{PREFIX}print_info: EOG token             = 100257 '<|endoftext|>'\n"
+    f"{PREFIX}print_info: EOG token             = 100265 '<|im_end|>'\n",
+)
+STARTUP_HIDDEN_GPU = (  # no device line: the GPU hidden, as a sandbox can
+    loading(
+        devices="",
+        buffers=f"{PREFIX}load_tensors: offloaded 31/31 layers to GPU\n"
+        f"{PREFIX}load_tensors:   CPU_Mapped model buffer size =   312.75 MiB\n",
+    )
+    + LOADED
+)
 
 
 def test_gpu_placement_is_read_from_startup_output():
@@ -209,11 +209,12 @@ def test_gpu_placement_is_read_from_startup_output():
 @pytest.mark.parametrize("host_buffer", ["CUDA_Host", "Vulkan_Host"])
 def test_pinned_host_buffers_count_as_cpu(host_buffer):
     # CUDA and Vulkan name pinned system-memory buffers "<backend>_Host": not on the GPU.
-    startup = (
-        "llama_model_load_from_file_impl: using device CUDA0 (NVIDIA RTX 4090) (0000:01:00.0)"
-        " - 23000 MiB free\n"
-        "load_tensors:   CPU_Mapped model buffer size =    56.25 MiB\n"
-        f"load_tensors: {host_buffer:>12} model buffer size =   256.50 MiB\n"
+    startup = loading(
+        devices=f"{PREFIX}llama_prepare_model_devices: using device CUDA0 (NVIDIA RTX 4090) "
+        "(0000:01:00.0) - 23000 MiB free\n",
+        buffers=f"{PREFIX}load_tensors: offloaded 31/31 layers to GPU\n"
+        f"{PREFIX}load_tensors:   CPU_Mapped model buffer size =    56.25 MiB\n"
+        f"{PREFIX}load_tensors: {host_buffer:>12} model buffer size =   256.50 MiB\n",
     )
     problem = placement_problem({"n-gpu-layers": "all"}, device_placement(startup))
     assert problem is not None and "put the model on the CPU" in problem
@@ -567,17 +568,16 @@ def test_a_cancel_is_checked_between_stream_lines(monkeypatch, root):
 
 
 # OLMo 3 7B at ctx-size 32768, flash attention off, on an M2 Max (measured: M2).
-STARTUP_OLMO_32K = """\
-llama_prepare_model_devices: using device MTL0 (Apple M2 Max) (unknown id) - 25558 MiB free
-llama_model_loader: loaded meta data with 1 key-value pairs and 272 tensors from model.gguf
-llama_model_loader: - kv   0:                       general.architecture str              = llama
-load_tensors:   CPU_Mapped model buffer size =   783.42 MiB
-load_tensors:  MTL0_Mapped model buffer size = 13137.44 MiB
-llama_kv_cache:       MTL0 KV buffer size =  4096.00 MiB
-llama_kv_cache:       MTL0 KV buffer size =  1728.00 MiB
-sched_reserve:       MTL0 compute buffer size =  2193.01 MiB
-sched_reserve:        CPU compute buffer size =   137.02 MiB
-"""
+STARTUP_OLMO_32K = loading(
+    buffers=f"{PREFIX}load_tensors: offloaded 33/33 layers to GPU\n"
+    f"{PREFIX}load_tensors:   CPU_Mapped model buffer size =   783.42 MiB\n"
+    f"{PREFIX}load_tensors:  MTL0_Mapped model buffer size = 13137.44 MiB\n"
+) + loaded(
+    f"{PREFIX}sched_reserve:       MTL0 compute buffer size =  2193.01 MiB\n"
+    f"{PREFIX}sched_reserve:        CPU compute buffer size =   137.02 MiB\n",
+    kv=f"{PREFIX}llama_kv_cache:       MTL0 KV buffer size =  4096.00 MiB\n"
+    f"{PREFIX}llama_kv_cache:       MTL0 KV buffer size =  1728.00 MiB\n",
+)
 
 
 def test_memory_use_sums_each_gpus_buffers():
@@ -718,16 +718,13 @@ def test_each_setting_reaches_its_own_request_field():
 
 
 def startup_using(limit: int, model: float, kv: float, compute: float) -> str:
-    return (
-        f"llama_prepare_model_devices: using device MTL0 (Apple M2 Max) (unknown id) - {limit} "
-        "MiB free\n"
-        "llama_model_loader: loaded meta data with 1 key-value pairs and 272 tensors from "
-        "model.gguf\n"
-        "llama_model_loader: - kv   0:                       general.architecture str     "
-        "         = llama\n"
-        f"load_tensors:  MTL0_Mapped model buffer size = {model:.2f} MiB\n"
-        f"llama_kv_cache:       MTL0 KV buffer size = {kv:.2f} MiB\n"
-        f"sched_reserve:       MTL0 compute buffer size = {compute:.2f} MiB\n"
+    return loading(
+        devices=DEVICE_LINES.replace("25558 MiB", f"{limit} MiB"),
+        buffers=f"{PREFIX}load_tensors: offloaded 31/31 layers to GPU\n"
+        f"{PREFIX}load_tensors:  MTL0_Mapped model buffer size = {model:.2f} MiB\n",
+    ) + loaded(
+        f"{PREFIX}sched_reserve:       MTL0 compute buffer size = {compute:.2f} MiB\n",
+        kv=f"{PREFIX}llama_kv_cache:       MTL0 KV buffer size = {kv:.2f} MiB\n",
     )
 
 

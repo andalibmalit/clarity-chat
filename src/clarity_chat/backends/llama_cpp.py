@@ -7,6 +7,7 @@ Facts below were checked against the llama.cpp source at the commit in server.to
 from __future__ import annotations
 
 import dataclasses
+import itertools
 import json
 import os
 import re
@@ -232,10 +233,6 @@ def parse_sse_line(line: str) -> dict[str, Any] | None:
 # --- the managed server ----------------------------------------------------------------
 
 
-DEVICE_RE = re.compile(r"using device (\S+) \((.*?)\) \(.*?\) - (\d+) MiB free")
-BUFFER_RE = re.compile(r"(\S+) model buffer size = +([\d.]+) MiB")
-
-
 EOG_RE = re.compile(r"EOG token += (\d+) '(.*)'\r?$", re.MULTILINE)
 
 
@@ -387,13 +384,53 @@ def last_reservation(startup_output: str) -> str:
     return startup_output[graphs[-2].end() :] if len(graphs) >= 2 else startup_output
 
 
+# The devices' and the model buffers' lines (src/llama.cpp:306, src/llama-model.cpp:2139).
+# A model file's text reaches the start log around them: escaped in the key dump, and as it
+# is, newlines and all, in the vocabulary's lines, an unused tensor's name and the end
+# tokens' logit biases. So each is read only on a line of llama.cpp's own, in its window.
+FILE_SIZE_RE = re.compile(rf"^{LOG_PREFIX}print_info: file size += ", re.M)
+VOCABULARY_RE = re.compile(rf"^{LOG_PREFIX}(?:load|print_info): ", re.M)
+DEVICE_RE = re.compile(
+    rf"^{LOG_PREFIX}llama_prepare_model_devices: using device (\S+) \((.*?)\) \(.*?\) - "
+    r"(\d+) MiB free",
+    re.M,
+)
+TENSOR_LOAD_RE = re.compile(rf"^{LOG_PREFIX}load_tensors: loading model tensors, ", re.M)
+LOAD_END_RE = re.compile(rf"^{LOG_PREFIX}(?:cmn  common_init_|llama_context): ", re.M)
+TENSORS_LINE_RE = re.compile(rf"{LOG_PREFIX}load_tensors: ")
+BUFFER_RE = re.compile(rf"{LOG_PREFIX}load_tensors: +(\S+) model buffer size = +([\d.]+) MiB")
+
+
+def devices_log(startup_output: str) -> str:
+    """The lines from the file's size to the vocabulary's first: only llama.cpp's own (the
+    key dump before them is escaped). Empty with either missing."""
+    size = FILE_SIZE_RE.search(startup_output)
+    end = VOCABULARY_RE.search(startup_output, size.end()) if size else None
+    return startup_output[size.end() : end.start()] if size and end else ""
+
+
+def tensor_load_log(startup_output: str) -> list[str]:
+    """The lines from the tensors' load to the first after the model's (an end token's logit
+    bias or the context). A second load line is the file's text and can't be told from the
+    real one, so there are no lines and a start asked to use the GPU is refused."""
+    found = list(TENSOR_LOAD_RE.finditer(startup_output))
+    end = LOAD_END_RE.search(startup_output, found[0].end()) if len(found) == 1 else None
+    return startup_output[found[0].start() : end.start()].splitlines() if end else []
+
+
 def device_placement(startup_output: str) -> dict[str, Any]:
-    """Which devices llama-server used and where the model's weights went (its startup log)."""
+    """Which devices llama-server used and where the model's weights went (its startup log).
+    A buffer line counts after another `load_tensors` line: an unused tensor's name, under 64
+    characters (GGML_MAX_NAME), can print one line, but not two."""
     devices = [
         {"name": m[1], "description": m[2], "free_mib": int(m[3])}
-        for m in DEVICE_RE.finditer(startup_output)
+        for m in DEVICE_RE.finditer(devices_log(startup_output))
     ]
-    buffers = [{"buffer": m[1], "mib": float(m[2])} for m in BUFFER_RE.finditer(startup_output)]
+    buffers = [
+        {"buffer": m[1], "mib": float(m[2])}
+        for before, line in itertools.pairwise(tensor_load_log(startup_output))
+        if TENSORS_LINE_RE.match(before) and (m := BUFFER_RE.fullmatch(line))
+    ]
     return {"devices": devices, "model_buffers": buffers}
 
 
@@ -408,8 +445,9 @@ def memory_use(startup_output: str, placement: dict[str, Any]) -> list[dict[str,
     (ggml-metal-device.m), so at start it is about the limit itself: other apps' memory
     isn't counted (measured: 25,558 of 25,559 MiB "free" with other apps open)."""
     model = [(b["buffer"], b["mib"]) for b in placement["model_buffers"]]
-    kv = [(m[1], float(m[2])) for m in KV_RE.finditer(startup_output)]
-    compute = [(m[1], float(m[2])) for m in COMPUTE_RE.finditer(last_reservation(startup_output))]
+    loaded = model_load(startup_output)  # no model file text (review finding 2)
+    kv = [(m[1], float(m[2])) for m in KV_RE.finditer(loaded)]
+    compute = [(m[1], float(m[2])) for m in COMPUTE_RE.finditer(last_reservation(loaded))]
 
     def on(device: str, buffers: list[tuple[str, float]]) -> float:
         return round(sum(mib for name, mib in buffers if name.startswith(device)), 2)

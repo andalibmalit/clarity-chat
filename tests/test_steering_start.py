@@ -29,15 +29,16 @@ from clarity_chat.backends.llama_cpp import (
 )
 from clarity_chat.profiles import ConfigError, load_models, load_server_config
 from tests.fake_llama import (
-    BUFFER_LINES,
     CONTEXT_LINE,
-    DEVICE_LINES,
+    LOADED,
     NODES,
     PREFIX,
     SLOTS_LINE,
     dump,
     fake_llama,
     graph_line,
+    loaded,
+    loading,
     reservation,
     startup,
     template_example,
@@ -320,8 +321,8 @@ KV = "0.00.062.265 I llama_kv_cache:       MTL0 KV buffer size =   180.00 MiB\n"
 
 
 def test_a_steered_start_s_memory_and_splits_are_the_last_reservation_s():
-    plain = DEVICE_LINES + BUFFER_LINES + KV + reservation(NODES)
-    steered_log = plain + reservation(NODES + 11, splits=3)
+    plain = loading() + loaded(reservation(NODES))
+    steered_log = loading() + loaded(reservation(NODES), reservation(NODES + 11, splits=3))
     figures = memory_use(steered_log, device_placement(steered_log))
     assert figures == memory_use(plain, device_placement(plain))
     assert figures[0]["compute_mib"] == 22.17
@@ -330,9 +331,9 @@ def test_a_steered_start_s_memory_and_splits_are_the_last_reservation_s():
 
 def test_a_graph_line_in_the_model_file_s_metadata_isn_t_read_as_the_splits():
     """Checkpoint 1, finding 7: only `sched_reserve`'s own line gives the splits."""
-    spoofed = startup().replace("= Tiny\n", "= graph: nodes = 1, splits = 9\n")
+    spoofed = loading().replace("= Tiny\n", "= graph: nodes = 1, splits = 9\n")
     assert graph_splits(spoofed) is None
-    assert graph_splits(spoofed + reservation(NODES)) == {"prompt": 2, "reply": 2}
+    assert graph_splits(spoofed + LOADED) == {"prompt": 2, "reply": 2}
 
 
 # --- the model file's text in the placement and memory lines (whole-branch review, finding

@@ -23,7 +23,7 @@ from clarity_chat.logs import read_records
 from clarity_chat.profiles import ConfigError, Setting, load_server_config
 from clarity_chat.resume import rebuild, what_differs
 from clarity_chat.session import Session
-from tests.fake_llama import fake_llama, startup
+from tests.fake_llama import NODES, PREFIX, fake_llama, loaded, loading, reservation
 from tests.fakes import FakeBackend
 from tests.test_golden import LOGS
 from tests.test_meaning import raised
@@ -41,12 +41,11 @@ def sized(limit: int = 25559):
             if ctx_size > 8192
             else ""
         )
-        return (
-            startup().replace("25558 MiB free", f"{limit} MiB free").replace("256.50", "4610.00")
-            + f"llama_kv_cache:       MTL0 KV buffer size = {576 * ctx_size / 8192:.2f} MiB\n"
-            + "sched_reserve:       MTL0 compute buffer size = 250.00 MiB\n"
-            + over
-        )
+        mib = 576 * ctx_size / 8192
+        kv = f"{PREFIX}llama_kv_cache:       MTL0 KV buffer size = {mib:.2f} MiB\n"
+        return loading().replace("25558 MiB free", f"{limit} MiB free").replace(
+            "256.50", "4610.00"
+        ) + loaded(reservation(NODES, mtl0=250.0), kv=over + kv)
 
     return printed
 
