@@ -523,6 +523,16 @@ def test_the_model_file_s_text_doesn_t_put_a_cpu_start_on_the_gpu(spoofed):
     assert placement_problem({"n-gpu-layers": "all"}, device_placement(spoofed)) is not None
 
 
+def test_an_unused_tensor_on_a_cpu_only_build_keeps_the_model_s_buffer():
+    """Fix review, deletion 1: a build without GPU offload prints no "offloaded" line
+    (src/llama-model.cpp:2121), so an unused tensor's warning (src/llama-model-loader.cpp:1275)
+    comes right before the buffer line. Its name is from llama.cpp's own table
+    (src/llama-arch.cpp:1293-1305), not the file's text."""
+    cpu = f"{PREFIX}load_tensors:   CPU_Mapped model buffer size =   312.75 MiB\n"
+    log = start_log(devices="", buffers=cpu, unused="rope_freqs.weight")
+    assert device_placement(log)["model_buffers"] == [{"buffer": "CPU_Mapped", "mib": 312.75}]
+
+
 def test_a_key_name_in_the_model_file_doesn_t_forge_the_gpu_s_limit():
     """Fix review, finding 2: the key dump prints a key's name as it is (`%42s`,
     src/llama-model-loader.cpp:904), so a name can print a file size, a device and a
