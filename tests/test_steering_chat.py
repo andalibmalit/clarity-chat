@@ -127,6 +127,36 @@ def test_on_transformers_a_new_strength_starts_nothing_and_says_nothing(root, ti
     assert backend.calls[-1]["steering"].scale == 2.0
 
 
+@pytest.mark.parametrize("command", ["new", "replay"])
+def test_on_transformers_a_start_that_fails_after_a_new_strength_keeps_the_chat(
+    root, tiny_tokenizer, command
+):
+    """Review finding 7: on Transformers the strength isn't part of the start, so a failed
+    /new on the same profile, or a replay of a call made at the profile's strength, is the
+    chat's own start: the chat stays, its model stopped, as without the /set."""
+    from tests.fakes import FakeBackend
+
+    steer_root(root)
+    backend = FakeBackend([" Hi."] * 4, tokenizer=tiny_tokenizer)
+    backend.name = "transformers"
+    c = Commands(session_on(root, tiny_tokenizer, backend))
+    c.run("profile", steered(root), quiet)
+    first = say(c)["call_id"]  # at the profile's ×4
+    c.run("set", "steering_scale 2.0", quiet)
+    conversation = c.session.conversation
+    backend.stopped = True
+
+    def refused(*args, **kwargs):
+        raise BackendError("The model couldn't load.")
+
+    backend.start = refused
+    args = first if command == "replay" else ""
+    caught = raised(lambda: c.run(command, args, quiet))
+    assert isinstance(caught, BackendError), f"not refused: {caught!r}"
+    assert "failed too" not in str(caught), str(caught)
+    assert c.session.conversation is conversation
+
+
 def test_another_setting_or_the_strength_in_force_starts_nothing(chat):
     c, seen = chat
     c.run("profile", "steered", quiet)
