@@ -307,6 +307,34 @@ def test_a_slots_line_in_a_token_s_text_refuses_a_start(monkeypatch, server, tin
     assert seen["procs"][-1].terminated, "the server was left running"
 
 
+@pytest.mark.parametrize(
+    ("line", "said"),
+    [
+        (CONTEXT_LINE, "llama_context: constructing llama_context"),
+        (SLOTS_LINE, "load_model: initializing, n_slots"),
+    ],
+    ids=["context", "slots"],
+)
+def test_a_start_log_without_the_context_or_slots_line_refuses_the_start(
+    monkeypatch, server, tiny_tokenizer, line, said
+):
+    """Fix review, second pass, could 10: the file's text can only add lines, so a missing
+    one means llama.cpp changed (a new pin, a line reworded). Its figures would come from
+    an empty window, so the start is refused, not read as no memory and no splits."""
+    backend, _, model, weights = server
+    log = startup()
+    assert log.count(line) == 1
+    seen = fake_llama(
+        monkeypatch, weights.parents[2], {"tiny": log.replace(line, "")}, tiny_tokenizer
+    )
+    refused = started(backend, model, weights, None)
+    assert isinstance(refused, ConfigError), f"not refused: {refused!r}"
+    assert f'0 lines that look like llama.cpp\'s "{said}", where a real start prints one' in str(
+        refused
+    )
+    assert seen["procs"][-1].terminated, "the server was left running"
+
+
 def test_a_vector_changed_before_a_new_start_starts_nothing_and_the_old_server_runs_on(server):
     """State 9a: the re-hash before the start. `/set steering_scale`'s form waits for B4."""
     backend, seen, model, weights = server
