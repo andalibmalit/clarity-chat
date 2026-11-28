@@ -262,7 +262,7 @@ def test_a_step_file_planted_as_a_link_is_not_read_through(world, tmp_path, caps
     """The session runs outside the sandbox: a link at DIR/session/01.step must not carry a
     file the sandbox denies into the page or the transcript."""
     secret = tmp_path / "secret.txt"
-    secret.write_text("click #a-private-line\n", encoding="utf-8")
+    secret.write_text("click #xyzzy-hidden-line\n", encoding="utf-8")
     assert start(world) == 0
     (world.out / "session" / "01.step").symlink_to(secret)
     for _ in range(50):
@@ -273,19 +273,19 @@ def test_a_step_file_planted_as_a_link_is_not_read_through(world, tmp_path, caps
     assert reply["status"] == "refused"
     assert world.page.done[1:] == []
     assert step(world, "click #ok") == 0  # step 2: the session stays up
-    assert "private" not in (world.out / "transcript.txt").read_text(encoding="utf-8")
+    assert "xyzzy" not in (world.out / "transcript.txt").read_text(encoding="utf-8")
 
 
 def test_a_reply_planted_as_a_link_is_not_printed(world, tmp_path, capsys):
     """The step command also runs outside the sandbox, and prints the reply it reads."""
     secret = tmp_path / "secret.txt"
-    secret.write_text('{"status": "ran", "message": "a private line"}', encoding="utf-8")
+    secret.write_text('{"status": "ran", "message": "an xyzzy line"}', encoding="utf-8")
     assert start(world) == 0
     (world.out / "session" / "01.reply").symlink_to(secret)
     code = step(world, "click #ok")
     captured = capsys.readouterr()
     assert code == 2, captured
-    assert "private" not in captured.out + captured.err
+    assert "xyzzy" not in captured.out + captured.err  # not "private": macOS paths hold it
 
 
 def test_start_refuses_a_dir_that_holds_a_session_before_anything_starts(world, capsys):
