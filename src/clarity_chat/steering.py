@@ -507,7 +507,6 @@ def applied(model: Any, vector: Vector, scale: float, layers: object = None) -> 
         raise BackendError("This model is already steered; exit the other `applied` first.")
     blocks = model_blocks(model)
     config = model.config.to_dict()
-    size_section(config)["num_hidden_layers"] = len(blocks)  # the model's own count wins
     layers = check(vector, config, layers)
     runs = dict.fromkeys(layers, 0)
     if scale == 0:
