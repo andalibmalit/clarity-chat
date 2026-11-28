@@ -169,9 +169,11 @@ def test_the_thread_keeps_the_chat_and_says_its_model_is_starting(chat):
     result(client, "say", "Hello")
     started = session.backend.start
 
-    def slow(model, weights, ctx_size):
+    def slow(model, weights, ctx_size, on_start=None, **kwargs):
+        if on_start:  # as llama.cpp's start: its checks pass, then the slow load
+            on_start()
         time.sleep(1.0)
-        return started(model, weights, ctx_size)
+        return started(model, weights, ctx_size, **kwargs)
 
     session.backend.start = slow
     worker = threading.Thread(target=lambda: command(client, "set", "ctx_size 16384"))

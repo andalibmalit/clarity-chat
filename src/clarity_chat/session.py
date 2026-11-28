@@ -1820,9 +1820,13 @@ class Session:
         steered = conversation.profile.steering is not None
         check_backend_settings(trial, conversation.profile.backend, "/set", steered)
         if name == "ctx_size":
-            if on_start:
+            # llama.cpp calls `on_start` inside the start; Transformers reloads nothing, but
+            # shows the model-start state (decision 6).
+            llama = conversation.profile.backend == "llama.cpp"
+            if on_start and not llama:
                 on_start()
-            self._resize(conversation, Setting(chat[name], "chat") if text else None)
+            size = Setting(chat[name], "chat") if text else None
+            self._resize(conversation, size, on_start if llama else None)
         elif name == "steering_scale" and self.restarts_for(conversation, trial):
             self._restart(conversation, conversation.ctx_size, trial, on_start)
         conversation.chat_settings = chat
@@ -1845,12 +1849,17 @@ class Session:
             self.start_steering(conversation.profile, settings)
         ) != steering.start_key(self.start_steering(conversation.profile, conversation.settings))
 
-    def _resize(self, conversation: Conversation, size: Setting | None) -> None:
+    def _resize(
+        self,
+        conversation: Conversation,
+        size: Setting | None,
+        on_start: Callable[[], None] | None = None,
+    ) -> None:
         """Run the chat's model at `size` (None: the base), starting it again if the size
         is new. `conversation.ctx_size` changes only after the start worked: on a failure
         start_model's restore runs the old size again, or says it couldn't (state 31)."""
         size = size or conversation.ctx_base
-        self._restart(conversation, size, conversation.settings)
+        self._restart(conversation, size, conversation.settings, on_start)
         conversation.ctx_size = size
 
     def _restart(

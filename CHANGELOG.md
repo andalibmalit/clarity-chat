@@ -24,7 +24,7 @@ Two headings are Clarity's own, used when they apply:
 - On every model, the Transformers backend's `server_start` records the tensors it left unloaded in `weights_not_loaded`.
 
 ### Fixed
-- A `/set steering_scale` on llama.cpp that the vector's checks refused (a changed or missing vector, or a scale too large for float32), or a `/set ctx_size` refused before any start (not a whole number, say), said the model was starting, then ready, though no start ran and the old one ran on. Now it says only the refusal.
+- A `/set steering_scale` on llama.cpp that the vector's checks refused (a changed or missing vector, or a scale too large for float32), or a `/set ctx_size` refused before any start (not a whole number, or a changed vector on a steered llama.cpp chat) or at the size already running on llama.cpp, said the model was starting, then ready, though no start ran and the old one ran on. Now it says only the refusal.
 - Setup's last line said to double-click `Clarity.command` on your Desktop even when setup hadn't put it there: with no Desktop, a Desktop it can't write to, or a file of that name it didn't write or can't read. It now says to run the same command again.
 - In a short window, the top of a long profile picker or Searching list was cut off by the top of the window. Each list now fits the room above the message box and scrolls.
 - The Transformers backend loaded a checkpoint that lacked some of the model's tensors, with those tensors filled at random and only Transformers' warning to say so. It now refuses it, naming the model and the first few tensors.
