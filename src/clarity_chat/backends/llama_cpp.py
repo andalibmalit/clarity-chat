@@ -403,9 +403,10 @@ def last_reservation(startup_output: str) -> str:
 
 
 # The devices' and the model buffers' lines (src/llama.cpp:306, src/llama-model.cpp:2139).
-# A model file's text reaches the start log around them: escaped in the key dump, and as it
-# is, newlines and all, in the vocabulary's lines, an unused tensor's name and the end
-# tokens' logit biases. So each is read only on a line of llama.cpp's own, in its window.
+# A model file's text reaches the start log around them as it is, newlines and all: in a
+# key's name in the dump (its value is escaped), the vocabulary's lines, an unused tensor's
+# name and the end tokens' logit biases. So each is read only on a line of llama.cpp's own,
+# in its window, and a window whose first line appears twice isn't read.
 FILE_SIZE_RE = re.compile(rf"^{LOG_PREFIX}print_info: file size += ", re.M)
 VOCABULARY_RE = re.compile(rf"^{LOG_PREFIX}(?:load|print_info): ", re.M)
 DEVICE_RE = re.compile(
@@ -420,9 +421,12 @@ BUFFER_RE = re.compile(rf"{LOG_PREFIX}load_tensors: +(\S+) model buffer size = +
 
 
 def devices_log(startup_output: str) -> str:
-    """The lines from the file's size to the vocabulary's first: only llama.cpp's own (the
-    key dump before them is escaped). Empty with either missing."""
-    size = FILE_SIZE_RE.search(startup_output)
+    """The lines from the file's size to the vocabulary's first: only llama.cpp's own. A key's
+    name in the dump before them is printed as it is, so a second file-size line is the
+    file's text and can't be told from the real one: then there are no lines and a start
+    asked to use the GPU is refused. Empty with either missing."""
+    found = list(FILE_SIZE_RE.finditer(startup_output))
+    size = found[0] if len(found) == 1 else None
     end = VOCABULARY_RE.search(startup_output, size.end()) if size else None
     return startup_output[size.end() : end.start()] if size and end else ""
 
