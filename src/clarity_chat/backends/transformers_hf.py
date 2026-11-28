@@ -339,7 +339,7 @@ class TransformersBackend:
         weights: Path,
         ctx_size: int,
         steering: vectors.Steering | None = None,
-        on_start: Callable[[], None] | None = None,
+        on_start: Callable[[], None] | None = None,  # unused: set_setting calls it here
     ) -> dict[str, Any] | None:
         # The context size is a limit Clarity enforces, not a property of the loaded model,
         # so a new size needs no reload, only the positions check again.
@@ -347,8 +347,6 @@ class TransformersBackend:
         if self.model is not None and self.weights == weights:
             self._check_positions(model.name, self.model)
             return None
-        if on_start:
-            on_start()
         self.close()
         try:
             import torch
