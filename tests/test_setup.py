@@ -492,6 +492,7 @@ def test_the_same_launcher_is_left_and_already_done(root):
     made(root, says=says, state=state).go()
     assert launcher.stat().st_mtime_ns == before
     assert "Clarity.command on your Desktop: already done." in says.lines
+    assert says.lines[-1].startswith("Setup is done. Next time, double-click Clarity.command")
 
 
 def test_the_launcher_an_earlier_release_wrote_is_replaced(root):
