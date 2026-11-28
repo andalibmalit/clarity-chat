@@ -469,3 +469,52 @@ def test_a_resume_of_a_logged_strength_float32_cant_hold_is_refused(chat, scale)
     assert not seen["procs"][-1].terminated, "the running server was stopped"
     assert c.session.conversation is running, "the running chat was stopped"
     assert say(c, "Again")["request"]["steering"]["scale"] == 4.0
+
+
+# --- a refused new strength starts nothing, and says so (QA finding 1) -----------------
+# The vector's checks run inside the start, before the old server stops. A /set they
+# refuse used to send "starting" then "ready" though no server started.
+
+
+def changed(root) -> str:
+    pinned = sha((root / CALM).read_bytes())
+    write(root / CALM, directions(1, 2, width=8, seed=7))
+    return f"{root / CALM} has sha256 {sha((root / CALM).read_bytes())}, not the pinned {pinned}."
+
+
+def missing(root) -> str:
+    import os
+
+    os.remove(root / CALM)
+    return f"The vector file {root / CALM} doesn't exist."
+
+
+@pytest.mark.parametrize(
+    ("args", "refusal"),
+    [
+        ("steering_scale 2.0", changed),
+        ("steering_scale 2.0", missing),
+        (
+            f"steering_scale {OVERFLOWS}",
+            lambda root: f"{float(OVERFLOWS)} x direction.1 isn't finite in float32.",
+        ),  # fmt: skip
+        ("steering_scale", changed),  # back to the profile's ×4, from ×2
+    ],
+    ids=["changed vector", "missing vector", "overflow", "no value, changed vector"],
+)
+def test_a_refused_new_strength_says_no_start(chat, args, refusal):
+    c, seen = chat
+    c.run("profile", "steered", quiet)
+    if args == "steering_scale":
+        c.run("set", "steering_scale 2.0", quiet)
+    say(c)
+    running = scales(seen)
+    sentence = refusal(c.session.root)
+    events: list[dict] = []
+    refused = raised(lambda: c.run("set", args, events.append))
+    assert isinstance(refused, ConfigError), f"not refused: {refused!r}"
+    assert str(refused) == sentence
+    assert statuses(events) == [], "a start was said, though none ran"
+    assert scales(seen) == running, "a server was started"
+    assert not seen["procs"][-1].terminated, "the old server was stopped"
+    assert say(c, "Again")["request"]["steering"]["scale"] == running[-1]
