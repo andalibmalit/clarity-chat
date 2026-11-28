@@ -334,14 +334,32 @@ SLOTS_RE = re.compile(rf"^{LOG_PREFIX}srv +load_model: initializing, n_slots = "
 
 
 def model_load(startup_output: str) -> str:
-    """The start log from the last context's construction to the server's slots line,
-    which holds every graph reservation. A model file's own text can print lines before
-    it (the key dump, a token's text) and after it (the chat template's example), so a
-    graph line there doesn't count. A spoofed marker can only make this shorter, which
-    refuses a steered start; with either marker missing it's empty."""
-    contexts = list(CONTEXT_RE.finditer(startup_output))
-    end = SLOTS_RE.search(startup_output, contexts[-1].end()) if contexts else None
-    return startup_output[contexts[-1].end() : end.start()] if end else ""
+    """The start log from the context's construction to the server's slots line, which
+    holds every graph reservation. A model file's own text can print lines before it (the
+    key dump, a token's text) and after it (the chat template's example), so a line there
+    doesn't count. That text can forge either marker too, so a start whose log doesn't
+    have one of each is refused (`forged_marker`)."""
+    context = CONTEXT_RE.search(startup_output)
+    end = SLOTS_RE.search(startup_output, context.end()) if context else None
+    return startup_output[context.end() : end.start()] if context and end else ""
+
+
+def forged_marker(startup_output: str) -> str | None:
+    """Why the start log can't be read, if it can't: a real start prints the context's
+    line and the slots line once each, since `fit` is off and there's no draft, MTP or
+    mmproj model (fix review, finding 1)."""
+    for marker, line in (
+        (CONTEXT_RE, "llama_context: constructing llama_context"),
+        (SLOTS_RE, "load_model: initializing, n_slots"),
+    ):
+        count = len(marker.findall(startup_output))
+        if count != 1:
+            return (
+                f"llama-server's start log has {count} lines that look like llama.cpp's "
+                f'"{line}", where a real start prints one. Text from the model file can print '
+                "such lines, so Clarity can't read the start's figures, and stopped the model."
+            )
+    return None
 
 
 def check_vector_start(startup_output: str, steering: vectors.Steering) -> None:
@@ -771,6 +789,10 @@ class LlamaServer:
         if "using config file:" in startup:
             self.stop()
             raise ConfigError("llama-server loaded a config file (see its startup output).")
+        forged = forged_marker(startup)
+        if forged:
+            self.stop()
+            raise ConfigError(forged)
         if self.steering is not None:
             try:
                 check_vector_start(startup, self.steering)
