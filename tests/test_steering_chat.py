@@ -548,3 +548,30 @@ def test_a_refused_new_strength_says_no_start(chat, args, refusal):
     assert scales(seen) == running, "a server was started"
     assert not seen["procs"][-1].terminated, "the old server was stopped"
     assert say(c, "Again")["request"]["steering"]["scale"] == running[-1]
+
+
+def test_a_new_ctx_size_the_vector_s_checks_refuse_says_no_start(chat):
+    """Fix review, finding 3: ctx_size's own form of QA finding 1, on a steered chat."""
+    c, seen = chat
+    c.run("profile", "steered", quiet)
+    say(c)
+    sentence = changed(c.session.root)
+    events: list[dict] = []
+    refused = raised(lambda: c.run("set", "ctx_size 4096", events.append))
+    assert isinstance(refused, ConfigError), f"not refused: {refused!r}"
+    assert str(refused) == sentence
+    assert statuses(events) == [], "a start was said, though none ran"
+    assert len(seen["procs"]) == 1, "a server was started"
+    assert not seen["procs"][-1].terminated, "the old server was stopped"
+
+
+def test_the_ctx_size_in_force_says_no_start(chat):
+    """Fix review, finding 3's second case: the same size starts nothing on llama.cpp."""
+    c, seen = chat
+    c.run("profile", "steered", quiet)
+    conversation = c.session.conversation
+    assert conversation is not None
+    events: list[dict] = []
+    c.run("set", f"ctx_size {conversation.ctx_size.value}", events.append)
+    assert statuses(events) == [], "a start was said, though none ran"
+    assert len(seen["procs"]) == 1, "a server was started"
