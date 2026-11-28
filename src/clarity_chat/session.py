@@ -23,7 +23,7 @@ from typing import Any, cast
 import jinja2
 
 from clarity_chat import steering
-from clarity_chat.backends import Backend, BackendError, Result
+from clarity_chat.backends import Backend, BackendError, Result, start_args
 from clarity_chat.documents import (
     EMBEDDER_MODEL,
     SENTENCES,
@@ -860,22 +860,22 @@ class Session:
         return warnings
 
     def start_model(
-        self, prepared: Prepared, ctx_size: Setting, settings: dict[str, Setting] | None = None
+        self,
+        prepared: Prepared,
+        ctx_size: Setting,
+        settings: dict[str, Setting] | None = None,
+        on_start: Callable[[], None] | None = None,
     ) -> dict[str, Any] | None:
         """Start (or keep) the model a prepared profile needs, at `ctx_size`, steered as
         `settings` say (by default the profile's; a chat's own after its /set). Returns the
         server_start record if a server started. On failure the current conversation's
-        model is restarted, so it stays usable (see _restore)."""
+        model is restarted, so it stays usable (see _restore). `on_start`: the backend's."""
         previous = self.backend
         steer = self.start_steering(prepared.profile, settings or prepared.profile.settings)
         try:
             backend = self.use_backend(prepared.profile.backend, prepared.profile.device)
-            # Passed only when steered, so an unsteered start is the call it always was.
             started = backend.start(
-                prepared.model,
-                prepared.weights,
-                ctx_size.value,
-                **({"steering": steer} if steer else {}),
+                prepared.model, prepared.weights, ctx_size.value, **start_args(steer, on_start)
             )
         except (ConfigError, BackendError) as e:
             tried = (prepared.model, prepared.weights, ctx_size.value, steering.start_key(steer))
@@ -908,7 +908,7 @@ class Session:
             self.backend.close()
             self.backend = previous
         try:
-            previous.start(self.model, self.weights, size, **({"steering": steer} if steer else {}))
+            previous.start(self.model, self.weights, size, **start_args(steer))
         except (ConfigError, BackendError) as again:
             self.conversation = None
             raise BackendError(
@@ -1789,7 +1789,8 @@ class Session:
         (v0.4.4 B1) applies from the next message; words stops the embedder (state 13). A new
         ctx_size starts the model again, and is the chat's only once that start worked (G3):
         a refused one leaves the old size running (decision 6). So does a new strength on
-        llama.cpp (v0.4.7 decision 5), calling `on_start` first."""
+        llama.cpp (v0.4.7 decision 5), calling `on_start` once the vector's checks pass, just
+        before the old server stops: a refused strength starts nothing (QA finding 1)."""
         conversation = self._require_conversation()
         if name not in (*SETTING_NAMES, *CHAT_KEYS, "ctx_size"):
             known = [*SETTING_NAMES, *CHAT_KEYS, "ctx_size"]
@@ -1813,9 +1814,7 @@ class Session:
         if name == "ctx_size":
             self._resize(conversation, Setting(chat[name], "chat") if text else None)
         elif name == "steering_scale" and self.restarts_for(conversation, trial):
-            if on_start:
-                on_start()
-            self._restart(conversation, conversation.ctx_size, trial)
+            self._restart(conversation, conversation.ctx_size, trial, on_start)
         conversation.chat_settings = chat
         if name == "search_method":
             self._free_embedder(conversation.search_method)
@@ -1845,7 +1844,11 @@ class Session:
         conversation.ctx_size = size
 
     def _restart(
-        self, conversation: Conversation, size: Setting, settings: dict[str, Setting]
+        self,
+        conversation: Conversation,
+        size: Setting,
+        settings: dict[str, Setting],
+        on_start: Callable[[], None] | None = None,
     ) -> None:
         """Run the chat's model at `size`, steered as `settings` say, starting it again if
         either is new."""
@@ -1857,7 +1860,7 @@ class Session:
             tokenizer, template_tokenizer, self.template,
         )  # fmt: skip
         # None at the same size: the server runs on, and so do its warnings (S5).
-        started = self.start_model(running, size, settings)
+        started = self.start_model(running, size, settings, on_start)
         conversation.started_server = started or conversation.started_server
 
     def history(self, conversation: Conversation | None = None) -> list[dict[str, Any]]:
@@ -2311,7 +2314,7 @@ class Session:
         try:
             backend = self.use_backend(backend_name, device)
             # the call's own size and steering, as logged
-            backend.start(model, weights, call["n_ctx"], **({"steering": steer} if steer else {}))
+            backend.start(model, weights, call["n_ctx"], **start_args(steer))
         except (ConfigError, BackendError) as e:
             # as start_model does: the conversation stays usable
             self._restore(previous, e, (model, weights, call["n_ctx"], steering.start_key(steer)))

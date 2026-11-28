@@ -175,13 +175,13 @@ class Faulty(FakeBackend):
         super().__init__([f" Reply {i}." for i in range(1000)], tokenizer=tokenizer)
         self.refusals = 0
 
-    def start(self, model, weights, ctx_size, steering=None):
+    def start(self, model, weights, ctx_size, steering=None, on_start=None):
         running = self.started and (self.started[-1], self.ctx_sizes[-1]) == (model.name, ctx_size)
         if self.refusals and not (running and not self.stopped):
             self.refusals -= 1
             self.stopped = True
             raise BackendError(f"llama-server didn't start at ctx_size {ctx_size} (made up).")
-        return super().start(model, weights, ctx_size, steering)
+        return super().start(model, weights, ctx_size, steering, on_start)
 
 
 class Machine(RuleBasedStateMachine):

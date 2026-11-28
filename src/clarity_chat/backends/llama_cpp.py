@@ -932,6 +932,7 @@ class LlamaCppBackend:
         weights: Path,
         ctx_size: int,
         steering: vectors.Steering | None = None,
+        on_start: Callable[[], None] | None = None,
     ) -> dict[str, Any] | None:
         """Start llama-server with `weights`, a context of `ctx_size` and `steering`'s vector.
         The old server stops first, so two chat models never share memory (meaning search's
@@ -968,6 +969,8 @@ class LlamaCppBackend:
             )
             # Every start passes here: a /set, a resume, a replay and a batch, not only a profile.
             vectors.check_float32(steering.vector, steering.layers, steering.scale)
+        if on_start:
+            on_start()
         self.close()
         self.model = model
         # The size goes into the flags, so argv, the /props check and the log all agree.

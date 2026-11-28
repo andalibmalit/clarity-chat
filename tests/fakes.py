@@ -70,11 +70,18 @@ class FakeBackend:
         return self.record
 
     def start(
-        self, model: ModelEntry, weights: Path, ctx_size: int, steering: Any = None
+        self,
+        model: ModelEntry,
+        weights: Path,
+        ctx_size: int,
+        steering: Any = None,
+        on_start: Callable[[], None] | None = None,
     ) -> dict[str, Any] | None:
         same = self.started and (self.started[-1], self.ctx_sizes[-1]) == (model.name, ctx_size)
         if same and not self.stopped:
             return None
+        if on_start:
+            on_start()
         self.stopped = False
         self.started.append(model.name)
         self.ctx_sizes.append(ctx_size)

@@ -11,12 +11,29 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol, TypedDict
 
 from clarity_chat.profiles import ModelEntry
 
 if TYPE_CHECKING:
     from clarity_chat.steering import Steering
+
+
+class StartArgs(TypedDict, total=False):
+    """`Backend.start`'s optional arguments, passed only when set, so an unsteered start
+    with no `on_start` is the call it always was."""
+
+    steering: Steering
+    on_start: Callable[[], None]
+
+
+def start_args(steering: Steering | None, on_start: Callable[[], None] | None = None) -> StartArgs:
+    args: StartArgs = {}
+    if steering is not None:
+        args["steering"] = steering
+    if on_start is not None:
+        args["on_start"] = on_start
+    return args
 
 
 # What each check after a call checks, and what its failure means: the one place for this
@@ -131,11 +148,17 @@ class Backend(Protocol):
     name: str
 
     def start(
-        self, model: ModelEntry, weights: Path, ctx_size: int, steering: Steering | None = None
+        self,
+        model: ModelEntry,
+        weights: Path,
+        ctx_size: int,
+        steering: Steering | None = None,
+        on_start: Callable[[], None] | None = None,
     ) -> dict[str, Any] | None:
         """Load `model` with a context of `ctx_size` tokens (restarting if another model or
         size is loaded). Returns a server_start record, if any. `steering`: llama.cpp starts
-        its server with it; Transformers steers each call instead and ignores it."""
+        its server with it; Transformers steers each call instead and ignores it.
+        `on_start`: called once the start's checks pass, just before the old model stops."""
         ...
 
     @property
