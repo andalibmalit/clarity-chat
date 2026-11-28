@@ -167,7 +167,7 @@ def test_another_setting_or_the_strength_in_force_starts_nothing(chat):
     assert scales(seen) == [4.0]
 
 
-def test_a_new_strength_sent_during_a_reply_waits_for_it(chat):
+def test_a_new_strength_sent_during_a_reply_is_refused_until_it_ends(chat):
     c, seen = chat
     c.run("profile", "steered", quiet)
     during: list[Any] = []
