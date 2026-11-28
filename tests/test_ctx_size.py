@@ -166,11 +166,13 @@ def test_a_refused_size_on_a_backend_that_sets_it_first_leaves_the_old_size(fake
     session, backend = fake
     started = backend.start
 
-    def checks_positions(model, weights, ctx_size):
+    def checks_positions(model, weights, ctx_size, on_start=None, **kwargs):
         if ctx_size > 8192:
             backend.ctx_sizes.append(ctx_size)  # set, then checked, as Transformers does
             raise ConfigError("tiny handles 8192 positions; ctx_size 16384 is more.")
-        return started(model, weights, ctx_size)
+        if on_start:  # called once the checks pass
+            on_start()
+        return started(model, weights, ctx_size, **kwargs)
 
     backend.start = checks_positions
     refused = refusal_of(lambda: session.set_setting("ctx_size", "16384"))
@@ -221,7 +223,9 @@ def test_a_failed_restore_says_so_and_no_chat_runs(fake):
     """State 31: the new size fails, and so does the old one."""
     session, backend = fake
 
-    def fails(model, weights, ctx_size):
+    def fails(model, weights, ctx_size, on_start=None, **kwargs):
+        if on_start:  # as llama.cpp's start: its checks pass, then the old one stops
+            on_start()
         raise ConfigError(f"ctx_size {ctx_size} failed.")
 
     backend.start = fails

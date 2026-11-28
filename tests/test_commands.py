@@ -56,9 +56,9 @@ def test_cancel_says_when_the_running_command_cant_be_stopped(commands, fetched_
     )
     original = backend.start
 
-    def start(*args):
+    def start(*args, **kwargs):
         answers.append(c.run("cancel", "", lambda e: None))
-        return original(*args)
+        return original(*args, **kwargs)
 
     backend.start = start
     c.run("profile", "big", lambda e: None)

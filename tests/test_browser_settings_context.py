@@ -39,11 +39,13 @@ def starts(backend, seconds: float = 1.5, refuse: int | None = None, memory: boo
     maximum, so 16,384 starts here (on SmolLM2, trained on 8,192, it's refused)."""
     started = backend.start
 
-    def start(model, weights, ctx_size):
+    def start(model, weights, ctx_size, on_start=None, **kwargs):
+        if on_start:  # as llama.cpp's start: its checks pass, then the old one stops
+            on_start()
         time.sleep(seconds)
         if ctx_size == refuse:
             raise ConfigError(f"At ctx_size {ctx_size}, the model needs more memory (made up).")
-        record = started(model, weights, ctx_size)
+        record = started(model, weights, ctx_size, **kwargs)
         if record is not None and memory:
             record["memory"] = [MEMORY]
         return record
@@ -205,7 +207,9 @@ def test_a_restart_that_fails_twice_ends_the_chat_on_the_first_screen(clarity, p
     chat_on(page, redirect)
     open_settings(page)
 
-    def fails(model, weights, ctx_size):
+    def fails(model, weights, ctx_size, on_start=None, **kwargs):
+        if on_start:  # as llama.cpp's start: its checks pass, then the old one stops
+            on_start()
         raise ConfigError(f"ctx_size {ctx_size} failed (made up).")
 
     backend.start = fails

@@ -75,7 +75,9 @@ def test_the_not_applied_warning_names_only_settings_that_could_change_the_reply
 def test_the_failed_switch_sentence(make, fetched_root):
     session, backend = make()
 
-    def always_fail(model, weights, ctx_size):
+    def always_fail(model, weights, ctx_size, on_start=None, **kwargs):
+        if on_start:  # as llama.cpp's start: its checks pass, then the old one stops
+            on_start()
         raise ConfigError("no GPU")
 
     backend.start = always_fail

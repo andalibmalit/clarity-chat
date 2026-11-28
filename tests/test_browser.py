@@ -234,9 +234,9 @@ def hold_start(backend, seconds: float) -> None:
     """Make the backend's model start take `seconds`, so the page shows it starting."""
     real = backend.start
 
-    def slow(*args):
+    def slow(*args, **kwargs):
         time.sleep(seconds)
-        return real(*args)
+        return real(*args, **kwargs)
 
     backend.start = slow
 

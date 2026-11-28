@@ -225,10 +225,10 @@ def start_held(client, session, name="text", how="profile"):
     gate, started = threading.Event(), threading.Event()
     real = session.backend.start
 
-    def held(*args):
+    def held(*args, **kwargs):
         started.set()
         gate.wait(10)
-        return real(*args)
+        return real(*args, **kwargs)
 
     session.backend.start = held
     thread = threading.Thread(target=lambda: command(client, how, name))

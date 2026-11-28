@@ -288,9 +288,9 @@ def test_ctrl_c_during_a_command_that_cant_be_cancelled_still_stops_clarity(loop
     (fetched_root / "profiles" / "big.toml").write_text("ctx_size = 4096\n" + text, "utf-8")
     original = backend.start
 
-    def start(*args):
+    def start(*args, **kwargs):
         signal.raise_signal(signal.SIGINT)
-        return original(*args)
+        return original(*args, **kwargs)
 
     backend.start = start
     with pytest.raises(KeyboardInterrupt):

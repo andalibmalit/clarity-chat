@@ -317,10 +317,12 @@ def test_a_server_restart_mid_run_stops_it(batch, fetched_root):
     def setup(backend):
         start = backend.start
 
-        def restart_after_first_call(model, weights, ctx_size):
+        def restart_after_first_call(model, weights, ctx_size, on_start=None, **kwargs):
+            if on_start:  # as llama.cpp's start: its checks pass, then the old one stops
+                on_start()
             if backend.calls:
                 backend.started.clear()  # as if the server had died
-            return start(model, weights, ctx_size)
+            return start(model, weights, ctx_size, **kwargs)
 
         backend.start = restart_after_first_call
 
@@ -333,10 +335,12 @@ def test_ctrl_c_between_calls_says_where_the_run_stopped(batch):
     def setup(backend):
         start = backend.start
 
-        def interrupt_after_first_call(model, weights, ctx_size):
+        def interrupt_after_first_call(model, weights, ctx_size, on_start=None, **kwargs):
+            if on_start:  # as llama.cpp's start: its checks pass, then the old one stops
+                on_start()
             if backend.calls:
                 raise KeyboardInterrupt
-            return start(model, weights, ctx_size)
+            return start(model, weights, ctx_size, **kwargs)
 
         backend.start = interrupt_after_first_call
 

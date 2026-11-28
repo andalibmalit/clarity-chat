@@ -200,7 +200,9 @@ def test_a_failed_start_leaves_no_model_starting(commands):
 
     c, backend = commands
 
-    def fails(model, weights, ctx_size):
+    def fails(model, weights, ctx_size, on_start=None, **kwargs):
+        if on_start:  # as llama.cpp's start: its checks pass, then the old one stops
+            on_start()
         raise ConfigError("no GPU")
 
     backend.start = fails

@@ -148,10 +148,12 @@ def test_a_stopped_runs_partial_calls_are_refused(batch, fetched_root, tiny_toke
     def setup(backend):
         start = backend.start
 
-        def interrupt_after_first_call(model, weights, ctx_size):
+        def interrupt_after_first_call(model, weights, ctx_size, on_start=None, **kwargs):
+            if on_start:  # as llama.cpp's start: its checks pass, then the old one stops
+                on_start()
             if backend.calls:
                 raise KeyboardInterrupt
-            return start(model, weights, ctx_size)
+            return start(model, weights, ctx_size, **kwargs)
 
         backend.start = interrupt_after_first_call
 
